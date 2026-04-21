@@ -20,6 +20,7 @@ import io.ktor.utils.io.writeFully
 import io.ktor.utils.io.writeInt
 import io.ktor.utils.io.writeShort
 import io.matthewnelson.kmp.file.File
+import io.matthewnelson.kmp.file.SysTempDir
 import io.matthewnelson.kmp.file.resolve
 import io.matthewnelson.kmp.file.toFile
 import io.matthewnelson.kmp.tor.resource.noexec.tor.ResourceLoaderTorNoExec
@@ -46,6 +47,7 @@ import org.yapyap.backend.protocol.TorEndpoint
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 /**
  * Tor backend powered by kmp-tor runtime using noexec resources.
@@ -60,10 +62,8 @@ class KmpTorNoExecBackend(
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(extraBufferCapacity = 64)
     override val incomingFrames: Flow<TorIncomingFrame> = inboundFlow.asSharedFlow()
 
-    @Volatile
     private var socksPort: Int? = null
 
-    @Volatile
     var publishedLocalEndpoint: TorEndpoint? = null
         private set
 
@@ -149,7 +149,7 @@ class KmpTorNoExecBackend(
         val localSocksPort = requireNotNull(socksPort) { "Tor socks port is not ready" }
         val selector = requireNotNull(selectorManager) { "Tor selector manager is not initialized" }
 
-        val deadlineMillis = System.currentTimeMillis() + 300_000
+        val deadline = TimeSource.Monotonic.markNow() + 300_000.milliseconds
         while (true) {
             val socket = runCatching {
                 aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
@@ -166,7 +166,7 @@ class KmpTorNoExecBackend(
                 output.flush()
                 return
             } catch (error: SocksConnectException) {
-                if (error.code != 4 || System.currentTimeMillis() >= deadlineMillis) {
+                if (error.code != 4 || TimeSource.Monotonic.markNow() >= deadline) {
                     throw IllegalArgumentException("SOCKS connect failed with code ${error.code}", error)
                 }
                 delay(1_000.milliseconds)
@@ -337,8 +337,7 @@ class KmpTorNoExecBackend(
         private val DEVICE_ID_SANITIZE_REGEX = Regex("[^A-Za-z0-9._-]")
 
         fun defaultTorStateRootPath(): File {
-            val userHome = System.getProperty("user.home").ifBlank { "." }
-            return "$userHome/.yapyap/tor/devices".toFile()
+            return SysTempDir.resolve("yapyap").resolve("tor").resolve("devices")
         }
     }
 }
