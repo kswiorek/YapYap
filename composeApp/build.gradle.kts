@@ -43,6 +43,7 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.kotlinx.coroutinesCore)
+            implementation("io.matthewnelson.kmp-tor:runtime:2.6.0")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

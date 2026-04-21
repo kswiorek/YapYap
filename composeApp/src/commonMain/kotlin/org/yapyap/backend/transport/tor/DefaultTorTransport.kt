@@ -9,13 +9,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultTorTransport(
     private val backend: TorBackend,
-    private val clockEpochSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
+    private val clockEpochSeconds: () -> Long = { Clock.System.now().epochSeconds / 1000 },
 ) : TorTransport {
 
     private val incomingFlow = MutableSharedFlow<TorInboundEnvelope>(replay = 1, extraBufferCapacity = 64)
