@@ -1,0 +1,63 @@
+---
+config:
+  layout: elk
+---
+flowchart TD
+    classDef layer fill:#f8f9fa,stroke:#ced4da,stroke-width:2px,rx:10px,ry:10px;
+    classDef feature fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    classDef logic fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
+    classDef crypto fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    classDef network fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef api fill:#e2e3e5,stroke:#6c757d,stroke-width:2px;
+
+    subgraph ClientAPI ["Layer 5: Client Interface"]
+        IPC(["Local API (Kotlin)"]):::api
+    end
+
+    subgraph Features ["Layer 4: Application Features"]
+        AsyncMsg(["Offline Text & Small Images"]):::feature
+        RealTimeMsg(["Fast Real-Time Text"]):::feature
+        BigFiles(["Large File Transfer"]):::feature
+        AVCalls(["Voice, Video & Screen Share"]):::feature
+    end
+
+    subgraph CoreLogic ["Layer 3: Core Backend Logic"]
+        Router["Routing & Connection Manager"]:::logic
+        Inbox["Inbox & TTL Cache Manager"]:::logic
+        StateSync["Multi-Device & Server Sync"]:::logic
+    end
+
+    subgraph Security ["Layer 2: Identity & Cryptography"]
+        Identity["Identity & Device Keys"]:::crypto
+        E2EE["E2E Encryption Engine (Double Ratchet)"]:::crypto
+    end
+
+    subgraph Network ["Layer 1: Network & Transport"]
+        Tor["Tor Hidden Services"]:::network
+        RTCData["WebRTC Data Channels"]:::network
+        RTCMedia["WebRTC Media Streams"]:::network
+    end
+
+    %% Connections
+    IPC --> Features
+    
+    AsyncMsg --> Inbox
+    RealTimeMsg --> Router
+    BigFiles --> Router
+    AVCalls --> Router
+
+    Inbox --> StateSync
+    StateSync --> Router
+    
+    Router --> Identity
+    Router --> E2EE
+    
+    %% Network Routing decisions
+    E2EE --> Tor
+    E2EE --> RTCData
+    
+    Router -.-> |Signaling| Tor
+    Router --> RTCMedia
+    
+    %% Notes
+    class ClientAPI,Features,CoreLogic,Security,Network layer;

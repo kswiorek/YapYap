@@ -1,0 +1,23 @@
+package org.yapyap.backend.transport.tor
+
+import kotlinx.coroutines.flow.Flow
+import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.PeerDescriptor
+import org.yapyap.backend.protocol.TorEndpoint
+
+data class TorInboundEnvelope(
+    val envelope: BinaryEnvelope,
+    val source: TorEndpoint,
+    val receivedAtEpochSeconds: Long,
+)
+
+interface TorTransport {
+    val incoming: Flow<TorInboundEnvelope>
+
+    suspend fun start(localPeer: PeerDescriptor)
+
+    suspend fun stop()
+
+    suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope)
+}
+
