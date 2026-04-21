@@ -33,6 +33,8 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
         }
+        val ktor_version: String by project
+        val vKmpTorResource: String by project
         commonMain.dependencies {
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
@@ -44,6 +46,9 @@ kotlin {
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.kotlinx.coroutinesCore)
             implementation("io.matthewnelson.kmp-tor:runtime:2.6.0")
+            implementation("io.matthewnelson.kmp-tor:resource-noexec-tor:${vKmpTorResource}")
+            implementation("io.ktor:ktor-network:${ktor_version}")
+            implementation("io.ktor:ktor-io:${ktor_version}")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
