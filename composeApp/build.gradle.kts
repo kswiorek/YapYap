@@ -46,6 +46,7 @@ kotlin {
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.kotlinx.coroutinesCore)
             implementation("io.matthewnelson.kmp-tor:runtime:2.6.0")
+            implementation("io.matthewnelson.kmp-tor:resource-exec-tor:${vKmpTorResource}")
             implementation("io.matthewnelson.kmp-tor:resource-noexec-tor:${vKmpTorResource}")
             implementation("io.ktor:ktor-network:${ktor_version}")
             implementation("io.ktor:ktor-io:${ktor_version}")
@@ -56,6 +57,7 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            implementation("dev.onvoid.webrtc:webrtc-java:0.14.0")
         }
         jvmTest.dependencies {
             implementation(libs.kotlin.test)

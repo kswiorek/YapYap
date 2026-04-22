@@ -12,9 +12,7 @@ import kotlin.time.Duration.Companion.seconds
 class KmpTorNoExecBackendIntegrationTest {
 
     @Test
-    fun liveTorRouteBetweenTwoInstances() = runBlocking {
-        if (!shouldRunLiveTorTest()) return@runBlocking
-
+    fun liveTorRoute() = runBlocking {
         val backend = KmpTorNoExecBackend(deviceId = "alice-phone")
 
         try {
@@ -36,13 +34,5 @@ class KmpTorNoExecBackendIntegrationTest {
         } finally {
             backend.stop()
         }
-    }
-
-    private fun shouldRunLiveTorTest(): Boolean {
-        val enabled = System.getenv("YAPYAP_RUN_LIVE_TOR_TEST")?.equals("1") == true
-        if (!enabled) return false
-
-        val osName = System.getProperty("os.name").lowercase()
-        return osName.contains("windows") || osName.contains("linux")
     }
 }

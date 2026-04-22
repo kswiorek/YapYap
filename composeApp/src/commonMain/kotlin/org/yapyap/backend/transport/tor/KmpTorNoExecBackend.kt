@@ -3,7 +3,6 @@ package org.yapyap.backend.transport.tor
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.ASocket
 import io.ktor.network.sockets.ServerSocket
-import io.ktor.network.sockets.Socket
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.openReadChannel
 import io.ktor.network.sockets.openWriteChannel
@@ -22,7 +21,6 @@ import io.ktor.utils.io.writeShort
 import io.matthewnelson.kmp.file.File
 import io.matthewnelson.kmp.file.SysTempDir
 import io.matthewnelson.kmp.file.resolve
-import io.matthewnelson.kmp.file.toFile
 import io.matthewnelson.kmp.tor.resource.noexec.tor.ResourceLoaderTorNoExec
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.startDaemonAsync
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.stopDaemonAsync
@@ -42,7 +40,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.backend.protocol.TorEndpoint
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -53,13 +51,17 @@ import kotlin.time.TimeSource
  * Tor backend powered by kmp-tor runtime using noexec resources.
  */
 class KmpTorNoExecBackend(
-    private val startupTimeoutMillis: Long = 120_000,
     private val deviceId: String = "default-device",
     private val torStateRootPath: File = defaultTorStateRootPath(),
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
+    private val config: TorBackendConfig = TorBackendConfig(),
 ) : TorBackend {
 
-    private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(extraBufferCapacity = 64)
+    private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
+        replay = config.inboundReplay,
+        extraBufferCapacity = config.inboundExtraBufferCapacity,
+        onBufferOverflow = config.inboundOverflow,
+    )
     override val incomingFrames: Flow<TorIncomingFrame> = inboundFlow.asSharedFlow()
 
     private var socksPort: Int? = null
@@ -148,8 +150,11 @@ class KmpTorNoExecBackend(
         val localSource = publishedLocalEndpoint ?: error("Tor backend must be started before send")
         val localSocksPort = requireNotNull(socksPort) { "Tor socks port is not ready" }
         val selector = requireNotNull(selectorManager) { "Tor selector manager is not initialized" }
+        require(payload.size <= config.maxPayloadBytes) {
+            "Payload length ${payload.size} exceeds configured max ${config.maxPayloadBytes}"
+        }
 
-        val deadline = TimeSource.Monotonic.markNow() + 300_000.milliseconds
+        val deadline = TimeSource.Monotonic.markNow() + config.socksRetryTimeoutMillis.milliseconds
         while (true) {
             val socket = runCatching {
                 aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
@@ -166,10 +171,13 @@ class KmpTorNoExecBackend(
                 output.flush()
                 return
             } catch (error: SocksConnectException) {
-                if (error.code != 4 || TimeSource.Monotonic.markNow() >= deadline) {
+                val shouldRetry =
+                    error.code in config.socksTransientFailureCodes &&
+                        TimeSource.Monotonic.markNow() < deadline
+                if (!shouldRetry) {
                     throw IllegalArgumentException("SOCKS connect failed with code ${error.code}", error)
                 }
-                delay(1_000.milliseconds)
+                delay(config.socksRetryDelayMillis.milliseconds)
             } finally {
                 socket.safeClose()
             }
@@ -196,16 +204,24 @@ class KmpTorNoExecBackend(
     }
 
     private suspend fun waitUntilReady(runtime: TorRuntime) {
-        withTimeout(startupTimeoutMillis.milliseconds) {
+        var latestRuntimeReady = false
+        val completed = withTimeoutOrNull(config.startupTimeoutMillis.milliseconds) {
             while (true) {
                 socksPort = runtime.listeners().socks.lastOrNull()?.port?.value ?: socksPort
-                val ready = socksPort != null && runtime.isReady()
+                latestRuntimeReady = runtime.isReady()
+                val ready = socksPort != null && latestRuntimeReady
 
-                if (ready) return@withTimeout
+                if (ready) return@withTimeoutOrNull
 
                 check(torRuntime != null) { "Tor runtime exited before becoming ready" }
                 delay(150.milliseconds)
             }
+        }
+        if (completed == null) {
+            throw IllegalStateException(
+                "Timed out waiting for Tor readiness after ${config.startupTimeoutMillis}ms " +
+                    "(runtimeReady=$latestRuntimeReady, socksPort=$socksPort)"
+            )
         }
     }
 
@@ -275,6 +291,9 @@ class KmpTorNoExecBackend(
     ) {
         val sourceHost = source.onionAddress.encodeToByteArray()
         require(sourceHost.size <= 255) { "Source onion host is too long" }
+        require(payload.size <= config.maxPayloadBytes) {
+            "Payload length ${payload.size} exceeds configured max ${config.maxPayloadBytes}"
+        }
 
         output.writeInt(FRAME_MAGIC)
         output.writeByte(sourceHost.size.toByte())
@@ -293,6 +312,9 @@ class KmpTorNoExecBackend(
         val sourcePort = input.readShort().toInt() and 0xffff
         val payloadLength = input.readInt()
         require(payloadLength >= 0) { "Payload length must be >= 0" }
+        require(payloadLength <= config.maxPayloadBytes) {
+            "Payload length $payloadLength exceeds configured max ${config.maxPayloadBytes}"
+        }
         val payload = input.readExact(payloadLength)
 
         return TorIncomingFrame(
@@ -321,6 +343,7 @@ class KmpTorNoExecBackend(
     }
 
     private class SocksConnectException(val code: Int) : RuntimeException()
+
 
     private fun resolveDeviceStateDirectory(deviceId: String, rootPath: File): File {
         val safeDeviceId = sanitizeDeviceId(deviceId)
