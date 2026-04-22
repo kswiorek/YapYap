@@ -9,6 +9,19 @@ plugins {
     alias(libs.plugins.composeHotReload)
 }
 
+val webrtcNativeClassifier: String? = run {
+    val osName = System.getProperty("os.name").lowercase()
+    val arch = System.getProperty("os.arch").lowercase()
+    when {
+        osName.contains("win") -> if (arch.contains("64")) "windows-x86_64" else null
+        osName.contains("mac") || osName.contains("darwin") ->
+            if (arch.contains("aarch64") || arch.contains("arm64")) "macos-aarch64" else "macos-x86_64"
+        osName.contains("linux") ->
+            if (arch.contains("aarch64") || arch.contains("arm64")) "linux-aarch64" else "linux-x86_64"
+        else -> null
+    }
+}
+
 kotlin {
     androidTarget {
         compilerOptions {
@@ -58,6 +71,9 @@ kotlin {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation("dev.onvoid.webrtc:webrtc-java:0.14.0")
+            if (webrtcNativeClassifier != null) {
+                runtimeOnly("dev.onvoid.webrtc:webrtc-java:0.14.0:$webrtcNativeClassifier")
+            }
         }
         jvmTest.dependencies {
             implementation(libs.kotlin.test)

@@ -13,8 +13,8 @@ import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
-import org.yapyap.backend.protocol.PeerRole
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.testutil.testPeer
 import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import kotlin.test.Test
@@ -169,14 +169,6 @@ class DefaultWebRtcTransportTest {
         transportB.stop()
     }
 
-    private fun testPeer(account: String, device: String, onion: String): PeerDescriptor {
-        return PeerDescriptor(
-            id = PeerId(accountName = account, deviceId = device),
-            torEndpoint = TorEndpoint(onionAddress = onion),
-            role = PeerRole.USER_DEVICE,
-            announcedAtEpochSeconds = 1_700_000_000L,
-        )
-    }
 }
 
 private class FakeWebRtcBackend : WebRtcBackend {

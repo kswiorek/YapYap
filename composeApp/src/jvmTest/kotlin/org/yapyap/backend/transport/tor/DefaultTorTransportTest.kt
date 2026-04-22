@@ -11,10 +11,9 @@ import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.EnvelopeRoute
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
-import org.yapyap.backend.protocol.PeerDescriptor
-import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.PeerRole
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.testutil.testPeer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -88,19 +87,6 @@ class DefaultTorTransportTest {
         transportB.stop()
     }
 
-    private fun testPeer(
-        account: String,
-        device: String,
-        onion: String,
-        role: PeerRole = PeerRole.USER_DEVICE,
-    ): PeerDescriptor {
-        return PeerDescriptor(
-            id = PeerId(accountName = account, deviceId = device),
-            torEndpoint = TorEndpoint(onionAddress = onion),
-            role = role,
-            announcedAtEpochSeconds = 1_700_000_000L,
-        )
-    }
 }
 
 private class InMemoryTorNetwork {

@@ -1,6 +1,7 @@
 package org.yapyap.backend.transport.webrtc
 
 import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.protocol.SignalSecurityScheme
 
 data class WebRtcSignalEnvelope(
     val sessionId: String,
@@ -9,7 +10,7 @@ data class WebRtcSignalEnvelope(
     val target: PeerId,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
-    val securityScheme: WebRtcSignalSecurityScheme,
+    val securityScheme: SignalSecurityScheme,
     val signature: ByteArray?,
     val protectedPayload: ByteArray,
 ) {
@@ -52,7 +53,7 @@ data class WebRtcSignalEnvelope(
             val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
-            val securityScheme = WebRtcSignalSecurityScheme.fromWireValue(reader.readByte())
+            val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()
             val protectedPayload = reader.readByteArray()
             reader.requireFullyRead()
@@ -69,18 +70,6 @@ data class WebRtcSignalEnvelope(
                 protectedPayload = protectedPayload,
             )
         }
-    }
-}
-
-enum class WebRtcSignalSecurityScheme(val wireValue: Byte) {
-    PLAINTEXT_TEST_ONLY(0),
-    SIGNED(1),
-    ENCRYPTED_AND_SIGNED(2);
-
-    companion object {
-        fun fromWireValue(value: Byte): WebRtcSignalSecurityScheme =
-            entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported WebRTC signal security scheme wire value: $value")
     }
 }
 

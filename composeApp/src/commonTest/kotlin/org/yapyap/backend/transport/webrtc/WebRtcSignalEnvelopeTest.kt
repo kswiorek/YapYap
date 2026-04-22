@@ -1,6 +1,7 @@
 package org.yapyap.backend.transport.webrtc
 
 import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.protocol.SignalSecurityScheme
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -17,7 +18,7 @@ class WebRtcSignalEnvelopeTest {
             target = PeerId(accountName = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_100L,
             nonce = byteArrayOf(1, 2, 3, 4),
-            securityScheme = WebRtcSignalSecurityScheme.SIGNED,
+            securityScheme = SignalSecurityScheme.SIGNED,
             signature = byteArrayOf(9, 8, 7),
             protectedPayload = "sdp-offer".encodeToByteArray(),
         )
