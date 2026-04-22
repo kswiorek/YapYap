@@ -3,55 +3,19 @@ package org.yapyap.backend.transport.webrtc
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
-
-data class WebRtcSignal(
-    val sessionId: String,
-    val kind: WebRtcSignalKind,
-    val source: PeerId,
-    val target: PeerId,
-    val payload: ByteArray,
-)
-
-enum class WebRtcSignalKind(val wireValue: Byte) {
-    OFFER(1),
-    ANSWER(2),
-    ICE(3),
-    REJECT(4),
-    CANCEL(5);
-
-    companion object {
-        fun fromWireValue(value: Byte): WebRtcSignalKind =
-            entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported WebRTC signal kind wire value: $value")
-    }
-}
-
-data class WebRtcIncomingSessionRequest(
-    val sessionId: String,
-    val source: PeerId,
-    val receivedAtEpochSeconds: Long,
-)
-
-enum class WebRtcSessionPhase {
-    PENDING_DECISION,
-    NEGOTIATING,
-    CONNECTED,
-    REJECTED,
-    CLOSED,
-    FAILED,
-}
-
-data class WebRtcSessionState(
-    val sessionId: String,
-    val peer: PeerId,
-    val phase: WebRtcSessionPhase,
-    val reason: String? = null,
-)
+import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
+import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
+import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionState
+import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingAvSessionRequest
+import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingSessionRequest
+import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
 
 interface WebRtcTransport {
     val incomingData: Flow<WebRtcIncomingDataFrame>
     val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest>
     val sessionStates: Flow<WebRtcSessionState>
+    val incomingAvSessionRequests: Flow<WebRtcIncomingAvSessionRequest>
+    val avSessionStates: Flow<WebRtcAvSessionState>
 
     suspend fun start(localPeer: PeerDescriptor)
 
@@ -66,5 +30,15 @@ interface WebRtcTransport {
     suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray)
 
     suspend fun closeSession(sessionId: String)
+
+    suspend fun initiateAvSession(target: PeerId, options: AvSessionOptions): String
+
+    suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions)
+
+    suspend fun rejectAvSession(sessionId: String, reason: String)
+
+    suspend fun updateAvControls(sessionId: String, update: AvControlUpdate)
+
+    suspend fun endAvSession(sessionId: String)
 }
 

@@ -4,6 +4,7 @@ import kotlin.random.Random
 import kotlin.time.Clock
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 /**
  * Security boundary for signaling.

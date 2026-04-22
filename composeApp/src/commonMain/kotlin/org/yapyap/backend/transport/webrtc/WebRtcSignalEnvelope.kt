@@ -2,6 +2,7 @@ package org.yapyap.backend.transport.webrtc
 
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
 data class WebRtcSignalEnvelope(
     val sessionId: String,

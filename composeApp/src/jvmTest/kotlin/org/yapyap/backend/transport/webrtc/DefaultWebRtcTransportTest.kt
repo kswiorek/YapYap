@@ -17,6 +17,11 @@ import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.testutil.testPeer
 import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
+import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
+import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
+import org.yapyap.backend.transport.webrtc.types.WebRtcSessionPhase
+import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
+import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -175,10 +180,12 @@ private class FakeWebRtcBackend : WebRtcBackend {
     private val outgoingFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
     private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
     private val sessionEventFlow = MutableSharedFlow<WebRtcSessionEvent>(extraBufferCapacity = 64)
+    private val avSessionEventFlow = MutableSharedFlow<WebRtcAvSessionEvent>(extraBufferCapacity = 64)
 
     override val outgoingSignals: Flow<WebRtcSignal> = outgoingFlow.asSharedFlow()
     override val incomingDataFrames: Flow<WebRtcIncomingDataFrame> = incomingDataFlow.asSharedFlow()
     override val sessionEvents: Flow<WebRtcSessionEvent> = sessionEventFlow.asSharedFlow()
+    override val avSessionEvents: Flow<WebRtcAvSessionEvent> = avSessionEventFlow.asSharedFlow()
 
     val handledSignals = mutableListOf<WebRtcSignal>()
 
@@ -195,6 +202,16 @@ private class FakeWebRtcBackend : WebRtcBackend {
     override suspend fun closeSession(sessionId: String) = Unit
 
     override suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray) = Unit
+
+    override suspend fun openAvSession(target: PeerId, sessionId: String, options: AvSessionOptions) = Unit
+
+    override suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions) = Unit
+
+    override suspend fun rejectAvSession(sessionId: String, reason: String) = Unit
+
+    override suspend fun updateAvControls(sessionId: String, update: AvControlUpdate) = Unit
+
+    override suspend fun closeAvSession(sessionId: String) = Unit
 
     suspend fun emitOutgoingSignal(signal: WebRtcSignal) {
         outgoingFlow.emit(signal)

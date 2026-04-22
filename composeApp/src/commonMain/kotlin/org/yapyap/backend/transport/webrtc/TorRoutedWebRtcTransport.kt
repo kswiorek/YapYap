@@ -15,6 +15,12 @@ import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.transport.tor.TorTransport
+import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
+import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
+import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionState
+import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingAvSessionRequest
+import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingSessionRequest
+import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
 
 /**
  * Router-like transport that wires WebRTC signaling through Tor transport.
@@ -33,6 +39,8 @@ class TorRoutedWebRtcTransport(
     override val incomingData: Flow<WebRtcIncomingDataFrame> = delegate.incomingData
     override val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest> = delegate.incomingSessionRequests
     override val sessionStates: Flow<WebRtcSessionState> = delegate.sessionStates
+    override val incomingAvSessionRequests: Flow<WebRtcIncomingAvSessionRequest> = delegate.incomingAvSessionRequests
+    override val avSessionStates: Flow<WebRtcAvSessionState> = delegate.avSessionStates
 
     private var started = false
     private var scope: CoroutineScope? = null
@@ -113,4 +121,24 @@ class TorRoutedWebRtcTransport(
     }
 
     override suspend fun closeSession(sessionId: String) = delegate.closeSession(sessionId)
+
+    override suspend fun initiateAvSession(target: PeerId, options: AvSessionOptions): String {
+        return delegate.initiateAvSession(target = target, options = options)
+    }
+
+    override suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions) {
+        delegate.acceptAvSession(sessionId = sessionId, options = options)
+    }
+
+    override suspend fun rejectAvSession(sessionId: String, reason: String) {
+        delegate.rejectAvSession(sessionId = sessionId, reason = reason)
+    }
+
+    override suspend fun updateAvControls(sessionId: String, update: AvControlUpdate) {
+        delegate.updateAvControls(sessionId = sessionId, update = update)
+    }
+
+    override suspend fun endAvSession(sessionId: String) {
+        delegate.endAvSession(sessionId = sessionId)
+    }
 }
