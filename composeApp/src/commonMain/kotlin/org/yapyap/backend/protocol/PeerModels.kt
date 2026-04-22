@@ -17,6 +17,12 @@ enum class SignalSecurityScheme(val wireValue: Byte) {
     }
 }
 
+enum class PeerAvailabilityClass {
+    MOBILE_INTERMITTENT,
+    DESKTOP_USUAL,
+    HEADLESS_ALWAYS_ON,
+}
+
 data class PeerId(
     val accountName: String,
     val deviceId: String,
@@ -57,12 +63,28 @@ data class PeerCapabilities(
     val supportedSignalSecuritySchemes: Set<SignalSecurityScheme>,
     val supportedProtocolVersions: Set<Int>,
     val isRelayAvailable: Boolean,
+    val relayProfile: PeerRelayProfile? = null,
 ) {
     init {
         require(supportedSignalSecuritySchemes.isNotEmpty()) {
             "supportedSignalSecuritySchemes must not be empty"
         }
         require(supportedProtocolVersions.isNotEmpty()) { "supportedProtocolVersions must not be empty" }
+        if (isRelayAvailable) {
+            require(relayProfile != null) { "relayProfile must be provided when isRelayAvailable is true" }
+        }
+    }
+}
+
+data class PeerRelayProfile(
+    val willingToStoreMessages: Boolean,
+    val maxRetentionSecondsAdvertised: Long,
+    val maxStoreBytesAdvertised: Long,
+    val expectedAvailabilityClass: PeerAvailabilityClass,
+) {
+    init {
+        require(maxRetentionSecondsAdvertised >= 0) { "maxRetentionSecondsAdvertised must be >= 0" }
+        require(maxStoreBytesAdvertised >= 0) { "maxStoreBytesAdvertised must be >= 0" }
     }
 }
 

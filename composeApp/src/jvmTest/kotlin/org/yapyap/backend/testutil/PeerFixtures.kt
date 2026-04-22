@@ -3,7 +3,9 @@ package org.yapyap.backend.testutil
 import org.yapyap.backend.protocol.PeerCapabilities
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.protocol.PeerAvailabilityClass
 import org.yapyap.backend.protocol.PeerIdentityKeys
+import org.yapyap.backend.protocol.PeerRelayProfile
 import org.yapyap.backend.protocol.PeerRole
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
@@ -35,6 +37,22 @@ fun testPeer(
             ),
             supportedProtocolVersions = setOf(1),
             isRelayAvailable = role == PeerRole.HEADLESS_RELAY,
+            relayProfile =
+                if (role == PeerRole.HEADLESS_RELAY) {
+                    PeerRelayProfile(
+                        willingToStoreMessages = true,
+                        maxRetentionSecondsAdvertised = 7 * 24 * 60 * 60,
+                        maxStoreBytesAdvertised = 512L * 1024L * 1024L,
+                        expectedAvailabilityClass = PeerAvailabilityClass.HEADLESS_ALWAYS_ON,
+                    )
+                } else {
+                    PeerRelayProfile(
+                        willingToStoreMessages = true,
+                        maxRetentionSecondsAdvertised = 2 * 24 * 60 * 60,
+                        maxStoreBytesAdvertised = 128L * 1024L * 1024L,
+                        expectedAvailabilityClass = PeerAvailabilityClass.MOBILE_INTERMITTENT,
+                    )
+                },
         ),
         descriptorVersion = 1,
         issuedAtEpochSeconds = 1_700_000_000L,
