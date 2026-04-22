@@ -9,8 +9,9 @@ data class WebRtcSignalEnvelope(
     val target: PeerId,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
+    val securityScheme: WebRtcSignalSecurityScheme,
     val signature: ByteArray?,
-    val payload: ByteArray,
+    val protectedPayload: ByteArray,
 ) {
     init {
         require(sessionId.isNotBlank()) { "sessionId must not be blank" }
@@ -18,7 +19,7 @@ data class WebRtcSignalEnvelope(
     }
 
     fun encode(): ByteArray {
-        val writer = ByteWriter(256 + payload.size + nonce.size + (signature?.size ?: 0))
+        val writer = ByteWriter(256 + protectedPayload.size + nonce.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
@@ -27,8 +28,9 @@ data class WebRtcSignalEnvelope(
         writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
         writer.writeByteArray(nonce)
+        writer.writeByte(securityScheme.wireValue.toInt())
         writer.writeNullableByteArray(signature)
-        writer.writeByteArray(payload)
+        writer.writeByteArray(protectedPayload)
         return writer.toByteArray()
     }
 
@@ -50,8 +52,9 @@ data class WebRtcSignalEnvelope(
             val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
+            val securityScheme = WebRtcSignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()
-            val payload = reader.readByteArray()
+            val protectedPayload = reader.readByteArray()
             reader.requireFullyRead()
 
             return WebRtcSignalEnvelope(
@@ -61,10 +64,23 @@ data class WebRtcSignalEnvelope(
                 target = target,
                 createdAtEpochSeconds = createdAtEpochSeconds,
                 nonce = nonce,
+                securityScheme = securityScheme,
                 signature = signature,
-                payload = payload,
+                protectedPayload = protectedPayload,
             )
         }
+    }
+}
+
+enum class WebRtcSignalSecurityScheme(val wireValue: Byte) {
+    PLAINTEXT_TEST_ONLY(0),
+    SIGNED(1),
+    ENCRYPTED_AND_SIGNED(2);
+
+    companion object {
+        fun fromWireValue(value: Byte): WebRtcSignalSecurityScheme =
+            entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported WebRTC signal security scheme wire value: $value")
     }
 }
 

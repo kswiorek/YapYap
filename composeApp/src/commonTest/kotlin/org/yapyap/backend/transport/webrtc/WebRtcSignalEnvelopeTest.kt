@@ -17,8 +17,9 @@ class WebRtcSignalEnvelopeTest {
             target = PeerId(accountName = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_100L,
             nonce = byteArrayOf(1, 2, 3, 4),
+            securityScheme = WebRtcSignalSecurityScheme.SIGNED,
             signature = byteArrayOf(9, 8, 7),
-            payload = "sdp-offer".encodeToByteArray(),
+            protectedPayload = "sdp-offer".encodeToByteArray(),
         )
 
         val decoded = WebRtcSignalEnvelope.decode(envelope.encode())
@@ -29,8 +30,9 @@ class WebRtcSignalEnvelopeTest {
         assertEquals(envelope.target, decoded.target)
         assertEquals(envelope.createdAtEpochSeconds, decoded.createdAtEpochSeconds)
         assertContentEquals(envelope.nonce, decoded.nonce)
+        assertEquals(envelope.securityScheme, decoded.securityScheme)
         assertContentEquals(envelope.signature, decoded.signature)
-        assertContentEquals(envelope.payload, decoded.payload)
+        assertContentEquals(envelope.protectedPayload, decoded.protectedPayload)
     }
 
     @Test

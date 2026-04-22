@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.PeerRole
@@ -35,21 +36,34 @@ class DefaultWebRtcTransportTest {
         val backendA = FakeWebRtcBackend()
         val backendB = FakeWebRtcBackend()
 
-        val transportA = DefaultWebRtcTransport(
-            backend = backendA,
+        val transportA = TorRoutedWebRtcTransport(
+            delegate = DefaultWebRtcTransport(
+                backend = backendA,
+                packetIdGenerator = { PacketId.fromHex("01010101010101010101010101010101") },
+            ),
             torTransport = torA,
-            resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
-            clockEpochSeconds = { 1_700_000_001L },
-            nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
+            protection = PlaintextWebRtcSignalProtection(),
+            protectionContext = WebRtcSignalProtectionContext(
+                nowEpochSeconds = { 1_700_000_001L },
+                nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
+                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+            ),
+            packetIdGenerator = { PacketId.fromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") },
         )
-        val transportB = DefaultWebRtcTransport(
-            backend = backendB,
+        val transportB = TorRoutedWebRtcTransport(
+            delegate = DefaultWebRtcTransport(
+                backend = backendB,
+                packetIdGenerator = { PacketId.fromHex("02020202020202020202020202020202") },
+            ),
             torTransport = torB,
-            resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
-            clockEpochSeconds = { 1_700_000_002L },
-            nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
+            protection = PlaintextWebRtcSignalProtection(),
+            protectionContext = WebRtcSignalProtectionContext(
+                nowEpochSeconds = { 1_700_000_002L },
+                nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
+                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+            ),
+            packetIdGenerator = { PacketId.fromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") },
         )
-
         transportA.start(peerA)
         transportB.start(peerB)
 
@@ -93,19 +107,33 @@ class DefaultWebRtcTransportTest {
         val backendA = FakeWebRtcBackend()
         val backendB = FakeWebRtcBackend()
 
-        val transportA = DefaultWebRtcTransport(
-            backend = backendA,
+        val transportA = TorRoutedWebRtcTransport(
+            delegate = DefaultWebRtcTransport(
+                backend = backendA,
+                packetIdGenerator = { PacketId.fromHex("03030303030303030303030303030303") },
+            ),
             torTransport = torA,
-            resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
-            clockEpochSeconds = { 1_700_000_001L },
-            nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
+            protection = PlaintextWebRtcSignalProtection(),
+            protectionContext = WebRtcSignalProtectionContext(
+                nowEpochSeconds = { 1_700_000_001L },
+                nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
+                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+            ),
+            packetIdGenerator = { PacketId.fromHex("cccccccccccccccccccccccccccccccc") },
         )
-        val transportB = DefaultWebRtcTransport(
-            backend = backendB,
+        val transportB = TorRoutedWebRtcTransport(
+            delegate = DefaultWebRtcTransport(
+                backend = backendB,
+                packetIdGenerator = { PacketId.fromHex("04040404040404040404040404040404") },
+            ),
             torTransport = torB,
-            resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
-            clockEpochSeconds = { 1_700_000_002L },
-            nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
+            protection = PlaintextWebRtcSignalProtection(),
+            protectionContext = WebRtcSignalProtectionContext(
+                nowEpochSeconds = { 1_700_000_002L },
+                nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
+                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+            ),
+            packetIdGenerator = { PacketId.fromHex("dddddddddddddddddddddddddddddddd") },
         )
 
         transportA.start(peerA)

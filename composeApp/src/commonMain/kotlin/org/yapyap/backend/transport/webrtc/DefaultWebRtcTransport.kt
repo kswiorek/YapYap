@@ -1,42 +1,37 @@
 package org.yapyap.backend.transport.webrtc
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import kotlin.random.Random
-import kotlin.time.Clock
-import org.yapyap.backend.protocol.BinaryEnvelope
-import org.yapyap.backend.protocol.EnvelopeRoute
 import org.yapyap.backend.protocol.PacketId
-import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
-import org.yapyap.backend.protocol.TorEndpoint
-import org.yapyap.backend.transport.tor.TorTransport
 
 class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
-    private val torTransport: TorTransport,
-    private val resolveTorEndpoint: (PeerId) -> TorEndpoint,
-    private val clockEpochSeconds: () -> Long = { Clock.System.now().epochSeconds },
-    private val nonceGenerator: () -> ByteArray = { Random.Default.nextBytes(16) },
     private val packetIdGenerator: () -> PacketId = { PacketId.random() },
-    private val signalTtlSeconds: Long = 300,
 ) : WebRtcTransport {
 
     private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
-    private val incomingSessionRequestFlow = MutableSharedFlow<WebRtcIncomingSessionRequest>(extraBufferCapacity = 64)
-    private val sessionStateFlow = MutableSharedFlow<WebRtcSessionState>(replay = 1, extraBufferCapacity = 64)
+    private val incomingSessionRequestFlow = MutableSharedFlow<WebRtcIncomingSessionRequest>(replay = 1, extraBufferCapacity = 64)
+    private val sessionStateFlow = MutableStateFlow<WebRtcSessionState?>(null)
+    private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
 
     override val incomingData: Flow<WebRtcIncomingDataFrame> = incomingDataFlow.asSharedFlow()
     override val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest> = incomingSessionRequestFlow.asSharedFlow()
-    override val sessionStates: Flow<WebRtcSessionState> = sessionStateFlow.asSharedFlow()
+    override val sessionStates: Flow<WebRtcSessionState> = sessionStateFlow.filterNotNull()
+    val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
 
     private var started = false
     private var localPeer: PeerDescriptor? = null
@@ -48,7 +43,6 @@ class DefaultWebRtcTransport(
     private var backendSignalJob: Job? = null
     private var backendDataJob: Job? = null
     private var backendSessionEventsJob: Job? = null
-    private var torIncomingJob: Job? = null
 
     override suspend fun start(localPeer: PeerDescriptor) {
         check(!started) { "WebRTC transport is already started" }
@@ -57,78 +51,68 @@ class DefaultWebRtcTransport(
 
         this.localPeer = localPeer
         backend.start(localPeer)
-        torTransport.start(localPeer)
 
-        backendSignalJob = localScope.launch {
-            backend.outgoingSignals.collect { signal ->
-                sendSignal(signal)
-            }
+        val backendSignalsCollectorReady = CompletableDeferred<Unit>()
+
+        backendSignalJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            backend.outgoingSignals
+                .onStart { backendSignalsCollectorReady.complete(Unit) }
+                .collect { signal -> outgoingSignalFlow.emit(signal) }
         }
 
-        backendDataJob = localScope.launch {
+        backendDataJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             backend.incomingDataFrames.collect { frame ->
                 incomingDataFlow.emit(frame)
             }
         }
 
-        backendSessionEventsJob = localScope.launch {
+        backendSessionEventsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             backend.sessionEvents.collect { event ->
                 when (event) {
                     is WebRtcSessionEvent.Connecting -> {
                         peerBySession[event.sessionId] = event.peer
-                        sessionStateFlow.emit(
+                        sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.NEGOTIATING,
                             )
-                        )
                     }
                     is WebRtcSessionEvent.Connected -> {
                         peerBySession[event.sessionId] = event.peer
-                        sessionStateFlow.emit(
+                        sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.CONNECTED,
                             )
-                        )
                     }
                     is WebRtcSessionEvent.Closed -> {
                         peerBySession.remove(event.sessionId)
                         pendingOffersBySession.remove(event.sessionId)
-                        sessionStateFlow.emit(
+                        sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.CLOSED,
                             )
-                        )
                     }
                     is WebRtcSessionEvent.Failed -> {
                         peerBySession.remove(event.sessionId)
                         pendingOffersBySession.remove(event.sessionId)
-                        sessionStateFlow.emit(
+                        sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.FAILED,
                                 reason = event.reason,
                             )
-                        )
                     }
                 }
             }
         }
 
-        torIncomingJob = localScope.launch {
-            torTransport.incoming.collect { inbound ->
-                if (inbound.envelope.packetType != PacketType.SIGNAL) return@collect
-                val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(inbound.envelope.payload) }
-                    .getOrNull() ?: return@collect
-                handleInboundSignalEnvelope(signalEnvelope)
-            }
-        }
+        backendSignalsCollectorReady.await()
 
         started = true
     }
@@ -139,11 +123,9 @@ class DefaultWebRtcTransport(
         backendSignalJob?.cancel()
         backendDataJob?.cancel()
         backendSessionEventsJob?.cancel()
-        torIncomingJob?.cancel()
         backendSignalJob = null
         backendDataJob = null
         backendSessionEventsJob = null
-        torIncomingJob = null
 
         pendingOffersBySession.clear()
         peerBySession.clear()
@@ -152,7 +134,6 @@ class DefaultWebRtcTransport(
         scope = null
 
         runCatching { backend.stop() }
-        runCatching { torTransport.stop() }
 
         localPeer = null
         started = false
@@ -173,13 +154,12 @@ class DefaultWebRtcTransport(
 
         peerBySession[sessionId] = pendingOffer.source
         backend.handleRemoteSignal(pendingOffer)
-        sessionStateFlow.emit(
+        sessionStateFlow.value =
             WebRtcSessionState(
                 sessionId = sessionId,
                 peer = pendingOffer.source,
                 phase = WebRtcSessionPhase.NEGOTIATING,
             )
-        )
     }
 
     override suspend fun rejectSession(sessionId: String, reason: String) {
@@ -196,15 +176,17 @@ class DefaultWebRtcTransport(
             payload = reason.encodeToByteArray(),
         )
 
-        sendSignal(rejectSignal)
-        sessionStateFlow.emit(
+        sessionStateFlow.value =
             WebRtcSessionState(
                 sessionId = sessionId,
                 peer = pendingOffer.source,
                 phase = WebRtcSessionPhase.REJECTED,
                 reason = reason,
             )
-        )
+        
+
+        // Best-effort: reject state is a local decision; signaling may be delayed.
+        scope?.launch { sendSignal(rejectSignal) } ?: sendSignal(rejectSignal)
     }
 
     override suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray) {
@@ -217,51 +199,9 @@ class DefaultWebRtcTransport(
         backend.closeSession(sessionId)
     }
 
-    private suspend fun sendSignal(signal: WebRtcSignal) {
-        val createdAt = clockEpochSeconds()
-
-        val signalEnvelope = WebRtcSignalEnvelope(
-            sessionId = signal.sessionId,
-            kind = signal.kind,
-            source = signal.source,
-            target = signal.target,
-            createdAtEpochSeconds = createdAt,
-            nonce = nonceGenerator(),
-            signature = null,
-            payload = signal.payload,
-        )
-
-        val envelope = BinaryEnvelope(
-            packetId = packetIdGenerator(),
-            packetType = PacketType.SIGNAL,
-            createdAtEpochSeconds = createdAt,
-            expiresAtEpochSeconds = createdAt + signalTtlSeconds,
-            hopCount = 0,
-            route = EnvelopeRoute(
-                destinationAccount = signal.target.accountName,
-                destinationDevice = signal.target.deviceId,
-                nextHopDevice = null,
-            ),
-            payload = signalEnvelope.encode(),
-        )
-
-        torTransport.send(
-            target = resolveTorEndpoint(signal.target),
-            envelope = envelope,
-        )
-    }
-
-    private suspend fun handleInboundSignalEnvelope(signalEnvelope: WebRtcSignalEnvelope) {
+    suspend fun handleInboundSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long) {
         val local = requireNotNull(localPeer) { "Local peer is not available" }
-        if (signalEnvelope.target != local.id) return
-
-        val signal = WebRtcSignal(
-            sessionId = signalEnvelope.sessionId,
-            kind = signalEnvelope.kind,
-            source = signalEnvelope.source,
-            target = signalEnvelope.target,
-            payload = signalEnvelope.payload,
-        )
+        if (signal.target != local.id) return
 
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
@@ -271,34 +211,36 @@ class DefaultWebRtcTransport(
                     WebRtcIncomingSessionRequest(
                         sessionId = signal.sessionId,
                         source = signal.source,
-                        receivedAtEpochSeconds = signalEnvelope.createdAtEpochSeconds,
+                        receivedAtEpochSeconds = receivedAtEpochSeconds,
                     )
                 )
-                sessionStateFlow.emit(
+                sessionStateFlow.value =
                     WebRtcSessionState(
                         sessionId = signal.sessionId,
                         peer = signal.source,
                         phase = WebRtcSessionPhase.PENDING_DECISION,
                     )
-                )
             }
             WebRtcSignalKind.REJECT -> {
                 val reason = signal.payload.decodeToString()
                 peerBySession.remove(signal.sessionId)
                 pendingOffersBySession.remove(signal.sessionId)
-                sessionStateFlow.emit(
+                sessionStateFlow.value =
                     WebRtcSessionState(
                         sessionId = signal.sessionId,
                         peer = signal.source,
                         phase = WebRtcSessionPhase.REJECTED,
                         reason = reason,
                     )
-                )
             }
             else -> {
                 backend.handleRemoteSignal(signal)
             }
         }
+    }
+
+    private suspend fun sendSignal(signal: WebRtcSignal) {
+        outgoingSignalFlow.emit(signal)
     }
 }
 
