@@ -1,0 +1,59 @@
+flowchart TD
+%% Entry
+    Start([Initiate Large File or Voice Call])
+    SendOffer[Send WebRTC SDP Offer via Tor]
+
+    Start --> SendOffer
+
+%% The Tor Signaling Phase
+    TorAck{Offer Delivered\nvia Tor?}
+    SendOffer --> TorAck
+
+%% The Offline / Retry Phase
+    TorAck -- "No (Timeout)" --> TypeCheckOffline{Payload Type?}
+
+%% --- VOICE RETRY LOGIC ---
+    TypeCheckOffline -- "Voice" --> VoiceWait[Queue: Fast retry\nwhile User is 'Calling']
+    VoiceWait -. "Loops while active" .-> SendOffer
+    VoiceWait -. "User hangs up" .-> Terminate([End / Drop])
+
+%% --- FILE RETRY LOGIC (2-Hour Cap) ---
+    TypeCheckOffline -- "File" --> FileRetryCheck{Active Queue\n< 2 Hours?}
+    FileRetryCheck -- "Yes" --> ActiveFileWait[Wait 5 mins]
+    ActiveFileWait -. "Loops" .-> SendOffer
+
+%% The Passive Degradation
+    FileRetryCheck -- "No (> 2 Hours)" --> PassiveFileWait[Passive Queue:\nWait ONLY for 'Online' ping]
+    PassiveFileWait -. "Ping Received" .-> SendOffer
+
+%% The Peer Response Phase
+    TorAck -- "Yes" --> PeerResponse{Peer Response?}
+    PeerResponse -- "Rejected / Busy" --> Terminate
+
+%% The WebRTC Setup Phase
+    PeerResponse -- "Accepted (Answer SDP)" --> NatTraversal{STUN punches\nthrough NAT?}
+
+%% The Symmetric NAT Trap (Updated)
+    NatTraversal -- "No (Symmetric NAT)" --> FallbackLogic{Payload Type?}
+    FallbackLogic -- "Voice" --> Terminate
+
+%% Route NAT failures to Passive Wait (Requires network change)
+    FallbackLogic -- "File" --> PassiveWaitNote[Suspend transfer until\npeer changes networks]
+    PassiveWaitNote --> PassiveFileWait
+
+%% The Active Stream Phase
+    NatTraversal -- "Yes" --> ActiveStream[Open DataChannel/MediaStream\nPush Packets]
+
+%% The Mid-Stream Disconnect Check
+    ActiveStream --> DisconnectCheck{Connection Drops\nMid-Stream?}
+    DisconnectCheck -- "No" --> Success([Transfer Complete])
+
+%% The Self-Healing Phase
+    DisconnectCheck -- "Yes" --> TypeCheckResume{Payload Type?}
+
+%% Drop back into the 2-Hour bounded loop
+    TypeCheckResume -- "File" --> FileResume[Save Current Byte Index X]
+    FileResume --> FileRetryCheck
+
+    TypeCheckResume -- "Voice" --> VoiceResume[Rapid Tor signaling retry\nwhile call is active]
+    VoiceResume -. "Attempts Reconnect" .-> SendOffer

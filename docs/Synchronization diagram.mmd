@@ -1,0 +1,49 @@
+flowchart TD
+%% The Detection Phase
+    Receive[Receive New Message 'Msg X'\nvia Tor Swarm]
+    CheckParent{Local DB:\nDo I have the parent\nprev_id of Msg X?}
+
+Receive --> CheckParent
+
+%% No Gap Path
+CheckParent -- "Yes (No Gap)" --> SaveMsg[Save Msg X to DB\nRender in UI]
+
+%% Gap Detected Path
+CheckParent -- "No (Gap Detected)" --> HoldQueue[(Place Msg X in\nCausal Hold Queue)]
+
+%% The Sync Strategy Initialization
+HoldQueue --> InitSync[Init Sync Request:\n'Need ancestors of Msg X']
+
+%% The Sequential Fallback Loop
+InitSync --> SelectPeer[Select Next Available Peer:\n1. Own alternate device\n2. Next highest-uptime peer]
+
+SelectPeer --> RequestGap[Send Sync Request to Target Peer]
+
+%% Target Peer Processing
+PeerReceives((Target Peer Receives Request))
+RequestGap -. "Over Tor/WebRTC" .-> PeerReceives
+
+PeerReceives --> PeerQuery[Target Peer queries their DB\nfor requested ancestors]
+PeerQuery --> PeerReply[Target Peer streams available\nmessages backwards]
+
+%% Processing the Reply (Local Node)
+ReceiveSync[Receive Sync Stream]
+PeerReply -. "Over Tor/WebRTC" .-> ReceiveSync
+
+ReceiveSync --> SaveSync[Save received messages\nto Local DB]
+
+SaveSync --> CheckGapRemaining{Is the gap\ncompletely closed?}
+
+%% Loop or Pause
+CheckGapRemaining -- "No (Partial/No data)" --> CheckMorePeers{Are there more\nonline peers?}
+CheckMorePeers -- "Yes" --> SelectPeer
+CheckMorePeers -- "No" --> PendingTable[(Add to PENDING_SYNCS\nQueue for offline peers)]
+
+%% Successful Closure
+CheckGapRemaining -- "Yes (Gap Closed)" --> Unlock[Unlock Msg X from\nCausal Hold Queue]
+Unlock --> SaveMsg
+
+%% Future Resolution (The Waiting Game)
+OfflineBoots((An offline peer\nlater comes online))
+OfflineBoots --> CheckPending[Local Node checks\nPENDING_SYNCS table]
+CheckPending -. "Resumes Search" .-> RequestGap

@@ -1,0 +1,93 @@
+flowchart TD
+%% Node Definitions
+    Start([User clicks 'Send'])
+    AttachMetadata[Attach 'prev_id' & increment Lamport Clock]
+    Delivered([Mark UI as Delivered])
+
+%% Fast Path (WebRTC)
+    CheckWebRTC{Active WebRTC?}
+    SendWebRTC[Send via WebRTC DataChannel]
+    AckWebRTC{Direct ACK?}
+
+%% Payload Prep
+    Encrypt[Encrypt E2EE Payload]
+    Split{Execute Concurrently\nRace Condition}
+
+%% Path A: Direct Tor
+    DialDest[A. Dial Destination .onion]
+    TorDestAck{Direct ACK?}
+
+%% Path B: Swarm Storage
+    SelectPeers[B. Select High-Uptime Swarm Peers]
+    SendPeers[Send to Swarm]
+    PeersHold[(Peers Hold in FIFO/2-Day Cache)]
+    CacheFull{Cache Full or\n> 48 Hours?}
+    DropDrop([Silently Drop Message])
+
+%% Path C: Push Notification
+    PushNet[C. Send Blank Push Notification]
+    OSWake[OS Wakes Destination App in Background]
+
+%% The Convergence (Destination Side)
+    DestOnline((Destination App Boots Tor))
+    DestBroadcast[Dest Broadcasts 'Online' to Known Peers]
+    PeersCheck{Swarm Peer:\nHolding messages?}
+    SwarmFlush[Swarm Pushes Queue to Dest]
+
+%% Deduplication, Clocks & GC
+    DestDedupe{Dest DB:\nIs Duplicate?}
+    DestIgnore([Drop Payload])
+    SyncClock[Update Lamport Clock & Check 'prev_id']
+    DestProcess([Save & Update UI])
+    DestAckSwarm([Dest Sends ACK to Swarm])
+    SwarmGC([Swarm Deletes Message])
+
+%% --- The Flow ---
+
+    Start --> AttachMetadata
+    AttachMetadata --> CheckWebRTC
+    CheckWebRTC -- "Yes" --> SendWebRTC --> AckWebRTC
+    AckWebRTC -- "Yes" --> Delivered
+
+%% Fallback to Routing
+    CheckWebRTC -- "No" --> Encrypt
+    AckWebRTC -- "No / Timeout" --> Encrypt
+    Encrypt --> Split
+
+%% Path A Execution
+    Split --> DialDest
+    DialDest --> TorDestAck
+    TorDestAck -- "Yes" --> Delivered
+
+%% Path B Execution
+    Split --> SelectPeers
+    SelectPeers --> SendPeers
+    SendPeers --> PeersHold
+    PeersHold -. "If no ACK" .-> CacheFull
+    CacheFull -- "Yes" --> DropDrop
+
+%% Path C Execution
+    Split --> PushNet
+    PushNet -. "Wakes App" .-> OSWake
+    OSWake -. "Triggers Boot" .-> DestOnline
+
+%% The Synchronization Phase
+    DestOnline --> DestBroadcast
+    DestBroadcast -. "Wake up signal" .-> PeersCheck
+    PeersHold -. "Supplies Data" .-> PeersCheck
+    PeersCheck -- "Yes" --> SwarmFlush
+
+    SwarmFlush --> DestDedupe
+
+%% The ACK Fix (Both paths clear the queue)
+    DestDedupe -- "Yes (Duplicate)" --> DestIgnore
+    DestDedupe -- "No (New Message)" --> SyncClock
+
+    SyncClock --> DestProcess
+
+    DestProcess -. "Triggers UI" .-> Delivered
+
+    DestIgnore --> DestAckSwarm
+    DestProcess --> DestAckSwarm
+
+    DestAckSwarm -. "Triggers Garbage Collection" .-> SwarmGC

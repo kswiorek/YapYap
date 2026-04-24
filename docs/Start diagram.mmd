@@ -1,0 +1,84 @@
+flowchart TD
+%% Node Definitions
+    Start([App Boots / 15-Min Timer])
+    SignPing[Create PING Payload:\nSigned + Timestamp\nInclude Highest Seq N]
+
+%% The Broadcast & Tracking Attempt
+    Broadcast[Broadcast PING to\nALL Devices in Local Roster]
+    LogAttempt[(Device DB:\nIncrement 'attempted_pings'\nfor all peers)]
+
+%% Peer Side (Receiver)
+    PeerReceives((Peer Receives PING))
+    VerifySig{Valid Sig &\nRecent Time?}
+    DropFake([Drop / Ban Impostor])
+    UpdatePeerDB[(Peer DB:\nMark Sender Online\nIncrement sender's 'successful_pings')]
+
+%% Sequence Verification
+    CompareSeq{Compare Seq N}
+    AttachEvents[Attach missing Delta Events]
+    AttachReq[Attach 'Sync Request']
+
+%% The Pong (No PEX for Mesh)
+    SendPong[Send PONG ACK back\n+ Sync Data]
+
+%% Device Side (Receiver processing PONG)
+    DeviceReceives((Device Receives PONG))
+
+%% Explicit Uptime Calculation
+    LogSuccess[(Device DB:\nIncrement 'successful_pings')]
+    CalcScore[Calculate Reliability:\nScore = Success / Attempts]
+    UpdateOwnDB[(Device DB:\nMark Peer Online\nSave Score)]
+
+%% Sync Processing
+    HasDeltas{Contains\nDelta Events?}
+    VerifyDeltas[Verify Hashes & Signatures]
+    ApplyDeltas[(Device DB:\nAppend to Local Chain)]
+
+    HasSyncReq{Contains\nSync Request?}
+    PushDeltas[Push missing Deltas to Peer]
+
+%% The Heartbeat Loop
+    HeartbeatLoop((The Heartbeat Loop))
+    Wait15[Wait 15 Minutes]
+    ActiveCheck{Device Still\nOnline?}
+
+%% Graceful Shutdown
+    UserQuits([User force-closes App])
+    SendBye[Broadcast 'BYE'\nto drop connections cleanly]
+
+%% --- The Flow ---
+
+%% Phase 1: Boot & Ping
+    Start --> SignPing --> Broadcast
+    Broadcast --> LogAttempt
+    Broadcast -. "Via Tor" .-> PeerReceives
+
+%% Phase 2: Peer Verification
+    PeerReceives --> VerifySig
+    VerifySig -- "No" --> DropFake
+    VerifySig -- "Yes" --> UpdatePeerDB --> CompareSeq
+
+%% Phase 3: Sequence Sync
+    CompareSeq -- "Peer Seq > Device Seq" --> AttachEvents --> SendPong
+    CompareSeq -- "Peer Seq < Device Seq" --> AttachReq --> SendPong
+    CompareSeq -- "Peer Seq == Device Seq" --> SendPong
+
+    SendPong -. "Via Tor" .-> DeviceReceives
+
+%% Phase 4: Device Side Score Tracking & Sync
+    DeviceReceives --> LogSuccess --> CalcScore --> UpdateOwnDB
+
+    UpdateOwnDB --> HasDeltas
+    HasDeltas -- "Yes" --> VerifyDeltas --> ApplyDeltas --> HasSyncReq
+    HasDeltas -- "No" --> HasSyncReq
+
+    HasSyncReq -- "Yes" --> PushDeltas -. "Syncs Peer" .-> HeartbeatLoop
+    HasSyncReq -- "No" --> HeartbeatLoop
+
+%% Phase 5: The Heartbeat
+    HeartbeatLoop --> Wait15 --> ActiveCheck
+    ActiveCheck -- "Yes" --> SignPing
+
+%% Phase 6: Going Offline
+    ActiveCheck -- "No (Network lost)" --> UserQuits
+    UserQuits --> SendBye -. "Updates Peer DBs to Offline" .-> PeerReceives

@@ -1,0 +1,60 @@
+flowchart TD
+    %% Define styling
+    classDef heavy fill:#f8d7da,stroke:#dc3545,stroke-width:2px,color:#000
+    classDef light fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#000
+    classDef swarm fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#000
+
+    Start([Sender initiates Large Payload transfer to Group])
+
+    %% Step 1: The Symmetric Key
+    GenKey[1. Generate One-Time Symmetric Key\n& Unique File ID]
+    EncryptPayload[2. Encrypt Payload with Symmetric Key]:::heavy
+
+    Start --> GenKey --> EncryptPayload
+
+    %% Step 2: The Heavy Upload (Happens ONCE)
+    UploadSwarm[3. Upload Encrypted Blob\nto Selected Swarm Nodes]:::heavy
+    SwarmStorage[(Swarm Cache:\nHolds Encrypted Blob)]:::swarm
+
+    EncryptPayload --> UploadSwarm -. "Over Tor" .-> SwarmStorage
+
+    %% Step 3: The Cryptographic Fan-Out (Happens N times)
+    FanOutSplit{4. Fan-Out Symmetric Key + File ID\nvia Pairwise Mesh Sessions}:::light
+
+    GenKey --> FanOutSplit
+
+    EncryptP1[Encrypt Key for Peer 1]:::light
+    EncryptPN[Encrypt Key for Peer N]:::light
+
+    FanOutSplit --> EncryptP1
+    FanOutSplit --> EncryptPN
+
+    %% Step 4: Receiver Metadata Parsing
+    Peer1((Peer 1 Device))
+    PeerN((Peer N Device))
+
+    EncryptP1 -. "Mesh (Lightweight)" .-> Peer1
+    EncryptPN -. "Mesh (Lightweight)" .-> PeerN
+
+    ParseKey[5. Receive & Decrypt\nSymmetric Key + File ID]
+    Peer1 --> ParseKey
+
+    %% Step 5: Receiver Fetch Logic
+    SendFetch[6. Send 'Fetch Request' for File ID\nto Swarm Nodes]
+    ParseKey --> SendFetch
+
+    %% Step 6: Swarm Processing & Delivery
+    SwarmValidate{7. Swarm Node receives request,\nvalidates & locates File ID}:::swarm
+
+    SendFetch -. "Over Tor" .-> SwarmValidate
+    SwarmStorage -. "Data Source" .-> SwarmValidate
+
+    StreamBlob[8. Stream Encrypted Blob\nback to Receiver]:::heavy
+    SwarmValidate --> StreamBlob
+
+    %% Step 7: Local Decryption
+    LocalDecrypt[9. Receiver decrypts Blob\nusing Symmetric Key]
+    StreamBlob -. "Over Tor" .-> LocalDecrypt
+
+    Success([Payload Rendered in UI])
+    LocalDecrypt --> Success
