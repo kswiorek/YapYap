@@ -40,7 +40,30 @@ data class BinaryEnvelope(
         return writer.toByteArray()
     }
 
+    fun observableHeaderValues(): Map<String, Any?> = mapOf(
+        Fields.PACKET_ID to packetId,
+        Fields.PACKET_TYPE to packetType,
+        Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
+        Fields.EXPIRES_AT_EPOCH_SECONDS to expiresAtEpochSeconds,
+        Fields.HOP_COUNT to hopCount,
+        Fields.ROUTE_DESTINATION_ACCOUNT to route.destinationAccount,
+        Fields.ROUTE_DESTINATION_DEVICE to route.destinationDevice,
+        Fields.ROUTE_NEXT_HOP_DEVICE to route.nextHopDevice,
+    )
+
     companion object {
+        object Fields {
+            const val PACKET_ID = "packetId"
+            const val PACKET_TYPE = "packetType"
+            const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
+            const val EXPIRES_AT_EPOCH_SECONDS = "expiresAtEpochSeconds"
+            const val HOP_COUNT = "hopCount"
+            const val ROUTE_DESTINATION_ACCOUNT = "route.destinationAccount"
+            const val ROUTE_DESTINATION_DEVICE = "route.destinationDevice"
+            const val ROUTE_NEXT_HOP_DEVICE = "route.nextHopDevice"
+            const val PAYLOAD = "payload"
+        }
+
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'Y'.code.toByte(), 'P'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 

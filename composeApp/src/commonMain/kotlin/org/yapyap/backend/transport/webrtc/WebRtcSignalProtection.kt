@@ -4,6 +4,8 @@ import kotlin.random.Random
 import kotlin.time.Clock
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.routing.EnvelopeObservability
+import org.yapyap.backend.routing.FieldSensitivity
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 /**
@@ -22,7 +24,7 @@ interface WebRtcSignalProtection {
  */
 class PlaintextWebRtcSignalProtection : WebRtcSignalProtection {
     override fun protect(signal: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
-        return WebRtcSignalEnvelope(
+        val envelope = WebRtcSignalEnvelope(
             sessionId = signal.sessionId,
             kind = signal.kind,
             source = signal.source,
@@ -33,9 +35,12 @@ class PlaintextWebRtcSignalProtection : WebRtcSignalProtection {
             signature = null,
             protectedPayload = signal.payload,
         )
+        assertObservabilityContract(envelope)
+        return envelope
     }
 
     override fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal {
+        assertObservabilityContract(envelope)
         return WebRtcSignal(
             sessionId = envelope.sessionId,
             kind = envelope.kind,
@@ -43,6 +48,16 @@ class PlaintextWebRtcSignalProtection : WebRtcSignalProtection {
             target = envelope.target,
             payload = envelope.protectedPayload,
         )
+    }
+
+    private fun assertObservabilityContract(envelope: WebRtcSignalEnvelope) {
+        val policy = EnvelopeObservability.webRtcSignalEnvelope.fields
+        val unexpectedProtectedCleartext = envelope.observableHeaderValues()
+            .keys
+            .filter { policy[it] == FieldSensitivity.PROTECTED }
+        require(unexpectedProtectedCleartext.isEmpty()) {
+            "WebRTC signal envelope exposes protected fields in cleartext: $unexpectedProtectedCleartext"
+        }
     }
 }
 

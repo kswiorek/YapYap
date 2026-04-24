@@ -1,0 +1,114 @@
+erDiagram
+%% ==========================================
+%% DOMAIN 1: IDENTITY & ROUTING
+%% ==========================================
+    CONTACTS ||--o{ MESSAGES : sends
+    CONTACTS {
+        string pub_key PK "Ed25519 Public Key (Account ID)"
+        string onion_address "The Tor V3 Address"
+        string device_id "Unique Device Identifier"
+        boolean is_admin "RBAC: Can issue bans?"
+        string status "ACTIVE or BANNED"
+        integer ping_attempts "Used for peer uptime math"
+        integer ping_successes "Used for peer uptime math"
+        integer last_seen_timestamp "Epoch for TTL calculations"
+    }
+
+    ROOMS ||--o{ MESSAGES : contains
+    ROOMS {
+        string room_id PK "UUID or 'GLOBAL_CONTROL'"
+        string type "GLOBAL, 1_ON_1, or GROUP"
+        integer local_seq_n "The local Lamport Clock for this DAG"
+    }
+
+%% ==========================================
+%% DOMAIN 2: THE DAG ENGINE (STATE & SYNC)
+%% ==========================================
+    MESSAGES ||--o{ OUTBOX : queues
+    MESSAGES ||--o{ CAUSAL_HOLD : blocks
+    MESSAGES {
+        string message_id PK "Hash of payload + metadata"
+        string room_id FK "Which DAG this belongs to"
+        string sender_pub_key FK
+        string prev_id FK "Pointer to parent message (DAG Link)"
+        integer lamport_clock "Seq N for total ordering"
+        string payload_type "TEXT, FILE_OFFER, REVOKE_DEVICE, etc."
+        blob encrypted_payload "Opaque E2EE bytes"
+        string lifecycle_state "CREATED, SENT, ACKED, ARCHIVED"
+        boolean is_orphaned "True if prev_id is missing (UI Warning)"
+    }
+
+    CAUSAL_HOLD {
+        string id PK
+        string missing_prev_id "The message we are waiting for"
+        string blocked_message_id FK "The message currently hidden/orphaned"
+        integer timestamp "When we detected the gap"
+    }
+
+    PENDING_SYNCS {
+        string sync_id PK
+        string room_id FK "Which DAG has the hole"
+        string target_peer_key FK "Who we plan to ask when they boot"
+        string missing_ancestor_of "The message ID we need to walk backward from"
+    }
+
+%% ==========================================
+%% DOMAIN 3: TRANSPORT & RECOVERY
+%% ==========================================
+    OUTBOX {
+        string packet_id PK "UUID for the Tor Envelope"
+        string message_id FK "The message being sent"
+        string target_peer_key FK "Destination"
+        integer retry_count "How many times Tor failed"
+        integer expires_at "TTL limit (e.g., 48 hours)"
+    }
+
+    FILE_TRANSFERS {
+        string transfer_id PK "Shared ID for the WebRTC stream"
+        string message_id FK "Link to the FILE_OFFER message"
+        string status "IN_FLIGHT, PAUSED, COMPLETED, CANCELLED"
+        integer highest_contiguous_chunk "For idempotent WebRTC resume"
+        integer total_bytes "File size"
+    }
+
+    DEDUP {
+        string packet_id PK "UUID from BinaryEnvelope"
+        string source_peer_key "Who sent it"
+        integer received_at "Timestamp to clear old cache entries"
+    }
+
+%% ==========================================
+%% DOMAIN 4: E2EE CRYPTOGRAPHY
+%% ==========================================
+    CRYPTO_SESSIONS {
+        string session_id PK
+        string peer_pub_key FK
+        blob root_key "Double Ratchet Master Secret"
+        blob send_chain_key "Current outbound symmetric key"
+        blob recv_chain_key "Current inbound symmetric key"
+        string remote_dh_pub_key "Current Asymmetric Ratchet Key"
+    }
+%% The "Discord Server" Hierarchy
+    SPACES ||--o{ ROOMS : groups
+    SPACES {
+        string space_id PK "The 'Server' ID"
+        string name "e.g., 'Gaming Group'"
+        string avatar_url
+    }
+
+    ROOMS {
+        string room_id PK
+        string space_id FK "Which Server this belongs to (Nullable)"
+        string type "TEXT_CHANNEL or VOICE_CHANNEL"
+        string name "e.g., '#general'"
+    }
+
+%% The Membership Roster
+    ROOMS ||--o{ ROOM_MEMBERS : contains
+    CONTACTS ||--o{ ROOM_MEMBERS : joins
+    ROOM_MEMBERS {
+        string room_id FK
+        string pub_key FK "Who is in this room"
+        string role "ADMIN or MEMBER"
+        integer joined_timestamp
+    }

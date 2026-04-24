@@ -1,0 +1,65 @@
+flowchart TD
+%% Styling
+    classDef handshake fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef ratchet fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    classDef crypto fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+
+%% Actors
+    Init((Initiator\nPeer A))
+    Resp((Responder\nPeer B))
+
+%% ==========================================
+%% PHASE 1: THE X3DH HANDSHAKE
+%% ==========================================
+    subgraph Handshake ["Phase 1: X3DH Initial Handshake (Once per device pair)"]
+        ReqBundle[1. Send 'Hello' over Tor\nRequest PreKey Bundle]:::handshake
+
+        GenBundle[2. Generate & Send Bundle:\nIdentity Key, Signed PreKey,\nOne-Time PreKey]:::handshake
+
+        ComputeX3DH[3. Compute X3DH Math:\nDH1, DH2, DH3, DH4\nYields: Root Secret]:::crypto
+
+        ReqBundle -. "Tor" .-> GenBundle
+        GenBundle -. "Tor" .-> ComputeX3DH
+    end
+
+    Init --> Handshake
+    Resp --> Handshake
+
+%% ==========================================
+%% PHASE 2: THE DOUBLE RATCHET
+%% ==========================================
+    subgraph DoubleRatchet ["Phase 2: The Double Ratchet Engine (Per Message)"]
+
+    %% Sender Side (Peer A)
+        RootA[(Root Key KDF)]:::crypto
+        SendChainA[(Sending Chain KDF)]:::crypto
+        GenMsgKeyA[4. Derive Message Key N\nAdvance Symmetric Ratchet]:::ratchet
+        Encrypt[5. Encrypt Payload + Attach\nPeer A's Current DH PubKey]:::ratchet
+
+        ComputeX3DH --> RootA
+        RootA --> SendChainA --> GenMsgKeyA --> Encrypt
+
+    %% The Network Transfer
+        Transfer((Encrypted Envelope\nSent over Tor/WebRTC))
+        Encrypt --> Transfer
+
+    %% Receiver Side (Peer B)
+        Transfer --> ExtractKey[6. Extract A's DH PubKey]:::ratchet
+
+        RootB[(Root Key KDF)]:::crypto
+        RecvChainB[(Receiving Chain KDF)]:::crypto
+
+        ExtractKey --> DHRatchetB{7. Is this a new\\nDH PubKey?}
+
+    %% The Asymmetric Ratchet Step
+        DHRatchetB -- "Yes (Asymmetric Ratchet)" --> AdvanceRootB[Calculate new DH Secret\nAdvance Root Key\nCreate new Receiving Chain]:::crypto
+        AdvanceRootB --> RecvChainB
+
+    %% The Symmetric Ratchet Step
+        DHRatchetB -- "No" --> RecvChainB
+
+        GenMsgKeyB[8. Derive Message Key N\nAdvance Symmetric Ratchet]:::ratchet
+        Decrypt[9. Decrypt Payload]:::ratchet
+
+        RecvChainB --> GenMsgKeyB --> Decrypt
+    end

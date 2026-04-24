@@ -57,7 +57,30 @@ data class FileEnvelope(
         return FileCancelPayload.decode(protectedPayload)
     }
 
+    fun observableHeaderValues(): Map<String, Any?> = mapOf(
+        Fields.TRANSFER_ID to transferId,
+        Fields.KIND to kind,
+        Fields.SOURCE to source,
+        Fields.TARGET to target,
+        Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
+        Fields.NONCE to nonce,
+        Fields.SECURITY_SCHEME to securityScheme,
+        Fields.SIGNATURE to signature,
+    )
+
     companion object {
+        object Fields {
+            const val TRANSFER_ID = "transferId"
+            const val KIND = "kind"
+            const val SOURCE = "source"
+            const val TARGET = "target"
+            const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
+            const val NONCE = "nonce"
+            const val SECURITY_SCHEME = "securityScheme"
+            const val SIGNATURE = "signature"
+            const val PROTECTED_PAYLOAD = "protectedPayload"
+        }
+
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'F'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 

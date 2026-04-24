@@ -1,0 +1,60 @@
+---
+config:
+  layout: elk
+---
+flowchart TD
+%% Styling
+    classDef boot fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
+    classDef db fill:#f8f9fa,stroke:#ced4da,stroke-width:2px;
+    classDef action fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef drop fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    classDef resume fill:#d4edda,stroke:#28a745,stroke-width:2px;
+
+%% --- THE COLD BOOT ---
+    Start([App Cold Boot / Process Restart]):::boot
+    UnlockDB[(1. Unlock SQLCipher Database)]:::db
+
+    Start --> UnlockDB
+
+%% --- THE THREE RECOVERY PILLARS ---
+    UnlockDB --> ScanOutbox["2a. Scan OUTBOX Table\n(Pending Tor Envelopes)"]:::action
+    UnlockDB --> ScanWebRTC["2b. Scan FILE_TRANSFERS Table\n(Pending WebRTC Files)"]:::action
+    UnlockDB --> ScanHolds["2c. Scan CAUSAL_HOLD Table\n(Orphaned Messages)"]:::action
+
+%% ==========================================
+%% PILLAR A: OUTBOX RECOVERY (Tor Messages)
+%% ==========================================
+    ScanOutbox --> OutboxCheck{Check TTL for\\neach item}
+
+    OutboxCheck -- "Expired (> 48h)" --> FailMsg[(Mark as FAILED\\nin Messages UI)]:::drop
+
+    OutboxCheck -- "Valid" --> RequeueTor[Re-inject to Tor Router\\nReset local retry count]:::resume
+    RequeueTor -. "Feeds into Tor Flow" .-> TorFlow([Normal Tor Flow])
+
+%% ==========================================
+%% PILLAR B: WEBRTC RECOVERY (Large Files)
+%% ==========================================
+    ScanWebRTC --> FileCheck{Status ==\\nIN_FLIGHT?}
+
+    FileCheck -- "Yes" --> PauseFile[(Change status to PAUSED\\nSave highest contiguous chunk)]:::db
+    PauseFile --> AwaitPeer[Move to Passive WebRTC Queue:\\nWait for Peer's next PING]:::resume
+    AwaitPeer -. "Feeds into WebRTC Flow" .-> WebRTCFlow([Normal WebRTC Flow])
+
+%% ==========================================
+%% PILLAR C: SYNC RECOVERY (Causal DAG)
+%% ==========================================
+    ScanHolds --> HoldCheck{Are there messages\\nmissing parents?}
+
+    HoldCheck -- "Yes" --> RequeueSync[Re-trigger Gap Request\\nfor missing prev_id]:::resume
+    RequeueSync -. "Feeds into Sync Flow" .-> SyncFlow([Normal Sync Flow])
+
+%% --- SYSTEM READY ---
+    FailMsg --> SysReady
+    RequeueTor --> SysReady
+    AwaitPeer --> SysReady
+    RequeueSync --> SysReady
+    HoldCheck -- "No" --> SysReady
+    OutboxCheck -- "Empty" --> SysReady
+    FileCheck -- "No" --> SysReady
+
+    SysReady([3. Boot Recovery Complete\\nStart Normal Heartbeat PINGs]):::boot

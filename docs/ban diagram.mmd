@@ -1,0 +1,52 @@
+flowchart TD
+%% Styling
+    classDef admin fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
+    classDef peer fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    classDef network fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef firewall fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    classDef dag fill:#e2e3e5,stroke:#6c757d,stroke-width:2px;
+
+%% --- THE INITIATION (Two-Tiered DAG) ---
+    Admin[Admin / Device Owner]:::admin
+    CreateEvent[1. Create 'REVOKE_DEVICE' System Event]:::admin
+
+%% The Causal Injection (Updated for Global DAG)
+    InjectDAG[2. Attach 'prev_id' & increment GLOBAL Lamport Clock\nInject strictly into GLOBAL CONTROL DAG]:::dag
+    Broadcast[3. Broadcast Envelope to Mesh]:::network
+
+    Admin --> CreateEvent --> InjectDAG --> Broadcast
+
+%% --- THE PROPAGATION & DAG SYNC ---
+    Peer((Receiving Mesh Node)):::peer
+    Broadcast -. "Over Tor" .-> Peer
+
+%% Standard Message Sync Logic
+    CausalCheck{4. Does DB have\nmsg.prev_id in\nGlobal DAG?}:::peer
+    Peer --> CausalCheck
+
+    CausalHold[(Global Causal Queue)]:::dag
+    CausalCheck -- "No (Missing Parent)" --> CausalHold
+    CausalHold -. "When Parent Arrives" .-> VerifyAuth
+
+%% --- VERIFICATION & EXECUTION ---
+    VerifyAuth{5. Event Unlocked:\nIs Signature Valid?\nAdmin OR Device Owner}:::peer
+CausalCheck -- "Yes" --> VerifyAuth
+
+VerifyAuth -- "No" --> Drop([Drop Event])
+
+VerifyAuth -- "Yes (Valid Auth)" --> UpdateDB[(6. Project to Routing Table:\nUPDATE CONTACTS \nSET status = 'BANNED')]:::peer
+
+UpdateDB --> KillCurrent[7. Terminate active Tor Sockets\nconnected to target .onion]:::network
+
+%% --- THE PERMANENT ENFORCEMENT ---
+KillCurrent --> FirewallState[8. Device is Exiled from Mesh]:::firewall
+
+%% Future Attempts by the Banned Device
+BannedDevice((The Banned Device))
+AttemptPing[Attempts to send\nHeartbeat PING]
+
+BannedDevice --> AttemptPing
+AttemptPing -. "Tor Connection Attempt" .-> NodeSocket
+
+NodeSocket{9. Tor Daemon Socket Listener:\nCheck connecting .onion against DB}:::network
+NodeSocket -- ".onion is BANNED" --> SocketDrop([Instantly Close Connection\nat TCP/Tor Level]):::firewall
