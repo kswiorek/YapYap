@@ -1,0 +1,69 @@
+---
+config:
+  layout: elk
+---
+flowchart TD
+%% Define Styling
+    classDef torPath fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef clearPath fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
+    classDef watchdog fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    classDef external fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+
+%% Actors & External
+    Admin((Admin User))
+    GitHub[(External Repo:\nGitHub / GitLab)]:::external
+
+%% --- THE IN-BAND PATH (TOR) ---
+subgraph TorMesh ["Path A: In-Band (Over Tor)"]
+AdminConfig[Admin modifies Config in UI]
+SignTor[Sign Config Update Event]
+Broadcast[Broadcast to Mesh\nOr send directly to Relay]
+
+AdminConfig --> SignTor --> Broadcast:::torPath
+end
+
+%% --- THE RELAY NODE ---
+subgraph RelayNode ["Headless Relay Server"]
+
+%% Main Application
+subgraph MainApp ["Main Kotlin Application"]
+ReceiveTor((Receive Tor Event))
+TimerConfig[Periodic Config Timer\ne.g., every 12 hrs]
+
+%% Processing Configs
+VerifySig{Verify Admin\nSignature?}
+ApplyConfig[Apply to local SQLite\nReload State]
+
+ReceiveTor --> VerifySig
+end
+
+%% The Watchdog
+subgraph Watchdog ["Independent Updater Daemon (Systemd/Script)"]
+TimerUpdate[Periodic Update Timer\ne.g., every 24 hrs]
+DownloadBin[Download Latest Binary/JAR\n& Signature File]
+VerifyBin{Verify Admin\nSignature?}
+KillSwap[1. Kill Main App\n2. Swap Binary\n3. Restart Main App]
+
+TimerUpdate --> DownloadBin:::watchdog --> VerifyBin
+VerifyBin -- "Yes (Valid & Newer)" --> KillSwap
+end
+
+end
+
+%% --- THE OUT-OF-BAND PATH (CLEARNET) ---
+subgraph Clearnet ["Path B: Out-of-Band Fallback"]
+FetchConfig[Fetch raw config.json\nfrom GitHub over HTTPS]
+
+TimerConfig --> FetchConfig:::clearPath
+FetchConfig --> VerifySig
+end
+
+%% Connections across subgraphs
+Broadcast -. "Over Tor" .-> ReceiveTor
+GitHub -. "Serves Files" .-> FetchConfig
+GitHub -. "Serves Releases" .-> DownloadBin
+
+%% Config Verification Logic
+VerifySig -- "Yes (Valid)" --> ApplyConfig
+VerifySig -- "No (Invalid/Fake)" --> Drop([Silently Drop])
+VerifyBin -- "No (Invalid)" --> Drop

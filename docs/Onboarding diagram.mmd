@@ -1,0 +1,35 @@
+flowchart TD
+%% Roles
+    Newcomer((The Newcomer))
+    Sponsor((The Sponsor))
+    Mesh((The Mesh Network))
+
+%% Step 1: Identity & Out-of-Band
+    GenKeys[Newcomer generates locally:\nAccount Key, Device Key, .onion]
+    ShowQR[Newcomer presents\nIdentity Payload QR/Link]
+ScanQR[Sponsor scans/receives\nIdentity Payload]
+
+Newcomer --> GenKeys --> ShowQR -. "Out-of-Band" .-> ScanQR
+
+%% Step 2: The Split Action (Sponsor processing)
+CreateIntro[Sponsor creates signed\n'Introduction Event']
+CompileRoster[Sponsor compiles current\nMesh Roster from Local DB]
+
+ScanQR --> CreateIntro
+ScanQR --> CompileRoster
+
+%% Step 3: Execution
+BroadcastMesh[Sponsor broadcasts Intro\nover Tor]
+SendRoster[Sponsor sends Roster to\nNewcomer over Tor]
+
+CreateIntro --> BroadcastMesh
+CompileRoster --> SendRoster
+
+BroadcastMesh -. "Mesh verifies Sponsor's Signature\nAdds Newcomer to Local DBs" .-> Mesh
+SendRoster -. "Newcomer saves full\nNetwork Map to Local DB" .-> Newcomer
+
+%% Step 4: The Integration
+NewHello[Newcomer broadcasts initial\nPING to full Roster]
+SendRoster --> NewHello
+
+NewHello -. "Mesh recognizes Newcomer\nReplies with PONG" .-> Mesh
