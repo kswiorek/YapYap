@@ -1,0 +1,151 @@
+import kotlin.Boolean;
+import org.yapyap.backend.db.AccountStatus;
+import org.yapyap.backend.db.DeviceType;
+import org.yapyap.backend.db.RoomType;
+import org.yapyap.backend.db.RoomMemberRole;
+import org.yapyap.backend.db.MessagePayloadType;
+import org.yapyap.backend.db.MessageLifecycleState;
+import org.yapyap.backend.db.FileTransferStatus;
+import org.yapyap.backend.db.FileChunkStatus;
+
+CREATE TABLE accounts (
+    account_pub_key TEXT NOT NULL PRIMARY KEY,
+    is_admin INTEGER AS Boolean NOT NULL,
+    status TEXT AS AccountStatus NOT NULL,
+    display_name TEXT NOT NULL
+);
+
+CREATE TABLE devices (
+    device_id TEXT NOT NULL PRIMARY KEY,
+    account_pub_key TEXT NOT NULL,
+    device_type TEXT AS DeviceType NOT NULL,
+    onion_address TEXT NOT NULL,
+    push_token TEXT,
+    ping_attempts INTEGER NOT NULL,
+    ping_successes INTEGER NOT NULL,
+    last_seen_timestamp INTEGER NOT NULL,
+    FOREIGN KEY (account_pub_key) REFERENCES accounts(account_pub_key)
+);
+
+CREATE TABLE spaces (
+    space_id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    avatar_url TEXT
+);
+
+CREATE TABLE rooms (
+    room_id TEXT NOT NULL PRIMARY KEY,
+    space_id TEXT,
+    type TEXT AS RoomType NOT NULL,
+    name TEXT NOT NULL,
+    local_seq_n INTEGER NOT NULL,
+    FOREIGN KEY (space_id) REFERENCES spaces(space_id)
+);
+
+CREATE TABLE room_members (
+    room_id TEXT NOT NULL,
+    account_pub_key TEXT NOT NULL,
+    role TEXT AS RoomMemberRole NOT NULL,
+    joined_timestamp INTEGER NOT NULL,
+    PRIMARY KEY (room_id, account_pub_key),
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+    FOREIGN KEY (account_pub_key) REFERENCES accounts(account_pub_key)
+);
+
+CREATE TABLE messages (
+    message_id TEXT NOT NULL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    sender_account_pub_key TEXT NOT NULL,
+    prev_id TEXT,
+    lamport_clock INTEGER NOT NULL,
+    payload_type TEXT AS MessagePayloadType NOT NULL,
+    encrypted_payload BLOB NOT NULL,
+    lifecycle_state TEXT AS MessageLifecycleState NOT NULL,
+    is_orphaned INTEGER AS Boolean NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+    FOREIGN KEY (sender_account_pub_key) REFERENCES accounts(account_pub_key),
+    FOREIGN KEY (prev_id) REFERENCES messages(message_id)
+);
+
+CREATE TABLE causal_hold (
+    gap_id TEXT NOT NULL PRIMARY KEY,
+    missing_prev_id TEXT NOT NULL,
+    orphaned_message_id TEXT NOT NULL,
+    detected_timestamp INTEGER NOT NULL,
+    FOREIGN KEY (orphaned_message_id) REFERENCES messages(message_id)
+);
+
+CREATE TABLE pending_syncs (
+    sync_id TEXT NOT NULL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    target_device_id TEXT NOT NULL,
+    missing_ancestor_of TEXT NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+    FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
+);
+
+CREATE TABLE outbox (
+    packet_id TEXT NOT NULL PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    target_device_id TEXT NOT NULL,
+    retry_count INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY (message_id) REFERENCES messages(message_id),
+    FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
+);
+
+CREATE TABLE file_transfers (
+    transfer_id TEXT NOT NULL PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    status TEXT AS FileTransferStatus NOT NULL,
+    file_name_hint TEXT,
+    mime_type TEXT,
+    total_bytes INTEGER NOT NULL,
+    chunk_size_bytes INTEGER NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    object_hash BLOB NOT NULL,
+    highest_contiguous_chunk INTEGER NOT NULL DEFAULT -1,
+    local_file_path TEXT NOT NULL,
+    FOREIGN KEY (message_id) REFERENCES messages(message_id)
+);
+
+CREATE TABLE file_chunk_tracker (
+    transfer_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    status TEXT AS FileChunkStatus NOT NULL,
+    PRIMARY KEY (transfer_id, chunk_index),
+    FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
+);
+
+CREATE TABLE dedup (
+    packet_id TEXT NOT NULL PRIMARY KEY,
+    source_device_id TEXT NOT NULL,
+    received_at INTEGER NOT NULL,
+    FOREIGN KEY (source_device_id) REFERENCES devices(device_id)
+);
+
+CREATE TABLE crypto_sessions (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    peer_device_id TEXT NOT NULL,
+    root_key BLOB NOT NULL,
+    send_chain_key BLOB NOT NULL,
+    recv_chain_key BLOB NOT NULL,
+    remote_dh_pub_key TEXT NOT NULL,
+    FOREIGN KEY (peer_device_id) REFERENCES devices(device_id)
+);
+
+CREATE INDEX devices_account_idx ON devices(account_pub_key);
+CREATE INDEX rooms_space_idx ON rooms(space_id);
+CREATE INDEX room_members_account_idx ON room_members(account_pub_key);
+CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
+CREATE INDEX messages_sender_idx ON messages(sender_account_pub_key);
+CREATE INDEX messages_prev_idx ON messages(prev_id);
+CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
+CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
+CREATE INDEX pending_syncs_device_idx ON pending_syncs(target_device_id);
+CREATE INDEX outbox_message_idx ON outbox(message_id);
+CREATE INDEX outbox_target_device_idx ON outbox(target_device_id);
+CREATE INDEX file_transfers_message_idx ON file_transfers(message_id);
+CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status);
+CREATE INDEX dedup_source_device_idx ON dedup(source_device_id);
+CREATE INDEX crypto_sessions_peer_device_idx ON crypto_sessions(peer_device_id);

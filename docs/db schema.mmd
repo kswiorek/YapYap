@@ -101,12 +101,26 @@ erDiagram
         integer expires_at "TTL limit (e.g., 48 hours)"
     }
 
+    FILE_TRANSFERS ||--o{ FILE_CHUNK_TRACKER : tracks_chunks
+
     FILE_TRANSFERS {
-        string transfer_id PK "Shared ID for the WebRTC stream"
-        string message_id FK "Link to the FILE_OFFER message"
+        string transfer_id PK "From FileEnvelope.transferId"
+        string message_id FK "Links to the parent chat message"
         string status "IN_FLIGHT, PAUSED, COMPLETED, CANCELLED"
-        integer highest_contiguous_chunk "For idempotent WebRTC resume"
-        integer total_bytes "File size"
+        string file_name_hint "Nullable"
+        string mime_type "Nullable"
+        integer total_bytes
+        integer chunk_size_bytes
+        integer chunk_count
+        blob object_hash "To verify the final assembled file"
+        integer highest_contiguous_chunk "Default -1"
+        string local_file_path "Where bytes are saved on OS"
+    }
+
+    FILE_CHUNK_TRACKER {
+        string transfer_id PK,FK "Link to parent transfer"
+        integer chunk_index PK "The specific chunk number"
+        string status "MISSING, REQUESTED, WRITTEN"
     }
 
     DEDUP {

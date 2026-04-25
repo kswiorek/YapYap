@@ -8,30 +8,16 @@ interface DriverFactory {
 
 class DatabaseFactory(
     private val driverFactory: DriverFactory,
+    private val initializer: DatabaseInitializer = DatabaseInitializer(YapYapDatabase.Schema),
 ) {
     fun createConnection(): DatabaseConnection {
         val driver = driverFactory.createDriver()
-
-        // Only initialize schema for a brand-new database file.
-        if (!hasContactsTable(driver)) {
-            YapYapDatabase.Schema.create(driver)
-        }
+        initializer.initialize(driver)
 
         return DatabaseConnection(
             database = YapYapDatabase(driver),
             driver = driver,
         )
-    }
-
-    private fun hasContactsTable(driver: SqlDriver): Boolean {
-        return driver.executeQuery(
-            identifier = null,
-            sql = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-            mapper = { cursor -> cursor.next() },
-            parameters = 1,
-        ) {
-            bindString(0, "contacts")
-        }.value
     }
 }
 
