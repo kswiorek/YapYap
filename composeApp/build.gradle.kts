@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
+    id("app.cash.sqldelight") version "2.3.2"
 }
 
 val webrtcNativeClassifier: String? = run {
@@ -45,6 +46,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
+            implementation("app.cash.sqldelight:android-driver:2.3.2")
         }
         val ktor_version: String by project
         val vKmpTorResource: String by project
@@ -63,9 +65,13 @@ kotlin {
             implementation("io.matthewnelson.kmp-tor:resource-noexec-tor:${vKmpTorResource}")
             implementation("io.ktor:ktor-network:${ktor_version}")
             implementation("io.ktor:ktor-io:${ktor_version}")
+            implementation("app.cash.sqldelight:coroutines-extensions:2.3.2")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+        iosMain.dependencies {
+            implementation("app.cash.sqldelight:native-driver:2.3.2")
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -74,6 +80,9 @@ kotlin {
             if (webrtcNativeClassifier != null) {
                 runtimeOnly("dev.onvoid.webrtc:webrtc-java:0.14.0:$webrtcNativeClassifier")
             }
+            implementation("app.cash.sqldelight:sqlite-driver:2.3.2")
+            implementation("io.github.willena:sqlite-jdbc:3.51.2.0")
+            implementation("com.github.javakeyring:java-keyring:1.0.4")
         }
         jvmTest.dependencies {
             implementation(libs.kotlin.test)
@@ -121,6 +130,18 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "org.yapyap"
             packageVersion = "1.0.0"
+        }
+    }
+}
+
+sqldelight {
+    databases {
+        create("YapYapDatabase") {
+            // This is the package where the generated Kotlin code will live
+            packageName.set("org.yapyap.backend.db")
+
+            // Optional: If you want to use schema versioning later
+            // schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
         }
     }
 }

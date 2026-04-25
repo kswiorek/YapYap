@@ -1,0 +1,45 @@
+flowchart TD
+%% Styling
+    classDef os fill:#e2e3e5,stroke:#6c757d,stroke-width:2px;
+    classDef app fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef network fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    classDef crypto fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    classDef ui fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
+    classDef error fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+
+%% Phase 1: The Wake Up
+    RelayPush[Headless Relay sends generic Data Push]:::network
+    ReceivePush((1. OS Receives\nPush Notification)):::os
+    RelayPush -. "APNs / FCM" .-> ReceivePush
+
+    StartTimer[2. OS wakes app in background\n& starts Timeout Clock]:::os
+    ReceivePush --> StartTimer
+
+%% Phase 2: The Boot & Sync Race
+    BootApp[3. App Boots:\nUnlocks DB & Starts Tor]:::app
+    StartTimer --> BootApp
+
+    FetchSwarm[4. App requests pending\nEnvelopes from Swarm]:::network
+    BootApp --> FetchSwarm
+
+%% The Fork: The Race Condition
+    TimeLimit{5. Does OS Timeout\nhit before Swarm Sync?}:::os
+    FetchSwarm --> TimeLimit
+
+%% Phase 3A: The Fallback (Tor was too slow)
+    TimeLimit -- "Yes (Tor too slow)" --> ShowGeneric[6a. OS forces fallback UI:\n'New Encrypted Message']:::error
+    ShowGeneric --> UserTaps[User taps notification\nApp opens in Foreground]:::ui
+    UserTaps --> ResumeSync[App resumes Swarm Sync\nwith unlimited foreground time]:::app
+    ResumeSync --> Decrypt
+
+%% Phase 3B: The Success (Tor was fast enough)
+    TimeLimit -- "No (Sync finishes in time)" --> Decrypt[6b. Decrypt Payload via\nDouble Ratchet]:::crypto
+
+%% Phase 4: Processing the Decrypted Payload
+    CheckType{7. What is the\nPayload Type?}:::app
+    Decrypt --> CheckType
+
+%% Phase 5: The Local Notification
+    CheckType -- "Text Message" --> ShowText[8a. Trigger Local UI Notification:\n'Alice: Hello!']:::ui
+    CheckType -- "WebRTC Voice Offer" --> ShowCall[8b. Trigger CallKit / Telecom API:\nIncoming Call Screen]:::ui
+    CheckType -- "System / Read Receipt" --> SilentSave[8c. Save to DB & Exit silently]:::ui
