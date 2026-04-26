@@ -15,8 +15,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import org.yapyap.backend.protocol.PacketId
-import org.yapyap.backend.protocol.PeerDescriptor
-import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
@@ -48,26 +47,26 @@ class DefaultWebRtcTransport(
     val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
 
     private var started = false
-    private var localPeer: PeerDescriptor? = null
+    private var localDevice: DeviceAddress? = null
     private var scope: CoroutineScope? = null
 
     private val pendingOffersBySession = mutableMapOf<String, WebRtcSignal>()
-    private val peerBySession = mutableMapOf<String, PeerId>()
+    private val peerBySession = mutableMapOf<String, DeviceAddress>()
     private val pendingAvOffersBySession = mutableMapOf<String, WebRtcSignal>()
-    private val avPeerBySession = mutableMapOf<String, PeerId>()
+    private val avPeerBySession = mutableMapOf<String, DeviceAddress>()
 
     private var backendSignalJob: Job? = null
     private var backendDataJob: Job? = null
     private var backendSessionEventsJob: Job? = null
     private var backendAvSessionEventsJob: Job? = null
 
-    override suspend fun start(localPeer: PeerDescriptor) {
+    override suspend fun start(localDevice: DeviceAddress) {
         check(!started) { "WebRTC transport is already started" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
-        this.localPeer = localPeer
-        backend.start(localPeer)
+        this.localDevice = localDevice
+        backend.start(localDevice)
 
         val backendSignalsCollectorReady = CompletableDeferred<Unit>()
 
@@ -210,11 +209,11 @@ class DefaultWebRtcTransport(
 
         runCatching { backend.stop() }
 
-        localPeer = null
+        localDevice = null
         started = false
     }
 
-    override suspend fun initiateSession(target: PeerId): String {
+    override suspend fun initiateSession(target: DeviceAddress): String {
         check(started) { "WebRTC transport must be started before initiating session" }
         val sessionId = packetIdGenerator().toHex()
         peerBySession[sessionId] = target
@@ -239,14 +238,14 @@ class DefaultWebRtcTransport(
 
     override suspend fun rejectSession(sessionId: String, reason: String) {
         check(started) { "WebRTC transport must be started before rejecting session" }
-        val local = requireNotNull(localPeer) { "Local peer is not available" }
+        val local = requireNotNull(localDevice) { "Local device is not available" }
         val pendingOffer = pendingOffersBySession.remove(sessionId)
             ?: error("No pending offer found for sessionId $sessionId")
 
         val rejectSignal = WebRtcSignal(
             sessionId = sessionId,
             kind = WebRtcSignalKind.REJECT,
-            source = local.id,
+            source = local,
             target = pendingOffer.source,
             payload = reason.encodeToByteArray(),
         )
@@ -264,7 +263,7 @@ class DefaultWebRtcTransport(
         scope?.launch { sendSignal(rejectSignal) } ?: sendSignal(rejectSignal)
     }
 
-    override suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray) {
+    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) {
         check(started) { "WebRTC transport must be started before sending data" }
         backend.sendData(sessionId = sessionId, target = target, payload = payload)
     }
@@ -274,7 +273,7 @@ class DefaultWebRtcTransport(
         backend.closeSession(sessionId)
     }
 
-    override suspend fun initiateAvSession(target: PeerId, options: AvSessionOptions): String {
+    override suspend fun initiateAvSession(target: DeviceAddress, options: AvSessionOptions): String {
         check(started) { "WebRTC transport must be started before initiating AV session" }
         val sessionId = packetIdGenerator().toHex()
         avPeerBySession[sessionId] = target
@@ -299,14 +298,14 @@ class DefaultWebRtcTransport(
 
     override suspend fun rejectAvSession(sessionId: String, reason: String) {
         check(started) { "WebRTC transport must be started before rejecting AV session" }
-        val local = requireNotNull(localPeer) { "Local peer is not available" }
+        val local = requireNotNull(localDevice) { "Local device is not available" }
         val pendingOffer = pendingAvOffersBySession.remove(sessionId)
             ?: error("No pending AV offer found for sessionId $sessionId")
         backend.rejectAvSession(sessionId = sessionId, reason = reason)
         val rejectSignal = WebRtcSignal(
             sessionId = sessionId,
             kind = WebRtcSignalKind.AV_REJECT,
-            source = local.id,
+            source = local,
             target = pendingOffer.source,
             payload = reason.encodeToByteArray(),
         )
@@ -330,8 +329,8 @@ class DefaultWebRtcTransport(
     }
 
     suspend fun handleInboundSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long) {
-        val local = requireNotNull(localPeer) { "Local peer is not available" }
-        if (signal.target != local.id) return
+        val local = requireNotNull(localDevice) { "Local device is not available" }
+        if (signal.target != local) return
 
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {

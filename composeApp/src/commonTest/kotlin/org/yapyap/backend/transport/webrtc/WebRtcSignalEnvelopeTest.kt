@@ -1,6 +1,6 @@
 package org.yapyap.backend.transport.webrtc
 
-import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 import kotlin.test.Test
@@ -15,8 +15,8 @@ class WebRtcSignalEnvelopeTest {
         val envelope = WebRtcSignalEnvelope(
             sessionId = "session-01",
             kind = WebRtcSignalKind.OFFER,
-            source = PeerId(accountId = "alice", deviceId = "alice-phone"),
-            target = PeerId(accountId = "bob", deviceId = "bob-pi"),
+            source = DeviceAddress(accountId = "alice", deviceId = "alice-phone"),
+            target = DeviceAddress(accountId = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_100L,
             nonce = byteArrayOf(1, 2, 3, 4),
             securityScheme = SignalSecurityScheme.SIGNED,

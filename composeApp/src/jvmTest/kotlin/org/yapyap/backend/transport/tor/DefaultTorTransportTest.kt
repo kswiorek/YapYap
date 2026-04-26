@@ -11,9 +11,8 @@ import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.EnvelopeRoute
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
-import org.yapyap.backend.protocol.PeerRole
 import org.yapyap.backend.protocol.TorEndpoint
-import org.yapyap.backend.testutil.testPeer
+import org.yapyap.backend.testutil.testDevice
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -25,16 +24,15 @@ class DefaultTorTransportTest {
     fun sendsEnvelopeBetweenTwoPeers() = runBlocking {
         val network = InMemoryTorNetwork()
 
-        val peerA = testPeer(
+        val peerA = testDevice(
             account = "alice",
             device = "alice-phone",
             onion = "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion",
         )
-        val peerB = testPeer(
+        val peerB = testDevice(
             account = "bob",
             device = "bob-pi",
             onion = "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion",
-            role = PeerRole.HEADLESS_RELAY,
         )
 
         val backendA = InMemoryTorBackend(network, peerA.torEndpoint)
@@ -42,8 +40,8 @@ class DefaultTorTransportTest {
         val transportA = DefaultTorTransport(backend = backendA, clockEpochSeconds = { 1_700_000_001L })
         val transportB = DefaultTorTransport(backend = backendB, clockEpochSeconds = { 1_700_000_002L })
 
-        transportA.start(peerA)
-        transportB.start(peerB)
+        transportA.start(localDevice = peerA.address, localPort = peerA.torEndpoint.port)
+        transportB.start(localDevice = peerB.address, localPort = peerB.torEndpoint.port)
 
         val envelope = BinaryEnvelope(
             packetId = PacketId.fromHex("11223344556677889900aabbccddeeff"),
@@ -52,8 +50,8 @@ class DefaultTorTransportTest {
             expiresAtEpochSeconds = 1_700_000_300L,
             hopCount = 0,
             route = EnvelopeRoute(
-                destinationAccount = peerB.id.accountId,
-                destinationDevice = peerB.id.deviceId,
+                destinationAccount = peerB.address.accountId,
+                destinationDevice = peerB.address.deviceId,
                 nextHopDevice = null,
             ),
             payload = "ciphertext".encodeToByteArray(),

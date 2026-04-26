@@ -1,5 +1,6 @@
 package org.yapyap.backend.db
 
+import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.SqlDriver
 
 interface DriverFactory {
@@ -15,7 +16,15 @@ class DatabaseFactory(
         initializer.initialize(driver)
 
         return DatabaseConnection(
-            database = YapYapDatabase(driver),
+            database = YapYapDatabase(
+                driver = driver,
+                accountsAdapter = Accounts.Adapter(
+                    statusAdapter = EnumColumnAdapter(),
+                ),
+                devicesAdapter = Devices.Adapter(
+                    device_typeAdapter = EnumColumnAdapter(),
+                ),
+            ),
             driver = driver,
         )
     }

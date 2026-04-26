@@ -3,8 +3,8 @@ package org.yapyap.backend.protocol
 data class FileEnvelope(
     val transferId: String,
     val kind: FileEnvelopeKind,
-    val source: PeerId,
-    val target: PeerId,
+    val source: DeviceAddress,
+    val target: DeviceAddress,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
@@ -22,8 +22,8 @@ data class FileEnvelope(
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
         writer.writeString(transferId)
-        writer.writePeerId(source)
-        writer.writePeerId(target)
+        writer.writeDeviceAddress(source)
+        writer.writeDeviceAddress(target)
         writer.writeLong(createdAtEpochSeconds)
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
@@ -94,8 +94,8 @@ data class FileEnvelope(
 
             val kind = FileEnvelopeKind.fromWireValue(reader.readByte())
             val transferId = reader.readString()
-            val source = reader.readPeerId()
-            val target = reader.readPeerId()
+            val source = reader.readDeviceAddress()
+            val target = reader.readDeviceAddress()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
@@ -347,13 +347,13 @@ data class FileCancelPayload(
     }
 }
 
-private fun FileEnvelopeByteWriter.writePeerId(value: PeerId) {
+private fun FileEnvelopeByteWriter.writeDeviceAddress(value: DeviceAddress) {
     writeString(value.accountId)
     writeString(value.deviceId)
 }
 
-private fun FileEnvelopeByteReader.readPeerId(): PeerId {
-    return PeerId(
+private fun FileEnvelopeByteReader.readDeviceAddress(): DeviceAddress {
+    return DeviceAddress(
         accountId = readString(),
         deviceId = readString(),
     )

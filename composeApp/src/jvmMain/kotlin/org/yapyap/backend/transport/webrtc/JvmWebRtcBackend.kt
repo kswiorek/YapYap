@@ -27,8 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import org.yapyap.backend.protocol.PeerDescriptor
-import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
@@ -49,13 +48,13 @@ class JvmWebRtcBackend(
     override val sessionEvents: Flow<WebRtcSessionEvent> = sessionEventFlow.asSharedFlow()
     override val avSessionEvents: Flow<WebRtcAvSessionEvent> = avSessionEventFlow.asSharedFlow()
 
-    private var localPeer: PeerDescriptor? = null
+    private var localDevice: DeviceAddress? = null
     private var factory: PeerConnectionFactory? = null
     private val sessions = ConcurrentHashMap<String, Session>()
 
-    override suspend fun start(localPeer: PeerDescriptor) {
-        check(this.localPeer == null) { "WebRTC backend is already started" }
-        this.localPeer = localPeer
+    override suspend fun start(localDevice: DeviceAddress) {
+        check(this.localDevice == null) { "WebRTC backend is already started" }
+        this.localDevice = localDevice
         this.factory = PeerConnectionFactory()
     }
 
@@ -64,11 +63,11 @@ class JvmWebRtcBackend(
         sessions.clear()
         factory?.dispose()
         factory = null
-        localPeer = null
+        localDevice = null
     }
 
-    override suspend fun openSession(target: PeerId, sessionId: String) {
-        val local = requireNotNull(localPeer) { "WebRTC backend must be started before opening session" }
+    override suspend fun openSession(target: DeviceAddress, sessionId: String) {
+        val local = requireNotNull(localDevice) { "WebRTC backend must be started before opening session" }
         val peerConnection = createPeerConnection(sessionId = sessionId, remotePeer = target)
         val session = Session(sessionId = sessionId, remotePeer = target, peerConnection = peerConnection)
         check(sessions.putIfAbsent(sessionId, session) == null) { "Session already exists: $sessionId" }
@@ -95,7 +94,7 @@ class JvmWebRtcBackend(
                                     WebRtcSignal(
                                         sessionId = sessionId,
                                         kind = WebRtcSignalKind.OFFER,
-                                        source = local.id,
+                                        source = local,
                                         target = target,
                                         payload = description.sdp.encodeToByteArray(),
                                     )
@@ -129,7 +128,7 @@ class JvmWebRtcBackend(
     }
 
     override suspend fun handleRemoteSignal(signal: WebRtcSignal) {
-        val local = requireNotNull(localPeer) { "WebRTC backend must be started before applying remote signal" }
+        val local = requireNotNull(localDevice) { "WebRTC backend must be started before applying remote signal" }
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
                 val session = sessions.computeIfAbsent(signal.sessionId) {
@@ -154,7 +153,7 @@ class JvmWebRtcBackend(
                                                         WebRtcSignal(
                                                             sessionId = signal.sessionId,
                                                             kind = WebRtcSignalKind.ANSWER,
-                                                            source = local.id,
+                                                            source = local,
                                                             target = signal.source,
                                                             payload = answer.sdp.encodeToByteArray(),
                                                         )
@@ -243,14 +242,14 @@ class JvmWebRtcBackend(
     }
 
     override suspend fun closeSession(sessionId: String) {
-        check(localPeer != null) { "WebRTC backend must be started before closing session" }
+        check(localDevice != null) { "WebRTC backend must be started before closing session" }
         val session = sessions.remove(sessionId) ?: return
         session.dispose()
         emitSessionEvent(WebRtcSessionEvent.Closed(sessionId, session.remotePeer))
     }
 
-    override suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray) {
-        check(localPeer != null) { "WebRTC backend must be started before sending data" }
+    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) {
+        check(localDevice != null) { "WebRTC backend must be started before sending data" }
         val session = sessions[sessionId] ?: error("Unknown sessionId: $sessionId")
         check(session.remotePeer == target) { "Session target mismatch for sessionId $sessionId" }
         val channel = session.dataChannel ?: error("No data channel available for sessionId: $sessionId")
@@ -258,14 +257,14 @@ class JvmWebRtcBackend(
         channel.send(RTCDataChannelBuffer(ByteBuffer.wrap(payload), true))
     }
 
-    override suspend fun openAvSession(target: PeerId, sessionId: String, options: AvSessionOptions) {
-        check(localPeer != null) { "WebRTC backend must be started before opening AV session" }
-        val local = requireNotNull(localPeer)
+    override suspend fun openAvSession(target: DeviceAddress, sessionId: String, options: AvSessionOptions) {
+        check(localDevice != null) { "WebRTC backend must be started before opening AV session" }
+        val local = requireNotNull(localDevice)
         emitSignal(
             WebRtcSignal(
                 sessionId = sessionId,
                 kind = WebRtcSignalKind.AV_OFFER,
-                source = local.id,
+                source = local,
                 target = target,
                 payload = encodeAvSessionOptions(options),
             )
@@ -292,7 +291,7 @@ class JvmWebRtcBackend(
     }
 
     override suspend fun updateAvControls(sessionId: String, update: AvControlUpdate) {
-        check(localPeer != null) { "WebRTC backend must be started before updating AV controls" }
+        check(localDevice != null) { "WebRTC backend must be started before updating AV controls" }
     }
 
     override suspend fun closeAvSession(sessionId: String) {
@@ -300,7 +299,7 @@ class JvmWebRtcBackend(
         emitAvSessionEvent(WebRtcAvSessionEvent.Ended(sessionId = sessionId, peer = peer))
     }
 
-    private fun createPeerConnection(sessionId: String, remotePeer: PeerId): RTCPeerConnection {
+    private fun createPeerConnection(sessionId: String, remotePeer: DeviceAddress): RTCPeerConnection {
         val rtcConfig = RTCConfiguration().also { configuration ->
             configuration.iceServers = config.iceServers.map { serverConfig ->
                 RTCIceServer().also { server ->
@@ -310,7 +309,7 @@ class JvmWebRtcBackend(
                 }
             }
         }
-        val local = requireNotNull(localPeer) { "WebRTC backend is not started" }
+        val local = requireNotNull(localDevice) { "WebRTC backend is not started" }
         val factory = requireNotNull(factory) { "PeerConnectionFactory is not available" }
         return factory.createPeerConnection(
             rtcConfig,
@@ -320,7 +319,7 @@ class JvmWebRtcBackend(
                         WebRtcSignal(
                             sessionId = sessionId,
                             kind = WebRtcSignalKind.ICE,
-                            source = local.id,
+                            source = local,
                             target = remotePeer,
                             payload = encodeIceCandidate(candidate),
                         )
@@ -409,7 +408,7 @@ class JvmWebRtcBackend(
 
     private data class Session(
         val sessionId: String,
-        val remotePeer: PeerId,
+        val remotePeer: DeviceAddress,
         val peerConnection: RTCPeerConnection,
         var dataChannel: RTCDataChannel? = null,
     ) {

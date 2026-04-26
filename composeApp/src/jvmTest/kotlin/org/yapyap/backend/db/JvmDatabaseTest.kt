@@ -53,6 +53,12 @@ class JvmDatabaseTest {
                     accountPubKey = "missing-account",
                     deviceType = DeviceType.DESKTOP,
                     onionAddress = "onion-device-1",
+                    signingPubKey = byteArrayOf(1, 2, 3),
+                    signingKeyId = "sign-key-1",
+                    signingKeyVersion = 1L,
+                    encryptionPubKey = byteArrayOf(4, 5, 6),
+                    encryptionKeyId = "enc-key-1",
+                    encryptionKeyVersion = 1L,
                 )
             }
 
@@ -69,6 +75,12 @@ class JvmDatabaseTest {
                 accountPubKey = "acc-bob",
                 deviceType = DeviceType.DESKTOP,
                 onionAddress = "onion-device-1",
+                signingPubKey = byteArrayOf(1, 2, 3),
+                signingKeyId = "sign-key-1",
+                signingKeyVersion = 1L,
+                encryptionPubKey = byteArrayOf(4, 5, 6),
+                encryptionKeyId = "enc-key-1",
+                encryptionKeyVersion = 1L,
             )
             assertEquals(1L, countRows(driver, "devices"))
         }
@@ -191,6 +203,7 @@ class JvmDatabaseTest {
         }
     }
 
+
     private fun withConnection(block: (SqlDriver) -> Unit) {
         val tempDb = Files.createTempFile("yapyap-encrypted-test-", ".db")
         val driverFactory = JvmEncryptedDriverFactory(
@@ -236,25 +249,40 @@ class JvmDatabaseTest {
         accountPubKey: String,
         deviceType: DeviceType,
         onionAddress: String,
+        signingPubKey: ByteArray,
+        signingKeyId: String,
+        signingKeyVersion: Long,
+        encryptionPubKey: ByteArray,
+        encryptionKeyId: String,
+        encryptionKeyVersion: Long,
     ) {
         driver.execute(
             identifier = null,
             sql = """
                 INSERT INTO devices (
-                    device_id, account_pub_key, device_type, onion_address, push_token,
-                    ping_attempts, ping_successes, last_seen_timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    device_id, account_pub_key, device_type, onion_address, onion_port,
+                    signing_pub_key, signing_key_id, signing_key_version,
+                    encryption_pub_key, encryption_key_id, encryption_key_version,
+                    push_token, ping_attempts, ping_successes, last_seen_timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
-            parameters = 8,
+            parameters = 15,
         ) {
             bindString(0, deviceId)
             bindString(1, accountPubKey)
             bindString(2, deviceType.name)
             bindString(3, onionAddress)
-            bindString(4, null)
-            bindLong(5, 0L)
-            bindLong(6, 0L)
-            bindLong(7, 0L)
+            bindLong(4, 80L)
+            bindBytes(5, signingPubKey)
+            bindString(6, signingKeyId)
+            bindLong(7, signingKeyVersion)
+            bindBytes(8, encryptionPubKey)
+            bindString(9, encryptionKeyId)
+            bindLong(10, encryptionKeyVersion)
+            bindString(11, null)
+            bindLong(12, 0L)
+            bindLong(13, 0L)
+            bindLong(14, 0L)
         }
     }
 

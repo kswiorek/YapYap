@@ -2,7 +2,7 @@ package org.yapyap.backend.transport.tor
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.backend.protocol.BinaryEnvelope
-import org.yapyap.backend.protocol.PeerDescriptor
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.TorEndpoint
 
 data class TorInboundEnvelope(
@@ -14,7 +14,7 @@ data class TorInboundEnvelope(
 interface TorTransport {
     val incoming: Flow<TorInboundEnvelope>
 
-    suspend fun start(localPeer: PeerDescriptor)
+    suspend fun start(localDevice: DeviceAddress, localPort: Int)
 
     suspend fun stop()
 

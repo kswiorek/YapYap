@@ -9,13 +9,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
-import org.yapyap.backend.directory.InMemoryPeerDirectory
+import org.yapyap.backend.protection.PlaintextWebRtcSignalProtection
+import org.yapyap.backend.protection.WebRtcSignalProtectionContext
 import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.PacketId
-import org.yapyap.backend.protocol.PeerDescriptor
-import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
-import org.yapyap.backend.testutil.testPeer
+import org.yapyap.backend.testutil.testDevice
 import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
@@ -34,9 +34,8 @@ class DefaultWebRtcTransportTest {
     fun incomingOfferRequiresAcceptanceBeforeBackendApply() = runBlocking {
         val network = InMemoryTorTransportNetwork()
 
-        val peerA = testPeer("alice", "alice-phone", "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion")
-        val peerB = testPeer("bob", "bob-pi", "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion")
-        val peerDirectory = InMemoryPeerDirectory(listOf(peerA, peerB))
+        val peerA = testDevice("alice", "alice-phone", "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion")
+        val peerB = testDevice("bob", "bob-pi", "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion")
 
         val torA = InMemoryTorTransport(network, peerA.torEndpoint)
         val torB = InMemoryTorTransport(network, peerB.torEndpoint)
@@ -53,7 +52,20 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_001L },
                 nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
-                peerDirectory = peerDirectory,
+                resolveAccountIdForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.address.accountId
+                        peerB.address.deviceId -> peerB.address.accountId
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
+                resolveTorEndpointForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.torEndpoint
+                        peerB.address.deviceId -> peerB.torEndpoint
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
             ),
             packetIdGenerator = { PacketId.fromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") },
         )
@@ -67,12 +79,25 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_002L },
                 nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
-                peerDirectory = peerDirectory,
+                resolveAccountIdForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.address.accountId
+                        peerB.address.deviceId -> peerB.address.accountId
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
+                resolveTorEndpointForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.torEndpoint
+                        peerB.address.deviceId -> peerB.torEndpoint
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
             ),
             packetIdGenerator = { PacketId.fromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") },
         )
-        transportA.start(peerA)
-        transportB.start(peerB)
+        transportA.start(peerA.address)
+        transportB.start(peerB.address)
 
         val sessionId = "session-offer-1"
         val pendingRequestDeferred = async {
@@ -83,15 +108,15 @@ class DefaultWebRtcTransportTest {
             WebRtcSignal(
                 sessionId = sessionId,
                 kind = WebRtcSignalKind.OFFER,
-                source = peerA.id,
-                target = peerB.id,
+                source = peerA.address,
+                target = peerB.address,
                 payload = "offer".encodeToByteArray(),
             )
         )
 
         val request = pendingRequestDeferred.await()
         assertEquals(sessionId, request.sessionId)
-        assertEquals(peerA.id, request.source)
+        assertEquals(peerA.address, request.source)
         assertTrue(backendB.handledSignals.isEmpty())
 
         transportB.acceptSession(sessionId)
@@ -106,9 +131,8 @@ class DefaultWebRtcTransportTest {
     fun rejectingOfferSendsRejectSignalBack() = runBlocking {
         val network = InMemoryTorTransportNetwork()
 
-        val peerA = testPeer("alice", "alice-phone", "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion")
-        val peerB = testPeer("bob", "bob-pi", "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion")
-        val peerDirectory = InMemoryPeerDirectory(listOf(peerA, peerB))
+        val peerA = testDevice("alice", "alice-phone", "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion")
+        val peerB = testDevice("bob", "bob-pi", "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion")
 
         val torA = InMemoryTorTransport(network, peerA.torEndpoint)
         val torB = InMemoryTorTransport(network, peerB.torEndpoint)
@@ -125,7 +149,20 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_001L },
                 nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
-                peerDirectory = peerDirectory,
+                resolveAccountIdForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.address.accountId
+                        peerB.address.deviceId -> peerB.address.accountId
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
+                resolveTorEndpointForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.torEndpoint
+                        peerB.address.deviceId -> peerB.torEndpoint
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
             ),
             packetIdGenerator = { PacketId.fromHex("cccccccccccccccccccccccccccccccc") },
         )
@@ -139,13 +176,26 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_002L },
                 nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
-                peerDirectory = peerDirectory,
+                resolveAccountIdForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.address.accountId
+                        peerB.address.deviceId -> peerB.address.accountId
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
+                resolveTorEndpointForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.torEndpoint
+                        peerB.address.deviceId -> peerB.torEndpoint
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
             ),
             packetIdGenerator = { PacketId.fromHex("dddddddddddddddddddddddddddddddd") },
         )
 
-        transportA.start(peerA)
-        transportB.start(peerB)
+        transportA.start(peerA.address)
+        transportB.start(peerB.address)
 
         val sessionId = "session-offer-2"
         val rejectedStateDeferred = async {
@@ -158,8 +208,8 @@ class DefaultWebRtcTransportTest {
             WebRtcSignal(
                 sessionId = sessionId,
                 kind = WebRtcSignalKind.OFFER,
-                source = peerA.id,
-                target = peerB.id,
+                source = peerA.address,
+                target = peerB.address,
                 payload = "offer".encodeToByteArray(),
             )
         )
@@ -192,11 +242,11 @@ private class FakeWebRtcBackend : WebRtcBackend {
 
     val handledSignals = mutableListOf<WebRtcSignal>()
 
-    override suspend fun start(localPeer: PeerDescriptor) = Unit
+    override suspend fun start(localDevice: DeviceAddress) = Unit
 
     override suspend fun stop() = Unit
 
-    override suspend fun openSession(target: PeerId, sessionId: String) = Unit
+    override suspend fun openSession(target: DeviceAddress, sessionId: String) = Unit
 
     override suspend fun handleRemoteSignal(signal: WebRtcSignal) {
         handledSignals += signal
@@ -204,9 +254,9 @@ private class FakeWebRtcBackend : WebRtcBackend {
 
     override suspend fun closeSession(sessionId: String) = Unit
 
-    override suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray) = Unit
+    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) = Unit
 
-    override suspend fun openAvSession(target: PeerId, sessionId: String, options: AvSessionOptions) = Unit
+    override suspend fun openAvSession(target: DeviceAddress, sessionId: String, options: AvSessionOptions) = Unit
 
     override suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions) = Unit
 
@@ -255,7 +305,7 @@ private class InMemoryTorTransport(
 
     private var started = false
 
-    override suspend fun start(localPeer: PeerDescriptor) {
+    override suspend fun start(localDevice: DeviceAddress, localPort: Int) {
         started = true
         network.register(endpoint, incomingFlow)
     }

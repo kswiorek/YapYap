@@ -12,8 +12,8 @@ class FileEnvelopeTest {
         val envelope = FileEnvelope(
             transferId = "file-transfer-01",
             kind = FileEnvelopeKind.CHUNK,
-            source = PeerId(accountId = "alice", deviceId = "alice-phone"),
-            target = PeerId(accountId = "bob", deviceId = "bob-pi"),
+            source = DeviceAddress(accountId = "alice", deviceId = "alice-phone"),
+            target = DeviceAddress(accountId = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_100L,
             nonce = byteArrayOf(1, 2, 3, 4),
             securityScheme = SignalSecurityScheme.SIGNED,
@@ -53,8 +53,8 @@ class FileEnvelopeTest {
         val payload = FileEnvelope(
             transferId = "file-transfer-02",
             kind = FileEnvelopeKind.OFFER,
-            source = PeerId(accountId = "alice", deviceId = "alice-phone"),
-            target = PeerId(accountId = "bob", deviceId = "bob-pi"),
+            source = DeviceAddress(accountId = "alice", deviceId = "alice-phone"),
+            target = DeviceAddress(accountId = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_200L,
             nonce = byteArrayOf(5, 6, 7, 8),
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -151,8 +151,8 @@ class FileEnvelopeTest {
         val envelope = FileEnvelope(
             transferId = "file-transfer-03",
             kind = FileEnvelopeKind.ACK,
-            source = PeerId(accountId = "alice", deviceId = "alice-phone"),
-            target = PeerId(accountId = "bob", deviceId = "bob-pi"),
+            source = DeviceAddress(accountId = "alice", deviceId = "alice-phone"),
+            target = DeviceAddress(accountId = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_300L,
             nonce = byteArrayOf(9, 9, 9, 9),
             securityScheme = SignalSecurityScheme.SIGNED,

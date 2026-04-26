@@ -8,10 +8,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.yapyap.backend.directory.InMemoryPeerDirectory
+import org.yapyap.backend.protection.PlaintextWebRtcSignalProtection
+import org.yapyap.backend.protection.WebRtcSignalProtectionContext
 import org.yapyap.backend.protocol.PacketId
-import org.yapyap.backend.protocol.PeerId
-import org.yapyap.backend.testutil.testPeer
+import org.yapyap.backend.protocol.DeviceAddress
+import org.yapyap.backend.testutil.testDevice
 import org.yapyap.backend.transport.tor.DefaultTorTransport
 import org.yapyap.backend.transport.tor.KmpTorNoExecBackend
 import org.yapyap.backend.transport.tor.TorBackendConfig
@@ -30,17 +31,16 @@ class LiveTorWebRtcIntegrationTest {
         val deviceA = "alice-$runId"
         val deviceB = "bob-$runId"
 
-        val peerA = testPeer(
+        val peerA = testDevice(
             account = "alice",
             device = deviceA,
             onion = "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion",
         )
-        val peerB = testPeer(
+        val peerB = testDevice(
             account = "bob",
             device = deviceB,
             onion = "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion",
         )
-        val peerDirectory = InMemoryPeerDirectory(listOf(peerA, peerB))
 
         val torBackendA = KmpTorNoExecBackend(
             deviceId = deviceA,
@@ -61,7 +61,20 @@ class LiveTorWebRtcIntegrationTest {
             torTransport = torTransportA,
             protection = PlaintextWebRtcSignalProtection(),
             protectionContext = WebRtcSignalProtectionContext(
-                peerDirectory = peerDirectory,
+                resolveAccountIdForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.address.accountId
+                        peerB.address.deviceId -> peerB.address.accountId
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
+                resolveTorEndpointForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> requireNotNull(torBackendA.publishedLocalEndpoint) { "Peer A endpoint unavailable" }
+                        peerB.address.deviceId -> requireNotNull(torBackendB.publishedLocalEndpoint) { "Peer B endpoint unavailable" }
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
             ),
         )
         val transportB = TorRoutedWebRtcTransport(
@@ -72,14 +85,27 @@ class LiveTorWebRtcIntegrationTest {
             torTransport = torTransportB,
             protection = PlaintextWebRtcSignalProtection(),
             protectionContext = WebRtcSignalProtectionContext(
-                peerDirectory = peerDirectory,
+                resolveAccountIdForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> peerA.address.accountId
+                        peerB.address.deviceId -> peerB.address.accountId
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
+                resolveTorEndpointForDevice = { deviceId ->
+                    when (deviceId) {
+                        peerA.address.deviceId -> requireNotNull(torBackendA.publishedLocalEndpoint) { "Peer A endpoint unavailable" }
+                        peerB.address.deviceId -> requireNotNull(torBackendB.publishedLocalEndpoint) { "Peer B endpoint unavailable" }
+                        else -> error("Unknown deviceId: $deviceId")
+                    }
+                },
             ),
         )
 
         var autoAcceptJob: Job? = null
         try {
-            transportA.start(peerA)
-            transportB.start(peerB)
+            transportA.start(peerA.address)
+            transportB.start(peerB.address)
 
             autoAcceptJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 transportB.incomingSessionRequests.collect { request ->
@@ -88,20 +114,20 @@ class LiveTorWebRtcIntegrationTest {
             }
 
             val sessionId = withTimeout(240.seconds) {
-                transportA.initiateSession(target = peerB.id)
+                transportA.initiateSession(target = peerB.address)
             }
 
             withTimeout(240.seconds) {
                 transportA.sessionStates.first {
                     it.sessionId == sessionId &&
-                        it.peer == peerB.id &&
+                        it.peer == peerB.address &&
                         it.phase == WebRtcSessionPhase.CONNECTED
                 }
             }
             withTimeout(240.seconds) {
                 transportB.sessionStates.first {
                     it.sessionId == sessionId &&
-                        it.peer == peerA.id &&
+                        it.peer == peerA.address &&
                         it.phase == WebRtcSessionPhase.CONNECTED
                 }
             }
@@ -110,18 +136,18 @@ class LiveTorWebRtcIntegrationTest {
             sendWhenReady(
                 transport = transportA,
                 sessionId = sessionId,
-                target = peerB.id,
+                target = peerB.address,
                 payload = payload,
             )
 
             val inbound = withTimeout(120.seconds) {
                 transportB.incomingData.first { frame ->
-                    frame.sessionId == sessionId && frame.source == peerA.id
+                    frame.sessionId == sessionId && frame.source == peerA.address
                 }
             }
 
             assertEquals(sessionId, inbound.sessionId)
-            assertEquals(peerA.id, inbound.source)
+            assertEquals(peerA.address, inbound.source)
             assertContentEquals(payload, inbound.payload)
         } finally {
             autoAcceptJob?.cancel()
@@ -133,7 +159,7 @@ class LiveTorWebRtcIntegrationTest {
     private suspend fun sendWhenReady(
         transport: WebRtcTransport,
         sessionId: String,
-        target: PeerId,
+        target: DeviceAddress,
         payload: ByteArray,
     ) {
         withTimeout(30.seconds) {

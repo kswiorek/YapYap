@@ -8,12 +8,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import org.yapyap.backend.protection.WebRtcSignalProtection
+import org.yapyap.backend.protection.WebRtcSignalProtectionContext
 import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
-import org.yapyap.backend.protocol.PeerDescriptor
-import org.yapyap.backend.protocol.PeerId
-import org.yapyap.backend.routing.PlaceholderRouter
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
@@ -35,8 +35,6 @@ class TorRoutedWebRtcTransport(
     private val protectionContext: WebRtcSignalProtectionContext,
     private val packetIdGenerator: () -> PacketId = { PacketId.random() },
 ) : WebRtcTransport {
-    private val placeholderRouter = PlaceholderRouter(protectionContext.peerDirectory)
-
     override val incomingData: Flow<WebRtcIncomingDataFrame> = delegate.incomingData
     override val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest> = delegate.incomingSessionRequests
     override val sessionStates: Flow<WebRtcSessionState> = delegate.sessionStates
@@ -48,13 +46,14 @@ class TorRoutedWebRtcTransport(
     private var outgoingSignalsJob: Job? = null
     private var torIncomingJob: Job? = null
 
-    override suspend fun start(localPeer: PeerDescriptor) {
+    override suspend fun start(localDevice: DeviceAddress) {
         check(!started) { "WebRTC router transport is already started" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
-        torTransport.start(localPeer)
-        delegate.start(localPeer)
+        val localEndpoint = protectionContext.resolveTorEndpointForDevice(localDevice.deviceId)
+        torTransport.start(localDevice = localDevice, localPort = localEndpoint.port)
+        delegate.start(localDevice)
 
         outgoingSignalsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             delegate.outgoingSignals.collect { signal ->
@@ -70,11 +69,15 @@ class TorRoutedWebRtcTransport(
                     createdAtEpochSeconds = createdAt,
                     expiresAtEpochSeconds = createdAt + protectionContext.signalTtlSeconds,
                     hopCount = 0,
-                    route = placeholderRouter.routeForTarget(signal.target),
+                    route = org.yapyap.backend.protocol.EnvelopeRoute(
+                        destinationAccount = protectionContext.resolveAccountIdForDevice(signal.target.deviceId),
+                        destinationDevice = signal.target.deviceId,
+                        nextHopDevice = null,
+                    ),
                     payload = signalEnvelope.encode(),
                 )
                 torTransport.send(
-                    target = protectionContext.peerDirectory.resolveTorEndpoint(signal.target),
+                    target = protectionContext.resolveTorEndpointForDevice(signal.target.deviceId),
                     envelope = envelope,
                 )
             }
@@ -107,19 +110,19 @@ class TorRoutedWebRtcTransport(
         started = false
     }
 
-    override suspend fun initiateSession(target: PeerId): String = delegate.initiateSession(target)
+    override suspend fun initiateSession(target: DeviceAddress): String = delegate.initiateSession(target)
 
     override suspend fun acceptSession(sessionId: String) = delegate.acceptSession(sessionId)
 
     override suspend fun rejectSession(sessionId: String, reason: String) = delegate.rejectSession(sessionId, reason)
 
-    override suspend fun sendData(sessionId: String, target: PeerId, payload: ByteArray) {
+    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) {
         delegate.sendData(sessionId, target, payload)
     }
 
     override suspend fun closeSession(sessionId: String) = delegate.closeSession(sessionId)
 
-    override suspend fun initiateAvSession(target: PeerId, options: AvSessionOptions): String {
+    override suspend fun initiateAvSession(target: DeviceAddress, options: AvSessionOptions): String {
         return delegate.initiateAvSession(target = target, options = options)
     }
 

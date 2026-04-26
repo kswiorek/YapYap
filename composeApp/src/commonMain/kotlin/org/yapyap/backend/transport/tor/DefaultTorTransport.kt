@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import org.yapyap.backend.protocol.BinaryEnvelope
-import org.yapyap.backend.protocol.PeerDescriptor
+import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultTorTransport(
@@ -26,7 +26,7 @@ class DefaultTorTransport(
 
     override val incoming: Flow<TorInboundEnvelope> = incomingFlow.asSharedFlow()
 
-    override suspend fun start(localPeer: PeerDescriptor) {
+    override suspend fun start(localDevice: DeviceAddress, localPort: Int) {
         check(!started) { "Tor transport is already started" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
@@ -45,7 +45,7 @@ class DefaultTorTransport(
         }
 
         try {
-            backend.start(localPeer.torEndpoint.port)
+            backend.start(localPort)
             started = true
         } catch (error: Throwable) {
             frameCollectorJob?.cancel()
