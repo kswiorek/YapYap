@@ -47,3 +47,30 @@ WHERE account_pub_key = ?;
 selectAllDevices:
 SELECT *
 FROM devices;
+
+updateDeviceSigningKey:
+UPDATE devices
+SET
+    signing_pub_key = ?,
+    signing_key_id = ?,
+    signing_key_version = ?
+WHERE device_id = ?;
+
+updateDeviceEncryptionKey:
+UPDATE devices
+SET
+    encryption_pub_key = ?,
+    encryption_key_id = ?,
+    encryption_key_version = ?
+WHERE device_id = ?;
+
+updateDeviceIdentityKeys:
+UPDATE devices
+SET
+    signing_pub_key = ?,
+    signing_key_id = ?,
+    signing_key_version = ?,
+    encryption_pub_key = ?,
+    encryption_key_id = ?,
+    encryption_key_version = ?
+WHERE device_id = ?;

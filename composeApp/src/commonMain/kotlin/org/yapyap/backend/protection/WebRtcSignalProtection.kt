@@ -12,7 +12,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
  * Real implementations should sign/encrypt payloads before transport and verify/decrypt on receive.
  */
 interface WebRtcSignalProtection {
-    fun protect(signal: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope
+    fun protect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope
 
     fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal
 }

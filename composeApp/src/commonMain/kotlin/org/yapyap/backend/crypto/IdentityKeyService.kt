@@ -21,6 +21,10 @@ data class LocalIdentityRecord(
 )
 
 interface IdentityPublicKeyRepository {
+    fun ensureAccountExists(accountId: String)
+
+    fun ensureDeviceExists(address: DeviceAddress)
+
     fun upsertLocalIdentity(identity: LocalIdentityRecord)
 
     fun resolveDeviceKey(deviceId: String, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?

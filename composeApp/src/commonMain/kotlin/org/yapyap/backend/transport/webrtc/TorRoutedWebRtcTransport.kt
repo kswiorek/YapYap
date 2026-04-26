@@ -64,7 +64,7 @@ class TorRoutedWebRtcTransport(
             delegate.outgoingSignals.collect { signal ->
                 val createdAt = nowEpochSeconds()
                 val signalEnvelope = protection.protect(
-                    signal = signal,
+                    input = signal,
                     createdAtEpochSeconds = createdAt,
                     nonce = nonceGenerator(),
                 )
