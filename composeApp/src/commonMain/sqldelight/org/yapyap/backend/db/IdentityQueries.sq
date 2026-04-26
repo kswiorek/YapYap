@@ -1,0 +1,49 @@
+putAccount:
+INSERT OR REPLACE INTO accounts (
+    account_pub_key,
+    is_admin,
+    status,
+    display_name
+) VALUES (?, ?, ?, ?);
+
+selectAccountByPubKey:
+SELECT *
+FROM accounts
+WHERE account_pub_key = ?;
+
+selectAllAccounts:
+SELECT *
+FROM accounts;
+
+putDevice:
+INSERT OR REPLACE INTO devices (
+    device_id,
+    account_pub_key,
+    device_type,
+    onion_address,
+    onion_port,
+    signing_pub_key,
+    signing_key_id,
+    signing_key_version,
+    encryption_pub_key,
+    encryption_key_id,
+    encryption_key_version,
+    push_token,
+    ping_attempts,
+    ping_successes,
+    last_seen_timestamp
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectDeviceById:
+SELECT *
+FROM devices
+WHERE device_id = ?;
+
+selectDevicesByAccountPubKey:
+SELECT *
+FROM devices
+WHERE account_pub_key = ?;
+
+selectAllDevices:
+SELECT *
+FROM devices;
