@@ -348,13 +348,13 @@ data class FileCancelPayload(
 }
 
 private fun FileEnvelopeByteWriter.writePeerId(value: PeerId) {
-    writeString(value.accountName)
+    writeString(value.accountId)
     writeString(value.deviceId)
 }
 
 private fun FileEnvelopeByteReader.readPeerId(): PeerId {
     return PeerId(
-        accountName = readString(),
+        accountId = readString(),
         deviceId = readString(),
     )
 }

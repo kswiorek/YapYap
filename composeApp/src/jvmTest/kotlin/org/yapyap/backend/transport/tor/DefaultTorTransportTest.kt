@@ -52,7 +52,7 @@ class DefaultTorTransportTest {
             expiresAtEpochSeconds = 1_700_000_300L,
             hopCount = 0,
             route = EnvelopeRoute(
-                destinationAccount = peerB.id.accountName,
+                destinationAccount = peerB.id.accountId,
                 destinationDevice = peerB.id.deviceId,
                 nextHopDevice = null,
             ),

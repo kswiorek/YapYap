@@ -66,6 +66,8 @@ kotlin {
             implementation("io.ktor:ktor-network:${ktor_version}")
             implementation("io.ktor:ktor-io:${ktor_version}")
             implementation("app.cash.sqldelight:coroutines-extensions:2.3.2")
+            implementation("dev.whyoleg.cryptography:cryptography-core:0.6.0")
+            implementation("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

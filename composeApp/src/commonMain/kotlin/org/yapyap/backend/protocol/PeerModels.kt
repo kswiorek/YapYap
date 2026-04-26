@@ -24,11 +24,11 @@ enum class PeerAvailabilityClass {
 }
 
 data class PeerId(
-    val accountName: String,
+    val accountId: String,
     val deviceId: String,
 ) {
     init {
-        require(accountName.isNotBlank()) { "accountName must not be blank" }
+        require(accountId.isNotBlank()) { "accountId must not be blank" }
         require(deviceId.isNotBlank()) { "deviceId must not be blank" }
     }
 }

@@ -15,8 +15,8 @@ class WebRtcSignalEnvelopeTest {
         val envelope = WebRtcSignalEnvelope(
             sessionId = "session-01",
             kind = WebRtcSignalKind.OFFER,
-            source = PeerId(accountName = "alice", deviceId = "alice-phone"),
-            target = PeerId(accountName = "bob", deviceId = "bob-pi"),
+            source = PeerId(accountId = "alice", deviceId = "alice-phone"),
+            target = PeerId(accountId = "bob", deviceId = "bob-pi"),
             createdAtEpochSeconds = 1_700_000_100L,
             nonce = byteArrayOf(1, 2, 3, 4),
             securityScheme = SignalSecurityScheme.SIGNED,

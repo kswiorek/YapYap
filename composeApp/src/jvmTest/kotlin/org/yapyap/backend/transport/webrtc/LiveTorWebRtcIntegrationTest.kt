@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.yapyap.backend.directory.InMemoryPeerDirectory
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.testutil.testPeer
@@ -39,6 +40,7 @@ class LiveTorWebRtcIntegrationTest {
             device = deviceB,
             onion = "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion",
         )
+        val peerDirectory = InMemoryPeerDirectory(listOf(peerA, peerB))
 
         val torBackendA = KmpTorNoExecBackend(
             deviceId = deviceA,
@@ -59,13 +61,7 @@ class LiveTorWebRtcIntegrationTest {
             torTransport = torTransportA,
             protection = PlaintextWebRtcSignalProtection(),
             protectionContext = WebRtcSignalProtectionContext(
-                resolveTorEndpoint = { target ->
-                    when (target) {
-                        peerA.id -> requireNotNull(torBackendA.publishedLocalEndpoint) { "Peer A endpoint unavailable" }
-                        peerB.id -> requireNotNull(torBackendB.publishedLocalEndpoint) { "Peer B endpoint unavailable" }
-                        else -> error("Unknown target $target")
-                    }
-                }
+                peerDirectory = peerDirectory,
             ),
         )
         val transportB = TorRoutedWebRtcTransport(
@@ -76,13 +72,7 @@ class LiveTorWebRtcIntegrationTest {
             torTransport = torTransportB,
             protection = PlaintextWebRtcSignalProtection(),
             protectionContext = WebRtcSignalProtectionContext(
-                resolveTorEndpoint = { target ->
-                    when (target) {
-                        peerA.id -> requireNotNull(torBackendA.publishedLocalEndpoint) { "Peer A endpoint unavailable" }
-                        peerB.id -> requireNotNull(torBackendB.publishedLocalEndpoint) { "Peer B endpoint unavailable" }
-                        else -> error("Unknown target $target")
-                    }
-                }
+                peerDirectory = peerDirectory,
             ),
         )
 

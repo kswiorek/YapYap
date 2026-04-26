@@ -9,11 +9,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import org.yapyap.backend.protocol.BinaryEnvelope
-import org.yapyap.backend.protocol.EnvelopeRoute
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.PeerDescriptor
 import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.routing.PlaceholderRouter
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
@@ -35,6 +35,7 @@ class TorRoutedWebRtcTransport(
     private val protectionContext: WebRtcSignalProtectionContext,
     private val packetIdGenerator: () -> PacketId = { PacketId.random() },
 ) : WebRtcTransport {
+    private val placeholderRouter = PlaceholderRouter(protectionContext.peerDirectory)
 
     override val incomingData: Flow<WebRtcIncomingDataFrame> = delegate.incomingData
     override val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest> = delegate.incomingSessionRequests
@@ -69,15 +70,11 @@ class TorRoutedWebRtcTransport(
                     createdAtEpochSeconds = createdAt,
                     expiresAtEpochSeconds = createdAt + protectionContext.signalTtlSeconds,
                     hopCount = 0,
-                    route = EnvelopeRoute(
-                        destinationAccount = signal.target.accountName,
-                        destinationDevice = signal.target.deviceId,
-                        nextHopDevice = null,
-                    ),
+                    route = placeholderRouter.routeForTarget(signal.target),
                     payload = signalEnvelope.encode(),
                 )
                 torTransport.send(
-                    target = protectionContext.resolveTorEndpoint(signal.target),
+                    target = protectionContext.peerDirectory.resolveTorEndpoint(signal.target),
                     envelope = envelope,
                 )
             }

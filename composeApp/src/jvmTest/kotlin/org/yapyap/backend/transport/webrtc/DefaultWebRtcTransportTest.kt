@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import org.yapyap.backend.directory.InMemoryPeerDirectory
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PeerDescriptor
@@ -35,6 +36,7 @@ class DefaultWebRtcTransportTest {
 
         val peerA = testPeer("alice", "alice-phone", "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion")
         val peerB = testPeer("bob", "bob-pi", "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion")
+        val peerDirectory = InMemoryPeerDirectory(listOf(peerA, peerB))
 
         val torA = InMemoryTorTransport(network, peerA.torEndpoint)
         val torB = InMemoryTorTransport(network, peerB.torEndpoint)
@@ -51,7 +53,7 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_001L },
                 nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
-                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+                peerDirectory = peerDirectory,
             ),
             packetIdGenerator = { PacketId.fromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") },
         )
@@ -65,7 +67,7 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_002L },
                 nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
-                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+                peerDirectory = peerDirectory,
             ),
             packetIdGenerator = { PacketId.fromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") },
         )
@@ -106,6 +108,7 @@ class DefaultWebRtcTransportTest {
 
         val peerA = testPeer("alice", "alice-phone", "alice1234567890abcdef1234567890abcdef1234567890abcdef.onion")
         val peerB = testPeer("bob", "bob-pi", "bob1234567890abcdef1234567890abcdef1234567890abcdef12.onion")
+        val peerDirectory = InMemoryPeerDirectory(listOf(peerA, peerB))
 
         val torA = InMemoryTorTransport(network, peerA.torEndpoint)
         val torB = InMemoryTorTransport(network, peerB.torEndpoint)
@@ -122,7 +125,7 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_001L },
                 nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
-                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+                peerDirectory = peerDirectory,
             ),
             packetIdGenerator = { PacketId.fromHex("cccccccccccccccccccccccccccccccc") },
         )
@@ -136,7 +139,7 @@ class DefaultWebRtcTransportTest {
             protectionContext = WebRtcSignalProtectionContext(
                 nowEpochSeconds = { 1_700_000_002L },
                 nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
-                resolveTorEndpoint = { peer -> if (peer == peerA.id) peerA.torEndpoint else peerB.torEndpoint },
+                peerDirectory = peerDirectory,
             ),
             packetIdGenerator = { PacketId.fromHex("dddddddddddddddddddddddddddddddd") },
         )

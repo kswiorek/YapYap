@@ -98,13 +98,13 @@ data class WebRtcSignalEnvelope(
 }
 
 private fun ByteWriter.writePeerId(value: PeerId) {
-    writeString(value.accountName)
+    writeString(value.accountId)
     writeString(value.deviceId)
 }
 
 private fun ByteReader.readPeerId(): PeerId {
     return PeerId(
-        accountName = readString(),
+        accountId = readString(),
         deviceId = readString(),
     )
 }

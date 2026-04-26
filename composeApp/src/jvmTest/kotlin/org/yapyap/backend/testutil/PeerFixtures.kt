@@ -16,7 +16,7 @@ fun testPeer(
     onion: String,
     role: PeerRole = PeerRole.USER_DEVICE,
 ): PeerDescriptor {
-    val id = PeerId(accountName = account, deviceId = device)
+    val id = PeerId(accountId = account, deviceId = device)
     return PeerDescriptor(
         id = id,
         torEndpoint = TorEndpoint(onionAddress = onion),

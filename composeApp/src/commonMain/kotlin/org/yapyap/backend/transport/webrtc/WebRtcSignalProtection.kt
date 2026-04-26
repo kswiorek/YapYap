@@ -2,7 +2,7 @@ package org.yapyap.backend.transport.webrtc
 
 import kotlin.random.Random
 import kotlin.time.Clock
-import org.yapyap.backend.protocol.PeerId
+import org.yapyap.backend.directory.PeerDirectory
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.routing.EnvelopeObservability
 import org.yapyap.backend.routing.FieldSensitivity
@@ -65,5 +65,5 @@ data class WebRtcSignalProtectionContext(
     val nowEpochSeconds: () -> Long = { Clock.System.now().epochSeconds },
     val nonceGenerator: () -> ByteArray = { Random.Default.nextBytes(16) },
     val signalTtlSeconds: Long = 300,
-    val resolveTorEndpoint: (PeerId) -> org.yapyap.backend.protocol.TorEndpoint,
+    val peerDirectory: PeerDirectory,
 )
