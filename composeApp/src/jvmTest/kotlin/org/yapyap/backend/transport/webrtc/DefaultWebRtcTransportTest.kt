@@ -10,7 +10,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.yapyap.backend.protection.PlaintextWebRtcSignalProtection
-import org.yapyap.backend.protection.WebRtcSignalProtectionContext
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.PacketId
@@ -49,24 +48,23 @@ class DefaultWebRtcTransportTest {
             ),
             torTransport = torA,
             protection = PlaintextWebRtcSignalProtection(),
-            protectionContext = WebRtcSignalProtectionContext(
-                nowEpochSeconds = { 1_700_000_001L },
-                nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
-                resolveAccountIdForDevice = { deviceId ->
+            signalRoutingResolver = object : SignalRoutingResolver {
+                override fun resolveAccountIdForDevice(deviceId: String): String =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.address.accountId
                         peerB.address.deviceId -> peerB.address.accountId
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-                resolveTorEndpointForDevice = { deviceId ->
+
+                override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.torEndpoint
                         peerB.address.deviceId -> peerB.torEndpoint
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-            ),
+            },
+            nowEpochSeconds = { 1_700_000_001L },
+            nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
             packetIdGenerator = { PacketId.fromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") },
         )
         val transportB = TorRoutedWebRtcTransport(
@@ -76,24 +74,23 @@ class DefaultWebRtcTransportTest {
             ),
             torTransport = torB,
             protection = PlaintextWebRtcSignalProtection(),
-            protectionContext = WebRtcSignalProtectionContext(
-                nowEpochSeconds = { 1_700_000_002L },
-                nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
-                resolveAccountIdForDevice = { deviceId ->
+            signalRoutingResolver = object : SignalRoutingResolver {
+                override fun resolveAccountIdForDevice(deviceId: String): String =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.address.accountId
                         peerB.address.deviceId -> peerB.address.accountId
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-                resolveTorEndpointForDevice = { deviceId ->
+
+                override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.torEndpoint
                         peerB.address.deviceId -> peerB.torEndpoint
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-            ),
+            },
+            nowEpochSeconds = { 1_700_000_002L },
+            nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
             packetIdGenerator = { PacketId.fromHex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") },
         )
         transportA.start(peerA.address)
@@ -146,24 +143,23 @@ class DefaultWebRtcTransportTest {
             ),
             torTransport = torA,
             protection = PlaintextWebRtcSignalProtection(),
-            protectionContext = WebRtcSignalProtectionContext(
-                nowEpochSeconds = { 1_700_000_001L },
-                nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
-                resolveAccountIdForDevice = { deviceId ->
+            signalRoutingResolver = object : SignalRoutingResolver {
+                override fun resolveAccountIdForDevice(deviceId: String): String =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.address.accountId
                         peerB.address.deviceId -> peerB.address.accountId
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-                resolveTorEndpointForDevice = { deviceId ->
+
+                override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.torEndpoint
                         peerB.address.deviceId -> peerB.torEndpoint
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-            ),
+            },
+            nowEpochSeconds = { 1_700_000_001L },
+            nonceGenerator = { byteArrayOf(1, 2, 3, 4) },
             packetIdGenerator = { PacketId.fromHex("cccccccccccccccccccccccccccccccc") },
         )
         val transportB = TorRoutedWebRtcTransport(
@@ -173,24 +169,23 @@ class DefaultWebRtcTransportTest {
             ),
             torTransport = torB,
             protection = PlaintextWebRtcSignalProtection(),
-            protectionContext = WebRtcSignalProtectionContext(
-                nowEpochSeconds = { 1_700_000_002L },
-                nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
-                resolveAccountIdForDevice = { deviceId ->
+            signalRoutingResolver = object : SignalRoutingResolver {
+                override fun resolveAccountIdForDevice(deviceId: String): String =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.address.accountId
                         peerB.address.deviceId -> peerB.address.accountId
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-                resolveTorEndpointForDevice = { deviceId ->
+
+                override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.torEndpoint
                         peerB.address.deviceId -> peerB.torEndpoint
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-            ),
+            },
+            nowEpochSeconds = { 1_700_000_002L },
+            nonceGenerator = { byteArrayOf(9, 8, 7, 6) },
             packetIdGenerator = { PacketId.fromHex("dddddddddddddddddddddddddddddddd") },
         )
 

@@ -9,9 +9,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.backend.protection.PlaintextWebRtcSignalProtection
-import org.yapyap.backend.protection.WebRtcSignalProtectionContext
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.DeviceAddress
+import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.testutil.testDevice
 import org.yapyap.backend.transport.tor.DefaultTorTransport
 import org.yapyap.backend.transport.tor.KmpTorNoExecBackend
@@ -60,22 +60,21 @@ class LiveTorWebRtcIntegrationTest {
             ),
             torTransport = torTransportA,
             protection = PlaintextWebRtcSignalProtection(),
-            protectionContext = WebRtcSignalProtectionContext(
-                resolveAccountIdForDevice = { deviceId ->
+            signalRoutingResolver = object : SignalRoutingResolver {
+                override fun resolveAccountIdForDevice(deviceId: String): String =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.address.accountId
                         peerB.address.deviceId -> peerB.address.accountId
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-                resolveTorEndpointForDevice = { deviceId ->
+
+                override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint =
                     when (deviceId) {
                         peerA.address.deviceId -> requireNotNull(torBackendA.publishedLocalEndpoint) { "Peer A endpoint unavailable" }
                         peerB.address.deviceId -> requireNotNull(torBackendB.publishedLocalEndpoint) { "Peer B endpoint unavailable" }
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-            ),
+            },
         )
         val transportB = TorRoutedWebRtcTransport(
             delegate = DefaultWebRtcTransport(
@@ -84,22 +83,21 @@ class LiveTorWebRtcIntegrationTest {
             ),
             torTransport = torTransportB,
             protection = PlaintextWebRtcSignalProtection(),
-            protectionContext = WebRtcSignalProtectionContext(
-                resolveAccountIdForDevice = { deviceId ->
+            signalRoutingResolver = object : SignalRoutingResolver {
+                override fun resolveAccountIdForDevice(deviceId: String): String =
                     when (deviceId) {
                         peerA.address.deviceId -> peerA.address.accountId
                         peerB.address.deviceId -> peerB.address.accountId
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-                resolveTorEndpointForDevice = { deviceId ->
+
+                override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint =
                     when (deviceId) {
                         peerA.address.deviceId -> requireNotNull(torBackendA.publishedLocalEndpoint) { "Peer A endpoint unavailable" }
                         peerB.address.deviceId -> requireNotNull(torBackendB.publishedLocalEndpoint) { "Peer B endpoint unavailable" }
                         else -> error("Unknown deviceId: $deviceId")
                     }
-                },
-            ),
+            },
         )
 
         var autoAcceptJob: Job? = null

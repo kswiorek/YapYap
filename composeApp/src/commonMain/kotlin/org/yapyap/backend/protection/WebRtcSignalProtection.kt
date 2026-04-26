@@ -1,12 +1,8 @@
 package org.yapyap.backend.protection
 
-import kotlin.random.Random
-import kotlin.time.Clock
-import org.yapyap.backend.protocol.DeviceAddress
-import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.routing.EnvelopeObservability
-import org.yapyap.backend.routing.FieldSensitivity
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
@@ -24,25 +20,27 @@ interface WebRtcSignalProtection {
 /**
  * Test/dev adapter that keeps signaling in plaintext.
  */
-class PlaintextWebRtcSignalProtection : WebRtcSignalProtection {
-    override fun protect(signal: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
-        val envelope = WebRtcSignalEnvelope(
-            sessionId = signal.sessionId,
-            kind = signal.kind,
-            source = signal.source,
-            target = signal.target,
+class PlaintextWebRtcSignalProtection :
+    BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(),
+    WebRtcSignalProtection {
+    override fun doProtect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
+        return WebRtcSignalEnvelope(
+            sessionId = input.sessionId,
+            kind = input.kind,
+            source = input.source,
+            target = input.target,
             createdAtEpochSeconds = createdAtEpochSeconds,
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            protectedPayload = signal.payload,
+            protectedPayload = input.payload,
         )
-        assertObservabilityContract(envelope)
-        return envelope
     }
 
-    override fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal {
-        assertObservabilityContract(envelope)
+    override fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
+        require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
+            "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
+        }
         return WebRtcSignal(
             sessionId = envelope.sessionId,
             kind = envelope.kind,
@@ -52,50 +50,47 @@ class PlaintextWebRtcSignalProtection : WebRtcSignalProtection {
         )
     }
 
-    private fun assertObservabilityContract(envelope: WebRtcSignalEnvelope) {
-        val policy = EnvelopeObservability.webRtcSignalEnvelope.fields
-        val unexpectedProtectedCleartext = envelope.observableHeaderValues()
-            .keys
-            .filter { policy[it] == FieldSensitivity.PROTECTED }
-        require(unexpectedProtectedCleartext.isEmpty()) {
-            "WebRTC signal envelope exposes protected fields in cleartext: $unexpectedProtectedCleartext"
-        }
-    }
+    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+
+    override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
+
+    override fun envelopeLabel(): String = "WebRTC signal envelope"
 }
 
 class SignedWebRtcSignalProtection(
-    private val resolveLocalSigningKeyId: () -> String,
-    private val signDetached: (keyId: String, message: ByteArray) -> ByteArray,
-    private val verifyDetached: (source: DeviceAddress, message: ByteArray, signature: ByteArray) -> Boolean,
-) : WebRtcSignalProtection {
-    override fun protect(signal: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
+    private val signatureProvider: SignatureProvider,
+) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
+    override fun doProtect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
         val signingPayload = buildSigningPayload(
-            sessionId = signal.sessionId,
-            kindWireValue = signal.kind.wireValue,
-            source = signal.source,
-            target = signal.target,
+            envelopeId = input.sessionId,
+            kindWireValue = input.kind.wireValue,
+            source = input.source,
+            target = input.target,
             createdAtEpochSeconds = createdAtEpochSeconds,
             nonce = nonce,
-            protectedPayload = signal.payload,
+            protectedPayload = input.payload,
         )
-        val signature = signDetached(resolveLocalSigningKeyId(), signingPayload)
+        val signature = signatureProvider.signDetached(signatureProvider.resolveLocalSigningKeyId(), signingPayload)
         return WebRtcSignalEnvelope(
-            sessionId = signal.sessionId,
-            kind = signal.kind,
-            source = signal.source,
-            target = signal.target,
+            sessionId = input.sessionId,
+            kind = input.kind,
+            source = input.source,
+            target = input.target,
             createdAtEpochSeconds = createdAtEpochSeconds,
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = signature,
-            protectedPayload = signal.payload,
+            protectedPayload = input.payload,
         )
     }
 
-    override fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal {
+    override fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
+        require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
+            "Expected SIGNED security scheme but got ${envelope.securityScheme}"
+        }
         val signature = envelope.signature ?: error("SIGNED signal envelope must contain signature")
         val signingPayload = buildSigningPayload(
-            sessionId = envelope.sessionId,
+            envelopeId = envelope.sessionId,
             kindWireValue = envelope.kind.wireValue,
             source = envelope.source,
             target = envelope.target,
@@ -103,7 +98,7 @@ class SignedWebRtcSignalProtection(
             nonce = envelope.nonce,
             protectedPayload = envelope.protectedPayload,
         )
-        require(verifyDetached(envelope.source, signingPayload, signature)) {
+        require(signatureProvider.verifyDetached(envelope.source, signingPayload, signature)) {
             "WebRTC signal signature verification failed for source=${envelope.source.deviceId}"
         }
         return WebRtcSignal(
@@ -114,53 +109,10 @@ class SignedWebRtcSignalProtection(
             payload = envelope.protectedPayload,
         )
     }
-}
 
-data class WebRtcSignalProtectionContext(
-    val nowEpochSeconds: () -> Long = { Clock.System.now().epochSeconds },
-    val nonceGenerator: () -> ByteArray = { Random.nextBytes(16) },
-    val signalTtlSeconds: Long = 300,
-    val resolveAccountIdForDevice: (String) -> String,
-    val resolveTorEndpointForDevice: (String) -> TorEndpoint,
-    val resolveLocalSigningKeyId: () -> String = { "signing-key-unset" },
-    val signDetached: (keyId: String, message: ByteArray) -> ByteArray = { _, _ -> ByteArray(0) },
-    val verifyDetached: (source: DeviceAddress, message: ByteArray, signature: ByteArray) -> Boolean =
-        { _, _, _ -> true },
-)
+    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
 
-private fun buildSigningPayload(
-    sessionId: String,
-    kindWireValue: Byte,
-    source: DeviceAddress,
-    target: DeviceAddress,
-    createdAtEpochSeconds: Long,
-    nonce: ByteArray,
-    protectedPayload: ByteArray,
-): ByteArray {
-    val sourceBytes = "${source.accountId}/${source.deviceId}".encodeToByteArray()
-    val targetBytes = "${target.accountId}/${target.deviceId}".encodeToByteArray()
-    val headerBytes = buildString {
-        append(sessionId)
-        append('|')
-        append(kindWireValue.toInt())
-        append('|')
-        append(createdAtEpochSeconds)
-        append('|')
-    }.encodeToByteArray()
-    val result = ByteArray(
-        headerBytes.size + sourceBytes.size + targetBytes.size + nonce.size + protectedPayload.size + 2
-    )
-    var offset = 0
-    headerBytes.copyInto(result, destinationOffset = offset)
-    offset += headerBytes.size
-    sourceBytes.copyInto(result, destinationOffset = offset)
-    offset += sourceBytes.size
-    result[offset++] = '|'.code.toByte()
-    targetBytes.copyInto(result, destinationOffset = offset)
-    offset += targetBytes.size
-    result[offset++] = '|'.code.toByte()
-    nonce.copyInto(result, destinationOffset = offset)
-    offset += nonce.size
-    protectedPayload.copyInto(result, destinationOffset = offset)
-    return result
+    override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
+
+    override fun envelopeLabel(): String = "WebRTC signal envelope"
 }

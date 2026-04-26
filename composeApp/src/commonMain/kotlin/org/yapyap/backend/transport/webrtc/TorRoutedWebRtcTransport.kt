@@ -8,12 +8,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlin.random.Random
+import kotlin.time.Clock
 import org.yapyap.backend.protection.WebRtcSignalProtection
-import org.yapyap.backend.protection.WebRtcSignalProtectionContext
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
+import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
@@ -32,7 +34,10 @@ class TorRoutedWebRtcTransport(
     private val delegate: DefaultWebRtcTransport,
     private val torTransport: TorTransport,
     private val protection: WebRtcSignalProtection,
-    private val protectionContext: WebRtcSignalProtectionContext,
+    private val signalRoutingResolver: SignalRoutingResolver,
+    private val nowEpochSeconds: () -> Long = { Clock.System.now().epochSeconds },
+    private val nonceGenerator: () -> ByteArray = { Random.nextBytes(16) },
+    private val signalTtlSeconds: Long = 300,
     private val packetIdGenerator: () -> PacketId = { PacketId.random() },
 ) : WebRtcTransport {
     override val incomingData: Flow<WebRtcIncomingDataFrame> = delegate.incomingData
@@ -51,33 +56,33 @@ class TorRoutedWebRtcTransport(
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
-        val localEndpoint = protectionContext.resolveTorEndpointForDevice(localDevice.deviceId)
+        val localEndpoint = signalRoutingResolver.resolveTorEndpointForDevice(localDevice.deviceId)
         torTransport.start(localDevice = localDevice, localPort = localEndpoint.port)
         delegate.start(localDevice)
 
         outgoingSignalsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             delegate.outgoingSignals.collect { signal ->
-                val createdAt = protectionContext.nowEpochSeconds()
+                val createdAt = nowEpochSeconds()
                 val signalEnvelope = protection.protect(
                     signal = signal,
                     createdAtEpochSeconds = createdAt,
-                    nonce = protectionContext.nonceGenerator(),
+                    nonce = nonceGenerator(),
                 )
                 val envelope = BinaryEnvelope(
                     packetId = packetIdGenerator(),
                     packetType = PacketType.SIGNAL,
                     createdAtEpochSeconds = createdAt,
-                    expiresAtEpochSeconds = createdAt + protectionContext.signalTtlSeconds,
+                    expiresAtEpochSeconds = createdAt + signalTtlSeconds,
                     hopCount = 0,
                     route = org.yapyap.backend.protocol.EnvelopeRoute(
-                        destinationAccount = protectionContext.resolveAccountIdForDevice(signal.target.deviceId),
+                        destinationAccount = signalRoutingResolver.resolveAccountIdForDevice(signal.target.deviceId),
                         destinationDevice = signal.target.deviceId,
                         nextHopDevice = null,
                     ),
                     payload = signalEnvelope.encode(),
                 )
                 torTransport.send(
-                    target = protectionContext.resolveTorEndpointForDevice(signal.target.deviceId),
+                    target = signalRoutingResolver.resolveTorEndpointForDevice(signal.target.deviceId),
                     envelope = envelope,
                 )
             }
@@ -141,4 +146,10 @@ class TorRoutedWebRtcTransport(
     override suspend fun endAvSession(sessionId: String) {
         delegate.endAvSession(sessionId = sessionId)
     }
+}
+
+interface SignalRoutingResolver {
+    fun resolveAccountIdForDevice(deviceId: String): String
+
+    fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint
 }
