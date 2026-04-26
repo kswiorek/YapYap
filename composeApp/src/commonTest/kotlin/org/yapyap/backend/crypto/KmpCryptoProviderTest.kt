@@ -1,7 +1,9 @@
 package org.yapyap.backend.crypto
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class KmpCryptoProviderTest {
     private val crypto = KmpCryptoProvider()
@@ -24,5 +26,27 @@ class KmpCryptoProviderTest {
         val deviceId = crypto.deviceIdFromPublicKey(devicePk)
         assertEquals(64, accountId.length)
         assertEquals(64, deviceId.length)
+    }
+
+    @Test
+    fun generatesSigningAndEncryptionKeyPairs() {
+        val signing = crypto.generateSigningKeyPair()
+        val encryption = crypto.generateEncryptionKeyPair()
+
+        assertTrue(signing.publicKey.isNotEmpty())
+        assertTrue(signing.privateKey.isNotEmpty())
+        assertTrue(encryption.publicKey.isNotEmpty())
+        assertTrue(encryption.privateKey.isNotEmpty())
+    }
+
+    @Test
+    fun signsAndVerifiesDetachedSignatureWithEd25519() {
+        val signing = crypto.generateSigningKeyPair()
+        val payload = "signed-payload".encodeToByteArray()
+
+        val signature = crypto.signDetached(signing.privateKey, payload)
+
+        assertTrue(crypto.verifyDetached(signing.publicKey, payload, signature))
+        assertFalse(crypto.verifyDetached(signing.publicKey, "tampered".encodeToByteArray(), signature))
     }
 }
