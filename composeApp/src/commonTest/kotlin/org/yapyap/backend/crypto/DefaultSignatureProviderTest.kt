@@ -15,13 +15,13 @@ class DefaultSignatureProviderTest {
 
         val repository = SignatureTestIdentityPublicKeyRepository()
         val keyStore = SignatureTestPrivateKeyStore()
-        val aliceService = DefaultIdentityKeyService(
+        val aliceService = DefaultIdentityResolver(
             localAddress = alice,
             cryptoProvider = crypto,
             publicKeyRepository = repository,
             privateKeyStore = keyStore,
         )
-        val bobService = DefaultIdentityKeyService(
+        val bobService = DefaultIdentityResolver(
             localAddress = bob,
             cryptoProvider = crypto,
             publicKeyRepository = repository,
@@ -29,12 +29,12 @@ class DefaultSignatureProviderTest {
         )
         val aliceSignatureProvider = DefaultSignatureProvider(
             localAddress = alice,
-            identityKeyService = aliceService,
+            identityResolver = aliceService,
             cryptoProvider = crypto,
         )
         val bobSignatureProvider = DefaultSignatureProvider(
             localAddress = bob,
-            identityKeyService = bobService,
+            identityResolver = bobService,
             cryptoProvider = crypto,
         )
 
@@ -55,7 +55,7 @@ class DefaultSignatureProviderTest {
         val bob = DeviceAddress(accountId = "bob", deviceId = "bob-device")
 
         val bobRepository = SignatureTestIdentityPublicKeyRepository()
-        val bobService = DefaultIdentityKeyService(
+        val bobService = DefaultIdentityResolver(
             localAddress = bob,
             cryptoProvider = crypto,
             publicKeyRepository = bobRepository,
@@ -63,7 +63,7 @@ class DefaultSignatureProviderTest {
         )
         val bobSignatureProvider = DefaultSignatureProvider(
             localAddress = bob,
-            identityKeyService = bobService,
+            identityResolver = bobService,
             cryptoProvider = crypto,
         )
 
@@ -81,7 +81,7 @@ internal class SignatureTestIdentityPublicKeyRepository : IdentityPublicKeyRepos
 
     override fun ensureDeviceExists(address: DeviceAddress) = Unit
 
-    override fun upsertLocalIdentity(identity: LocalIdentityRecord) {
+    override fun upsertLocalIdentity(identity: DeviceIdentityRecord) {
         keyByDeviceAndPurpose[identity.address.deviceId to IdentityKeyPurpose.SIGNING] = identity.signing
         keyByDeviceAndPurpose[identity.address.deviceId to IdentityKeyPurpose.ENCRYPTION] = identity.encryption
     }
@@ -92,11 +92,11 @@ internal class SignatureTestIdentityPublicKeyRepository : IdentityPublicKeyRepos
 }
 
 internal class SignatureTestPrivateKeyStore : PrivateKeyStore {
-    private val keys = mutableMapOf<PrivateKeyRef, ByteArray>()
+    private val keys = mutableMapOf<KeyReference, ByteArray>()
 
-    override fun putPrivateKey(ref: PrivateKeyRef, privateKey: ByteArray) {
-        keys[ref] = privateKey.copyOf()
+    override fun putKey(ref: KeyReference, key: ByteArray) {
+        keys[ref] = key.copyOf()
     }
 
-    override fun getPrivateKey(ref: PrivateKeyRef): ByteArray? = keys[ref]?.copyOf()
+    override fun getKey(ref: KeyReference): ByteArray? = keys[ref]?.copyOf()
 }

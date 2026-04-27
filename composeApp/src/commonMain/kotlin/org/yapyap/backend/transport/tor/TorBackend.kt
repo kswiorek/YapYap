@@ -11,10 +11,12 @@ data class TorIncomingFrame(
 interface TorBackend {
     val incomingFrames: Flow<TorIncomingFrame>
 
-    suspend fun start(localPort: Int = 80): TorEndpoint
+    suspend fun start(localPort: Int? = null): TorEndpoint
 
     suspend fun stop()
 
     suspend fun send(target: TorEndpoint, payload: ByteArray)
+
+    suspend fun isStarted(): Boolean
 }
 

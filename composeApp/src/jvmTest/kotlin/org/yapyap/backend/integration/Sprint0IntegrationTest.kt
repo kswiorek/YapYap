@@ -2,7 +2,7 @@ package org.yapyap.backend.integration
 
 import java.nio.file.Files
 import java.util.UUID
-import org.yapyap.backend.crypto.DefaultIdentityKeyService
+import org.yapyap.backend.crypto.DefaultIdentityResolver
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.JvmPrivateKeyStore
@@ -51,7 +51,7 @@ class Sprint0IntegrationTest {
 
             val firstSigning = try {
                 val repository = DefaultIdentityPublicKeyRepository(firstConnection.database)
-                val identityService = DefaultIdentityKeyService(
+                val identityService = DefaultIdentityResolver(
                     localAddress = localAddress,
                     cryptoProvider = crypto,
                     publicKeyRepository = repository,
@@ -59,7 +59,7 @@ class Sprint0IntegrationTest {
                 )
                 val signatureProvider = DefaultSignatureProvider(
                     localAddress = localAddress,
-                    identityKeyService = identityService,
+                    identityResolver = identityService,
                     cryptoProvider = crypto,
                 )
                 val payload = "sprint0-mock-payload".encodeToByteArray()
@@ -83,7 +83,7 @@ class Sprint0IntegrationTest {
             ).createConnection()
             try {
                 val repository = DefaultIdentityPublicKeyRepository(secondConnection.database)
-                val identityService = DefaultIdentityKeyService(
+                val identityService = DefaultIdentityResolver(
                     localAddress = localAddress,
                     cryptoProvider = crypto,
                     publicKeyRepository = repository,
@@ -91,7 +91,7 @@ class Sprint0IntegrationTest {
                 )
                 val signatureProvider = DefaultSignatureProvider(
                     localAddress = localAddress,
-                    identityKeyService = identityService,
+                    identityResolver = identityService,
                     cryptoProvider = crypto,
                 )
 
@@ -138,13 +138,13 @@ class Sprint0IntegrationTest {
                 )
                 val keyStore = JvmPrivateKeyStore("yapyap-s0-network-$runId-private")
 
-                val aliceIdentityService = DefaultIdentityKeyService(
+                val aliceIdentityService = DefaultIdentityResolver(
                     localAddress = aliceAddress,
                     cryptoProvider = crypto,
                     publicKeyRepository = repository,
                     privateKeyStore = keyStore,
                 )
-                val bobIdentityService = DefaultIdentityKeyService(
+                val bobIdentityService = DefaultIdentityResolver(
                     localAddress = bobAddress,
                     cryptoProvider = crypto,
                     publicKeyRepository = repository,
@@ -156,14 +156,14 @@ class Sprint0IntegrationTest {
                 val aliceProtection = SignedWebRtcSignalProtection(
                     DefaultSignatureProvider(
                         localAddress = aliceAddress,
-                        identityKeyService = aliceIdentityService,
+                        identityResolver = aliceIdentityService,
                         cryptoProvider = crypto,
                     )
                 )
                 val bobProtection = SignedWebRtcSignalProtection(
                     DefaultSignatureProvider(
                         localAddress = bobAddress,
-                        identityKeyService = bobIdentityService,
+                        identityResolver = bobIdentityService,
                         cryptoProvider = crypto,
                     )
                 )

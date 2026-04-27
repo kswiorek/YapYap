@@ -1,7 +1,5 @@
 package org.yapyap.backend.crypto
 
-import org.yapyap.backend.protocol.DeviceAddress
-
 enum class IdentityKeyPurpose {
     SIGNING,
     ENCRYPTION,
@@ -14,40 +12,41 @@ data class IdentityPublicKeyRecord(
     val publicKey: ByteArray,
 )
 
-data class LocalIdentityRecord(
-    val address: DeviceAddress,
+data class DeviceIdentityRecord(
+    val deviceId: String,
     val signing: IdentityPublicKeyRecord,
     val encryption: IdentityPublicKeyRecord,
 )
 
+data class AccountIdentityRecord(
+    val accountId: String,
+    val key: IdentityPublicKeyRecord,
+)
+
 interface IdentityPublicKeyRepository {
-    fun ensureAccountExists(accountId: String)
+    fun getAccountPublicKey(accountId: String): AccountIdentityRecord?
 
-    fun ensureDeviceExists(address: DeviceAddress)
+    fun getDevicePublicKey(deviceId: String): DeviceIdentityRecord?
 
-    fun upsertLocalIdentity(identity: LocalIdentityRecord)
+    fun insertLocalDevice(accountId: String, identity: DeviceIdentityRecord)
+
+    fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord)
 
     fun resolveDeviceKey(deviceId: String, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
 }
 
-interface IdentityKeyService {
-    /**
-     * Loads existing local identity metadata or creates an initial identity keyset.
-     */
-    fun getOrCreateLocalIdentity(address: DeviceAddress): LocalIdentityRecord
+interface IdentityResolver {
+    fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord
 
-    /**
-     * Resolves the currently active local signing key id for detached signatures.
-     */
-    fun resolveLocalSigningKeyId(address: DeviceAddress): String
+    fun getLocalAccountIdentityRecord(): AccountIdentityRecord
 
-    /**
-     * Loads local private key bytes for the requested key id and purpose.
-     */
-    fun loadLocalPrivateKey(keyId: String, purpose: IdentityKeyPurpose): ByteArray
+    fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray
 
-    /**
-     * Resolves a peer public key for verification / key agreement.
-     */
-    fun resolvePeerPublicKey(source: DeviceAddress, purpose: IdentityKeyPurpose): ByteArray?
+    fun resolvePeerIdentityRecord(deviceId: String): DeviceIdentityRecord?
+}
+
+interface IdentityProvisioning {
+    fun createNewDeviceIdentity(): DeviceIdentityRecord
+
+    fun createNewAccountIdentity(displayName: String): AccountIdentityRecord
 }

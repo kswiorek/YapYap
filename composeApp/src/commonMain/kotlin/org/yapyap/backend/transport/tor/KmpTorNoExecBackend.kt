@@ -74,10 +74,13 @@ class KmpTorNoExecBackend(
     private var acceptSocket: ServerSocket? = null
     private var selectorManager: SelectorManager? = null
     private var scope: CoroutineScope? = null
+    private var started = false
+    private var effectivePort: Int = 80
 
-    override suspend fun start(localPort: Int): TorEndpoint {
+    override suspend fun start(localPort: Int?): TorEndpoint {
         check(torRuntime == null) { "Tor backend already started" }
-        require(localPort in 1..65535) { "localPort must be in range 1..65535" }
+        effectivePort = localPort ?: config.defaultTorPort
+        require(effectivePort in 1..65535) { "localPort must be in range 1..65535" }
         this.localServicePort = localPort
 
         val localStateDir = resolveDeviceStateDirectory(deviceId, torStateRootPath)
@@ -105,7 +108,7 @@ class KmpTorNoExecBackend(
 
             val onionEntry = runtime.executeAsync(
                 TorCmd.Onion.Add.new(ED25519_V3) {
-                    port(localPort.toPort()) {
+                    port(effectivePort.toPort()) {
                         target(listener.port.toPort())
                     }
                 }
@@ -113,12 +116,13 @@ class KmpTorNoExecBackend(
             val onionAddress = onionEntry.publicKey.address().toString().let { raw ->
                 if (raw.endsWith(".onion", ignoreCase = true)) raw else "$raw.onion"
             }
-            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = localPort)
+            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = effectivePort)
             publishedLocalEndpoint = resolvedEndpoint
 
             localScope.launch {
                 acceptInboundConnections(listener)
             }
+            started = true
             return resolvedEndpoint
         } catch (error: Throwable) {
             stop()
@@ -144,6 +148,7 @@ class KmpTorNoExecBackend(
         localServicePort = null
         publishedLocalEndpoint = null
         socksPort = null
+        started = false
     }
 
     override suspend fun send(target: TorEndpoint, payload: ByteArray) {
@@ -182,6 +187,10 @@ class KmpTorNoExecBackend(
                 socket.safeClose()
             }
         }
+    }
+
+    override suspend fun isStarted(): Boolean {
+        return started
     }
 
     private fun createTorRuntime(localStateDir: File): TorRuntime {

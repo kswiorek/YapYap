@@ -14,17 +14,17 @@ class JvmPrivateKeyStore internal constructor(
         sessionFactory = JavaKeyringSessionFactory,
     )
 
-    override fun putPrivateKey(ref: PrivateKeyRef, privateKey: ByteArray) {
+    override fun putKey(ref: KeyReference, key: ByteArray) {
         sessionFactory.open().use { session ->
             session.setPassword(
                 serviceName = serviceName,
                 accountName = accountName(ref),
-                secret = encode(privateKey),
+                secret = encode(key),
             )
         }
     }
 
-    override fun getPrivateKey(ref: PrivateKeyRef): ByteArray? {
+    override fun getKey(ref: KeyReference): ByteArray? {
         sessionFactory.open().use { session ->
             val encoded = runCatching {
                 session.getPassword(serviceName, accountName(ref))
@@ -34,8 +34,8 @@ class JvmPrivateKeyStore internal constructor(
         }
     }
 
-    private fun accountName(ref: PrivateKeyRef): String {
-        return "${ref.deviceId}:${ref.purpose.name.lowercase()}:${ref.keyId}"
+    private fun accountName(ref: KeyReference): String {
+        return "${ref.purpose.name.lowercase()}:${ref.keyId}:${ref.type.name.lowercase()}"
     }
 
     private fun encode(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)

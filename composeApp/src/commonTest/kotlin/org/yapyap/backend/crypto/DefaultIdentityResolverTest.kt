@@ -6,7 +6,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class DefaultIdentityKeyServiceTest {
+class DefaultIdentityResolverTest {
     private val crypto = KmpCryptoProvider()
 
     @Test
@@ -14,7 +14,7 @@ class DefaultIdentityKeyServiceTest {
         val address = DeviceAddress(accountId = "alice", deviceId = "alice-device")
         val repository = InMemoryIdentityPublicKeyRepository()
         val privateKeyStore = InMemoryPrivateKeyStore()
-        val service = DefaultIdentityKeyService(
+        val service = DefaultIdentityResolver(
             localAddress = address,
             cryptoProvider = crypto,
             publicKeyRepository = repository,
@@ -38,7 +38,7 @@ class DefaultIdentityKeyServiceTest {
         val address = DeviceAddress(accountId = "alice", deviceId = "alice-device")
         val repository = InMemoryIdentityPublicKeyRepository()
         val privateKeyStore = InMemoryPrivateKeyStore()
-        val service = DefaultIdentityKeyService(
+        val service = DefaultIdentityResolver(
             localAddress = address,
             cryptoProvider = crypto,
             publicKeyRepository = repository,
@@ -57,7 +57,7 @@ class DefaultIdentityKeyServiceTest {
             purpose = IdentityKeyPurpose.ENCRYPTION,
             publicKey = byteArrayOf(4, 5, 6),
         )
-        repository.upsertLocalIdentity(LocalIdentityRecord(address, signing, encryption))
+        repository.upsertLocalIdentity(DeviceIdentityRecord(address, signing, encryption))
 
         assertFailsWith<IllegalStateException> {
             service.getOrCreateLocalIdentity(address)
@@ -80,7 +80,7 @@ private class InMemoryIdentityPublicKeyRepository : IdentityPublicKeyRepository 
         devices += address.deviceId
     }
 
-    override fun upsertLocalIdentity(identity: LocalIdentityRecord) {
+    override fun upsertLocalIdentity(identity: DeviceIdentityRecord) {
         upsertCount += 1
         ensureDeviceExists(identity.address)
         keyByDeviceAndPurpose[identity.address.deviceId to IdentityKeyPurpose.SIGNING] = identity.signing
@@ -93,11 +93,11 @@ private class InMemoryIdentityPublicKeyRepository : IdentityPublicKeyRepository 
 }
 
 private class InMemoryPrivateKeyStore : PrivateKeyStore {
-    private val keys = mutableMapOf<PrivateKeyRef, ByteArray>()
+    private val keys = mutableMapOf<KeyReference, ByteArray>()
 
-    override fun putPrivateKey(ref: PrivateKeyRef, privateKey: ByteArray) {
-        keys[ref] = privateKey.copyOf()
+    override fun putKey(ref: KeyReference, key: ByteArray) {
+        keys[ref] = key.copyOf()
     }
 
-    override fun getPrivateKey(ref: PrivateKeyRef): ByteArray? = keys[ref]?.copyOf()
+    override fun getKey(ref: KeyReference): ByteArray? = keys[ref]?.copyOf()
 }

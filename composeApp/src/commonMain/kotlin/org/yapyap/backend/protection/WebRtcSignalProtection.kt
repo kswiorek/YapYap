@@ -70,7 +70,7 @@ class SignedWebRtcSignalProtection(
             nonce = nonce,
             protectedPayload = input.payload,
         )
-        val signature = signatureProvider.signDetached(signatureProvider.resolveLocalSigningKeyId(), signingPayload)
+        val signature = signatureProvider.signDetached(signingPayload)
         return WebRtcSignalEnvelope(
             sessionId = input.sessionId,
             kind = input.kind,

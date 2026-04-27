@@ -14,15 +14,15 @@ class JvmPrivateKeyStoreTest {
             serviceName = "yapyap-test",
             sessionFactory = KeyringSessionFactory { fakeSession },
         )
-        val ref = PrivateKeyRef(
+        val ref = KeyReference(
             deviceId = "device-a",
             keyId = "sign-key-v1",
             purpose = IdentityKeyPurpose.SIGNING,
         )
         val privateKey = byteArrayOf(10, 20, 30, 40)
 
-        store.putPrivateKey(ref, privateKey)
-        val loaded = store.getPrivateKey(ref)
+        store.putKey(ref, privateKey)
+        val loaded = store.getKey(ref)
 
         assertContentEquals(privateKey, loaded)
         assertEquals(1, fakeSession.writeCount)
@@ -36,13 +36,13 @@ class JvmPrivateKeyStoreTest {
             serviceName = "yapyap-test",
             sessionFactory = KeyringSessionFactory { fakeSession },
         )
-        val missing = PrivateKeyRef(
+        val missing = KeyReference(
             deviceId = "device-b",
             keyId = "enc-key-v1",
             purpose = IdentityKeyPurpose.ENCRYPTION,
         )
 
-        val loaded = store.getPrivateKey(missing)
+        val loaded = store.getKey(missing)
 
         assertNull(loaded)
         assertEquals(1, fakeSession.readCount)

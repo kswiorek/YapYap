@@ -1,6 +1,5 @@
 package org.yapyap.backend.crypto
 
-import org.yapyap.backend.protocol.DeviceAddress
 
 interface CryptoProvider {
     fun sha256(bytes: ByteArray): ByteArray
@@ -20,7 +19,7 @@ interface CryptoProvider {
     fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): String =
         toHex(sha256(accountSigningPublicKey))
 
-    fun deviceIdFromPublicKey(deviceSigningPublicKey: ByteArray): String =
+    fun idFromPublicKey(deviceSigningPublicKey: ByteArray): String =
         toHex(sha256(deviceSigningPublicKey))
 }
 
@@ -35,9 +34,8 @@ data class EncryptionKeyPair(
 )
 
 interface SignatureProvider {
-    fun resolveLocalSigningKeyId(): String
 
-    fun signDetached(keyId: String, message: ByteArray): ByteArray
+    fun signDetached(message: ByteArray): ByteArray
 
-    fun verifyDetached(source: DeviceAddress, message: ByteArray, signature: ByteArray): Boolean
+    fun verifyDetached(deviceId: String, message: ByteArray, signature: ByteArray): Boolean
 }

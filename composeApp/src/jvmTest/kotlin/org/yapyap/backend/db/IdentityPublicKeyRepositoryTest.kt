@@ -4,7 +4,7 @@ import java.nio.file.Files
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
-import org.yapyap.backend.crypto.LocalIdentityRecord
+import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.protocol.DeviceAddress
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -33,7 +33,7 @@ class IdentityPublicKeyRepositoryTest {
                         defaultLastSeenTimestamp = 0L,
                     ),
                 )
-                val identity = LocalIdentityRecord(
+                val identity = DeviceIdentityRecord(
                     address = DeviceAddress(accountId = "alice", deviceId = "alice-device"),
                     signing = IdentityPublicKeyRecord(
                         keyId = "signing-v1-aaaaaaaaaaaaaaaa",

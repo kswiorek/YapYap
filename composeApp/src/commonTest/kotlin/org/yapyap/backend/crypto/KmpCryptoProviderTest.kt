@@ -23,7 +23,7 @@ class KmpCryptoProviderTest {
         val accountPk = byteArrayOf(1, 2, 3, 4)
         val devicePk = byteArrayOf(4, 3, 2, 1)
         val accountId = crypto.accountIdFromPublicKey(accountPk)
-        val deviceId = crypto.deviceIdFromPublicKey(devicePk)
+        val deviceId = crypto.idFromPublicKey(devicePk)
         assertEquals(64, accountId.length)
         assertEquals(64, deviceId.length)
     }

@@ -60,13 +60,13 @@ class DefaultWebRtcTransport(
     private var backendSessionEventsJob: Job? = null
     private var backendAvSessionEventsJob: Job? = null
 
-    override suspend fun start(localDevice: DeviceAddress) {
+    override suspend fun start() {
         check(!started) { "WebRTC transport is already started" }
+        check(this.backend.isStarted()) { "WebRTC backend must be started before transport can start" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
-        this.localDevice = localDevice
-        backend.start(localDevice)
+        this.localDevice = backend.getLocalDevice()
 
         val backendSignalsCollectorReady = CompletableDeferred<Unit>()
 

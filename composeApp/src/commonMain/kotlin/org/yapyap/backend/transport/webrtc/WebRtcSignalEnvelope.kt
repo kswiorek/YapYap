@@ -7,7 +7,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 data class WebRtcSignalEnvelope(
     val sessionId: String,
     val kind: WebRtcSignalKind,
-    val source: DeviceAddress,
+    val source: String,
     val target: DeviceAddress,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,

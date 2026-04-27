@@ -76,6 +76,10 @@ interface WebRtcBackend {
 
     suspend fun stop()
 
+    suspend fun isStarted(): Boolean
+
+    suspend fun getLocalDevice(): DeviceAddress?
+
     suspend fun openSession(target: DeviceAddress, sessionId: String)
 
     suspend fun handleRemoteSignal(signal: WebRtcSignal)

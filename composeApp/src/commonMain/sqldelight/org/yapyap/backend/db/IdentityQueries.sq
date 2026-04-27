@@ -1,15 +1,18 @@
 putAccount:
 INSERT OR REPLACE INTO accounts (
+    account_id,
     account_pub_key,
+    pub_key_version,
+    pub_key_id,
     is_admin,
     status,
     display_name
-) VALUES (?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?);
 
-selectAccountByPubKey:
+selectAccountById:
 SELECT *
 FROM accounts
-WHERE account_pub_key = ?;
+WHERE account_id = ?;
 
 selectAllAccounts:
 SELECT *
@@ -18,7 +21,7 @@ FROM accounts;
 putDevice:
 INSERT OR REPLACE INTO devices (
     device_id,
-    account_pub_key,
+    account_id,
     device_type,
     onion_address,
     onion_port,
@@ -42,7 +45,7 @@ WHERE device_id = ?;
 selectDevicesByAccountPubKey:
 SELECT *
 FROM devices
-WHERE account_pub_key = ?;
+WHERE account_id = ?;
 
 selectAllDevices:
 SELECT *

@@ -16,7 +16,7 @@ import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultTorTransport(
     private val backend: TorBackend,
-    private val clockEpochSeconds: () -> Long = { Clock.System.now().epochSeconds / 1000 },
+    private val clockEpochSeconds: () -> Long = { Clock.System.now().epochSeconds},
 ) : TorTransport {
 
     private val incomingFlow = MutableSharedFlow<TorInboundEnvelope>(replay = 1, extraBufferCapacity = 64)
@@ -26,8 +26,9 @@ class DefaultTorTransport(
 
     override val incoming: Flow<TorInboundEnvelope> = incomingFlow.asSharedFlow()
 
-    override suspend fun start(localDevice: DeviceAddress, localPort: Int) {
+    override suspend fun start() {
         check(!started) { "Tor transport is already started" }
+        check(this.backend.isStarted()) { "Tor backend must be started before transport can start" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
@@ -43,17 +44,8 @@ class DefaultTorTransport(
                 )
             }
         }
-
-        try {
-            backend.start(localPort)
-            started = true
-        } catch (error: Throwable) {
-            frameCollectorJob?.cancel()
-            frameCollectorJob = null
-            scope?.cancel()
-            scope = null
-            throw error
-        }
+        require(frameCollectorJob?.isActive == true)
+        started = true
     }
 
     override suspend fun stop() {
@@ -63,7 +55,6 @@ class DefaultTorTransport(
         frameCollectorJob = null
         scope?.cancel()
         scope = null
-        backend.stop()
         started = false
     }
 

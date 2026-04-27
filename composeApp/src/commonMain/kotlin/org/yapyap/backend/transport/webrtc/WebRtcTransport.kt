@@ -16,7 +16,7 @@ interface WebRtcTransport {
     val incomingAvSessionRequests: Flow<WebRtcIncomingAvSessionRequest>
     val avSessionStates: Flow<WebRtcAvSessionState>
 
-    suspend fun start(localDevice: DeviceAddress)
+    suspend fun start()
 
     suspend fun stop()
 

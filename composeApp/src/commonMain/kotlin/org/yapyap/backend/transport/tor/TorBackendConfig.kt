@@ -14,6 +14,7 @@ data class TorBackendConfig(
     val socksRetryTimeoutMillis: Long = 300_000,
     val socksRetryDelayMillis: Long = 1_000,
     val socksTransientFailureCodes: Set<Int> = setOf(3, 4, 6),
+    val defaultTorPort: Int = 80,
 ) {
     init {
         require(startupTimeoutMillis > 0) { "startupTimeoutMillis must be > 0" }
@@ -22,6 +23,7 @@ data class TorBackendConfig(
         require(inboundExtraBufferCapacity >= 0) { "inboundExtraBufferCapacity must be >= 0" }
         require(socksRetryTimeoutMillis > 0) { "socksRetryTimeoutMillis must be > 0" }
         require(socksRetryDelayMillis > 0) { "socksRetryDelayMillis must be > 0" }
+        require(defaultTorPort in 1..65535) { "defaultTorPort must be in range 1..65535" }
     }
 }
 

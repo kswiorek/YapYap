@@ -300,7 +300,7 @@ private class InMemoryTorTransport(
 
     private var started = false
 
-    override suspend fun start(localDevice: DeviceAddress, localPort: Int) {
+    override suspend fun start() {
         started = true
         network.register(endpoint, incomingFlow)
     }

@@ -9,7 +9,10 @@ import org.yapyap.backend.db.FileTransferStatus;
 import org.yapyap.backend.db.FileChunkStatus;
 
 CREATE TABLE accounts (
-    account_pub_key TEXT NOT NULL PRIMARY KEY,
+    account_id TEXT NOT NULL PRIMARY KEY,
+    account_pub_key BLOB NOT NULL,
+    pub_key_version INTEGER NOT NULL,
+    pub_key_id TEXT NOT NULL,
     is_admin INTEGER AS Boolean NOT NULL,
     status TEXT AS AccountStatus NOT NULL,
     display_name TEXT NOT NULL
@@ -17,7 +20,7 @@ CREATE TABLE accounts (
 
 CREATE TABLE devices (
     device_id TEXT NOT NULL PRIMARY KEY,
-    account_pub_key TEXT NOT NULL,
+    account_id TEXT NOT NULL,
     device_type TEXT AS DeviceType NOT NULL,
     onion_address TEXT NOT NULL,
     onion_port INTEGER NOT NULL,
@@ -31,7 +34,7 @@ CREATE TABLE devices (
     ping_attempts INTEGER NOT NULL,
     ping_successes INTEGER NOT NULL,
     last_seen_timestamp INTEGER NOT NULL,
-    FOREIGN KEY (account_pub_key) REFERENCES accounts(account_pub_key)
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 );
 
 CREATE TABLE spaces (
@@ -51,18 +54,18 @@ CREATE TABLE rooms (
 
 CREATE TABLE room_members (
     room_id TEXT NOT NULL,
-    account_pub_key TEXT NOT NULL,
+    account_id TEXT NOT NULL,
     role TEXT AS RoomMemberRole NOT NULL,
     joined_timestamp INTEGER NOT NULL,
-    PRIMARY KEY (room_id, account_pub_key),
+    PRIMARY KEY (room_id, account_id),
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (account_pub_key) REFERENCES accounts(account_pub_key)
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 );
 
 CREATE TABLE messages (
     message_id TEXT NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
-    sender_account_pub_key TEXT NOT NULL,
+    sender_account_id TEXT NOT NULL,
     prev_id TEXT,
     lamport_clock INTEGER NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
@@ -70,7 +73,7 @@ CREATE TABLE messages (
     lifecycle_state TEXT AS MessageLifecycleState NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (sender_account_pub_key) REFERENCES accounts(account_pub_key),
+    FOREIGN KEY (sender_account_id) REFERENCES accounts(account_id),
     FOREIGN KEY (prev_id) REFERENCES messages(message_id)
 );
 
@@ -141,11 +144,11 @@ CREATE TABLE crypto_sessions (
     FOREIGN KEY (peer_device_id) REFERENCES devices(device_id)
 );
 
-CREATE INDEX devices_account_idx ON devices(account_pub_key);
+CREATE INDEX devices_account_idx ON devices(account_id);
 CREATE INDEX rooms_space_idx ON rooms(space_id);
-CREATE INDEX room_members_account_idx ON room_members(account_pub_key);
+CREATE INDEX room_members_account_idx ON room_members(account_id);
 CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
-CREATE INDEX messages_sender_idx ON messages(sender_account_pub_key);
+CREATE INDEX messages_sender_idx ON messages(sender_account_id);
 CREATE INDEX messages_prev_idx ON messages(prev_id);
 CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);

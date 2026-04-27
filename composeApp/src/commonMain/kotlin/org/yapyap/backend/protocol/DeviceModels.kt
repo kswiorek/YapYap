@@ -1,15 +1,5 @@
 package org.yapyap.backend.protocol
 
-data class DeviceAddress(
-    val accountId: String,
-    val deviceId: String,
-) {
-    init {
-        require(accountId.isNotBlank()) { "accountId must not be blank" }
-        require(deviceId.isNotBlank()) { "deviceId must not be blank" }
-    }
-}
-
 data class TorEndpoint(
     val onionAddress: String,
     val port: Int = 80,

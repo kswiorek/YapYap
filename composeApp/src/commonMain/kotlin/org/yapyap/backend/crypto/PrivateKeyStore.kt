@@ -1,18 +1,22 @@
 package org.yapyap.backend.crypto
 
-data class PrivateKeyRef(
-    val deviceId: String,
+enum class KeyType {
+    PUBLIC,
+    PRIVATE,
+}
+
+data class KeyReference(
     val keyId: String,
     val purpose: IdentityKeyPurpose,
+    val type: KeyType,
 ) {
     init {
-        require(deviceId.isNotBlank()) { "deviceId must not be blank" }
         require(keyId.isNotBlank()) { "keyId must not be blank" }
     }
 }
 
 interface PrivateKeyStore {
-    fun putPrivateKey(ref: PrivateKeyRef, privateKey: ByteArray)
+    fun putKey(ref: KeyReference, key: ByteArray)
 
-    fun getPrivateKey(ref: PrivateKeyRef): ByteArray?
+    fun getKey(ref: KeyReference): ByteArray?
 }

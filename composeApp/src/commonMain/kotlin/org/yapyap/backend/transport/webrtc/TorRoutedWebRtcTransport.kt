@@ -16,6 +16,7 @@ import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.transport.tor.TorBackend
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
@@ -32,6 +33,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
  */
 class TorRoutedWebRtcTransport(
     private val delegate: DefaultWebRtcTransport,
+    private val torBackend: TorBackend,
     private val torTransport: TorTransport,
     private val protection: WebRtcSignalProtection,
     private val signalRoutingResolver: SignalRoutingResolver,
@@ -50,14 +52,14 @@ class TorRoutedWebRtcTransport(
     private var scope: CoroutineScope? = null
     private var outgoingSignalsJob: Job? = null
     private var torIncomingJob: Job? = null
+    private var local_endpoint: TorEndpoint? = null
 
     override suspend fun start(localDevice: DeviceAddress) {
         check(!started) { "WebRTC router transport is already started" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
-
-        val localEndpoint = signalRoutingResolver.resolveTorEndpointForDevice(localDevice.deviceId)
-        torTransport.start(localDevice = localDevice, localPort = localEndpoint.port)
+        local_endpoint = torBackend.start()
+        torTransport.start()
         delegate.start(localDevice)
 
         outgoingSignalsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {

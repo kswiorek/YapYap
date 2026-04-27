@@ -66,6 +66,10 @@ class JvmWebRtcBackend(
         localDevice = null
     }
 
+    override suspend fun isStarted(): Boolean = localDevice != null
+
+    override suspend fun getLocalDevice(): DeviceAddress? = localDevice
+
     override suspend fun openSession(target: DeviceAddress, sessionId: String) {
         val local = requireNotNull(localDevice) { "WebRTC backend must be started before opening session" }
         val peerConnection = createPeerConnection(sessionId = sessionId, remotePeer = target)
