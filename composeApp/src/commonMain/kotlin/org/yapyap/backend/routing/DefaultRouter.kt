@@ -11,6 +11,8 @@ import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.SignatureProvider
+import org.yapyap.backend.db.DefaultPacketDeduplicator
+import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
@@ -27,6 +29,8 @@ class DefaultRouter(
     val webRtcTransport: WebRtcTransport,
     val identityResolver: IdentityResolver,
     val cryptoProvider: CryptoProvider,
+    val packetIdAllocator: PacketIdAllocator,
+    val packetDeduplicator: DefaultPacketDeduplicator
 ): Router {
     var started = false
     var torEndpoint: TorEndpoint? = null
@@ -38,6 +42,7 @@ class DefaultRouter(
     override suspend fun start() {
         check(!started) { "Router is already started" }
         localDeviceIdentity = identityResolver.getLocalDeviceIdentityRecord()
+        packetIdAllocator.assignLocalDevice(localDeviceIdentity!!.deviceId)
 
         try {
             torEndpoint = torBackend.start()
@@ -82,7 +87,14 @@ class DefaultRouter(
     private suspend fun handleInboundEnvelope(inbound: TorInboundEnvelope) {
         val env = inbound.envelope
 
-
+        if (!packetDeduplicator.firstSeen(
+                packetId = env.packetId,
+                sourceDeviceId = env.source,
+                receivedAtEpochSeconds = env.createdAtEpochSeconds,
+            )
+        ) {
+            return
+        }
 
         when (env.packetType) {
             PacketType.SIGNAL -> handleSignalEnvelope(env)

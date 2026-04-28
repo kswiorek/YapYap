@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
@@ -28,7 +28,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
 class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
-    private val packetIdGenerator: () -> PacketId = { PacketId.random() },
+    private val idAllocator: PacketIdAllocator,
 ) : WebRtcTransport {
 
     private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
@@ -214,7 +214,7 @@ class DefaultWebRtcTransport(
 
     override suspend fun initiateSession(target: String): String {
         check(started) { "WebRTC transport must be started before initiating session" }
-        val sessionId = packetIdGenerator().toHex()
+        val sessionId = idAllocator.allocate().toHex()
         peerBySession[sessionId] = target
         backend.openSession(target = target, sessionId = sessionId)
         return sessionId
@@ -274,7 +274,7 @@ class DefaultWebRtcTransport(
 
     override suspend fun initiateAvSession(target: String, options: AvSessionOptions): String {
         check(started) { "WebRTC transport must be started before initiating AV session" }
-        val sessionId = packetIdGenerator().toHex()
+        val sessionId = idAllocator.allocate().toHex()
         avPeerBySession[sessionId] = target
         backend.openAvSession(target = target, sessionId = sessionId, options = options)
         return sessionId

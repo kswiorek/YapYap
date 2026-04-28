@@ -1,0 +1,9 @@
+tryReservePacketId:
+INSERT OR IGNORE INTO dedup (
+    packet_id,
+    source_device_id,
+    received_at
+) VALUES (?, ?, ?);
+
+selectLastInsertChanges:
+SELECT changes();

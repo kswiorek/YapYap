@@ -1,0 +1,17 @@
+insertDedup:
+INSERT INTO dedup (
+    packet_id,
+    source_device_id,
+    received_at
+) VALUES (?, ?, ?);
+
+selectDedupBySourceAndPacketId:
+SELECT packet_id
+FROM dedup
+WHERE source_device_id = ?
+  AND packet_id = ?
+LIMIT 1;
+
+deleteDedupReceivedBefore:
+DELETE FROM dedup
+WHERE received_at < ?;

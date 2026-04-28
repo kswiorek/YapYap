@@ -13,7 +13,7 @@ class DefaultIdentityPublicKeyRepository(
 ) : IdentityPublicKeyRepository {
 
     override fun getAccountPublicKey(accountId: String): AccountIdentityRecord? {
-        val queries = database.identityQueriesQueries
+        val queries = database.identityQueries
         val account = queries.selectAccountById(accountId).executeAsOneOrNull()
 
         return if (account == null) {
@@ -32,7 +32,7 @@ class DefaultIdentityPublicKeyRepository(
     }
 
     override fun getDevicePublicKey(deviceId: String): DeviceIdentityRecord? {
-        val queries = database.identityQueriesQueries
+        val queries = database.identityQueries
         val device = queries.selectDeviceById(deviceId).executeAsOneOrNull()
 
         return if (device == null) {
@@ -57,7 +57,7 @@ class DefaultIdentityPublicKeyRepository(
     }
 
     override fun insertLocalDevice(accountId: String, identity: DeviceIdentityRecord) {
-        val queries = database.identityQueriesQueries
+        val queries = database.identityQueries
 
         queries.putDevice(
             device_id = identity.deviceId,
@@ -79,7 +79,7 @@ class DefaultIdentityPublicKeyRepository(
     }
 
     override fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord) {
-        val queries = database.identityQueriesQueries
+        val queries = database.identityQueries
 
         queries.putAccount(
             account_id = identity.accountId,
@@ -93,7 +93,7 @@ class DefaultIdentityPublicKeyRepository(
     }
 
     override fun resolveDeviceKey(deviceId: String, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
-        val device = database.identityQueriesQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return null
+        val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return null
         return when (purpose) {
             IdentityKeyPurpose.SIGNING -> {
                 if (device.signing_key_id.isBlank() || device.signing_pub_key.isEmpty()) return null
