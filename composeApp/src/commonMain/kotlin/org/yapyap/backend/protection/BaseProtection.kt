@@ -1,6 +1,5 @@
 package org.yapyap.backend.protection
 
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.routing.FieldSensitivity
 
 abstract class BaseProtection<I, E> {
@@ -51,14 +50,14 @@ abstract class BaseProtection<I, E> {
     protected fun buildSigningPayload(
         envelopeId: String,
         kindWireValue: Byte,
-        source: DeviceAddress,
-        target: DeviceAddress,
+        source: String,
+        target: String,
         createdAtEpochSeconds: Long,
         nonce: ByteArray,
         protectedPayload: ByteArray,
     ): ByteArray {
-        val sourceBytes = "${source.accountId}/${source.deviceId}".encodeToByteArray()
-        val targetBytes = "${target.accountId}/${target.deviceId}".encodeToByteArray()
+        val sourceBytes = source.encodeToByteArray()
+        val targetBytes = target.encodeToByteArray()
         val headerBytes = buildString {
             append(envelopeId)
             append('|')

@@ -2,7 +2,6 @@ package org.yapyap.backend.transport.tor
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.backend.protocol.BinaryEnvelope
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.TorEndpoint
 
 data class TorInboundEnvelope(

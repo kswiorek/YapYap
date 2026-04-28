@@ -12,7 +12,6 @@ import kotlin.random.Random
 import kotlin.time.Clock
 import org.yapyap.backend.protection.WebRtcSignalProtection
 import org.yapyap.backend.protocol.BinaryEnvelope
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
@@ -54,7 +53,7 @@ class TorRoutedWebRtcTransport(
     private var torIncomingJob: Job? = null
     private var local_endpoint: TorEndpoint? = null
 
-    override suspend fun start(localDevice: DeviceAddress) {
+    override suspend fun start(localDevice: String) {
         check(!started) { "WebRTC router transport is already started" }
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
@@ -117,19 +116,19 @@ class TorRoutedWebRtcTransport(
         started = false
     }
 
-    override suspend fun initiateSession(target: DeviceAddress): String = delegate.initiateSession(target)
+    override suspend fun initiateSession(target: String): String = delegate.initiateSession(target)
 
     override suspend fun acceptSession(sessionId: String) = delegate.acceptSession(sessionId)
 
     override suspend fun rejectSession(sessionId: String, reason: String) = delegate.rejectSession(sessionId, reason)
 
-    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) {
+    override suspend fun sendData(sessionId: String, target: String, payload: ByteArray) {
         delegate.sendData(sessionId, target, payload)
     }
 
     override suspend fun closeSession(sessionId: String) = delegate.closeSession(sessionId)
 
-    override suspend fun initiateAvSession(target: DeviceAddress, options: AvSessionOptions): String {
+    override suspend fun initiateAvSession(target: String, options: AvSessionOptions): String {
         return delegate.initiateAvSession(target = target, options = options)
     }
 

@@ -1,12 +1,10 @@
 package org.yapyap.backend.transport.webrtc.types
 
-import org.yapyap.backend.protocol.DeviceAddress
-
 data class WebRtcSignal(
     val sessionId: String,
     val kind: WebRtcSignalKind,
-    val source: DeviceAddress,
-    val target: DeviceAddress,
+    val source: String,
+    val target: String,
     val payload: ByteArray,
 )
 

@@ -1,7 +1,6 @@
 package org.yapyap.backend.transport.webrtc
 
 import kotlinx.coroutines.flow.Flow
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionState
@@ -20,17 +19,17 @@ interface WebRtcTransport {
 
     suspend fun stop()
 
-    suspend fun initiateSession(target: DeviceAddress): String
+    suspend fun initiateSession(target: String): String
 
     suspend fun acceptSession(sessionId: String)
 
     suspend fun rejectSession(sessionId: String, reason: String)
 
-    suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray)
+    suspend fun sendData(sessionId: String, target: String, payload: ByteArray)
 
     suspend fun closeSession(sessionId: String)
 
-    suspend fun initiateAvSession(target: DeviceAddress, options: AvSessionOptions): String
+    suspend fun initiateAvSession(target: String, options: AvSessionOptions): String
 
     suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions)
 

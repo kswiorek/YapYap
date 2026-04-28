@@ -1,10 +1,8 @@
 package org.yapyap.backend.transport.webrtc.types
 
-import org.yapyap.backend.protocol.DeviceAddress
-
 data class WebRtcIncomingSessionRequest(
     val sessionId: String,
-    val source: DeviceAddress,
+    val source: String,
     val receivedAtEpochSeconds: Long,
 )
 
@@ -19,7 +17,7 @@ enum class WebRtcSessionPhase {
 
 data class WebRtcSessionState(
     val sessionId: String,
-    val peer: DeviceAddress,
+    val peer: String,
     val phase: WebRtcSessionPhase,
     val reason: String? = null,
 )

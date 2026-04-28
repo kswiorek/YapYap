@@ -27,7 +27,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
@@ -48,11 +47,11 @@ class JvmWebRtcBackend(
     override val sessionEvents: Flow<WebRtcSessionEvent> = sessionEventFlow.asSharedFlow()
     override val avSessionEvents: Flow<WebRtcAvSessionEvent> = avSessionEventFlow.asSharedFlow()
 
-    private var localDevice: DeviceAddress? = null
+    private var localDevice: String? = null
     private var factory: PeerConnectionFactory? = null
     private val sessions = ConcurrentHashMap<String, Session>()
 
-    override suspend fun start(localDevice: DeviceAddress) {
+    override suspend fun start(localDevice: String) {
         check(this.localDevice == null) { "WebRTC backend is already started" }
         this.localDevice = localDevice
         this.factory = PeerConnectionFactory()
@@ -68,9 +67,9 @@ class JvmWebRtcBackend(
 
     override suspend fun isStarted(): Boolean = localDevice != null
 
-    override suspend fun getLocalDevice(): DeviceAddress? = localDevice
+    override suspend fun getLocalDevice(): String? = localDevice
 
-    override suspend fun openSession(target: DeviceAddress, sessionId: String) {
+    override suspend fun openSession(target: String, sessionId: String) {
         val local = requireNotNull(localDevice) { "WebRTC backend must be started before opening session" }
         val peerConnection = createPeerConnection(sessionId = sessionId, remotePeer = target)
         val session = Session(sessionId = sessionId, remotePeer = target, peerConnection = peerConnection)
@@ -252,7 +251,7 @@ class JvmWebRtcBackend(
         emitSessionEvent(WebRtcSessionEvent.Closed(sessionId, session.remotePeer))
     }
 
-    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) {
+    override suspend fun sendData(sessionId: String, target: String, payload: ByteArray) {
         check(localDevice != null) { "WebRTC backend must be started before sending data" }
         val session = sessions[sessionId] ?: error("Unknown sessionId: $sessionId")
         check(session.remotePeer == target) { "Session target mismatch for sessionId $sessionId" }
@@ -261,7 +260,7 @@ class JvmWebRtcBackend(
         channel.send(RTCDataChannelBuffer(ByteBuffer.wrap(payload), true))
     }
 
-    override suspend fun openAvSession(target: DeviceAddress, sessionId: String, options: AvSessionOptions) {
+    override suspend fun openAvSession(target: String, sessionId: String, options: AvSessionOptions) {
         check(localDevice != null) { "WebRTC backend must be started before opening AV session" }
         val local = requireNotNull(localDevice)
         emitSignal(
@@ -303,7 +302,7 @@ class JvmWebRtcBackend(
         emitAvSessionEvent(WebRtcAvSessionEvent.Ended(sessionId = sessionId, peer = peer))
     }
 
-    private fun createPeerConnection(sessionId: String, remotePeer: DeviceAddress): RTCPeerConnection {
+    private fun createPeerConnection(sessionId: String, remotePeer: String): RTCPeerConnection {
         val rtcConfig = RTCConfiguration().also { configuration ->
             configuration.iceServers = config.iceServers.map { serverConfig ->
                 RTCIceServer().also { server ->
@@ -412,7 +411,7 @@ class JvmWebRtcBackend(
 
     private data class Session(
         val sessionId: String,
-        val remotePeer: DeviceAddress,
+        val remotePeer: String,
         val peerConnection: RTCPeerConnection,
         var dataChannel: RTCDataChannel? = null,
     ) {

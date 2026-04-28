@@ -1,36 +1,35 @@
 package org.yapyap.backend.transport.webrtc
 
 import kotlinx.coroutines.flow.Flow
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 data class WebRtcIncomingDataFrame(
     val sessionId: String,
-    val source: DeviceAddress,
+    val source: String,
     val payload: ByteArray,
 )
 
 sealed interface WebRtcSessionEvent {
     data class Connecting(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
     ) : WebRtcSessionEvent
 
     data class Connected(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
     ) : WebRtcSessionEvent
 
     data class Closed(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
     ) : WebRtcSessionEvent
 
     data class Failed(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
         val reason: String,
     ) : WebRtcSessionEvent
 }
@@ -38,30 +37,30 @@ sealed interface WebRtcSessionEvent {
 sealed interface WebRtcAvSessionEvent {
     data class Negotiating(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
         val options: AvSessionOptions? = null,
     ) : WebRtcAvSessionEvent
 
     data class Active(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
         val options: AvSessionOptions? = null,
     ) : WebRtcAvSessionEvent
 
     data class Ended(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
     ) : WebRtcAvSessionEvent
 
     data class Failed(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
         val reason: String,
     ) : WebRtcAvSessionEvent
 
     data class Rejected(
         val sessionId: String,
-        val peer: DeviceAddress,
+        val peer: String,
         val reason: String? = null,
     ) : WebRtcAvSessionEvent
 }
@@ -72,23 +71,23 @@ interface WebRtcBackend {
     val sessionEvents: Flow<WebRtcSessionEvent>
     val avSessionEvents: Flow<WebRtcAvSessionEvent>
 
-    suspend fun start(localDevice: DeviceAddress)
+    suspend fun start(localDevice: String)
 
     suspend fun stop()
 
     suspend fun isStarted(): Boolean
 
-    suspend fun getLocalDevice(): DeviceAddress?
+    suspend fun getLocalDevice(): String?
 
-    suspend fun openSession(target: DeviceAddress, sessionId: String)
+    suspend fun openSession(target: String, sessionId: String)
 
     suspend fun handleRemoteSignal(signal: WebRtcSignal)
 
     suspend fun closeSession(sessionId: String)
 
-    suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray)
+    suspend fun sendData(sessionId: String, target: String, payload: ByteArray)
 
-    suspend fun openAvSession(target: DeviceAddress, sessionId: String, options: AvSessionOptions)
+    suspend fun openAvSession(target: String, sessionId: String, options: AvSessionOptions)
 
     suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions)
 

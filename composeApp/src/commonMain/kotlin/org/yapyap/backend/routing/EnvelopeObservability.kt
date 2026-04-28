@@ -29,10 +29,8 @@ object EnvelopeObservability {
             BinaryEnvelope.Companion.Fields.PACKET_TYPE to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.CREATED_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.EXPIRES_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
-            BinaryEnvelope.Companion.Fields.HOP_COUNT to FieldSensitivity.ROUTING_VISIBLE,
-            BinaryEnvelope.Companion.Fields.ROUTE_DESTINATION_ACCOUNT to FieldSensitivity.ROUTING_VISIBLE,
-            BinaryEnvelope.Companion.Fields.ROUTE_DESTINATION_DEVICE to FieldSensitivity.ROUTING_VISIBLE,
-            BinaryEnvelope.Companion.Fields.ROUTE_NEXT_HOP_DEVICE to FieldSensitivity.ROUTING_VISIBLE,
+            BinaryEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
+            BinaryEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
         ),
     )

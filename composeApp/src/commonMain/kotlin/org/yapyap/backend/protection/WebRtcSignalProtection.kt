@@ -99,7 +99,7 @@ class SignedWebRtcSignalProtection(
             protectedPayload = envelope.protectedPayload,
         )
         require(signatureProvider.verifyDetached(envelope.source, signingPayload, signature)) {
-            "WebRTC signal signature verification failed for source=${envelope.source.deviceId}"
+            "WebRTC signal signature verification failed for source=${envelope.source}"
         }
         return WebRtcSignal(
             sessionId = envelope.sessionId,

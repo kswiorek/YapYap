@@ -3,8 +3,8 @@ package org.yapyap.backend.protocol
 data class FileEnvelope(
     val transferId: String,
     val kind: FileEnvelopeKind,
-    val source: DeviceAddress,
-    val target: DeviceAddress,
+    val source: String,
+    val target: String,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
@@ -17,13 +17,13 @@ data class FileEnvelope(
     }
 
     fun encode(): ByteArray {
-        val writer = FileEnvelopeByteWriter(256 + nonce.size + protectedPayload.size + (signature?.size ?: 0))
+        val writer = ByteWriter(256 + nonce.size + protectedPayload.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
         writer.writeString(transferId)
-        writer.writeDeviceAddress(source)
-        writer.writeDeviceAddress(target)
+        writer.writeString(source)
+        writer.writeString(target)
         writer.writeLong(createdAtEpochSeconds)
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
@@ -85,7 +85,7 @@ data class FileEnvelope(
         private const val VERSION: Byte = 1
 
         fun decode(bytes: ByteArray): FileEnvelope {
-            val reader = FileEnvelopeByteReader(bytes)
+            val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid file envelope magic" }
 
@@ -94,8 +94,8 @@ data class FileEnvelope(
 
             val kind = FileEnvelopeKind.fromWireValue(reader.readByte())
             val transferId = reader.readString()
-            val source = reader.readDeviceAddress()
-            val target = reader.readDeviceAddress()
+            val source = reader.readString()
+            val target = reader.readString()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
@@ -165,7 +165,7 @@ data class FileControlPayload(
         require(maxInFlightChunks > 0) { "maxInFlightChunks must be > 0" }
     }
 
-    fun encode(writer: FileEnvelopeByteWriter) {
+    fun encode(writer: ByteWriter) {
         writer.writeByte(transferClass.wireValue.toInt())
         writer.writeByte(preferredTransport.wireValue.toInt())
         writer.writeByte(if (supportsResume) 1 else 0)
@@ -173,7 +173,7 @@ data class FileControlPayload(
     }
 
     companion object {
-        fun decode(reader: FileEnvelopeByteReader): FileControlPayload {
+        fun decode(reader: ByteReader): FileControlPayload {
             return FileControlPayload(
                 transferClass = FileTransferClass.fromWireValue(reader.readByte()),
                 preferredTransport = FileTransportPreference.fromWireValue(reader.readByte()),
@@ -201,7 +201,7 @@ data class FileOfferPayload(
     }
 
     fun encode(): ByteArray {
-        val writer = FileEnvelopeByteWriter(128 + objectHash.size)
+        val writer = ByteWriter(128 + objectHash.size)
         writer.writeNullableString(fileNameHint)
         writer.writeNullableString(mimeType)
         writer.writeLong(totalBytes)
@@ -214,7 +214,7 @@ data class FileOfferPayload(
 
     companion object {
         fun decode(bytes: ByteArray): FileOfferPayload {
-            val reader = FileEnvelopeByteReader(bytes)
+            val reader = ByteReader(bytes)
             val payload = FileOfferPayload(
                 fileNameHint = reader.readNullableString(),
                 mimeType = reader.readNullableString(),
@@ -243,7 +243,7 @@ data class FileChunkPayload(
     }
 
     fun encode(): ByteArray {
-        val writer = FileEnvelopeByteWriter(64 + chunkCiphertext.size)
+        val writer = ByteWriter(64 + chunkCiphertext.size)
         writer.writeInt(chunkIndex)
         writer.writeInt(chunkCount)
         writer.writeByteArray(chunkCiphertext)
@@ -252,7 +252,7 @@ data class FileChunkPayload(
 
     companion object {
         fun decode(bytes: ByteArray): FileChunkPayload {
-            val reader = FileEnvelopeByteReader(bytes)
+            val reader = ByteReader(bytes)
             val payload = FileChunkPayload(
                 chunkIndex = reader.readInt(),
                 chunkCount = reader.readInt(),
@@ -274,7 +274,7 @@ data class FileAckPayload(
     }
 
     fun encode(): ByteArray {
-        val writer = FileEnvelopeByteWriter(32 + (missingChunkIndices.size * 4))
+        val writer = ByteWriter(32 + (missingChunkIndices.size * 4))
         writer.writeInt(highestContiguousChunk)
         writer.writeInt(missingChunkIndices.size)
         missingChunkIndices.forEach { writer.writeInt(it) }
@@ -283,7 +283,7 @@ data class FileAckPayload(
 
     companion object {
         fun decode(bytes: ByteArray): FileAckPayload {
-            val reader = FileEnvelopeByteReader(bytes)
+            val reader = ByteReader(bytes)
             val highestContiguousChunk = reader.readInt()
             val missingCount = reader.readInt()
             require(missingCount >= 0) { "missing chunk count must be >= 0" }
@@ -306,14 +306,14 @@ data class FileCompletePayload(
     }
 
     fun encode(): ByteArray {
-        val writer = FileEnvelopeByteWriter(32 + objectHash.size)
+        val writer = ByteWriter(32 + objectHash.size)
         writer.writeByteArray(objectHash)
         return writer.toByteArray()
     }
 
     companion object {
         fun decode(bytes: ByteArray): FileCompletePayload {
-            val reader = FileEnvelopeByteReader(bytes)
+            val reader = ByteReader(bytes)
             val payload = FileCompletePayload(
                 objectHash = reader.readByteArray(),
             )
@@ -328,7 +328,7 @@ data class FileCancelPayload(
     val reasonText: String?,
 ) {
     fun encode(): ByteArray {
-        val writer = FileEnvelopeByteWriter(32 + (reasonText?.length ?: 0))
+        val writer = ByteWriter(32 + (reasonText?.length ?: 0))
         writer.writeByte(reasonCode.toInt())
         writer.writeNullableString(reasonText)
         return writer.toByteArray()
@@ -336,7 +336,7 @@ data class FileCancelPayload(
 
     companion object {
         fun decode(bytes: ByteArray): FileCancelPayload {
-            val reader = FileEnvelopeByteReader(bytes)
+            val reader = ByteReader(bytes)
             val payload = FileCancelPayload(
                 reasonCode = reader.readByte(),
                 reasonText = reader.readNullableString(),
@@ -344,164 +344,5 @@ data class FileCancelPayload(
             reader.requireFullyRead()
             return payload
         }
-    }
-}
-
-private fun FileEnvelopeByteWriter.writeDeviceAddress(value: DeviceAddress) {
-    writeString(value.accountId)
-    writeString(value.deviceId)
-}
-
-private fun FileEnvelopeByteReader.readDeviceAddress(): DeviceAddress {
-    return DeviceAddress(
-        accountId = readString(),
-        deviceId = readString(),
-    )
-}
-
-class FileEnvelopeByteWriter(initialCapacity: Int) {
-    private var buffer = ByteArray(initialCapacity)
-    private var size = 0
-
-    fun writeByte(value: Int) {
-        ensureCapacity(1)
-        buffer[size++] = value.toByte()
-    }
-
-    fun writeBytes(value: ByteArray) {
-        ensureCapacity(value.size)
-        value.copyInto(buffer, destinationOffset = size)
-        size += value.size
-    }
-
-    fun writeLong(value: Long) {
-        var shift = 56
-        while (shift >= 0) {
-            writeByte(((value ushr shift) and 0xff).toInt())
-            shift -= 8
-        }
-    }
-
-    fun writeInt(value: Int) {
-        var shift = 24
-        while (shift >= 0) {
-            writeByte((value ushr shift) and 0xff)
-            shift -= 8
-        }
-    }
-
-    fun writeShort(value: Int) {
-        writeByte((value ushr 8) and 0xff)
-        writeByte(value and 0xff)
-    }
-
-    fun writeString(value: String) {
-        val bytes = value.encodeToByteArray()
-        require(bytes.size <= Short.MAX_VALUE) { "String exceeds max size" }
-        writeShort(bytes.size)
-        writeBytes(bytes)
-    }
-
-    fun writeNullableString(value: String?) {
-        if (value == null) {
-            writeShort(0xffff)
-            return
-        }
-        writeString(value)
-    }
-
-    fun writeByteArray(value: ByteArray) {
-        writeInt(value.size)
-        writeBytes(value)
-    }
-
-    fun writeNullableByteArray(value: ByteArray?) {
-        if (value == null) {
-            writeInt(-1)
-            return
-        }
-        writeByteArray(value)
-    }
-
-    fun toByteArray(): ByteArray = buffer.copyOf(size)
-
-    private fun ensureCapacity(extraBytes: Int) {
-        val minCapacity = size + extraBytes
-        if (minCapacity <= buffer.size) return
-
-        var newSize = buffer.size * 2
-        while (newSize < minCapacity) {
-            newSize *= 2
-        }
-        buffer = buffer.copyOf(newSize)
-    }
-}
-
-class FileEnvelopeByteReader(private val bytes: ByteArray) {
-    private var position: Int = 0
-
-    fun readByte(): Byte {
-        require(position < bytes.size) { "Unexpected end of file envelope" }
-        return bytes[position++]
-    }
-
-    fun readUnsignedByte(): Int = readByte().toInt() and 0xff
-
-    fun readBytes(size: Int): ByteArray {
-        require(size >= 0) { "Size must be non-negative" }
-        require(position + size <= bytes.size) { "Unexpected end of file envelope" }
-        val out = bytes.copyOfRange(position, position + size)
-        position += size
-        return out
-    }
-
-    fun readLong(): Long {
-        var value = 0L
-        repeat(8) {
-            value = (value shl 8) or readUnsignedByte().toLong()
-        }
-        return value
-    }
-
-    fun readInt(): Int {
-        var value = 0
-        repeat(4) {
-            value = (value shl 8) or readUnsignedByte()
-        }
-        return value
-    }
-
-    fun readShort(): Int {
-        val high = readUnsignedByte()
-        val low = readUnsignedByte()
-        return (high shl 8) or low
-    }
-
-    fun readString(): String {
-        val len = readShort()
-        require(len != 0xffff) { "String cannot be null" }
-        return readBytes(len).decodeToString()
-    }
-
-    fun readNullableString(): String? {
-        val len = readShort()
-        if (len == 0xffff) return null
-        return readBytes(len).decodeToString()
-    }
-
-    fun readByteArray(): ByteArray {
-        val len = readInt()
-        require(len >= 0) { "Byte array length must be >= 0" }
-        return readBytes(len)
-    }
-
-    fun readNullableByteArray(): ByteArray? {
-        val len = readInt()
-        if (len < 0) return null
-        return readBytes(len)
-    }
-
-    fun requireFullyRead() {
-        require(position == bytes.size) { "File envelope has trailing bytes" }
     }
 }

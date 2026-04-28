@@ -7,7 +7,8 @@ enum class PacketType(val wireValue: Byte) {
     MESSAGE(1),
     ACK(2),
     DISCOVERY(3),
-    SIGNAL(4);
+    SIGNAL(4),
+    FILE(5);
 
     companion object {
         fun fromWireValue(value: Byte): PacketType =

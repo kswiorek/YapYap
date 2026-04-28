@@ -1,6 +1,5 @@
 package org.yapyap.backend.transport.webrtc.types
 
-import org.yapyap.backend.protocol.DeviceAddress
 
 enum class AvQualityTier {
     LOW,
@@ -23,7 +22,7 @@ data class AvControlUpdate(
 
 data class WebRtcIncomingAvSessionRequest(
     val sessionId: String,
-    val source: DeviceAddress,
+    val source: String,
     val options: AvSessionOptions? = null,
     val receivedAtEpochSeconds: Long,
 )
@@ -39,7 +38,7 @@ enum class WebRtcAvSessionPhase {
 
 data class WebRtcAvSessionState(
     val sessionId: String,
-    val peer: DeviceAddress,
+    val peer: String,
     val phase: WebRtcAvSessionPhase,
     val options: AvSessionOptions? = null,
     val reason: String? = null,

@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import org.yapyap.backend.protocol.PacketId
-import org.yapyap.backend.protocol.DeviceAddress
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
@@ -47,13 +46,13 @@ class DefaultWebRtcTransport(
     val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
 
     private var started = false
-    private var localDevice: DeviceAddress? = null
+    private var localDevice: String? = null
     private var scope: CoroutineScope? = null
 
     private val pendingOffersBySession = mutableMapOf<String, WebRtcSignal>()
-    private val peerBySession = mutableMapOf<String, DeviceAddress>()
+    private val peerBySession = mutableMapOf<String, String>()
     private val pendingAvOffersBySession = mutableMapOf<String, WebRtcSignal>()
-    private val avPeerBySession = mutableMapOf<String, DeviceAddress>()
+    private val avPeerBySession = mutableMapOf<String, String>()
 
     private var backendSignalJob: Job? = null
     private var backendDataJob: Job? = null
@@ -213,7 +212,7 @@ class DefaultWebRtcTransport(
         started = false
     }
 
-    override suspend fun initiateSession(target: DeviceAddress): String {
+    override suspend fun initiateSession(target: String): String {
         check(started) { "WebRTC transport must be started before initiating session" }
         val sessionId = packetIdGenerator().toHex()
         peerBySession[sessionId] = target
@@ -263,7 +262,7 @@ class DefaultWebRtcTransport(
         scope?.launch { sendSignal(rejectSignal) } ?: sendSignal(rejectSignal)
     }
 
-    override suspend fun sendData(sessionId: String, target: DeviceAddress, payload: ByteArray) {
+    override suspend fun sendData(sessionId: String, target: String, payload: ByteArray) {
         check(started) { "WebRTC transport must be started before sending data" }
         backend.sendData(sessionId = sessionId, target = target, payload = payload)
     }
@@ -273,7 +272,7 @@ class DefaultWebRtcTransport(
         backend.closeSession(sessionId)
     }
 
-    override suspend fun initiateAvSession(target: DeviceAddress, options: AvSessionOptions): String {
+    override suspend fun initiateAvSession(target: String, options: AvSessionOptions): String {
         check(started) { "WebRTC transport must be started before initiating AV session" }
         val sessionId = packetIdGenerator().toHex()
         avPeerBySession[sessionId] = target
