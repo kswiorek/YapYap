@@ -17,6 +17,7 @@ import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
+import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
 
 class DefaultRouter(
@@ -87,6 +88,10 @@ class DefaultRouter(
             return
         }
 
+        if (env.target != localDeviceIdentity?.deviceId) {
+            return
+        }
+
         when (env.packetType) {
             PacketType.SIGNAL -> handleSignalEnvelope(env)
             PacketType.FILE -> handleFileEnvelope(env)
@@ -95,7 +100,7 @@ class DefaultRouter(
     }
 
     private suspend fun handleSignalEnvelope(env: BinaryEnvelope) {
-        // TODO
+        val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: return
     }
     private suspend fun handleFileEnvelope(env: BinaryEnvelope) {
         // TODO

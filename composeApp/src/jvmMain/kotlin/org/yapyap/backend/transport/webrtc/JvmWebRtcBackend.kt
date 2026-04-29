@@ -27,6 +27,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
@@ -34,6 +38,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
 class JvmWebRtcBackend(
     private val config: WebRtcConfig = WebRtcConfig(),
+    private val logger: AppLogger = NoopAppLogger,
 ) : WebRtcBackend {
 
     private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
@@ -55,6 +60,12 @@ class JvmWebRtcBackend(
         check(this.localDevice == null) { "WebRTC backend is already started" }
         this.localDevice = localDevice
         this.factory = PeerConnectionFactory()
+        logger.info(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.STARTED,
+            message = "JVM WebRTC backend started",
+            fields = mapOf("deviceId" to localDevice),
+        )
     }
 
     override suspend fun stop() {
@@ -63,6 +74,11 @@ class JvmWebRtcBackend(
         factory?.dispose()
         factory = null
         localDevice = null
+        logger.info(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.STOPPED,
+            message = "JVM WebRTC backend stopped",
+        )
     }
 
     override suspend fun openSession(target: String, sessionId: String) {
@@ -382,6 +398,12 @@ class JvmWebRtcBackend(
     }
 
     private fun emitSignal(signal: WebRtcSignal) {
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            message = "Emitting outbound WebRTC signal",
+            fields = mapOf("sessionId" to signal.sessionId, "kind" to signal.kind.name, "target" to signal.target),
+        )
         callbackScope.launch {
             outgoingSignalFlow.emit(signal)
         }
@@ -394,6 +416,25 @@ class JvmWebRtcBackend(
     }
 
     private fun emitSessionEvent(event: WebRtcSessionEvent) {
+        when (event) {
+            is WebRtcSessionEvent.Failed -> logger.warn(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "WebRTC backend session failed",
+                fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "reason" to event.reason),
+            )
+            else -> logger.debug(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_STATE_CHANGED,
+                message = "WebRTC backend session event",
+                fields = mapOf("type" to event::class.simpleName, "sessionId" to when (event) {
+                    is WebRtcSessionEvent.Connecting -> event.sessionId
+                    is WebRtcSessionEvent.Connected -> event.sessionId
+                    is WebRtcSessionEvent.Closed -> event.sessionId
+                    is WebRtcSessionEvent.Failed -> event.sessionId
+                }),
+            )
+        }
         callbackScope.launch {
             sessionEventFlow.emit(event)
         }

@@ -41,6 +41,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.TorEndpoint
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -55,6 +59,7 @@ class KmpTorNoExecBackend(
     private val torStateRootPath: File = defaultTorStateRootPath(),
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
     private val config: TorBackendConfig = TorBackendConfig(),
+    private val logger: AppLogger = NoopAppLogger,
 ) : TorBackend {
 
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
@@ -123,8 +128,21 @@ class KmpTorNoExecBackend(
                 acceptInboundConnections(listener)
             }
             started = true
+            logger.info(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.STARTED,
+                message = "KMP Tor backend started",
+                fields = mapOf("deviceId" to deviceId, "onionAddress" to onionAddress, "port" to effectivePort),
+            )
             return resolvedEndpoint
         } catch (error: Throwable) {
+            logger.error(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "Failed to start KMP Tor backend",
+                throwable = error,
+                fields = mapOf("deviceId" to deviceId),
+            )
             stop()
             throw error
         }
@@ -149,6 +167,12 @@ class KmpTorNoExecBackend(
         publishedLocalEndpoint = null
         socksPort = null
         started = false
+        logger.info(
+            component = LogComponent.TOR_BACKEND,
+            event = LogEvent.STOPPED,
+            message = "KMP Tor backend stopped",
+            fields = mapOf("deviceId" to deviceId),
+        )
     }
 
     override suspend fun send(target: TorEndpoint, payload: ByteArray) {
@@ -180,6 +204,13 @@ class KmpTorNoExecBackend(
                     error.code in config.socksTransientFailureCodes &&
                         TimeSource.Monotonic.markNow() < deadline
                 if (!shouldRetry) {
+                    logger.error(
+                        component = LogComponent.TOR_BACKEND,
+                        event = LogEvent.SESSION_FAILED,
+                        message = "SOCKS connect failed for Tor send",
+                        throwable = error,
+                        fields = mapOf("targetHost" to target.onionAddress, "targetPort" to target.port, "code" to error.code),
+                    )
                     throw IllegalArgumentException("SOCKS connect failed with code ${error.code}", error)
                 }
                 delay(config.socksRetryDelayMillis.milliseconds)
@@ -237,7 +268,21 @@ class KmpTorNoExecBackend(
             scope?.launch {
                 try {
                     val input = client.openReadChannel()
-                    val frame = runCatching { readTransportFrame(input) }.getOrNull() ?: return@launch
+                    val frame = runCatching { readTransportFrame(input) }.getOrElse { error ->
+                        logger.warn(
+                            component = LogComponent.TOR_BACKEND,
+                            event = LogEvent.ENVELOPE_DECODE_FAILED,
+                            message = "Failed to read inbound Tor transport frame",
+                            fields = mapOf("deviceId" to deviceId),
+                        )
+                        logger.error(
+                            component = LogComponent.TOR_BACKEND,
+                            event = LogEvent.ENVELOPE_DECODE_FAILED,
+                            message = "Inbound Tor transport frame parse error",
+                            throwable = error,
+                        )
+                        return@launch
+                    }
                     inboundFlow.emit(frame)
                 } finally {
                     client.safeClose()

@@ -14,6 +14,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
@@ -26,6 +30,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
 class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
+    private val logger: AppLogger = NoopAppLogger,
 ) : WebRtcTransport {
 
     private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
@@ -86,6 +91,12 @@ class DefaultWebRtcTransport(
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.NEGOTIATING,
                             )
+                        logger.debug(
+                            component = LogComponent.WEBRTC_TRANSPORT,
+                            event = LogEvent.SESSION_STATE_CHANGED,
+                            message = "WebRTC session negotiating",
+                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "phase" to WebRtcSessionPhase.NEGOTIATING.name),
+                        )
                     }
                     is WebRtcSessionEvent.Connected -> {
                         peerBySession[event.sessionId] = event.peer
@@ -95,6 +106,12 @@ class DefaultWebRtcTransport(
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.CONNECTED,
                             )
+                        logger.info(
+                            component = LogComponent.WEBRTC_TRANSPORT,
+                            event = LogEvent.SESSION_STATE_CHANGED,
+                            message = "WebRTC session connected",
+                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "phase" to WebRtcSessionPhase.CONNECTED.name),
+                        )
                     }
                     is WebRtcSessionEvent.Closed -> {
                         peerBySession.remove(event.sessionId)
@@ -104,6 +121,12 @@ class DefaultWebRtcTransport(
                                 peer = event.peer,
                                 phase = WebRtcSessionPhase.CLOSED,
                             )
+                        logger.info(
+                            component = LogComponent.WEBRTC_TRANSPORT,
+                            event = LogEvent.SESSION_STATE_CHANGED,
+                            message = "WebRTC session closed",
+                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "phase" to WebRtcSessionPhase.CLOSED.name),
+                        )
                     }
                     is WebRtcSessionEvent.Failed -> {
                         peerBySession.remove(event.sessionId)
@@ -114,6 +137,12 @@ class DefaultWebRtcTransport(
                                 phase = WebRtcSessionPhase.FAILED,
                                 reason = event.reason,
                             )
+                        logger.warn(
+                            component = LogComponent.WEBRTC_TRANSPORT,
+                            event = LogEvent.SESSION_FAILED,
+                            message = "WebRTC session failed",
+                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "reason" to event.reason),
+                        )
                     }
                 }
             }
@@ -176,6 +205,12 @@ class DefaultWebRtcTransport(
         backendSignalsCollectorReady.await()
 
         started = true
+        logger.info(
+            component = LogComponent.WEBRTC_TRANSPORT,
+            event = LogEvent.STARTED,
+            message = "WebRTC transport started",
+            fields = mapOf("deviceId" to deviceId),
+        )
     }
 
     override suspend fun stop() {
@@ -200,6 +235,11 @@ class DefaultWebRtcTransport(
 
         localDevice = null
         started = false
+        logger.info(
+            component = LogComponent.WEBRTC_TRANSPORT,
+            event = LogEvent.STOPPED,
+            message = "WebRTC transport stopped",
+        )
     }
 
     override suspend fun initiateSession(target: String, sessionId: String) {
@@ -273,7 +313,15 @@ class DefaultWebRtcTransport(
 
     override suspend fun handleInboundSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long) {
         val local = requireNotNull(localDevice) { "Local device is not available" }
-        if (signal.target != local) return
+        if (signal.target != local) {
+            logger.debug(
+                component = LogComponent.WEBRTC_TRANSPORT,
+                event = LogEvent.SIGNAL_INBOUND_DROPPED_WRONG_TARGET,
+                message = "Dropped inbound signal for different target",
+                fields = mapOf("sessionId" to signal.sessionId, "target" to signal.target, "localDevice" to local),
+            )
+            return
+        }
 
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
@@ -285,6 +333,12 @@ class DefaultWebRtcTransport(
                         phase = WebRtcSessionPhase.NEGOTIATING,
                     )
                 backend.handleRemoteSignal(signal)
+                logger.debug(
+                    component = LogComponent.WEBRTC_TRANSPORT,
+                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    message = "Handled inbound OFFER signal",
+                    fields = mapOf("sessionId" to signal.sessionId, "source" to signal.source),
+                )
             }
             WebRtcSignalKind.REJECT -> {
                 val reason = signal.payload.decodeToString()
@@ -328,12 +382,24 @@ class DefaultWebRtcTransport(
             }
             else -> {
                 backend.handleRemoteSignal(signal)
+                logger.debug(
+                    component = LogComponent.WEBRTC_TRANSPORT,
+                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    message = "Handled inbound WebRTC signal",
+                    fields = mapOf("sessionId" to signal.sessionId, "kind" to signal.kind.name, "source" to signal.source),
+                )
             }
         }
     }
 
     private suspend fun sendSignal(signal: WebRtcSignal) {
         outgoingSignalFlow.emit(signal)
+        logger.debug(
+            component = LogComponent.WEBRTC_TRANSPORT,
+            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            message = "Emitted outbound WebRTC signal",
+            fields = mapOf("sessionId" to signal.sessionId, "kind" to signal.kind.name, "target" to signal.target),
+        )
     }
 }
 
