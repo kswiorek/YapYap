@@ -1,13 +1,24 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
+
 class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityPublicKeyRepository,
     private val privateKeyStore: PrivateKeyStore,
     private val config: IdentityKeyServiceConfig,
     private val identityResolver: IdentityResolver,
-):IdentityProvisioning {
+    private val logger: AppLogger = NoopAppLogger,
+) : IdentityProvisioning {
     override fun createNewDeviceIdentity(): DeviceIdentityRecord {
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.STARTED,
+            message = "Creating new local device identity",
+        )
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val encryptionKey = cryptoProvider.generateEncryptionKeyPair()
         val deviceId = cryptoProvider.idFromPublicKey(signingKey.publicKey)
@@ -37,10 +48,22 @@ class DefaultIdentityProvisioning(
         val accountRecord = identityResolver.getLocalAccountIdentityRecord()
 
         publicKeyRepository.insertLocalDevice(accountRecord.accountId, identity)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+            message = "Created and persisted new local device identity",
+            fields = mapOf("deviceId" to deviceId, "accountId" to accountRecord.accountId),
+        )
         return identity
     }
 
     override fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.STARTED,
+            message = "Creating new local account identity",
+            fields = mapOf("displayName" to displayName),
+        )
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val accountId = cryptoProvider.idFromPublicKey(signingKey.publicKey)
         val accountKeyRecord = IdentityPublicKeyRecord(
@@ -57,6 +80,12 @@ class DefaultIdentityProvisioning(
 
         val accountRecord = AccountIdentityRecord(accountId, key = accountKeyRecord)
         publicKeyRepository.insertLocalAccount(displayName, accountRecord)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            message = "Created and persisted new local account identity",
+            fields = mapOf("accountId" to accountId, "displayName" to displayName),
+        )
         return accountRecord
     }
 }

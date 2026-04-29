@@ -1,6 +1,10 @@
 package org.yapyap.backend.protection
 
 import org.yapyap.backend.crypto.SignatureProvider
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.routing.EnvelopeObservability
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
@@ -20,7 +24,9 @@ interface WebRtcSignalProtection {
 /**
  * Test/dev adapter that keeps signaling in plaintext.
  */
-class PlaintextWebRtcSignalProtection :
+class PlaintextWebRtcSignalProtection(
+    private val logger: AppLogger = NoopAppLogger,
+) :
     BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(),
     WebRtcSignalProtection {
     override fun doProtect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
@@ -41,6 +47,12 @@ class PlaintextWebRtcSignalProtection :
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
+        logger.debug(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            message = "Opened plaintext WebRTC signal envelope",
+            fields = mapOf("sessionId" to envelope.sessionId, "kind" to envelope.kind.name),
+        )
         return WebRtcSignal(
             sessionId = envelope.sessionId,
             kind = envelope.kind,
@@ -59,6 +71,7 @@ class PlaintextWebRtcSignalProtection :
 
 class SignedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
+    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
     override fun doProtect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
         val signingPayload = buildSigningPayload(
@@ -101,6 +114,12 @@ class SignedWebRtcSignalProtection(
         require(signatureProvider.verifyDetached(envelope.source, signingPayload, signature)) {
             "WebRTC signal signature verification failed for source=${envelope.source}"
         }
+        logger.debug(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            message = "Verified signed WebRTC signal envelope",
+            fields = mapOf("sessionId" to envelope.sessionId, "source" to envelope.source, "kind" to envelope.kind.name),
+        )
         return WebRtcSignal(
             sessionId = envelope.sessionId,
             kind = envelope.kind,

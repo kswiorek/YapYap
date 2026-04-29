@@ -6,10 +6,15 @@ import org.yapyap.backend.crypto.IdentityPublicKeyRepository
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
 
 class DefaultIdentityPublicKeyRepository(
     private val database: YapYapDatabase,
     private val config: IdentityKeyServiceConfig = IdentityKeyServiceConfig(),
+    private val logger: AppLogger = NoopAppLogger,
 ) : IdentityPublicKeyRepository {
 
     override fun getAccountPublicKey(accountId: String): AccountIdentityRecord? {
@@ -17,8 +22,20 @@ class DefaultIdentityPublicKeyRepository(
         val account = queries.selectAccountById(accountId).executeAsOneOrNull()
 
         return if (account == null) {
+            logger.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                message = "Account identity record not found",
+                fields = mapOf("accountId" to accountId, "found" to false),
+            )
             null
         } else {
+            logger.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                message = "Account identity record found",
+                fields = mapOf("accountId" to accountId, "found" to true),
+            )
             AccountIdentityRecord(
                 accountId = account.account_id,
                 key = IdentityPublicKeyRecord(
@@ -36,8 +53,20 @@ class DefaultIdentityPublicKeyRepository(
         val device = queries.selectDeviceById(deviceId).executeAsOneOrNull()
 
         return if (device == null) {
+            logger.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_FOUND,
+                message = "Device identity record not found",
+                fields = mapOf("deviceId" to deviceId, "found" to false),
+            )
             null
         } else {
+            logger.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_FOUND,
+                message = "Device identity record found",
+                fields = mapOf("deviceId" to deviceId, "found" to true),
+            )
             DeviceIdentityRecord(
                 deviceId = device.device_id,
                 signing = IdentityPublicKeyRecord(
@@ -76,6 +105,12 @@ class DefaultIdentityPublicKeyRepository(
             ping_successes = config.defaultPingSuccesses,
             last_seen_timestamp = config.defaultLastSeenTimestamp,
         )
+        logger.info(
+            component = LogComponent.DATABASE,
+            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+            message = "Inserted/updated local device identity record",
+            fields = mapOf("deviceId" to identity.deviceId, "accountId" to accountId),
+        )
     }
 
     override fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord) {
@@ -89,6 +124,12 @@ class DefaultIdentityPublicKeyRepository(
             is_admin = false,
             status = AccountStatus.ACTIVE,
             display_name = displayName,
+        )
+        logger.info(
+            component = LogComponent.DATABASE,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            message = "Inserted/updated local account identity record",
+            fields = mapOf("accountId" to identity.accountId, "displayName" to displayName),
         )
     }
 

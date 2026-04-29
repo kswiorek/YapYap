@@ -2,16 +2,22 @@ package org.yapyap.backend.crypto
 
 import com.github.javakeyring.Keyring
 import java.util.Base64
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
 
 class JvmPrivateKeyStore internal constructor(
     private val serviceName: String,
     private val sessionFactory: KeyringSessionFactory,
+    private val logger: AppLogger = NoopAppLogger,
 ) : PrivateKeyStore {
     constructor(
         serviceName: String,
     ) : this(
         serviceName = serviceName,
         sessionFactory = JavaKeyringSessionFactory,
+        logger = NoopAppLogger,
     )
 
     override fun putKey(ref: KeyReference, key: ByteArray) {
@@ -22,6 +28,12 @@ class JvmPrivateKeyStore internal constructor(
                 secret = encode(key),
             )
         }
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.KEY_STORED,
+            message = "Stored key in keyring",
+            fields = mapOf("keyId" to ref.keyId, "purpose" to ref.purpose.name, "type" to ref.type.name),
+        )
     }
 
     override fun getKey(ref: KeyReference): ByteArray? {
@@ -29,7 +41,15 @@ class JvmPrivateKeyStore internal constructor(
             val encoded = runCatching {
                 session.getPassword(serviceName, accountName(ref))
             }.getOrNull()
-            if (encoded.isNullOrBlank()) return null
+            if (encoded.isNullOrBlank()) {
+                logger.warn(
+                    component = LogComponent.CRYPTO,
+                    event = LogEvent.KEY_LOOKUP_MISS,
+                    message = "Key lookup returned empty value",
+                    fields = mapOf("keyId" to ref.keyId, "purpose" to ref.purpose.name, "type" to ref.type.name),
+                )
+                return null
+            }
             return decode(encoded)
         }
     }

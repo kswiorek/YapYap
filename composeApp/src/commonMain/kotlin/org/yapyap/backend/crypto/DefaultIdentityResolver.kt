@@ -1,10 +1,16 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.logging.NoopAppLogger
+
 class DefaultIdentityResolver(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityPublicKeyRepository,
     private val privateKeyStore: PrivateKeyStore,
     private val config: IdentityKeyServiceConfig,
+    private val logger: AppLogger = NoopAppLogger,
 ) : IdentityResolver {
 
     override fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord {
@@ -29,11 +35,23 @@ class DefaultIdentityResolver(
 
         val deviceRecord = publicKeyRepository.getDevicePublicKey(deviceId)
 
-        if(deviceRecord != null) {
+        if (deviceRecord != null) {
+            logger.info(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_FOUND,
+                message = "Resolved local device identity record",
+                fields = mapOf("deviceId" to deviceId),
+            )
             return deviceRecord
-        }
-        else {
-            val identity = DeviceIdentityRecord(deviceId,
+        } else {
+            logger.warn(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Local device identity record missing, creating from local keys",
+                fields = mapOf("deviceId" to deviceId),
+            )
+            val identity = DeviceIdentityRecord(
+                deviceId,
                 IdentityPublicKeyRecord(
                     keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
                     keyVersion = 0,
@@ -47,9 +65,17 @@ class DefaultIdentityResolver(
                     publicKey = publicEncryptionKey,
                 )
             )
+            val accountRecord = getLocalAccountIdentityRecord()
             publicKeyRepository.insertLocalDevice(
-                getLocalAccountIdentityRecord().accountId,
-                identity)
+                accountRecord.accountId,
+                identity,
+            )
+            logger.info(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+                message = "Created and persisted local device identity record",
+                fields = mapOf("deviceId" to deviceId, "accountId" to accountRecord.accountId),
+            )
             return identity
         }
     }
@@ -67,7 +93,17 @@ class DefaultIdentityResolver(
 
         val accountRecord = publicKeyRepository.getAccountPublicKey(accountId)
 
-        return accountRecord ?: error("Missing local account identity record for accountId=$accountId")
+        if (accountRecord != null) {
+            logger.info(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                message = "Resolved local account identity record",
+                fields = mapOf("accountId" to accountId),
+            )
+            return accountRecord
+        }
+
+        error("Missing local account identity record for accountId=$accountId")
     }
 
 

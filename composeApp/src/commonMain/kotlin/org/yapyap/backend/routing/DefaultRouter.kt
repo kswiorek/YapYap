@@ -12,6 +12,9 @@ import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.db.DefaultPacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
+import org.yapyap.backend.logging.AppLogger
+import org.yapyap.backend.logging.LogComponent
+import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
@@ -19,6 +22,7 @@ import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
+import kotlin.math.log
 
 class DefaultRouter(
     val torTransport: TorTransport,
@@ -26,7 +30,8 @@ class DefaultRouter(
     val identityResolver: IdentityResolver,
     val cryptoProvider: CryptoProvider,
     val packetIdAllocator: PacketIdAllocator,
-    val packetDeduplicator: DefaultPacketDeduplicator
+    val packetDeduplicator: DefaultPacketDeduplicator,
+    val logger: AppLogger,
 ): Router {
     var started = false
     var torEndpoint: TorEndpoint? = null
@@ -58,6 +63,12 @@ class DefaultRouter(
                     .onFailure { /* log + metrics; don't kill stream */ }
             }
         }
+        logger.info(
+            component = LogComponent.ROUTER,
+            event = LogEvent.ROUTER_STARTED,
+            message = "Router started",
+            fields = mapOf("torEndpoint" to torEndpoint.toString()),
+        )
         started = true
 
     }
