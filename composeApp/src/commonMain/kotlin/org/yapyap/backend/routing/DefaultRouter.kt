@@ -15,6 +15,7 @@ import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
+import org.yapyap.backend.protection.WebRtcSignalProtection
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
@@ -22,15 +23,14 @@ import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
-import kotlin.math.log
 
 class DefaultRouter(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val identityResolver: IdentityResolver,
-    val cryptoProvider: CryptoProvider,
     val packetIdAllocator: PacketIdAllocator,
     val packetDeduplicator: DefaultPacketDeduplicator,
+    val webRtcSignalProtection: WebRtcSignalProtection,
     val logger: AppLogger,
 ): Router {
     var started = false
@@ -65,7 +65,7 @@ class DefaultRouter(
         }
         logger.info(
             component = LogComponent.ROUTER,
-            event = LogEvent.ROUTER_STARTED,
+            event = LogEvent.STARTED,
             message = "Router started",
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )
@@ -80,6 +80,12 @@ class DefaultRouter(
         torIncomingJob?.cancel()
         torIncomingJob = null
 
+        logger.info(
+            component = LogComponent.ROUTER,
+            event = LogEvent.STOPPED,
+            message = "Router stopped",
+            fields = mapOf("torEndpoint" to torEndpoint.toString()),
+        )
         started = false
     }
 
@@ -100,19 +106,55 @@ class DefaultRouter(
         }
 
         if (env.target != localDeviceIdentity?.deviceId) {
+            logger.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_WRONG_TARGET,
+                message = "Envelope ignored due to target mismatch",
+                fields = mapOf(
+                    "sourceDeviceId" to env.source,
+                    "targetDeviceId" to env.target,
+                    "localDeviceId" to localDeviceIdentity?.deviceId,
+                ),
+            )
             return
         }
 
         when (env.packetType) {
             PacketType.SIGNAL -> handleSignalEnvelope(env)
             PacketType.FILE -> handleFileEnvelope(env)
-            else -> { /* ignore or log */ }
+            else -> { logger.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
+                message = "Envelope ignored due to unknown packet type",
+                fields = mapOf(
+                    "packetType" to env.packetType,
+                ),
+            ) }
         }
     }
 
     private suspend fun handleSignalEnvelope(env: BinaryEnvelope) {
-        val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: return
+        val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
+            logger.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode signal envelope",
+                fields = mapOf("error" to "decode_failed"),
+            )
+            return
+        }
+        val signal = runCatching {webRtcSignalProtection.open(signalEnvelope) }.getOrNull() ?: run {
+            logger.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                message = "Failed to open signal envelope",
+                fields = mapOf("error" to "protection_failed"),
+            )
+            return
+        }
+        webRtcTransport.handleInboundSignal(signal, receivedAtEpochSeconds = env.createdAtEpochSeconds)
     }
+
     private suspend fun handleFileEnvelope(env: BinaryEnvelope) {
         // TODO
     }
