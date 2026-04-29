@@ -1,6 +1,5 @@
 package org.yapyap.backend.routing
 
-import io.matthewnelson.kmp.tor.runtime.core.net.IPAddress.V6.AnyHost.NoScope.scope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -16,15 +15,11 @@ import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.TorEndpoint
-import org.yapyap.backend.transport.tor.TorBackend
 import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
-import org.yapyap.backend.transport.webrtc.WebRtcBackend
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
 
 class DefaultRouter(
-    val torBackend: TorBackend,
-    val webRtcBackend: WebRtcBackend,
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val identityResolver: IdentityResolver,
@@ -45,16 +40,12 @@ class DefaultRouter(
         packetIdAllocator.assignLocalDevice(localDeviceIdentity!!.deviceId)
 
         try {
-            torEndpoint = torBackend.start()
-            torTransport.start()
-            webRtcBackend.start(localDeviceIdentity!!.deviceId)
-            webRtcTransport.start()
+            torEndpoint = torTransport.start()
+            webRtcTransport.start(localDeviceIdentity!!.deviceId)
         }
         catch (e: Exception) {
             webRtcTransport.stop()
             torTransport.stop()
-            webRtcBackend.stop()
-            torBackend.stop()
             throw e
         }
 
@@ -74,8 +65,8 @@ class DefaultRouter(
 
         webRtcTransport.stop()
         torTransport.stop()
-        webRtcBackend.stop()
-        torBackend.stop()
+        torIncomingJob?.cancel()
+        torIncomingJob = null
 
         started = false
     }

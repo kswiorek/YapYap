@@ -57,9 +57,9 @@ class DefaultWebRtcTransport(
     private var backendSessionEventsJob: Job? = null
     private var backendAvSessionEventsJob: Job? = null
 
-    override suspend fun start() {
+    override suspend fun start(deviceId: String) {
         check(!started) { "WebRTC transport is already started" }
-        check(this.backend.isStarted()) { "WebRTC backend must be started before transport can start" }
+        backend.start(deviceId)
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
@@ -186,7 +186,6 @@ class DefaultWebRtcTransport(
 
     override suspend fun stop() {
         if (!started) return
-
         backendSignalJob?.cancel()
         backendDataJob?.cancel()
         backendSessionEventsJob?.cancel()

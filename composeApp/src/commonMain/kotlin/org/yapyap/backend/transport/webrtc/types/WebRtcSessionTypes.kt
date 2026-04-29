@@ -1,13 +1,5 @@
 package org.yapyap.backend.transport.webrtc.types
-
-data class WebRtcIncomingSessionRequest(
-    val sessionId: String,
-    val source: String,
-    val receivedAtEpochSeconds: Long,
-)
-
 enum class WebRtcSessionPhase {
-    PENDING_DECISION,
     NEGOTIATING,
     CONNECTED,
     REJECTED,

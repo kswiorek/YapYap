@@ -13,7 +13,7 @@ data class TorInboundEnvelope(
 interface TorTransport {
     val incoming: Flow<TorInboundEnvelope>
 
-    suspend fun start()
+    suspend fun start(): TorEndpoint
 
     suspend fun stop()
 

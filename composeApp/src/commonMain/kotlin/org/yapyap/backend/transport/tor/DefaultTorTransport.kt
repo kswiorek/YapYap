@@ -27,9 +27,11 @@ class DefaultTorTransport(
 
     override val incoming: Flow<TorInboundEnvelope> = incomingFlow.asSharedFlow()
 
-    override suspend fun start() {
+    override suspend fun start(): TorEndpoint {
         check(!started) { "Tor transport is already started" }
-        check(this.backend.isStarted()) { "Tor backend must be started before transport can start" }
+
+        val localEndpoint = backend.start()
+
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
@@ -47,14 +49,15 @@ class DefaultTorTransport(
         }
         require(frameCollectorJob?.isActive == true)
         started = true
+        return localEndpoint
     }
 
     override suspend fun stop() {
         if (!started) return
-
         frameCollectorJob?.cancel()
         frameCollectorJob = null
         scope?.cancel()
+        runCatching { backend.stop() }
         scope = null
         started = false
     }
