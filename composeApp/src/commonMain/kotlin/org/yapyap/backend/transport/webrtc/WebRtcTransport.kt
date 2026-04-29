@@ -7,10 +7,12 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionState
 import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingAvSessionRequest
 import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingSessionRequest
 import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
+import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 interface WebRtcTransport {
     val incomingData: Flow<WebRtcIncomingDataFrame>
     val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest>
+    val outgoingSignals: Flow<WebRtcSignal>
     val sessionStates: Flow<WebRtcSessionState>
     val incomingAvSessionRequests: Flow<WebRtcIncomingAvSessionRequest>
     val avSessionStates: Flow<WebRtcAvSessionState>
@@ -19,7 +21,7 @@ interface WebRtcTransport {
 
     suspend fun stop()
 
-    suspend fun initiateSession(target: String): String
+    suspend fun initiateSession(target: String, sessionId: String)
 
     suspend fun acceptSession(sessionId: String)
 
@@ -29,7 +31,9 @@ interface WebRtcTransport {
 
     suspend fun closeSession(sessionId: String)
 
-    suspend fun initiateAvSession(target: String, options: AvSessionOptions): String
+    suspend fun handleInboundSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long)
+
+    suspend fun initiateAvSession(target: String, sessionId: String, options: AvSessionOptions)
 
     suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions)
 
