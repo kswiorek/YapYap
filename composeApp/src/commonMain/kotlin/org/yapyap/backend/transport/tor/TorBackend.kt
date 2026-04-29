@@ -16,7 +16,5 @@ interface TorBackend {
     suspend fun stop()
 
     suspend fun send(target: TorEndpoint, payload: ByteArray)
-
-    suspend fun isStarted(): Boolean
 }
 

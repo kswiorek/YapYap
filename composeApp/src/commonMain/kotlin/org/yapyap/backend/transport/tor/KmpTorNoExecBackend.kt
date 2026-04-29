@@ -189,10 +189,6 @@ class KmpTorNoExecBackend(
         }
     }
 
-    override suspend fun isStarted(): Boolean {
-        return started
-    }
-
     private fun createTorRuntime(localStateDir: File): TorRuntime {
         val workDirectory = localStateDir.resolve("work")
         val cacheDirectory = localStateDir.resolve("cache")

@@ -19,7 +19,6 @@ import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionState
 import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingAvSessionRequest
-import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingSessionRequest
 import org.yapyap.backend.transport.webrtc.types.WebRtcSessionPhase
 import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
@@ -30,14 +29,12 @@ class DefaultWebRtcTransport(
 ) : WebRtcTransport {
 
     private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
-    private val incomingSessionRequestFlow = MutableSharedFlow<WebRtcIncomingSessionRequest>(replay = 1, extraBufferCapacity = 64)
     private val sessionStateFlow = MutableStateFlow<WebRtcSessionState?>(null)
     private val incomingAvSessionRequestFlow = MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
     private val avSessionStateFlow = MutableStateFlow<WebRtcAvSessionState?>(null)
     private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
 
     override val incomingData: Flow<WebRtcIncomingDataFrame> = incomingDataFlow.asSharedFlow()
-    override val incomingSessionRequests: Flow<WebRtcIncomingSessionRequest> = incomingSessionRequestFlow.asSharedFlow()
     override val sessionStates: Flow<WebRtcSessionState> = sessionStateFlow.filterNotNull()
     override val incomingAvSessionRequests: Flow<WebRtcIncomingAvSessionRequest> = incomingAvSessionRequestFlow.asSharedFlow()
     override val avSessionStates: Flow<WebRtcAvSessionState> = avSessionStateFlow.filterNotNull()
@@ -47,7 +44,6 @@ class DefaultWebRtcTransport(
     private var localDevice: String? = null
     private var scope: CoroutineScope? = null
 
-    private val pendingOffersBySession = mutableMapOf<String, WebRtcSignal>()
     private val peerBySession = mutableMapOf<String, String>()
     private val pendingAvOffersBySession = mutableMapOf<String, WebRtcSignal>()
     private val avPeerBySession = mutableMapOf<String, String>()
@@ -63,7 +59,7 @@ class DefaultWebRtcTransport(
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
 
-        this.localDevice = backend.getLocalDevice()
+        this.localDevice = deviceId
 
         val backendSignalsCollectorReady = CompletableDeferred<Unit>()
 
@@ -102,7 +98,6 @@ class DefaultWebRtcTransport(
                     }
                     is WebRtcSessionEvent.Closed -> {
                         peerBySession.remove(event.sessionId)
-                        pendingOffersBySession.remove(event.sessionId)
                         sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
@@ -112,7 +107,6 @@ class DefaultWebRtcTransport(
                     }
                     is WebRtcSessionEvent.Failed -> {
                         peerBySession.remove(event.sessionId)
-                        pendingOffersBySession.remove(event.sessionId)
                         sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
@@ -195,7 +189,6 @@ class DefaultWebRtcTransport(
         backendSessionEventsJob = null
         backendAvSessionEventsJob = null
 
-        pendingOffersBySession.clear()
         peerBySession.clear()
         pendingAvOffersBySession.clear()
         avPeerBySession.clear()
@@ -213,48 +206,6 @@ class DefaultWebRtcTransport(
         check(started) { "WebRTC transport must be started before initiating session" }
         peerBySession[sessionId] = target
         backend.openSession(target = target, sessionId = sessionId)
-    }
-
-    override suspend fun acceptSession(sessionId: String) {
-        check(started) { "WebRTC transport must be started before accepting session" }
-        val pendingOffer = pendingOffersBySession.remove(sessionId)
-            ?: error("No pending offer found for sessionId $sessionId")
-
-        peerBySession[sessionId] = pendingOffer.source
-        backend.handleRemoteSignal(pendingOffer)
-        sessionStateFlow.value =
-            WebRtcSessionState(
-                sessionId = sessionId,
-                peer = pendingOffer.source,
-                phase = WebRtcSessionPhase.NEGOTIATING,
-            )
-    }
-
-    override suspend fun rejectSession(sessionId: String, reason: String) {
-        check(started) { "WebRTC transport must be started before rejecting session" }
-        val local = requireNotNull(localDevice) { "Local device is not available" }
-        val pendingOffer = pendingOffersBySession.remove(sessionId)
-            ?: error("No pending offer found for sessionId $sessionId")
-
-        val rejectSignal = WebRtcSignal(
-            sessionId = sessionId,
-            kind = WebRtcSignalKind.REJECT,
-            source = local,
-            target = pendingOffer.source,
-            payload = reason.encodeToByteArray(),
-        )
-
-        sessionStateFlow.value =
-            WebRtcSessionState(
-                sessionId = sessionId,
-                peer = pendingOffer.source,
-                phase = WebRtcSessionPhase.REJECTED,
-                reason = reason,
-            )
-        
-
-        // Best-effort: reject state is a local decision; signaling may be delayed.
-        scope?.launch { sendSignal(rejectSignal) } ?: sendSignal(rejectSignal)
     }
 
     override suspend fun sendData(sessionId: String, target: String, payload: ByteArray) {
@@ -326,26 +277,18 @@ class DefaultWebRtcTransport(
 
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
-                pendingOffersBySession[signal.sessionId] = signal
                 peerBySession[signal.sessionId] = signal.source
-                incomingSessionRequestFlow.emit(
-                    WebRtcIncomingSessionRequest(
-                        sessionId = signal.sessionId,
-                        source = signal.source,
-                        receivedAtEpochSeconds = receivedAtEpochSeconds,
-                    )
-                )
                 sessionStateFlow.value =
                     WebRtcSessionState(
                         sessionId = signal.sessionId,
                         peer = signal.source,
-                        phase = WebRtcSessionPhase.PENDING_DECISION,
+                        phase = WebRtcSessionPhase.NEGOTIATING,
                     )
+                backend.handleRemoteSignal(signal)
             }
             WebRtcSignalKind.REJECT -> {
                 val reason = signal.payload.decodeToString()
                 peerBySession.remove(signal.sessionId)
-                pendingOffersBySession.remove(signal.sessionId)
                 sessionStateFlow.value =
                     WebRtcSessionState(
                         sessionId = signal.sessionId,
