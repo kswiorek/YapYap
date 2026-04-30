@@ -1,8 +1,12 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.protocol.SignalSecurityScheme
+
 
 interface CryptoProvider {
     fun sha256(bytes: ByteArray): ByteArray
+
+    fun randomBytes(size: Int): ByteArray
 
     fun generateSigningKeyPair(): SigningKeyPair
 
@@ -15,6 +19,8 @@ interface CryptoProvider {
     fun toHex(bytes: ByteArray): String = bytes.joinToString(separator = "") { byte ->
         byte.toInt().and(0xff).toString(16).padStart(2, '0')
     }
+
+    fun generateNonce(scheme: SignalSecurityScheme): ByteArray
 
     fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): String =
         toHex(sha256(accountSigningPublicKey))

@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.db.DefaultPacketDeduplicator
@@ -13,10 +14,14 @@ import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
-import org.yapyap.backend.protection.WebRtcSignalProtection
+import org.yapyap.backend.protection.EnvelopeProtectContext
+import org.yapyap.backend.protection.EnvelopeProtectionService
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PacketType
+import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.EpochSecondsProvider
+import org.yapyap.backend.time.SystemEpochSecondsProvider
 import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
@@ -30,7 +35,9 @@ class DefaultRouter(
     val identityResolver: IdentityResolver,
     val packetIdAllocator: PacketIdAllocator,
     val packetDeduplicator: DefaultPacketDeduplicator,
-    val webRtcSignalProtection: WebRtcSignalProtection,
+    val envelopeProtectionService: EnvelopeProtectionService,
+    val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    val cryptoProvider: CryptoProvider,
     val logger: AppLogger,
 ): Router {
     var started = false
@@ -72,7 +79,7 @@ class DefaultRouter(
                     ) }
             }
         }
-        
+
         webRtcOutgoingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
             webRtcTransport.outgoingSignals.collect { signal ->
                 runCatching { handleWebRtcOutboundSignal(signal) }
@@ -168,7 +175,7 @@ class DefaultRouter(
             )
             return
         }
-        val signal = runCatching {webRtcSignalProtection.open(signalEnvelope) }.getOrNull() ?: run {
+        val signal = runCatching { envelopeProtectionService.openSignal(signalEnvelope) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_PROTECTION_FAILED,
@@ -181,7 +188,27 @@ class DefaultRouter(
     }
 
     private suspend fun handleWebRtcOutboundSignal(signal: WebRtcSignal) {
-        // TODO
+        val context = EnvelopeProtectContext(
+            sourceDeviceId = localDeviceIdentity!!.deviceId,
+            targetDeviceId = signal.target,
+            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
+        )
+        val envelope = envelopeProtectionService.protectSignal(signal, context)
+
+        torTransport.send(
+            target = identityResolver.resolveTorEndpointForDevice(signal.target),
+            envelope = BinaryEnvelope(
+                packetId = packetIdAllocator.allocate(),
+                packetType = PacketType.SIGNAL,
+                createdAtEpochSeconds = context.createdAtEpochSeconds,
+                expiresAtEpochSeconds = context.createdAtEpochSeconds + 600,
+                source = localDeviceIdentity!!.deviceId,
+                target = signal.target,
+                payload = envelope.encode(),
+            )
+        )
     }
 
     private suspend fun handleFileEnvelope(env: BinaryEnvelope) {

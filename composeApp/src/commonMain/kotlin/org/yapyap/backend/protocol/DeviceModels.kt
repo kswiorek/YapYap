@@ -10,10 +10,10 @@ data class TorEndpoint(
     }
 }
 
-enum class SignalSecurityScheme(val wireValue: Byte) {
-    PLAINTEXT_TEST_ONLY(0),
-    SIGNED(1),
-    ENCRYPTED_AND_SIGNED(2);
+enum class SignalSecurityScheme(val wireValue: Byte, val nonceSize: Int) {
+    PLAINTEXT_TEST_ONLY(0, 24),
+    SIGNED(1, 24),
+    ENCRYPTED_AND_SIGNED(2, 24);
 
     companion object {
         fun fromWireValue(value: Byte): SignalSecurityScheme =

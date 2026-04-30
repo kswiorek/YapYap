@@ -4,14 +4,18 @@ import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.algorithms.EdDSA
 import dev.whyoleg.cryptography.algorithms.SHA256
 import dev.whyoleg.cryptography.algorithms.XDH
+import dev.whyoleg.cryptography.random.CryptographyRandom
 import kotlinx.coroutines.runBlocking
+import kotlin.random.Random
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.SignalSecurityScheme
 
 class KmpCryptoProvider(
     private val provider: CryptographyProvider = CryptographyProvider.Default,
+    private val random: Random = CryptographyRandom.Default,
     private val logger: AppLogger = NoopAppLogger,
 ) : CryptoProvider {
     private val edDsa: EdDSA by lazy { provider.get(EdDSA) }
@@ -19,6 +23,16 @@ class KmpCryptoProvider(
 
     override fun sha256(bytes: ByteArray): ByteArray = runBlocking {
         provider.get(SHA256).hasher().hash(bytes)
+    }
+
+    override fun randomBytes(size: Int): ByteArray {
+        require(size > 0) { "size must be greater than 0" }
+        return random.nextBytes(size)
+    }
+
+    override fun generateNonce(scheme: SignalSecurityScheme): ByteArray {
+
+        return random.nextBytes(scheme.nonceSize)
     }
 
     override fun generateSigningKeyPair(): SigningKeyPair = runBlocking {

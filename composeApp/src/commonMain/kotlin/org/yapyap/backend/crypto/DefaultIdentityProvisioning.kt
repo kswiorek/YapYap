@@ -4,6 +4,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
@@ -87,5 +88,25 @@ class DefaultIdentityProvisioning(
             fields = mapOf("accountId" to accountId, "displayName" to displayName),
         )
         return accountRecord
+    }
+
+    override fun provisionDeviceIdentity(accountId: String, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
+        publicKeyRepository.insertPeerDevice(accountId, deviceIdentity, torEndpoint)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+            message = "Provisioned local device identity",
+            fields = mapOf("deviceId" to deviceIdentity.deviceId, "accountId" to accountId, "torEndpoint" to torEndpoint.toString()),
+        )
+    }
+
+    override fun provisionAccountIdentity(displayName: String, accountIdentity: AccountIdentityRecord) {
+        publicKeyRepository.insertPeerAccount(accountIdentity)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            message = "Provisioned local account identity",
+            fields = mapOf("accountId" to accountIdentity.accountId, "displayName" to displayName),
+        )
     }
 }
