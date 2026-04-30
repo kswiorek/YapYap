@@ -4,6 +4,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultIdentityResolver(
     private val cryptoProvider: CryptoProvider,
@@ -120,5 +121,11 @@ class DefaultIdentityResolver(
 
     override fun resolvePeerIdentityRecord(deviceId: String): DeviceIdentityRecord? {
         return publicKeyRepository.getDevicePublicKey(deviceId)
+    }
+
+    override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint {
+        return publicKeyRepository.resolveDeviceKey(deviceId, IdentityKeyPurpose.ENCRYPTION)?.let {
+            publicKeyRepository.resolveTorEndpointForDevice(deviceId)
+        } ?: error("Missing encryption key for deviceId=$deviceId, cannot resolve Tor endpoint")
     }
 }

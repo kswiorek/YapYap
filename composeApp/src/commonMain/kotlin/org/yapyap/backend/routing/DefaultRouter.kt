@@ -112,6 +112,9 @@ class DefaultRouter(
         torIncomingJob?.cancel()
         torIncomingJob = null
 
+        webRtcOutgoingJob?.cancel()
+        webRtcOutgoingJob = null
+
         logger.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STOPPED,

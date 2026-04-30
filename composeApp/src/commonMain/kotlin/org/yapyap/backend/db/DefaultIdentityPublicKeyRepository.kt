@@ -10,6 +10,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultIdentityPublicKeyRepository(
     private val database: YapYapDatabase,
@@ -155,5 +156,50 @@ class DefaultIdentityPublicKeyRepository(
                 )
             }
         }
+    }
+
+    override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint {
+        val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull()
+            ?: error("Device identity record not found for deviceId: $deviceId")
+        return TorEndpoint(
+            onionAddress = device.onion_address,
+            port = device.onion_port.toInt(),
+        )
+    }
+
+    override fun insertPeerAccount(identity: AccountIdentityRecord, admin: Boolean, status: AccountStatus, displayName: String) {
+        val queries = database.identityQueries
+
+        queries.putAccount(
+            account_id = identity.accountId,
+            account_pub_key = identity.key.publicKey,
+            pub_key_version = identity.key.keyVersion,
+            pub_key_id = identity.key.keyId,
+            is_admin = admin,
+            status = status,
+            display_name = displayName
+        )
+    }
+
+    override fun insertPeerDevice(accountId: String, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
+        val queries = database.identityQueries
+
+        queries.putDevice(
+            device_id = identity.deviceId,
+            account_id = accountId,
+            device_type = deviceType,
+            onion_address = torEndpoint.onionAddress,
+            onion_port = torEndpoint.port.toLong(),
+            signing_pub_key = identity.signing.publicKey,
+            signing_key_id = identity.signing.keyId,
+            signing_key_version = identity.signing.keyVersion,
+            encryption_pub_key = identity.encryption.publicKey,
+            encryption_key_id = identity.encryption.keyId,
+            encryption_key_version = identity.encryption.keyVersion,
+            push_token = config.defaultPushToken,
+            ping_attempts = config.defaultPingAttempts,
+            ping_successes = config.defaultPingSuccesses,
+            last_seen_timestamp = config.defaultLastSeenTimestamp,
+        )
     }
 }

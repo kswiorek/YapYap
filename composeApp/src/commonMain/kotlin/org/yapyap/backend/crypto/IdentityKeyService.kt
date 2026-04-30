@@ -1,5 +1,7 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.db.AccountStatus
+import org.yapyap.backend.db.DeviceType
 import org.yapyap.backend.protocol.TorEndpoint
 
 enum class IdentityKeyPurpose {
@@ -32,13 +34,15 @@ interface IdentityPublicKeyRepository {
 
     fun insertLocalDevice(accountId: String, identity: DeviceIdentityRecord)
 
-    fun insertPeerDevice(accountId: String, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
-
-    fun insertPeerAccount(identity: AccountIdentityRecord)
+    fun insertPeerDevice(accountId: String, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
     fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord)
 
     fun resolveDeviceKey(deviceId: String, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
+
+    fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint
+    fun insertPeerAccount(identity: AccountIdentityRecord, admin: Boolean, status: AccountStatus, displayName: String)
+
 }
 
 interface IdentityResolver {
