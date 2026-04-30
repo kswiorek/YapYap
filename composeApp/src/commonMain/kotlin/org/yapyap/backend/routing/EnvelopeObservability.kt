@@ -46,7 +46,7 @@ object EnvelopeObservability {
             FileEnvelope.Companion.Fields.NONCE to FieldSensitivity.ENDPOINT_VISIBLE,
             FileEnvelope.Companion.Fields.SECURITY_SCHEME to FieldSensitivity.ROUTING_VISIBLE,
             FileEnvelope.Companion.Fields.SIGNATURE to FieldSensitivity.ENDPOINT_VISIBLE,
-            FileEnvelope.Companion.Fields.PROTECTED_PAYLOAD to FieldSensitivity.PROTECTED,
+            FileEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
         ),
     )
 

@@ -3,8 +3,8 @@ package org.yapyap.backend.protection
 import org.yapyap.backend.routing.FieldSensitivity
 
 abstract class BaseProtection<I, E> {
-    fun protect(input: I, createdAtEpochSeconds: Long, nonce: ByteArray): E {
-        val envelope = doProtect(input, createdAtEpochSeconds, nonce)
+    fun protect(input: I, context: EnvelopeProtectContext): E {
+        val envelope = doProtect(input, context)
         assertObservabilityContract(
             observableHeaderValues = observableHeaderValues(envelope),
             policy = observabilityPolicy(),
@@ -25,7 +25,7 @@ abstract class BaseProtection<I, E> {
     open fun openLazy(envelope: E): Lazy<I> =
         lazy(LazyThreadSafetyMode.NONE) { open(envelope) }
 
-    protected abstract fun doProtect(input: I, createdAtEpochSeconds: Long, nonce: ByteArray): E
+    protected abstract fun doProtect(input: I, context: EnvelopeProtectContext): E
 
     protected abstract fun doOpen(envelope: E): I
 

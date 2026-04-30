@@ -6,10 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityResolver
-import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.db.DefaultPacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.logging.AppLogger
@@ -23,6 +21,8 @@ import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
+import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
+import kotlin.coroutines.cancellation.CancellationException
 
 class DefaultRouter(
     val torTransport: TorTransport,
@@ -39,6 +39,8 @@ class DefaultRouter(
 
     private var scope: CoroutineScope? = null
     private var torIncomingJob: Job? = null
+    private var webRtcOutgoingJob: Job? = null
+
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
@@ -60,9 +62,32 @@ class DefaultRouter(
         torIncomingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
             torTransport.incoming.collect { inbound ->
                 runCatching { handleInboundEnvelope(inbound) }
-                    .onFailure { /* log + metrics; don't kill stream */ }
+                    .onFailure {e ->
+                        if (e is CancellationException) throw e
+                        logger.error(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                        message = "Failed to handle inbound envelope",
+                        fields = mapOf("error" to e.toString()),
+                    ) }
             }
         }
+        
+        webRtcOutgoingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
+            webRtcTransport.outgoingSignals.collect { signal ->
+                runCatching { handleWebRtcOutboundSignal(signal) }
+                    .onFailure { e ->
+                        if (e is CancellationException) throw e
+                        logger.error(
+                            component = LogComponent.ROUTER,
+                            event = LogEvent.SIGNAL_OUTBOUND_EMIT_FAILED,
+                            message = "Failed to emit outbound WebRTC signal",
+                            fields = mapOf("error" to e.toString()),
+                        )
+                    }
+            }
+        }
+
         logger.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STARTED,
@@ -99,7 +124,7 @@ class DefaultRouter(
         if (!packetDeduplicator.firstSeen(
                 packetId = env.packetId,
                 sourceDeviceId = env.source,
-                receivedAtEpochSeconds = env.createdAtEpochSeconds,
+                receivedAtEpochSeconds = inbound.receivedAtEpochSeconds,
             )
         ) {
             return
@@ -120,7 +145,7 @@ class DefaultRouter(
         }
 
         when (env.packetType) {
-            PacketType.SIGNAL -> handleSignalEnvelope(env)
+            PacketType.SIGNAL -> handleInboundSignalEnvelope(env)
             PacketType.FILE -> handleFileEnvelope(env)
             else -> { logger.info(
                 component = LogComponent.ROUTER,
@@ -133,7 +158,7 @@ class DefaultRouter(
         }
     }
 
-    private suspend fun handleSignalEnvelope(env: BinaryEnvelope) {
+    private suspend fun handleInboundSignalEnvelope(env: BinaryEnvelope) {
         val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -153,6 +178,10 @@ class DefaultRouter(
             return
         }
         webRtcTransport.handleInboundSignal(signal, receivedAtEpochSeconds = env.createdAtEpochSeconds)
+    }
+
+    private suspend fun handleWebRtcOutboundSignal(signal: WebRtcSignal) {
+        // TODO
     }
 
     private suspend fun handleFileEnvelope(env: BinaryEnvelope) {

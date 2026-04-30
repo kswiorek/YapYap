@@ -16,7 +16,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
  * Real implementations should sign/encrypt payloads before transport and verify/decrypt on receive.
  */
 interface WebRtcSignalProtection {
-    fun protect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope
+    fun protect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope
 
     fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal
 }
@@ -29,14 +29,17 @@ class PlaintextWebRtcSignalProtection(
 ) :
     BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(),
     WebRtcSignalProtection {
-    override fun doProtect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
+    override fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
+        require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
+            "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextWebRtcSignalProtection but got ${context.securityScheme}"
+        }
         return WebRtcSignalEnvelope(
             sessionId = input.sessionId,
             kind = input.kind,
-            source = input.source,
-            target = input.target,
-            createdAtEpochSeconds = createdAtEpochSeconds,
-            nonce = nonce,
+            source = context.sourceDeviceId,
+            target = context.targetDeviceId,
+            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            nonce = context.nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
             protectedPayload = input.payload,
@@ -73,24 +76,27 @@ class SignedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
-    override fun doProtect(input: WebRtcSignal, createdAtEpochSeconds: Long, nonce: ByteArray): WebRtcSignalEnvelope {
+    override fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
+        require(context.securityScheme == SignalSecurityScheme.SIGNED) {
+            "Context security scheme must be SIGNED for SignedWebRtcSignalProtection but got ${context.securityScheme}"
+        }
         val signingPayload = buildSigningPayload(
             envelopeId = input.sessionId,
             kindWireValue = input.kind.wireValue,
-            source = input.source,
-            target = input.target,
-            createdAtEpochSeconds = createdAtEpochSeconds,
-            nonce = nonce,
+            source = context.sourceDeviceId,
+            target = context.targetDeviceId,
+            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            nonce = context.nonce,
             protectedPayload = input.payload,
         )
         val signature = signatureProvider.signDetached(signingPayload)
         return WebRtcSignalEnvelope(
             sessionId = input.sessionId,
             kind = input.kind,
-            source = input.source,
-            target = input.target,
-            createdAtEpochSeconds = createdAtEpochSeconds,
-            nonce = nonce,
+            source = context.sourceDeviceId,
+            target = context.targetDeviceId,
+            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            nonce = context.nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = signature,
             protectedPayload = input.payload,
