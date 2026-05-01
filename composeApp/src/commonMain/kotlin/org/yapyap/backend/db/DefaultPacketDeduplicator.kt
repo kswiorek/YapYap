@@ -5,17 +5,18 @@ import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PeerId
 
 class DefaultPacketDeduplicator(
     private val database: YapYapDatabase,
     private val logger: AppLogger = NoopAppLogger,
 ) : PacketDeduplicator {
-    override fun firstSeen(packetId: PacketId, sourceDeviceId: String, receivedAtEpochSeconds: Long): Boolean {
+    override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         val packetHex = packetId.toHex()
         val queries = database.dedupQueries
         return queries.transactionWithResult {
             val existing = queries.selectDedupBySourceAndPacketId(
-                source_device_id = sourceDeviceId,
+                source_device_id = sourceDeviceId.id,
                 packet_id = packetHex,
             ).executeAsOneOrNull()
             if (existing != null) {
@@ -29,7 +30,7 @@ class DefaultPacketDeduplicator(
             } else {
                 queries.insertDedup(
                     packet_id = packetHex,
-                    source_device_id = sourceDeviceId,
+                    source_device_id = sourceDeviceId.id,
                     received_at = receivedAtEpochSeconds,
                 )
                 logger.debug(
