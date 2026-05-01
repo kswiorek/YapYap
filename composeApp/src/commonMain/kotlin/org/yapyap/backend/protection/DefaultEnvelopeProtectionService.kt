@@ -35,11 +35,11 @@ class DefaultEnvelopeProtectionService(
     }
 
     override fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
-        TODO("Not yet implemented")
+        return messageProtection.protect(input, context)
     }
 
     override fun openMessage(envelope: MessageEnvelope): MessagePayload {
-        TODO("Not yet implemented")
+        return messageProtection.open(envelope)
     }
 
 

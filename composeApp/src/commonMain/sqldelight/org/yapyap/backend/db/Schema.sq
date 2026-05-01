@@ -4,7 +4,6 @@ import org.yapyap.backend.db.DeviceType;
 import org.yapyap.backend.db.RoomType;
 import org.yapyap.backend.db.RoomMemberRole;
 import org.yapyap.backend.db.MessagePayloadType;
-import org.yapyap.backend.db.MessageLifecycleState;
 import org.yapyap.backend.db.FileTransferStatus;
 import org.yapyap.backend.db.FileChunkStatus;
 
@@ -69,7 +68,7 @@ CREATE TABLE messages (
     prev_id TEXT,
     lamport_clock INTEGER NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
-    encrypted_payload BLOB NOT NULL,
+    message_payload BLOB NOT NULL,
     lifecycle_state TEXT AS MessageLifecycleState NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),

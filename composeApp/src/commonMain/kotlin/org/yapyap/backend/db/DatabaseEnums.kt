@@ -25,8 +25,7 @@ enum class RoomMemberRole {
 
 enum class MessagePayloadType {
     TEXT,
-    FILE_OFFER,
-    REVOKE_DEVICE,
+    GLOBAL_EVENT,
 }
 
 enum class MessageLifecycleState {

@@ -2,6 +2,7 @@ package org.yapyap.backend.routing
 
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.FileEnvelope
+import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 
 enum class FieldSensitivity {
@@ -65,8 +66,23 @@ object EnvelopeObservability {
         ),
     )
 
+    val messageEnvelope = ObservabilityProfile(
+        schemaId = "message-envelope-v1",
+        fields = mapOf(
+            MessageEnvelope.Companion.Fields.MESSAGE_ID to FieldSensitivity.ROUTING_VISIBLE,
+            MessageEnvelope.Companion.Fields.KIND to FieldSensitivity.ROUTING_VISIBLE,
+            MessageEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
+            MessageEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
+            MessageEnvelope.Companion.Fields.CREATED_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
+            MessageEnvelope.Companion.Fields.NONCE to FieldSensitivity.ENDPOINT_VISIBLE,
+            MessageEnvelope.Companion.Fields.SECURITY_SCHEME to FieldSensitivity.ROUTING_VISIBLE,
+            MessageEnvelope.Companion.Fields.SIGNATURE to FieldSensitivity.ENDPOINT_VISIBLE,
+            MessageEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
+        ),
+    )
+
     val byFamily: Map<EnvelopeFamily, List<ObservabilityProfile>> = mapOf(
-        EnvelopeFamily.MESSAGE to listOf(binaryEnvelope),
+        EnvelopeFamily.MESSAGE to listOf(binaryEnvelope, messageEnvelope),
         EnvelopeFamily.FILE to listOf(fileEnvelope),
         EnvelopeFamily.SIGNAL to listOf(binaryEnvelope, webRtcSignalEnvelope),
     )

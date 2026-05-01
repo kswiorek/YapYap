@@ -1,22 +1,4 @@
 package org.yapyap.backend.routing
-
-/**
- * Coarse-grained delivery lifecycle for message-like envelopes handled by the router.
- */
-enum class MessageLifecycleState {
-    CREATED,
-    QUEUED,
-    SENT,
-    ACKED,
-    SYNCED,
-    ARCHIVED,
-    FAILED,
-    EXPIRED,
-    CANCELLED,
-    CAUSAL_HOLD,
-    RELAY_QUEUED,
-}
-
 /**
  * Fine-grained state of an outbound delivery attempt.
  */
