@@ -18,8 +18,11 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
-import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
+import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.ByteReader
+import org.yapyap.backend.protocol.ByteWriter
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
+import org.yapyap.backend.transport.webrtc.types.AvQualityTier
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionState
 import org.yapyap.backend.transport.webrtc.types.WebRtcIncomingAvSessionRequest
@@ -27,36 +30,40 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSessionPhase
 import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
+import kotlin.time.Clock
 
 class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
     private val logger: AppLogger = NoopAppLogger,
 ) : WebRtcTransport {
 
-    private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
+    private val incomingEnvelopeFlow = MutableSharedFlow<BinaryEnvelope>(extraBufferCapacity = 64)
+    private val incomingAvFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
     private val sessionStateFlow = MutableStateFlow<WebRtcSessionState?>(null)
-    private val incomingAvSessionRequestFlow = MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
-    private val avSessionStateFlow = MutableStateFlow<WebRtcAvSessionState?>(null)
-    private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
+    private val incomingCallInviteFlow = MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
+    private val callStateFlow = MutableStateFlow<WebRtcAvSessionState?>(null)
+    private val outgoingBootstrapSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
 
-    override val incomingData: Flow<WebRtcIncomingDataFrame> = incomingDataFlow.asSharedFlow()
+    override val incomingEnvelopes: Flow<BinaryEnvelope> = incomingEnvelopeFlow.asSharedFlow()
+    override val incomingAvFrames: Flow<WebRtcDataFrame> = incomingAvFrameFlow.asSharedFlow()
     override val sessionStates: Flow<WebRtcSessionState> = sessionStateFlow.filterNotNull()
-    override val incomingAvSessionRequests: Flow<WebRtcIncomingAvSessionRequest> = incomingAvSessionRequestFlow.asSharedFlow()
-    override val avSessionStates: Flow<WebRtcAvSessionState> = avSessionStateFlow.filterNotNull()
-    override val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
+    override val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest> = incomingCallInviteFlow.asSharedFlow()
+    override val callStates: Flow<WebRtcAvSessionState> = callStateFlow.filterNotNull()
+    override val outgoingBootstrapSignals: Flow<WebRtcSignal> = outgoingBootstrapSignalFlow.asSharedFlow()
 
     private var started = false
     private var localDevice: String? = null
     private var scope: CoroutineScope? = null
 
     private val peerBySession = mutableMapOf<String, String>()
-    private val pendingAvOffersBySession = mutableMapOf<String, WebRtcSignal>()
+    private val pendingIncomingCallBySession = mutableMapOf<String, WebRtcIncomingAvSessionRequest>()
     private val avPeerBySession = mutableMapOf<String, String>()
+    private val avOptionsBySession = mutableMapOf<String, AvSessionOptions>()
 
     private var backendSignalJob: Job? = null
     private var backendDataJob: Job? = null
     private var backendSessionEventsJob: Job? = null
-    private var backendAvSessionEventsJob: Job? = null
+    private var backendAvChannelEventsJob: Job? = null
 
     override suspend fun start(deviceId: String) {
         check(!started) { "WebRTC transport is already started" }
@@ -71,12 +78,12 @@ class DefaultWebRtcTransport(
         backendSignalJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             backend.outgoingSignals
                 .onStart { backendSignalsCollectorReady.complete(Unit) }
-                .collect { signal -> outgoingSignalFlow.emit(signal) }
+                .collect { signal -> outgoingBootstrapSignalFlow.emit(signal) }
         }
 
         backendDataJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             backend.incomingDataFrames.collect { frame ->
-                incomingDataFlow.emit(frame)
+                handleIncomingFrame(frame)
             }
         }
 
@@ -148,53 +155,44 @@ class DefaultWebRtcTransport(
             }
         }
 
-        backendAvSessionEventsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            backend.avSessionEvents.collect { event ->
+        backendAvChannelEventsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            backend.avChannelEvents.collect { event ->
                 when (event) {
-                    is WebRtcAvSessionEvent.Negotiating -> {
-                        avPeerBySession[event.sessionId] = event.peer
-                        avSessionStateFlow.value = WebRtcAvSessionState(
+                    is WebRtcAvChannelEvent.Adding -> {
+                        callStateFlow.value = WebRtcAvSessionState(
                             sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.NEGOTIATING,
-                            options = event.options,
+                            options = avOptionsBySession[event.sessionId],
                         )
                     }
-                    is WebRtcAvSessionEvent.Active -> {
+                    is WebRtcAvChannelEvent.Active -> {
                         avPeerBySession[event.sessionId] = event.peer
-                        avSessionStateFlow.value = WebRtcAvSessionState(
+                        callStateFlow.value = WebRtcAvSessionState(
                             sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.ACTIVE,
-                            options = event.options,
+                            options = avOptionsBySession[event.sessionId],
                         )
                     }
-                    is WebRtcAvSessionEvent.Ended -> {
+                    is WebRtcAvChannelEvent.Removed -> {
                         avPeerBySession.remove(event.sessionId)
-                        pendingAvOffersBySession.remove(event.sessionId)
-                        avSessionStateFlow.value = WebRtcAvSessionState(
+                        pendingIncomingCallBySession.remove(event.sessionId)
+                        avOptionsBySession.remove(event.sessionId)
+                        callStateFlow.value = WebRtcAvSessionState(
                             sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.ENDED,
                         )
                     }
-                    is WebRtcAvSessionEvent.Failed -> {
+                    is WebRtcAvChannelEvent.Failed -> {
                         avPeerBySession.remove(event.sessionId)
-                        pendingAvOffersBySession.remove(event.sessionId)
-                        avSessionStateFlow.value = WebRtcAvSessionState(
+                        pendingIncomingCallBySession.remove(event.sessionId)
+                        avOptionsBySession.remove(event.sessionId)
+                        callStateFlow.value = WebRtcAvSessionState(
                             sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.FAILED,
-                            reason = event.reason,
-                        )
-                    }
-                    is WebRtcAvSessionEvent.Rejected -> {
-                        avPeerBySession.remove(event.sessionId)
-                        pendingAvOffersBySession.remove(event.sessionId)
-                        avSessionStateFlow.value = WebRtcAvSessionState(
-                            sessionId = event.sessionId,
-                            peer = event.peer,
-                            phase = WebRtcAvSessionPhase.REJECTED,
                             reason = event.reason,
                         )
                     }
@@ -218,15 +216,16 @@ class DefaultWebRtcTransport(
         backendSignalJob?.cancel()
         backendDataJob?.cancel()
         backendSessionEventsJob?.cancel()
-        backendAvSessionEventsJob?.cancel()
+        backendAvChannelEventsJob?.cancel()
         backendSignalJob = null
         backendDataJob = null
         backendSessionEventsJob = null
-        backendAvSessionEventsJob = null
+        backendAvChannelEventsJob = null
 
         peerBySession.clear()
-        pendingAvOffersBySession.clear()
+        pendingIncomingCallBySession.clear()
         avPeerBySession.clear()
+        avOptionsBySession.clear()
 
         scope?.cancel()
         scope = null
@@ -242,15 +241,24 @@ class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun initiateSession(target: String, sessionId: String) {
-        check(started) { "WebRTC transport must be started before initiating session" }
+    override suspend fun openSession(target: String, sessionId: String) {
+        check(started) { "WebRTC transport must be started before opening session" }
         peerBySession[sessionId] = target
         backend.openSession(target = target, sessionId = sessionId)
     }
 
-    override suspend fun sendData(sessionId: String, target: String, payload: ByteArray) {
+    override suspend fun sendEnvelope(sessionId: String, target: String, payload: ByteArray) {
         check(started) { "WebRTC transport must be started before sending data" }
-        backend.sendData(sessionId = sessionId, target = target, payload = payload)
+        val local = requireNotNull(localDevice) { "Local device is not available" }
+        backend.sendData(
+            WebRtcDataFrame(
+                sessionId = sessionId,
+                source = local,
+                target = target,
+                dataType = WebRtcDataType.ENVELOPE_BINARY,
+                payload = payload,
+            )
+        )
     }
 
     override suspend fun closeSession(sessionId: String) {
@@ -258,60 +266,83 @@ class DefaultWebRtcTransport(
         backend.closeSession(sessionId)
     }
 
-    override suspend fun initiateAvSession(target: String, sessionId: String, options: AvSessionOptions) {
-        check(started) { "WebRTC transport must be started before initiating AV session" }
+    override suspend fun inviteCall(target: String, sessionId: String, options: AvSessionOptions) {
+        check(started) { "WebRTC transport must be started before inviting call" }
         avPeerBySession[sessionId] = target
-        backend.openAvSession(target = target, sessionId = sessionId, options = options)
-    }
-
-    override suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions) {
-        check(started) { "WebRTC transport must be started before accepting AV session" }
-        val pendingOffer = pendingAvOffersBySession.remove(sessionId)
-            ?: error("No pending AV offer found for sessionId $sessionId")
-        avPeerBySession[sessionId] = pendingOffer.source
-        backend.acceptAvSession(sessionId = sessionId, options = options)
-        backend.handleRemoteSignal(pendingOffer)
-        avSessionStateFlow.value = WebRtcAvSessionState(
+        avOptionsBySession[sessionId] = options
+        backend.addAvChannel(sessionId = sessionId, options = options)
+        sendAvControl(sessionId = sessionId, target = target, message = AvControlMessage.Invite(options))
+        callStateFlow.value = WebRtcAvSessionState(
             sessionId = sessionId,
-            peer = pendingOffer.source,
+            peer = target,
             phase = WebRtcAvSessionPhase.NEGOTIATING,
             options = options,
         )
     }
 
-    override suspend fun rejectAvSession(sessionId: String, reason: String) {
-        check(started) { "WebRTC transport must be started before rejecting AV session" }
-        val local = requireNotNull(localDevice) { "Local device is not available" }
-        val pendingOffer = pendingAvOffersBySession.remove(sessionId)
-            ?: error("No pending AV offer found for sessionId $sessionId")
-        backend.rejectAvSession(sessionId = sessionId, reason = reason)
-        val rejectSignal = WebRtcSignal(
+    override suspend fun acceptCall(sessionId: String, options: AvSessionOptions) {
+        check(started) { "WebRTC transport must be started before accepting call" }
+        val request = pendingIncomingCallBySession.remove(sessionId)
+            ?: error("No pending call invite found for sessionId $sessionId")
+        avPeerBySession[sessionId] = request.source
+        avOptionsBySession[sessionId] = options
+        backend.addAvChannel(sessionId = sessionId, options = options)
+        sendAvControl(sessionId = sessionId, target = request.source, message = AvControlMessage.Accept(options))
+        callStateFlow.value = WebRtcAvSessionState(
             sessionId = sessionId,
-            kind = WebRtcSignalKind.AV_REJECT,
-            source = local,
-            target = pendingOffer.source,
-            payload = reason.encodeToByteArray(),
+            peer = request.source,
+            phase = WebRtcAvSessionPhase.ACTIVE,
+            options = options,
         )
-        avSessionStateFlow.value = WebRtcAvSessionState(
+    }
+
+    override suspend fun rejectCall(sessionId: String, reason: String) {
+        check(started) { "WebRTC transport must be started before rejecting call" }
+        val request = pendingIncomingCallBySession.remove(sessionId)
+            ?: error("No pending call invite found for sessionId $sessionId")
+        sendAvControl(sessionId = sessionId, target = request.source, message = AvControlMessage.Reject(reason))
+        backend.removeAvChannel(sessionId)
+        avPeerBySession.remove(sessionId)
+        avOptionsBySession.remove(sessionId)
+        callStateFlow.value = WebRtcAvSessionState(
             sessionId = sessionId,
-            peer = pendingOffer.source,
+            peer = request.source,
             phase = WebRtcAvSessionPhase.REJECTED,
             reason = reason,
         )
-        scope?.launch { sendSignal(rejectSignal) } ?: sendSignal(rejectSignal)
     }
 
-    override suspend fun updateAvControls(sessionId: String, update: AvControlUpdate) {
-        check(started) { "WebRTC transport must be started before updating AV controls" }
-        backend.updateAvControls(sessionId = sessionId, update = update)
+    override suspend fun updateCallOptions(sessionId: String, options: AvSessionOptions) {
+        check(started) { "WebRTC transport must be started before updating call options" }
+        val peer = avPeerBySession[sessionId] ?: error("No AV peer found for sessionId $sessionId")
+        avOptionsBySession[sessionId] = options
+        backend.setAvControls(sessionId = sessionId, update = options)
+        sendAvControl(sessionId = sessionId, target = peer, message = AvControlMessage.Update(options))
+        callStateFlow.value = WebRtcAvSessionState(
+            sessionId = sessionId,
+            peer = peer,
+            phase = WebRtcAvSessionPhase.ACTIVE,
+            options = options,
+        )
     }
 
-    override suspend fun endAvSession(sessionId: String) {
-        check(started) { "WebRTC transport must be started before ending AV session" }
-        backend.closeAvSession(sessionId)
+    override suspend fun endCall(sessionId: String, reason: String?) {
+        check(started) { "WebRTC transport must be started before ending call" }
+        val peer = avPeerBySession[sessionId] ?: peerBySession[sessionId] ?: return
+        sendAvControl(sessionId = sessionId, target = peer, message = AvControlMessage.End(reason))
+        backend.removeAvChannel(sessionId)
+        avPeerBySession.remove(sessionId)
+        pendingIncomingCallBySession.remove(sessionId)
+        avOptionsBySession.remove(sessionId)
+        callStateFlow.value = WebRtcAvSessionState(
+            sessionId = sessionId,
+            peer = peer,
+            phase = WebRtcAvSessionPhase.ENDED,
+            reason = reason,
+        )
     }
 
-    override suspend fun handleInboundSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long) {
+    override suspend fun handleBootstrapSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long) {
         val local = requireNotNull(localDevice) { "Local device is not available" }
         if (signal.target != local) {
             logger.debug(
@@ -351,35 +382,6 @@ class DefaultWebRtcTransport(
                         reason = reason,
                     )
             }
-            WebRtcSignalKind.AV_OFFER -> {
-                pendingAvOffersBySession[signal.sessionId] = signal
-                avPeerBySession[signal.sessionId] = signal.source
-                incomingAvSessionRequestFlow.emit(
-                    WebRtcIncomingAvSessionRequest(
-                        sessionId = signal.sessionId,
-                        source = signal.source,
-                        options = null,
-                        receivedAtEpochSeconds = receivedAtEpochSeconds,
-                    )
-                )
-                avSessionStateFlow.value = WebRtcAvSessionState(
-                    sessionId = signal.sessionId,
-                    peer = signal.source,
-                    phase = WebRtcAvSessionPhase.PENDING_DECISION,
-                    options = null,
-                )
-            }
-            WebRtcSignalKind.AV_REJECT -> {
-                val reason = signal.payload.decodeToString()
-                avPeerBySession.remove(signal.sessionId)
-                pendingAvOffersBySession.remove(signal.sessionId)
-                avSessionStateFlow.value = WebRtcAvSessionState(
-                    sessionId = signal.sessionId,
-                    peer = signal.source,
-                    phase = WebRtcAvSessionPhase.REJECTED,
-                    reason = reason,
-                )
-            }
             else -> {
                 backend.handleRemoteSignal(signal)
                 logger.debug(
@@ -392,15 +394,202 @@ class DefaultWebRtcTransport(
         }
     }
 
-    private suspend fun sendSignal(signal: WebRtcSignal) {
-        outgoingSignalFlow.emit(signal)
-        logger.debug(
-            component = LogComponent.WEBRTC_TRANSPORT,
-            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
-            message = "Emitted outbound WebRTC signal",
-            fields = mapOf("sessionId" to signal.sessionId, "kind" to signal.kind.name, "target" to signal.target),
+    private suspend fun handleIncomingFrame(frame: WebRtcDataFrame) {
+        val peer = peerBySession[frame.sessionId]
+        if (peer == null) {
+            logger.debug(
+                component = LogComponent.WEBRTC_TRANSPORT,
+                event = LogEvent.INCOMING_FRAME_DROPPED_UNKNOWN_SESSION,
+                message = "Dropped incoming frame for unknown session",
+                fields = mapOf("sessionId" to frame.sessionId),
+            )
+            return
+        }
+
+        when (frame.dataType) {
+            WebRtcDataType.ENVELOPE_BINARY -> {
+                val envelope = runCatching { BinaryEnvelope.decode(frame.payload) }
+                    .getOrElse { error ->
+                        logger.warn(
+                            component = LogComponent.WEBRTC_TRANSPORT,
+                            event = LogEvent.ENVELOPE_DECODE_FAILED,
+                            message = "Failed to decode incoming WebRTC envelope frame",
+                            fields = mapOf("sessionId" to frame.sessionId, "peer" to peer, "error" to error.toString()),
+                        )
+                        return
+                    }
+                incomingEnvelopeFlow.emit(envelope)
+            }
+            WebRtcDataType.AV_DATA -> {
+                if (handleAvControlFrame(frame, peer)) return
+                incomingAvFrameFlow.emit(frame)
+            }
+        }
+    }
+
+    private suspend fun sendAvControl(sessionId: String, target: String, message: AvControlMessage) {
+        val local = requireNotNull(localDevice) { "Local device is not available" }
+        backend.sendData(
+            WebRtcDataFrame(
+                sessionId = sessionId,
+                source = local,
+                target = target,
+                dataType = WebRtcDataType.AV_DATA,
+                payload = encodeAvControlMessage(message),
+            )
         )
     }
+
+    private suspend fun handleAvControlFrame(frame: WebRtcDataFrame, peer: String): Boolean {
+        val message = decodeAvControlMessage(frame.payload) ?: return false
+        when (message) {
+            is AvControlMessage.Invite -> {
+                avPeerBySession[frame.sessionId] = peer
+                avOptionsBySession[frame.sessionId] = message.options
+                val invite = WebRtcIncomingAvSessionRequest(
+                    sessionId = frame.sessionId,
+                    source = peer,
+                    options = message.options,
+                    receivedAtEpochSeconds = Clock.System.now().epochSeconds,
+                )
+                pendingIncomingCallBySession[frame.sessionId] = invite
+                incomingCallInviteFlow.emit(invite)
+                callStateFlow.value = WebRtcAvSessionState(
+                    sessionId = frame.sessionId,
+                    peer = peer,
+                    phase = WebRtcAvSessionPhase.PENDING_DECISION,
+                    options = message.options,
+                )
+            }
+            is AvControlMessage.Accept -> {
+                avPeerBySession[frame.sessionId] = peer
+                avOptionsBySession[frame.sessionId] = message.options
+                callStateFlow.value = WebRtcAvSessionState(
+                    sessionId = frame.sessionId,
+                    peer = peer,
+                    phase = WebRtcAvSessionPhase.ACTIVE,
+                    options = message.options,
+                )
+            }
+            is AvControlMessage.Reject -> {
+                pendingIncomingCallBySession.remove(frame.sessionId)
+                avPeerBySession.remove(frame.sessionId)
+                avOptionsBySession.remove(frame.sessionId)
+                backend.removeAvChannel(frame.sessionId)
+                callStateFlow.value = WebRtcAvSessionState(
+                    sessionId = frame.sessionId,
+                    peer = peer,
+                    phase = WebRtcAvSessionPhase.REJECTED,
+                    reason = message.reason,
+                )
+            }
+            is AvControlMessage.Update -> {
+                avOptionsBySession[frame.sessionId] = message.options
+                callStateFlow.value = WebRtcAvSessionState(
+                    sessionId = frame.sessionId,
+                    peer = peer,
+                    phase = WebRtcAvSessionPhase.ACTIVE,
+                    options = message.options,
+                )
+            }
+            is AvControlMessage.End -> {
+                pendingIncomingCallBySession.remove(frame.sessionId)
+                avPeerBySession.remove(frame.sessionId)
+                avOptionsBySession.remove(frame.sessionId)
+                backend.removeAvChannel(frame.sessionId)
+                callStateFlow.value = WebRtcAvSessionState(
+                    sessionId = frame.sessionId,
+                    peer = peer,
+                    phase = WebRtcAvSessionPhase.ENDED,
+                    reason = message.reason,
+                )
+            }
+        }
+        logger.debug(
+            component = LogComponent.WEBRTC_TRANSPORT,
+            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            message = "Handled inbound AV control frame",
+            fields = mapOf("sessionId" to frame.sessionId, "peer" to peer, "kind" to message.kindName),
+        )
+        return true
+    }
+}
+
+private sealed interface AvControlMessage {
+    val kindName: String
+
+    data class Invite(val options: AvSessionOptions) : AvControlMessage { override val kindName: String = "INVITE" }
+    data class Accept(val options: AvSessionOptions) : AvControlMessage { override val kindName: String = "ACCEPT" }
+    data class Reject(val reason: String) : AvControlMessage { override val kindName: String = "REJECT" }
+    data class Update(val options: AvSessionOptions) : AvControlMessage { override val kindName: String = "UPDATE" }
+    data class End(val reason: String?) : AvControlMessage { override val kindName: String = "END" }
+}
+
+private val AV_CONTROL_MAGIC = byteArrayOf('Y'.code.toByte(), 'A'.code.toByte(), 'V'.code.toByte(), '1'.code.toByte())
+
+private fun encodeAvControlMessage(message: AvControlMessage): ByteArray {
+    val writer = ByteWriter(32)
+    writer.writeBytes(AV_CONTROL_MAGIC)
+    when (message) {
+        is AvControlMessage.Invite -> {
+            writer.writeByte(1)
+            writeAvSessionOptions(writer, message.options)
+        }
+        is AvControlMessage.Accept -> {
+            writer.writeByte(2)
+            writeAvSessionOptions(writer, message.options)
+        }
+        is AvControlMessage.Reject -> {
+            writer.writeByte(3)
+            writer.writeString(message.reason)
+        }
+        is AvControlMessage.Update -> {
+            writer.writeByte(4)
+            writeAvSessionOptions(writer, message.options)
+        }
+        is AvControlMessage.End -> {
+            writer.writeByte(5)
+            writer.writeNullableString(message.reason)
+        }
+    }
+    return writer.toByteArray()
+}
+
+private fun decodeAvControlMessage(bytes: ByteArray): AvControlMessage? {
+    return runCatching {
+        val reader = ByteReader(bytes)
+        val magic = reader.readBytes(AV_CONTROL_MAGIC.size)
+        if (!magic.contentEquals(AV_CONTROL_MAGIC)) return null
+        when (reader.readUnsignedByte()) {
+            1 -> AvControlMessage.Invite(readAvSessionOptions(reader))
+            2 -> AvControlMessage.Accept(readAvSessionOptions(reader))
+            3 -> AvControlMessage.Reject(reader.readString())
+            4 -> AvControlMessage.Update(readAvSessionOptions(reader))
+            5 -> AvControlMessage.End(reader.readNullableString())
+            else -> return null
+        }.also {
+            reader.requireFullyRead()
+        }
+    }.getOrNull()
+}
+
+private fun writeAvSessionOptions(writer: ByteWriter, options: AvSessionOptions) {
+    val flags = (if (options.audioEnabled) 1 else 0) or
+        (if (options.videoEnabled) 1 shl 1 else 0) or
+        (if (options.screenShareEnabled) 1 shl 2 else 0)
+    writer.writeByte(flags)
+    writer.writeByte(options.qualityTier.ordinal)
+}
+
+private fun readAvSessionOptions(reader: ByteReader): AvSessionOptions {
+    val flags = reader.readUnsignedByte()
+    val quality = reader.readUnsignedByte()
+    return AvSessionOptions(
+        audioEnabled = (flags and 1) != 0,
+        videoEnabled = (flags and (1 shl 1)) != 0,
+        screenShareEnabled = (flags and (1 shl 2)) != 0,
+        qualityTier = AvQualityTier.entries.getOrElse(quality) { AvQualityTier.MEDIUM },
+    )
 }
 
 

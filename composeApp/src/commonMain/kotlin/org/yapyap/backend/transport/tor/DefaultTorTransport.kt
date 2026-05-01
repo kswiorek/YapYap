@@ -20,16 +20,15 @@ import org.yapyap.backend.time.SystemEpochSecondsProvider
 
 class DefaultTorTransport(
     private val backend: TorBackend,
-    private val epochSecondsProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : TorTransport {
 
-    private val incomingFlow = MutableSharedFlow<TorInboundEnvelope>(replay = 1, extraBufferCapacity = 64)
+    private val incomingFlow = MutableSharedFlow<BinaryEnvelope>(replay = 1, extraBufferCapacity = 64)
     private var scope: CoroutineScope? = null
     private var frameCollectorJob: Job? = null
     private var started = false
 
-    override val incoming: Flow<TorInboundEnvelope> = incomingFlow.asSharedFlow()
+    override val incoming: Flow<BinaryEnvelope> = incomingFlow.asSharedFlow()
 
     override suspend fun start(): TorEndpoint {
         check(!started) { "Tor transport is already started" }
@@ -57,11 +56,7 @@ class DefaultTorTransport(
                     return@collect
                 }
                 incomingFlow.emit(
-                    TorInboundEnvelope(
-                        envelope = envelope,
-                        source = frame.source,
-                        receivedAtEpochSeconds = epochSecondsProvider.nowEpochSeconds(),
-                    )
+                    envelope
                 )
                 logger.debug(
                     component = LogComponent.TOR_TRANSPORT,

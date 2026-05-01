@@ -22,7 +22,6 @@ import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.time.EpochSecondsProvider
 import org.yapyap.backend.time.SystemEpochSecondsProvider
-import org.yapyap.backend.transport.tor.TorInboundEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
@@ -46,6 +45,7 @@ class DefaultRouter(
 
     private var scope: CoroutineScope? = null
     private var torIncomingJob: Job? = null
+    private var webRtcIncomingJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
 
 
@@ -80,8 +80,23 @@ class DefaultRouter(
             }
         }
 
+//        webRtcIncomingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
+//            webRtcTransport..collect { inbound ->
+//                runCatching { handleInboundEnvelope(inbound) }
+//                    .onFailure { e ->
+//                        if (e is CancellationException) throw e
+//                        logger.error(
+//                            component = LogComponent.ROUTER,
+//                            event = LogEvent.SIGNAL_INBOUND_HANDLE_FAILED,
+//                            message = "Failed to handle inbound WebRTC envelope",
+//                            fields = mapOf("error" to e.toString()),
+//                        )
+//                    }
+//            }
+//        }
+
         webRtcOutgoingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
-            webRtcTransport.outgoingSignals.collect { signal ->
+            webRtcTransport.outgoingBootstrapSignals.collect { signal ->
                 runCatching { handleWebRtcOutboundSignal(signal) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
@@ -128,47 +143,46 @@ class DefaultRouter(
         return started
     }
 
-    private suspend fun handleInboundEnvelope(inbound: TorInboundEnvelope) {
-        val env = inbound.envelope
-
+    private suspend fun handleInboundEnvelope(inbound: BinaryEnvelope) {
+        val receivedAtEpochSeconds = timeProvider.nowEpochSeconds()
         if (!packetDeduplicator.firstSeen(
-                packetId = env.packetId,
-                sourceDeviceId = env.source,
-                receivedAtEpochSeconds = inbound.receivedAtEpochSeconds,
+                packetId = inbound.packetId,
+                sourceDeviceId = inbound.source,
+                receivedAtEpochSeconds = receivedAtEpochSeconds,
             )
         ) {
             return
         }
 
-        if (env.target != localDeviceIdentity?.deviceId) {
+        if (inbound.target != localDeviceIdentity?.deviceId) {
             logger.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_WRONG_TARGET,
                 message = "Envelope ignored due to target mismatch",
                 fields = mapOf(
-                    "sourceDeviceId" to env.source,
-                    "targetDeviceId" to env.target,
+                    "sourceDeviceId" to inbound.source,
+                    "targetDeviceId" to inbound.target,
                     "localDeviceId" to localDeviceIdentity?.deviceId,
                 ),
             )
             return
         }
 
-        when (env.packetType) {
-            PacketType.SIGNAL -> handleInboundSignalEnvelope(env)
-            PacketType.FILE -> handleFileEnvelope(env)
+        when (inbound.packetType) {
+            PacketType.SIGNAL -> handleInboundSignalEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.FILE -> handleFileEnvelope(inbound, receivedAtEpochSeconds)
             else -> { logger.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
                 message = "Envelope ignored due to unknown packet type",
                 fields = mapOf(
-                    "packetType" to env.packetType,
+                    "packetType" to inbound.packetType,
                 ),
             ) }
         }
     }
 
-    private suspend fun handleInboundSignalEnvelope(env: BinaryEnvelope) {
+    private suspend fun handleInboundSignalEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
         val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -187,7 +201,7 @@ class DefaultRouter(
             )
             return
         }
-        webRtcTransport.handleInboundSignal(signal, receivedAtEpochSeconds = env.createdAtEpochSeconds)
+        webRtcTransport.handleBootstrapSignal(signal, receivedAtEpochSeconds = receivedAtEpochSeconds)
     }
 
     private suspend fun handleWebRtcOutboundSignal(signal: WebRtcSignal) {
@@ -214,7 +228,7 @@ class DefaultRouter(
         )
     }
 
-    private suspend fun handleFileEnvelope(env: BinaryEnvelope) {
+    private suspend fun handleFileEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
         // TODO
     }
 }

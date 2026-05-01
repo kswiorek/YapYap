@@ -31,7 +31,6 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
-import org.yapyap.backend.transport.webrtc.types.AvControlUpdate
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
@@ -42,15 +41,15 @@ class JvmWebRtcBackend(
 ) : WebRtcBackend {
 
     private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
-    private val incomingDataFlow = MutableSharedFlow<WebRtcIncomingDataFrame>(extraBufferCapacity = 64)
+    private val incomingDataFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
     private val sessionEventFlow = MutableSharedFlow<WebRtcSessionEvent>(extraBufferCapacity = 64)
-    private val avSessionEventFlow = MutableSharedFlow<WebRtcAvSessionEvent>(extraBufferCapacity = 64)
+    private val avChannelEventFlow = MutableSharedFlow<WebRtcAvChannelEvent>(extraBufferCapacity = 64)
     private val callbackScope = CoroutineScope(Dispatchers.Default)
 
     override val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
-    override val incomingDataFrames: Flow<WebRtcIncomingDataFrame> = incomingDataFlow.asSharedFlow()
+    override val incomingDataFrames: Flow<WebRtcDataFrame> = incomingDataFlow.asSharedFlow()
     override val sessionEvents: Flow<WebRtcSessionEvent> = sessionEventFlow.asSharedFlow()
-    override val avSessionEvents: Flow<WebRtcAvSessionEvent> = avSessionEventFlow.asSharedFlow()
+    override val avChannelEvents: Flow<WebRtcAvChannelEvent> = avChannelEventFlow.asSharedFlow()
 
     private var localDevice: String? = null
     private var factory: PeerConnectionFactory? = null
@@ -92,9 +91,9 @@ class JvmWebRtcBackend(
             config.maxRetransmits?.let { init.maxRetransmits = it }
             config.maxPacketLifeTimeMs?.let { init.maxPacketLifeTime = it }
         }
-        val label = "${config.dataChannelLabelPrefix}-$sessionId"
+        val label = envelopeChannelLabel(sessionId)
         val channel = peerConnection.createDataChannel(label, channelInit)
-        attachDataChannel(session, channel)
+        attachDataChannel(session, channel, WebRtcDataType.ENVELOPE_BINARY)
         emitSessionEvent(WebRtcSessionEvent.Connecting(sessionId = sessionId, peer = target))
 
         peerConnection.createOffer(
@@ -144,6 +143,12 @@ class JvmWebRtcBackend(
 
     override suspend fun handleRemoteSignal(signal: WebRtcSignal) {
         val local = requireNotNull(localDevice) { "WebRTC backend must be started before applying remote signal" }
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            message = "Applying inbound WebRTC signal",
+            fields = mapOf("sessionId" to signal.sessionId, "kind" to signal.kind.name, "source" to signal.source),
+        )
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
                 val session = sessions.computeIfAbsent(signal.sessionId) {
@@ -247,12 +252,6 @@ class JvmWebRtcBackend(
                 session.dispose()
                 emitSessionEvent(WebRtcSessionEvent.Closed(signal.sessionId, session.remotePeer))
             }
-            WebRtcSignalKind.AV_OFFER,
-            WebRtcSignalKind.AV_ANSWER,
-            WebRtcSignalKind.AV_UPDATE,
-            WebRtcSignalKind.AV_END,
-            WebRtcSignalKind.AV_REJECT,
-            -> Unit
         }
     }
 
@@ -263,55 +262,120 @@ class JvmWebRtcBackend(
         emitSessionEvent(WebRtcSessionEvent.Closed(sessionId, session.remotePeer))
     }
 
-    override suspend fun sendData(sessionId: String, target: String, payload: ByteArray) {
+    override suspend fun sendData(dataFrame: WebRtcDataFrame) {
         check(localDevice != null) { "WebRTC backend must be started before sending data" }
-        val session = sessions[sessionId] ?: error("Unknown sessionId: $sessionId")
-        check(session.remotePeer == target) { "Session target mismatch for sessionId $sessionId" }
-        val channel = session.dataChannel ?: error("No data channel available for sessionId: $sessionId")
-        check(channel.state == RTCDataChannelState.OPEN) { "Data channel is not open for sessionId: $sessionId" }
-        channel.send(RTCDataChannelBuffer(ByteBuffer.wrap(payload), true))
-    }
-
-    override suspend fun openAvSession(target: String, sessionId: String, options: AvSessionOptions) {
-        check(localDevice != null) { "WebRTC backend must be started before opening AV session" }
         val local = requireNotNull(localDevice)
-        emitSignal(
-            WebRtcSignal(
-                sessionId = sessionId,
-                kind = WebRtcSignalKind.AV_OFFER,
-                source = local,
-                target = target,
-                payload = encodeAvSessionOptions(options),
-            )
-        )
-        emitAvSessionEvent(
-            WebRtcAvSessionEvent.Negotiating(
-                sessionId = sessionId,
-                peer = target,
-                options = options,
-            )
+        val session = sessions[dataFrame.sessionId] ?: error("Unknown sessionId: ${dataFrame.sessionId}")
+        check(session.remotePeer == dataFrame.target) { "Session target mismatch for sessionId ${dataFrame.sessionId}" }
+        check(dataFrame.source == local) { "Frame source mismatch for local device ${dataFrame.source}" }
+        val channel = when (dataFrame.dataType) {
+            WebRtcDataType.ENVELOPE_BINARY -> session.envelopeDataChannel
+            WebRtcDataType.AV_DATA -> session.avDataChannel
+        } ?: error("No ${dataFrame.dataType} channel available for sessionId: ${dataFrame.sessionId}")
+        check(channel.state == RTCDataChannelState.OPEN) { "Data channel is not open for sessionId: ${dataFrame.sessionId}" }
+        channel.send(RTCDataChannelBuffer(ByteBuffer.wrap(dataFrame.payload), true))
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            message = "Sent WebRTC data frame",
+            fields = mapOf(
+                "sessionId" to dataFrame.sessionId,
+                "target" to dataFrame.target,
+                "dataType" to dataFrame.dataType.name,
+                "payloadSize" to dataFrame.payload.size,
+            ),
         )
     }
 
-    override suspend fun acceptAvSession(sessionId: String, options: AvSessionOptions) {
-        val peer = sessions[sessionId]?.remotePeer
-        if (peer != null) {
-            emitAvSessionEvent(WebRtcAvSessionEvent.Active(sessionId = sessionId, peer = peer, options = options))
+    override suspend fun addAvChannel(sessionId: String, options: AvSessionOptions) {
+        check(localDevice != null) { "WebRTC backend must be started before adding AV channel" }
+        val session = sessions[sessionId] ?: error("Unknown sessionId: $sessionId")
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SESSION_STATE_CHANGED,
+            message = "Adding AV data channel",
+            fields = mapOf("sessionId" to sessionId, "peer" to session.remotePeer),
+        )
+        addAvChannelInternal(session, options)
+    }
+
+    override suspend fun removeAvChannel(sessionId: String) {
+        check(localDevice != null) { "WebRTC backend must be started before removing AV channel" }
+        val session = sessions[sessionId] ?: return
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SESSION_STATE_CHANGED,
+            message = "Removing AV data channel",
+            fields = mapOf("sessionId" to sessionId, "peer" to session.remotePeer),
+        )
+        removeAvChannelInternal(session)
+    }
+
+    override suspend fun setAvControls(sessionId: String, update: AvSessionOptions) {
+        check(localDevice != null) { "WebRTC backend must be started before setting AV controls" }
+        val session = sessions[sessionId] ?: return
+        if (session.avDataChannel == null) {
+            logger.warn(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "Failed to update AV controls because AV channel is inactive",
+                fields = mapOf("sessionId" to sessionId, "peer" to session.remotePeer),
+            )
+            emitAvChannelEvent(
+                WebRtcAvChannelEvent.Failed(
+                    sessionId = sessionId,
+                    peer = session.remotePeer,
+                    reason = "AV channel is not active",
+                )
+            )
+            return
         }
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SESSION_STATE_CHANGED,
+            message = "AV controls updated at backend transport layer",
+            fields = mapOf(
+                "sessionId" to sessionId,
+                "peer" to session.remotePeer,
+                "audioEnabled" to update.audioEnabled,
+                "videoEnabled" to update.videoEnabled,
+                "screenShareEnabled" to update.screenShareEnabled,
+                "qualityTier" to update.qualityTier.name,
+            ),
+        )
     }
 
-    override suspend fun rejectAvSession(sessionId: String, reason: String) {
-        val peer = sessions[sessionId]?.remotePeer ?: return
-        emitAvSessionEvent(WebRtcAvSessionEvent.Rejected(sessionId = sessionId, peer = peer, reason = reason))
+    private fun addAvChannelInternal(session: Session, options: AvSessionOptions?) {
+        emitAvChannelEvent(WebRtcAvChannelEvent.Adding(sessionId = session.sessionId, peer = session.remotePeer))
+        val existing = session.avDataChannel
+        if (existing != null && existing.state != RTCDataChannelState.CLOSED) {
+            emitAvChannelEvent(WebRtcAvChannelEvent.Active(sessionId = session.sessionId, peer = session.remotePeer))
+            return
+        }
+        val channelInit = RTCDataChannelInit().also { init ->
+            init.ordered = false
+            init.maxRetransmits = 0
+        }
+        val channel = session.peerConnection.createDataChannel(avChannelLabel(session.sessionId), channelInit)
+        attachDataChannel(session, channel, WebRtcDataType.AV_DATA)
+        emitAvChannelEvent(WebRtcAvChannelEvent.Active(sessionId = session.sessionId, peer = session.remotePeer))
     }
 
-    override suspend fun updateAvControls(sessionId: String, update: AvControlUpdate) {
-        check(localDevice != null) { "WebRTC backend must be started before updating AV controls" }
-    }
-
-    override suspend fun closeAvSession(sessionId: String) {
-        val peer = sessions[sessionId]?.remotePeer ?: return
-        emitAvSessionEvent(WebRtcAvSessionEvent.Ended(sessionId = sessionId, peer = peer))
+    private fun removeAvChannelInternal(session: Session) {
+        val channel = session.avDataChannel ?: return
+        session.avDataChannel = null
+        runCatching {
+            channel.unregisterObserver()
+            channel.close()
+            channel.dispose()
+        }
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SESSION_STATE_CHANGED,
+            message = "AV data channel removed",
+            fields = mapOf("sessionId" to session.sessionId, "peer" to session.remotePeer),
+        )
+        emitAvChannelEvent(WebRtcAvChannelEvent.Removed(sessionId = session.sessionId, peer = session.remotePeer))
     }
 
     private fun createPeerConnection(sessionId: String, remotePeer: String): RTCPeerConnection {
@@ -368,14 +432,29 @@ class JvmWebRtcBackend(
                 }
 
                 override fun onDataChannel(channel: RTCDataChannel) {
-                    sessions[sessionId]?.let { attachDataChannel(it, channel) }
+                    sessions[sessionId]?.let { session ->
+                        val dataType = inferDataTypeFromLabel(channel.label, sessionId)
+                        logger.debug(
+                            component = LogComponent.WEBRTC_BACKEND,
+                            event = LogEvent.SESSION_STATE_CHANGED,
+                            message = "Attached inbound data channel",
+                            fields = mapOf("sessionId" to sessionId, "peer" to session.remotePeer, "dataType" to dataType.name),
+                        )
+                        attachDataChannel(session, channel, dataType)
+                    }
                 }
             }
         )
     }
 
-    private fun attachDataChannel(session: Session, channel: RTCDataChannel) {
-        session.dataChannel = channel
+    private fun attachDataChannel(session: Session, channel: RTCDataChannel, dataType: WebRtcDataType) {
+        when (dataType) {
+            WebRtcDataType.ENVELOPE_BINARY -> session.envelopeDataChannel = channel
+            WebRtcDataType.AV_DATA -> {
+                session.avDataChannel = channel
+                emitAvChannelEvent(WebRtcAvChannelEvent.Active(session.sessionId, session.remotePeer))
+            }
+        }
         channel.registerObserver(
             object : RTCDataChannelObserver {
                 override fun onBufferedAmountChange(previousAmount: Long) = Unit
@@ -385,10 +464,23 @@ class JvmWebRtcBackend(
                 override fun onMessage(buffer: RTCDataChannelBuffer) {
                     val bytes = ByteArray(buffer.data.remaining())
                     buffer.data.get(bytes)
+                    logger.debug(
+                        component = LogComponent.WEBRTC_BACKEND,
+                        event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                        message = "Received WebRTC data frame",
+                        fields = mapOf(
+                            "sessionId" to session.sessionId,
+                            "peer" to session.remotePeer,
+                            "dataType" to dataType.name,
+                            "payloadSize" to bytes.size,
+                        ),
+                    )
                     emitIncomingData(
-                        WebRtcIncomingDataFrame(
+                        WebRtcDataFrame(
                             sessionId = session.sessionId,
                             source = session.remotePeer,
+                            target = requireNotNull(localDevice),
+                            dataType = dataType,
                             payload = bytes,
                         )
                     )
@@ -396,6 +488,18 @@ class JvmWebRtcBackend(
             }
         )
     }
+
+    private fun inferDataTypeFromLabel(label: String?, sessionId: String): WebRtcDataType {
+        if (label == avChannelLabel(sessionId)) return WebRtcDataType.AV_DATA
+        if (label == envelopeChannelLabel(sessionId)) {
+            return WebRtcDataType.ENVELOPE_BINARY
+        }
+        return WebRtcDataType.ENVELOPE_BINARY
+    }
+
+    private fun envelopeChannelLabel(sessionId: String): String = "${config.dataChannelLabelPrefix}-env-$sessionId"
+
+    private fun avChannelLabel(sessionId: String): String = "${config.dataChannelLabelPrefix}-av-$sessionId"
 
     private fun emitSignal(signal: WebRtcSignal) {
         logger.debug(
@@ -409,7 +513,7 @@ class JvmWebRtcBackend(
         }
     }
 
-    private fun emitIncomingData(frame: WebRtcIncomingDataFrame) {
+    private fun emitIncomingData(frame: WebRtcDataFrame) {
         callbackScope.launch {
             incomingDataFlow.emit(frame)
         }
@@ -440,9 +544,9 @@ class JvmWebRtcBackend(
         }
     }
 
-    private fun emitAvSessionEvent(event: WebRtcAvSessionEvent) {
+    private fun emitAvChannelEvent(event: WebRtcAvChannelEvent) {
         callbackScope.launch {
-            avSessionEventFlow.emit(event)
+            avChannelEventFlow.emit(event)
         }
     }
 
@@ -450,27 +554,24 @@ class JvmWebRtcBackend(
         val sessionId: String,
         val remotePeer: String,
         val peerConnection: RTCPeerConnection,
-        var dataChannel: RTCDataChannel? = null,
+        var envelopeDataChannel: RTCDataChannel? = null,
+        var avDataChannel: RTCDataChannel? = null,
     ) {
         private val disposed = AtomicBoolean(false)
 
         fun dispose() {
             if (!disposed.compareAndSet(false, true)) return
             runCatching {
-                dataChannel?.unregisterObserver()
-                dataChannel?.close()
-                dataChannel?.dispose()
+                envelopeDataChannel?.unregisterObserver()
+                envelopeDataChannel?.close()
+                envelopeDataChannel?.dispose()
+                avDataChannel?.unregisterObserver()
+                avDataChannel?.close()
+                avDataChannel?.dispose()
             }
             runCatching { peerConnection.close() }
         }
     }
-}
-
-private fun encodeAvSessionOptions(options: AvSessionOptions): ByteArray {
-    val flags = (if (options.audioEnabled) 1 else 0) or
-        (if (options.videoEnabled) 1 shl 1 else 0) or
-        (if (options.screenShareEnabled) 1 shl 2 else 0)
-    return byteArrayOf(flags.toByte(), options.qualityTier.ordinal.toByte())
 }
 
 private fun encodeIceCandidate(candidate: RTCIceCandidate): ByteArray {

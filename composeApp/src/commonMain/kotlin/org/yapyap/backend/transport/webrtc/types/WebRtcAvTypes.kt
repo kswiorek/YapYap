@@ -14,12 +14,6 @@ data class AvSessionOptions(
     val qualityTier: AvQualityTier = AvQualityTier.MEDIUM,
 )
 
-data class AvControlUpdate(
-    val audioEnabled: Boolean? = null,
-    val videoEnabled: Boolean? = null,
-    val screenShareEnabled: Boolean? = null,
-)
-
 data class WebRtcIncomingAvSessionRequest(
     val sessionId: String,
     val source: String,
