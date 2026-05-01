@@ -5,10 +5,15 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityResolver
+import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.db.DefaultPacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.logging.AppLogger
@@ -17,6 +22,8 @@ import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.protection.EnvelopeProtectContext
 import org.yapyap.backend.protection.EnvelopeProtectionService
 import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.MessageEnvelope
+import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
@@ -37,17 +44,20 @@ class DefaultRouter(
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     val cryptoProvider: CryptoProvider,
+    val signatureProvider: SignatureProvider,
     val logger: AppLogger,
 ): Router {
-    var started = false
-    var torEndpoint: TorEndpoint? = null
-    var localDeviceIdentity: DeviceIdentityRecord? = null
+    private var started = false
+    private var torEndpoint: TorEndpoint? = null
+    private var localDeviceIdentity: DeviceIdentityRecord? = null
 
+    private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
     private var scope: CoroutineScope? = null
     private var torIncomingJob: Job? = null
-    private var webRtcIncomingJob: Job? = null
+    private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
 
+    override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
@@ -74,30 +84,30 @@ class DefaultRouter(
                         logger.error(
                         component = LogComponent.ROUTER,
                         event = LogEvent.ENVELOPE_HANDLE_FAILED,
-                        message = "Failed to handle inbound envelope",
+                        message = "Failed to handle inbound Tor envelope",
                         fields = mapOf("error" to e.toString()),
                     ) }
             }
         }
 
-//        webRtcIncomingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
-//            webRtcTransport..collect { inbound ->
-//                runCatching { handleInboundEnvelope(inbound) }
-//                    .onFailure { e ->
-//                        if (e is CancellationException) throw e
-//                        logger.error(
-//                            component = LogComponent.ROUTER,
-//                            event = LogEvent.SIGNAL_INBOUND_HANDLE_FAILED,
-//                            message = "Failed to handle inbound WebRTC envelope",
-//                            fields = mapOf("error" to e.toString()),
-//                        )
-//                    }
-//            }
-//        }
+        webRtcIncomingEnvelopeJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
+            webRtcTransport.incomingEnvelopes.collect { inbound ->
+                runCatching { handleInboundEnvelope(inbound) }
+                    .onFailure { e ->
+                        if (e is CancellationException) throw e
+                        logger.error(
+                            component = LogComponent.ROUTER,
+                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                            message = "Failed to handle inbound WebRTC envelope",
+                            fields = mapOf("error" to e.toString()),
+                        )
+                    }
+            }
+        }
 
         webRtcOutgoingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
             webRtcTransport.outgoingBootstrapSignals.collect { signal ->
-                runCatching { handleWebRtcOutboundSignal(signal) }
+                runCatching { handleWebRtcBootstrapSignal(signal) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
                         logger.error(
@@ -143,6 +153,41 @@ class DefaultRouter(
         return started
     }
 
+    override suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport) {
+//        val messageEnvelope = MessageEnvelope(
+//            messageId = payload.messageId,
+//            source = localDeviceIdentity!!.deviceId,
+//            target = target,
+//            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+//            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
+//            securityScheme = SignalSecurityScheme.SIGNED,
+//            signature = signatureProvider.signDetached(
+//                message = payload.encode()),
+//            payload = payload,
+//        )
+//        //TODO sending to multiple peers
+//        val binaryEnvelope = BinaryEnvelope(
+//            packetId = packetIdAllocator.allocate(),
+//            packetType = PacketType.MESSAGE,
+//            createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
+//            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + 2 * 24 * 3600, // 2 days
+//            source = messageEnvelope.source,
+//            target = messageEnvelope.target,
+//            payload = messageEnvelope.encode(),
+//        )
+//
+//        when (forceTransport) {
+//            RouterTransport.TOR -> torTransport.send(
+//                target = identityResolver.resolveTorEndpointForDevice(target),
+//                envelope = binaryEnvelope,
+//            )
+//            RouterTransport.WEBRTC -> webRtcTransport.sendEnvelope(
+//                targetId = target,
+//                envelope = binaryEnvelope,
+//            ))
+// TODO Send message
+    }
+
     private suspend fun handleInboundEnvelope(inbound: BinaryEnvelope) {
         val receivedAtEpochSeconds = timeProvider.nowEpochSeconds()
         if (!packetDeduplicator.firstSeen(
@@ -169,7 +214,7 @@ class DefaultRouter(
         }
 
         when (inbound.packetType) {
-            PacketType.SIGNAL -> handleInboundSignalEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.SIGNAL -> handleSignalEnvelope(inbound, receivedAtEpochSeconds)
             PacketType.FILE -> handleFileEnvelope(inbound, receivedAtEpochSeconds)
             else -> { logger.info(
                 component = LogComponent.ROUTER,
@@ -182,7 +227,7 @@ class DefaultRouter(
         }
     }
 
-    private suspend fun handleInboundSignalEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
+    private suspend fun handleSignalEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
         val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -204,7 +249,7 @@ class DefaultRouter(
         webRtcTransport.handleBootstrapSignal(signal, receivedAtEpochSeconds = receivedAtEpochSeconds)
     }
 
-    private suspend fun handleWebRtcOutboundSignal(signal: WebRtcSignal) {
+    private suspend fun handleWebRtcBootstrapSignal(signal: WebRtcSignal) {
         val context = EnvelopeProtectContext(
             sourceDeviceId = localDeviceIdentity!!.deviceId,
             targetDeviceId = signal.target,

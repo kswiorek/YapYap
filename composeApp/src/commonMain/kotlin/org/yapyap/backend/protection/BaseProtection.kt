@@ -1,6 +1,8 @@
 package org.yapyap.backend.protection
 
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.routing.FieldSensitivity
+import kotlin.io.encoding.Base64.Default.encodeToByteArray
 
 abstract class BaseProtection<I, E> {
     fun protect(input: I, context: EnvelopeProtectContext): E {
@@ -50,14 +52,14 @@ abstract class BaseProtection<I, E> {
     protected fun buildSigningPayload(
         envelopeId: String,
         kindWireValue: Byte,
-        source: String,
-        target: String,
+        source: PeerId,
+        target: PeerId,
         createdAtEpochSeconds: Long,
         nonce: ByteArray,
         protectedPayload: ByteArray,
     ): ByteArray {
-        val sourceBytes = source.encodeToByteArray()
-        val targetBytes = target.encodeToByteArray()
+        val sourceBytes = source.id.encodeToByteArray()
+        val targetBytes = target.id.encodeToByteArray()
         val headerBytes = buildString {
             append(envelopeId)
             append('|')

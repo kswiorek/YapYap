@@ -1,5 +1,13 @@
 package org.yapyap.backend.protocol
 
+data class PeerId(
+    val id: String,
+) {
+    init {
+        require(id.isNotBlank()) { "PeerId cannot be blank" }
+    }
+}
+
 data class TorEndpoint(
     val onionAddress: String,
     val port: Int = 80,

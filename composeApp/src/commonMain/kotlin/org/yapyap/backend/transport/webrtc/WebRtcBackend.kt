@@ -1,6 +1,7 @@
 package org.yapyap.backend.transport.webrtc
 
 import kotlinx.coroutines.flow.Flow
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
@@ -11,23 +12,23 @@ enum class WebRtcDataType {
 
 data class WebRtcDataFrame(
     val sessionId: String,
-    val source: String,
-    val target: String,
+    val source: PeerId,
+    val target: PeerId,
     val dataType: WebRtcDataType,
     val payload: ByteArray,
 )
 
 sealed interface WebRtcSessionEvent {
-    data class Connecting(val sessionId: String, val peer: String) : WebRtcSessionEvent
-    data class Connected(val sessionId: String, val peer: String) : WebRtcSessionEvent
-    data class Closed(val sessionId: String, val peer: String) : WebRtcSessionEvent
-    data class Failed(val sessionId: String, val peer: String, val reason: String) : WebRtcSessionEvent
+    data class Connecting(val sessionId: String, val peer: PeerId) : WebRtcSessionEvent
+    data class Connected(val sessionId: String, val peer: PeerId) : WebRtcSessionEvent
+    data class Closed(val sessionId: String, val peer: PeerId) : WebRtcSessionEvent
+    data class Failed(val sessionId: String, val peer: PeerId, val reason: String) : WebRtcSessionEvent
 }
 sealed interface WebRtcAvChannelEvent {
-    data class Adding(val sessionId: String, val peer: String) : WebRtcAvChannelEvent
-    data class Active(val sessionId: String, val peer: String) : WebRtcAvChannelEvent
-    data class Removed(val sessionId: String, val peer: String) : WebRtcAvChannelEvent
-    data class Failed(val sessionId: String, val peer: String, val reason: String) : WebRtcAvChannelEvent
+    data class Adding(val sessionId: String, val peer: PeerId) : WebRtcAvChannelEvent
+    data class Active(val sessionId: String, val peer: PeerId) : WebRtcAvChannelEvent
+    data class Removed(val sessionId: String, val peer: PeerId) : WebRtcAvChannelEvent
+    data class Failed(val sessionId: String, val peer: PeerId, val reason: String) : WebRtcAvChannelEvent
 }
 
 interface WebRtcBackend {
@@ -36,11 +37,11 @@ interface WebRtcBackend {
     val sessionEvents: Flow<WebRtcSessionEvent>
     val avChannelEvents: Flow<WebRtcAvChannelEvent>
 
-    suspend fun start(localDevice: String)
+    suspend fun start(localDevice: PeerId)
 
     suspend fun stop()
 
-    suspend fun openSession(target: String, sessionId: String)
+    suspend fun openSession(target: PeerId, sessionId: String)
 
     suspend fun handleRemoteSignal(signal: WebRtcSignal)
 

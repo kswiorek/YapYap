@@ -6,6 +6,7 @@ import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PeerId
 
 class DefaultPacketIdAllocator(
     private val database: YapYapDatabase,
@@ -14,13 +15,13 @@ class DefaultPacketIdAllocator(
     private val logger: AppLogger = NoopAppLogger,
 ) : PacketIdAllocator {
 
-    private var localDeviceId: String? = null
+    private var localDeviceId: PeerId? = null
 
     init {
         require(maxAttempts > 0) { "maxAttempts must be greater than 0" }
     }
 
-    override fun assignLocalDevice(deviceId: String) {
+    override fun assignLocalDevice(deviceId: PeerId) {
         localDeviceId = deviceId
         logger.info(
             component = LogComponent.DATABASE,
@@ -53,12 +54,12 @@ class DefaultPacketIdAllocator(
         error("Failed to allocate unique PacketId after $maxAttempts")
     }
 
-    private fun tryReserve(sourceDeviceId: String, packetId: PacketId, receivedAtEpochSeconds: Long): Boolean {
+    private fun tryReserve(sourceDeviceId: PeerId, packetId: PacketId, receivedAtEpochSeconds: Long): Boolean {
         val queries = database.allocQueries
         return queries.transactionWithResult {
             queries.tryReservePacketId(
                 packet_id = packetId.toHex(),
-                source_device_id = sourceDeviceId,
+                source_device_id = sourceDeviceId.id,
                 received_at = receivedAtEpochSeconds,
             )
             queries.selectLastInsertChanges().executeAsOne() > 0

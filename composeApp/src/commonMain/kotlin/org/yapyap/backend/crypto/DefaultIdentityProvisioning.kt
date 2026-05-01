@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.db.AccountStatus
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -22,7 +23,7 @@ class DefaultIdentityProvisioning(
         )
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val encryptionKey = cryptoProvider.generateEncryptionKeyPair()
-        val deviceId = cryptoProvider.idFromPublicKey(signingKey.publicKey)
+        val deviceId = cryptoProvider.peerIdFromPublicKey(signingKey.publicKey)
 
         val signingKeyRecord = IdentityPublicKeyRecord(
             config.defaultDeviceLocalKeyPrefix + "signing",
@@ -66,7 +67,7 @@ class DefaultIdentityProvisioning(
             fields = mapOf("displayName" to displayName),
         )
         val signingKey = cryptoProvider.generateSigningKeyPair()
-        val accountId = cryptoProvider.idFromPublicKey(signingKey.publicKey)
+        val accountId = cryptoProvider.accountIdFromPublicKey(signingKey.publicKey)
         val accountKeyRecord = IdentityPublicKeyRecord(
             config.defaultAccountLocalKeyPrefix + "signing",
             0,
@@ -90,8 +91,8 @@ class DefaultIdentityProvisioning(
         return accountRecord
     }
 
-    override fun provisionDeviceIdentity(accountId: String, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
-        publicKeyRepository.insertPeerDevice(accountId, deviceIdentity, torEndpoint)
+    override fun provisionDeviceIdentity(accountId: AccountId, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
+        publicKeyRepository.insertPeerDevice(accountId, config.defaultDeviceType, deviceIdentity, torEndpoint)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
@@ -100,8 +101,8 @@ class DefaultIdentityProvisioning(
         )
     }
 
-    override fun provisionAccountIdentity(displayName: String, accountIdentity: AccountIdentityRecord) {
-        publicKeyRepository.insertPeerAccount(accountIdentity)
+    override fun provisionAccountIdentity(displayName: String, accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
+        publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, displayName)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,

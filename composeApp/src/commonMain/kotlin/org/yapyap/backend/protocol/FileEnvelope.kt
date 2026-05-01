@@ -2,8 +2,8 @@ package org.yapyap.backend.protocol
 
 data class FileEnvelope(
     val transferId: String,
-    val source: String,
-    val target: String,
+    val source: PeerId,
+    val target: PeerId,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
@@ -25,8 +25,8 @@ data class FileEnvelope(
         writer.writeByte(VERSION.toInt())
         writer.writeByte(payload.kind.wireValue.toInt())
         writer.writeString(transferId)
-        writer.writeString(source)
-        writer.writeString(target)
+        writer.writePeerId(source)
+        writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
@@ -74,8 +74,8 @@ data class FileEnvelope(
 
             val kind = FileEnvelopeKind.fromWireValue(reader.readByte())
             val transferId = reader.readString()
-            val source = reader.readString()
-            val target = reader.readString()
+            val source = reader.readPeerId()
+            val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())

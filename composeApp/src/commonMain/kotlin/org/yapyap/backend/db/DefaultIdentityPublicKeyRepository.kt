@@ -1,5 +1,6 @@
 package org.yapyap.backend.db
 
+import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
 import org.yapyap.backend.crypto.IdentityPublicKeyRepository
@@ -10,6 +11,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultIdentityPublicKeyRepository(
@@ -18,9 +20,9 @@ class DefaultIdentityPublicKeyRepository(
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityPublicKeyRepository {
 
-    override fun getAccountPublicKey(accountId: String): AccountIdentityRecord? {
+    override fun getAccountPublicKey(accountId: AccountId): AccountIdentityRecord? {
         val queries = database.identityQueries
-        val account = queries.selectAccountById(accountId).executeAsOneOrNull()
+        val account = queries.selectAccountById(accountId.id).executeAsOneOrNull()
 
         return if (account == null) {
             logger.debug(
@@ -38,7 +40,7 @@ class DefaultIdentityPublicKeyRepository(
                 fields = mapOf("accountId" to accountId, "found" to true),
             )
             AccountIdentityRecord(
-                accountId = account.account_id,
+                accountId = AccountId(account.account_id),
                 key = IdentityPublicKeyRecord(
                     keyId = account.pub_key_id,
                     keyVersion = account.pub_key_version,
@@ -49,9 +51,9 @@ class DefaultIdentityPublicKeyRepository(
         }
     }
 
-    override fun getDevicePublicKey(deviceId: String): DeviceIdentityRecord? {
+    override fun getDevicePublicKey(deviceId: PeerId): DeviceIdentityRecord? {
         val queries = database.identityQueries
-        val device = queries.selectDeviceById(deviceId).executeAsOneOrNull()
+        val device = queries.selectDeviceById(deviceId.id).executeAsOneOrNull()
 
         return if (device == null) {
             logger.debug(
@@ -69,7 +71,7 @@ class DefaultIdentityPublicKeyRepository(
                 fields = mapOf("deviceId" to deviceId, "found" to true),
             )
             DeviceIdentityRecord(
-                deviceId = device.device_id,
+                deviceId = PeerId(device.device_id),
                 signing = IdentityPublicKeyRecord(
                     keyId = device.signing_key_id,
                     keyVersion = device.signing_key_version,
@@ -86,12 +88,12 @@ class DefaultIdentityPublicKeyRepository(
         }
     }
 
-    override fun insertLocalDevice(accountId: String, identity: DeviceIdentityRecord) {
+    override fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord) {
         val queries = database.identityQueries
 
         queries.putDevice(
-            device_id = identity.deviceId,
-            account_id = accountId,
+            device_id = identity.deviceId.id,
+            account_id = accountId.id,
             device_type = config.defaultDeviceType,
             onion_address = config.defaultOnionAddress,
             onion_port = config.defaultOnionPort,
@@ -118,7 +120,7 @@ class DefaultIdentityPublicKeyRepository(
         val queries = database.identityQueries
 
         queries.putAccount(
-            account_id = identity.accountId,
+            account_id = identity.accountId.id,
             account_pub_key = identity.key.publicKey,
             pub_key_version = identity.key.keyVersion,
             pub_key_id = identity.key.keyId,
@@ -134,8 +136,8 @@ class DefaultIdentityPublicKeyRepository(
         )
     }
 
-    override fun resolveDeviceKey(deviceId: String, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
-        val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return null
+    override fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
+        val device = database.identityQueries.selectDeviceById(deviceId.id).executeAsOneOrNull() ?: return null
         return when (purpose) {
             IdentityKeyPurpose.SIGNING -> {
                 if (device.signing_key_id.isBlank() || device.signing_pub_key.isEmpty()) return null
@@ -158,8 +160,8 @@ class DefaultIdentityPublicKeyRepository(
         }
     }
 
-    override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint {
-        val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull()
+    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
+        val device = database.identityQueries.selectDeviceById(deviceId.id).executeAsOneOrNull()
             ?: error("Device identity record not found for deviceId: $deviceId")
         return TorEndpoint(
             onionAddress = device.onion_address,
@@ -171,7 +173,7 @@ class DefaultIdentityPublicKeyRepository(
         val queries = database.identityQueries
 
         queries.putAccount(
-            account_id = identity.accountId,
+            account_id = identity.accountId.id,
             account_pub_key = identity.key.publicKey,
             pub_key_version = identity.key.keyVersion,
             pub_key_id = identity.key.keyId,
@@ -181,12 +183,12 @@ class DefaultIdentityPublicKeyRepository(
         )
     }
 
-    override fun insertPeerDevice(accountId: String, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
+    override fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
         val queries = database.identityQueries
 
         queries.putDevice(
-            device_id = identity.deviceId,
-            account_id = accountId,
+            device_id = identity.deviceId.id,
+            account_id = accountId.id,
             device_type = deviceType,
             onion_address = torEndpoint.onionAddress,
             onion_port = torEndpoint.port.toLong(),

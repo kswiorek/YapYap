@@ -4,6 +4,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultIdentityResolver(
@@ -32,7 +33,7 @@ class DefaultIdentityResolver(
             )
         ) ?: error("Missing local encryption private key")
 
-        val deviceId = cryptoProvider.idFromPublicKey(publicSigningKey)
+        val deviceId = cryptoProvider.peerIdFromPublicKey(publicSigningKey)
 
         val deviceRecord = publicKeyRepository.getDevicePublicKey(deviceId)
 
@@ -90,7 +91,7 @@ class DefaultIdentityResolver(
             )
         ) ?: error("Missing local signing private key")
 
-        val accountId = cryptoProvider.idFromPublicKey(publicSigningKey)
+        val accountId = cryptoProvider.accountIdFromPublicKey(publicSigningKey)
 
         val accountRecord = publicKeyRepository.getAccountPublicKey(accountId)
 
@@ -119,11 +120,11 @@ class DefaultIdentityResolver(
         ) ?: error("Missing local private key for keyId=$keyId, purpose=$purpose")
     }
 
-    override fun resolvePeerIdentityRecord(deviceId: String): DeviceIdentityRecord? {
+    override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? {
         return publicKeyRepository.getDevicePublicKey(deviceId)
     }
 
-    override fun resolveTorEndpointForDevice(deviceId: String): TorEndpoint {
+    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
         return publicKeyRepository.resolveDeviceKey(deviceId, IdentityKeyPurpose.ENCRYPTION)?.let {
             publicKeyRepository.resolveTorEndpointForDevice(deviceId)
         } ?: error("Missing encryption key for deviceId=$deviceId, cannot resolve Tor endpoint")

@@ -5,14 +5,12 @@ data class BinaryEnvelope(
     val packetType: PacketType,
     val createdAtEpochSeconds: Long,
     val expiresAtEpochSeconds: Long,
-    val source: String,
-    val target: String,
+    val source: PeerId,
+    val target: PeerId,
     val payload: ByteArray,
 ) {
     init {
         require(expiresAtEpochSeconds >= createdAtEpochSeconds) { "expiresAt must be >= createdAt" }
-        require(source.isNotBlank()) { "source must not be blank" }
-        require(target.isNotBlank()) { "target must not be blank" }
     }
 
     fun encode(): ByteArray {
@@ -23,8 +21,8 @@ data class BinaryEnvelope(
         writer.writeLong(createdAtEpochSeconds)
         writer.writeLong(expiresAtEpochSeconds)
         writer.writeBytes(packetId.toByteArray())
-        writer.writeString(source)
-        writer.writeString(target)
+        writer.writePeerId(source)
+        writer.writePeerId(target)
         writer.writeByteArray(payload)
         return writer.toByteArray()
     }
@@ -61,13 +59,12 @@ data class BinaryEnvelope(
             require(version == VERSION) { "Unsupported envelope version: $version" }
 
             val type = PacketType.fromWireValue(reader.readByte())
-            val hopCount = reader.readUnsignedByte()
             val createdAt = reader.readLong()
             val expiresAt = reader.readLong()
             val packetId = PacketId.fromBytes(reader.readBytes(PacketId.SIZE_BYTES))
 
-            val source = reader.readString()
-            val target = reader.readString()
+            val source = reader.readPeerId()
+            val target = reader.readPeerId()
             val payload = reader.readByteArray()
             reader.requireFullyRead()
 

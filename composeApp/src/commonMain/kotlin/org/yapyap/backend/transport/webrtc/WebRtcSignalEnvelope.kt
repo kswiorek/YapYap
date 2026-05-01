@@ -2,14 +2,15 @@ package org.yapyap.backend.transport.webrtc
 
 import org.yapyap.backend.protocol.ByteReader
 import org.yapyap.backend.protocol.ByteWriter
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
 data class WebRtcSignalEnvelope(
     val sessionId: String,
     val kind: WebRtcSignalKind,
-    val source: String,
-    val target: String,
+    val source: PeerId,
+    val target: PeerId,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
@@ -27,8 +28,8 @@ data class WebRtcSignalEnvelope(
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
         writer.writeString(sessionId)
-        writer.writeString(source)
-        writer.writeString(target)
+        writer.writePeerId(source)
+        writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
@@ -74,8 +75,8 @@ data class WebRtcSignalEnvelope(
 
             val kind = WebRtcSignalKind.fromWireValue(reader.readByte())
             val sessionId = reader.readString()
-            val source = reader.readString()
-            val target = reader.readString()
+            val source = reader.readPeerId()
+            val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())

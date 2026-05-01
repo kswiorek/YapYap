@@ -5,8 +5,8 @@ import org.yapyap.backend.db.MessagePayloadType
 
 data class MessageEnvelope(
     val messageId: String,
-    val source: String,
-    val target: String,
+    val source: PeerId,
+    val target: PeerId,
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
@@ -28,8 +28,8 @@ data class MessageEnvelope(
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
         writer.writeString(messageId)
-        writer.writeString(source)
-        writer.writeString(target)
+        writer.writePeerId(source)
+        writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
@@ -77,8 +77,8 @@ data class MessageEnvelope(
 
             val kind = MessageEnvelopeKind.fromWireValue(reader.readByte())
             val transferId = reader.readString()
-            val source = reader.readString()
-            val target = reader.readString()
+            val source = reader.readPeerId()
+            val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
@@ -101,13 +101,14 @@ data class MessageEnvelope(
 }
 
 sealed interface MessagePayload {
+    val messageId: String
     val kind: MessageEnvelopeKind
     val payloadType: MessagePayloadType
 
     fun encode(): ByteArray
 
     data class Text(
-        val messageId: String,
+        override val messageId: String,
         val roomId: String,
         val senderAccountId: String,
         val prevId: String?,
@@ -159,8 +160,8 @@ sealed interface MessagePayload {
     }
 
     data class GlobalEvent(
-        val messageId: String,
-        val roomId: String,
+        override val messageId: String,
+        val roomId: String = "GLOBAL",
         val senderAccountId: String,
         val prevId: String?,
         val lamportClock: Long,

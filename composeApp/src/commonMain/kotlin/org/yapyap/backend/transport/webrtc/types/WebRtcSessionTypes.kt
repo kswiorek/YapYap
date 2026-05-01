@@ -1,4 +1,7 @@
 package org.yapyap.backend.transport.webrtc.types
+
+import org.yapyap.backend.protocol.PeerId
+
 enum class WebRtcSessionPhase {
     NEGOTIATING,
     CONNECTED,
@@ -9,7 +12,7 @@ enum class WebRtcSessionPhase {
 
 data class WebRtcSessionState(
     val sessionId: String,
-    val peer: String,
+    val peer: PeerId,
     val phase: WebRtcSessionPhase,
     val reason: String? = null,
 )

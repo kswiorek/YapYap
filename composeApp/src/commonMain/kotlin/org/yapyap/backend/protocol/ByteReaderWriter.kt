@@ -51,6 +51,9 @@ class ByteReader(private val bytes: ByteArray) {
         if (len == 0xffff) return null
         return readBytes(len).decodeToString()
     }
+    fun readPeerId(): PeerId {
+        return PeerId(readString())
+    }
 
     fun readByteArray(): ByteArray {
         val len = readInt()
@@ -110,6 +113,10 @@ class ByteWriter(initialCapacity: Int) {
         require(bytes.size <= Short.MAX_VALUE) { "String exceeds max size" }
         writeShort(bytes.size)
         writeBytes(bytes)
+    }
+
+    fun writePeerId(value: PeerId) {
+        writeString(value.id)
     }
 
     fun writeNullableString(value: String?) {

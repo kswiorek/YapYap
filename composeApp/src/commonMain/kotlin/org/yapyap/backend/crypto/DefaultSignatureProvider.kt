@@ -4,6 +4,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.PeerId
 
 class DefaultSignatureProvider(
     private val identityResolver: IdentityResolver,
@@ -24,7 +25,7 @@ class DefaultSignatureProvider(
         return cryptoProvider.signDetached(privateKey, message)
     }
 
-    override fun verifyDetached(deviceId: String, message: ByteArray, signature: ByteArray): Boolean {
+    override fun verifyDetached(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean {
         val publicKey = identityResolver.resolvePeerIdentityRecord(deviceId)?.signing?.publicKey
         if (publicKey == null) {
             logger.warn(

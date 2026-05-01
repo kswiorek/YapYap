@@ -1,10 +1,12 @@
 package org.yapyap.backend.transport.webrtc.types
 
+import org.yapyap.backend.protocol.PeerId
+
 data class WebRtcSignal(
     val sessionId: String,
     val kind: WebRtcSignalKind,
-    val source: String,
-    val target: String,
+    val source: PeerId,
+    val target: PeerId,
     val payload: ByteArray,
 )
 

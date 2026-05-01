@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -21,6 +22,7 @@ import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.ByteReader
 import org.yapyap.backend.protocol.ByteWriter
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
 import org.yapyap.backend.transport.webrtc.types.AvQualityTier
 import org.yapyap.backend.transport.webrtc.types.WebRtcAvSessionPhase
@@ -52,12 +54,12 @@ class DefaultWebRtcTransport(
     override val outgoingBootstrapSignals: Flow<WebRtcSignal> = outgoingBootstrapSignalFlow.asSharedFlow()
 
     private var started = false
-    private var localDevice: String? = null
+    private var localDevice: PeerId? = null
     private var scope: CoroutineScope? = null
 
-    private val peerBySession = mutableMapOf<String, String>()
+    private val peerBySession = mutableMapOf<String, PeerId>()
     private val pendingIncomingCallBySession = mutableMapOf<String, WebRtcIncomingAvSessionRequest>()
-    private val avPeerBySession = mutableMapOf<String, String>()
+    private val avPeerBySession = mutableMapOf<String, PeerId>()
     private val avOptionsBySession = mutableMapOf<String, AvSessionOptions>()
 
     private var backendSignalJob: Job? = null
@@ -65,7 +67,7 @@ class DefaultWebRtcTransport(
     private var backendSessionEventsJob: Job? = null
     private var backendAvChannelEventsJob: Job? = null
 
-    override suspend fun start(deviceId: String) {
+    override suspend fun start(deviceId: PeerId) {
         check(!started) { "WebRTC transport is already started" }
         backend.start(deviceId)
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -241,20 +243,21 @@ class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun openSession(target: String, sessionId: String) {
+    override suspend fun openSession(target: PeerId, sessionId: String) {
         check(started) { "WebRTC transport must be started before opening session" }
         peerBySession[sessionId] = target
         backend.openSession(target = target, sessionId = sessionId)
     }
 
-    override suspend fun sendEnvelope(sessionId: String, target: String, payload: ByteArray) {
+    override suspend fun sendEnvelope(sessionId: String, targetId: PeerId, envelope: BinaryEnvelope) {
         check(started) { "WebRTC transport must be started before sending data" }
         val local = requireNotNull(localDevice) { "Local device is not available" }
+        val payload = envelope.encode()
         backend.sendData(
             WebRtcDataFrame(
                 sessionId = sessionId,
                 source = local,
-                target = target,
+                target = targetId,
                 dataType = WebRtcDataType.ENVELOPE_BINARY,
                 payload = payload,
             )
@@ -266,7 +269,7 @@ class DefaultWebRtcTransport(
         backend.closeSession(sessionId)
     }
 
-    override suspend fun inviteCall(target: String, sessionId: String, options: AvSessionOptions) {
+    override suspend fun inviteCall(target: PeerId, sessionId: String, options: AvSessionOptions) {
         check(started) { "WebRTC transport must be started before inviting call" }
         avPeerBySession[sessionId] = target
         avOptionsBySession[sessionId] = options
@@ -426,7 +429,7 @@ class DefaultWebRtcTransport(
         }
     }
 
-    private suspend fun sendAvControl(sessionId: String, target: String, message: AvControlMessage) {
+    private suspend fun sendAvControl(sessionId: String, target: PeerId, message: AvControlMessage) {
         val local = requireNotNull(localDevice) { "Local device is not available" }
         backend.sendData(
             WebRtcDataFrame(
@@ -439,7 +442,7 @@ class DefaultWebRtcTransport(
         )
     }
 
-    private suspend fun handleAvControlFrame(frame: WebRtcDataFrame, peer: String): Boolean {
+    private suspend fun handleAvControlFrame(frame: WebRtcDataFrame, peer: PeerId): Boolean {
         val message = decodeAvControlMessage(frame.payload) ?: return false
         when (message) {
             is AvControlMessage.Invite -> {

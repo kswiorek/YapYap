@@ -31,7 +31,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
-import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
@@ -51,11 +51,11 @@ class JvmWebRtcBackend(
     override val sessionEvents: Flow<WebRtcSessionEvent> = sessionEventFlow.asSharedFlow()
     override val avChannelEvents: Flow<WebRtcAvChannelEvent> = avChannelEventFlow.asSharedFlow()
 
-    private var localDevice: String? = null
+    private var localDevice: PeerId? = null
     private var factory: PeerConnectionFactory? = null
     private val sessions = ConcurrentHashMap<String, Session>()
 
-    override suspend fun start(localDevice: String) {
+    override suspend fun start(localDevice: PeerId) {
         check(this.localDevice == null) { "WebRTC backend is already started" }
         this.localDevice = localDevice
         this.factory = PeerConnectionFactory()
@@ -80,9 +80,9 @@ class JvmWebRtcBackend(
         )
     }
 
-    override suspend fun openSession(target: String, sessionId: String) {
+    override suspend fun openSession(target: PeerId, sessionId: String) {
         val local = requireNotNull(localDevice) { "WebRTC backend must be started before opening session" }
-        val peerConnection = createPeerConnection(sessionId = sessionId, remotePeer = target)
+        val peerConnection = createPeerConnection(sessionId = sessionId, targetId = target)
         val session = Session(sessionId = sessionId, remotePeer = target, peerConnection = peerConnection)
         check(sessions.putIfAbsent(sessionId, session) == null) { "Session already exists: $sessionId" }
 
@@ -152,7 +152,7 @@ class JvmWebRtcBackend(
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
                 val session = sessions.computeIfAbsent(signal.sessionId) {
-                    val pc = createPeerConnection(sessionId = signal.sessionId, remotePeer = signal.source)
+                    val pc = createPeerConnection(sessionId = signal.sessionId, targetId = signal.source)
                     Session(sessionId = signal.sessionId, remotePeer = signal.source, peerConnection = pc)
                 }
                 emitSessionEvent(WebRtcSessionEvent.Connecting(signal.sessionId, signal.source))
@@ -344,7 +344,7 @@ class JvmWebRtcBackend(
         emitAvChannelEvent(WebRtcAvChannelEvent.Removed(sessionId = session.sessionId, peer = session.remotePeer))
     }
 
-    private fun createPeerConnection(sessionId: String, remotePeer: String): RTCPeerConnection {
+    private fun createPeerConnection(sessionId: String, targetId: PeerId): RTCPeerConnection {
         val rtcConfig = RTCConfiguration().also { configuration ->
             configuration.iceServers = config.iceServers.map { serverConfig ->
                 RTCIceServer().also { server ->
@@ -365,7 +365,7 @@ class JvmWebRtcBackend(
                             sessionId = sessionId,
                             kind = WebRtcSignalKind.ICE,
                             source = local,
-                            target = remotePeer,
+                            target = targetId,
                             payload = encodeIceCandidate(candidate),
                         )
                     )
@@ -374,22 +374,22 @@ class JvmWebRtcBackend(
                 override fun onConnectionChange(state: RTCPeerConnectionState) {
                     when (state) {
                         RTCPeerConnectionState.CONNECTING ->
-                            emitSessionEvent(WebRtcSessionEvent.Connecting(sessionId, remotePeer))
+                            emitSessionEvent(WebRtcSessionEvent.Connecting(sessionId, targetId))
 
                         RTCPeerConnectionState.CONNECTED ->
-                            emitSessionEvent(WebRtcSessionEvent.Connected(sessionId, remotePeer))
+                            emitSessionEvent(WebRtcSessionEvent.Connected(sessionId, targetId))
 
                         RTCPeerConnectionState.FAILED ->
                             emitSessionEvent(
                                 WebRtcSessionEvent.Failed(
                                     sessionId = sessionId,
-                                    peer = remotePeer,
+                                    peer = targetId,
                                     reason = "Peer connection entered FAILED state",
                                 )
                             )
 
                         RTCPeerConnectionState.CLOSED ->
-                            emitSessionEvent(WebRtcSessionEvent.Closed(sessionId, remotePeer))
+                            emitSessionEvent(WebRtcSessionEvent.Closed(sessionId, targetId))
 
                         RTCPeerConnectionState.DISCONNECTED,
                         RTCPeerConnectionState.NEW,
@@ -518,7 +518,7 @@ class JvmWebRtcBackend(
 
     private data class Session(
         val sessionId: String,
-        val remotePeer: String,
+        val remotePeer: PeerId,
         val peerConnection: RTCPeerConnection,
         var envelopeDataChannel: RTCDataChannel? = null,
         var avDataChannel: RTCDataChannel? = null,

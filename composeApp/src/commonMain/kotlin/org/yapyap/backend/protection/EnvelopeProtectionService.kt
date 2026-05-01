@@ -6,6 +6,7 @@ import org.yapyap.backend.protocol.FilePayload
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.OpenedFileEnvelope
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
@@ -49,7 +50,7 @@ interface EnvelopeProtectionService {
 data class EnvelopeProtectContext(
     val createdAtEpochSeconds: Long,
     val nonce: ByteArray,
-    val sourceDeviceId: String,
-    val targetDeviceId: String,
+    val sourceDeviceId: PeerId,
+    val targetDeviceId: PeerId,
     val securityScheme: SignalSecurityScheme,
 )

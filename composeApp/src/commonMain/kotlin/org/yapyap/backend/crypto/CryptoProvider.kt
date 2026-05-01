@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 
 
@@ -22,11 +23,11 @@ interface CryptoProvider {
 
     fun generateNonce(scheme: SignalSecurityScheme): ByteArray
 
-    fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): String =
-        toHex(sha256(accountSigningPublicKey))
+    fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): AccountId =
+        AccountId(toHex(sha256(accountSigningPublicKey)))
 
-    fun idFromPublicKey(deviceSigningPublicKey: ByteArray): String =
-        toHex(sha256(deviceSigningPublicKey))
+    fun peerIdFromPublicKey(deviceSigningPublicKey: ByteArray): PeerId =
+        PeerId(toHex(sha256(deviceSigningPublicKey)))
 }
 
 data class SigningKeyPair(
@@ -43,5 +44,5 @@ interface SignatureProvider {
 
     fun signDetached(message: ByteArray): ByteArray
 
-    fun verifyDetached(deviceId: String, message: ByteArray, signature: ByteArray): Boolean
+    fun verifyDetached(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean
 }
