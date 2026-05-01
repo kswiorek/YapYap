@@ -48,8 +48,7 @@ interface WebRtcBackend {
 
     suspend fun sendData(dataFrame: WebRtcDataFrame)
 
-    suspend fun addAvChannel(sessionId: String, options: AvSessionOptions)
+    suspend fun addAvChannel(sessionId: String)
     suspend fun removeAvChannel(sessionId: String)
-    suspend fun setAvControls(sessionId: String, update: AvSessionOptions)
 }
 

@@ -270,7 +270,7 @@ class DefaultWebRtcTransport(
         check(started) { "WebRTC transport must be started before inviting call" }
         avPeerBySession[sessionId] = target
         avOptionsBySession[sessionId] = options
-        backend.addAvChannel(sessionId = sessionId, options = options)
+        backend.addAvChannel(sessionId = sessionId)
         sendAvControl(sessionId = sessionId, target = target, message = AvControlMessage.Invite(options))
         callStateFlow.value = WebRtcAvSessionState(
             sessionId = sessionId,
@@ -286,7 +286,7 @@ class DefaultWebRtcTransport(
             ?: error("No pending call invite found for sessionId $sessionId")
         avPeerBySession[sessionId] = request.source
         avOptionsBySession[sessionId] = options
-        backend.addAvChannel(sessionId = sessionId, options = options)
+        backend.addAvChannel(sessionId = sessionId)
         sendAvControl(sessionId = sessionId, target = request.source, message = AvControlMessage.Accept(options))
         callStateFlow.value = WebRtcAvSessionState(
             sessionId = sessionId,
@@ -316,7 +316,6 @@ class DefaultWebRtcTransport(
         check(started) { "WebRTC transport must be started before updating call options" }
         val peer = avPeerBySession[sessionId] ?: error("No AV peer found for sessionId $sessionId")
         avOptionsBySession[sessionId] = options
-        backend.setAvControls(sessionId = sessionId, update = options)
         sendAvControl(sessionId = sessionId, target = peer, message = AvControlMessage.Update(options))
         callStateFlow.value = WebRtcAvSessionState(
             sessionId = sessionId,

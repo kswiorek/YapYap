@@ -287,7 +287,7 @@ class JvmWebRtcBackend(
         )
     }
 
-    override suspend fun addAvChannel(sessionId: String, options: AvSessionOptions) {
+    override suspend fun addAvChannel(sessionId: String) {
         check(localDevice != null) { "WebRTC backend must be started before adding AV channel" }
         val session = sessions[sessionId] ?: error("Unknown sessionId: $sessionId")
         logger.debug(
@@ -296,7 +296,7 @@ class JvmWebRtcBackend(
             message = "Adding AV data channel",
             fields = mapOf("sessionId" to sessionId, "peer" to session.remotePeer),
         )
-        addAvChannelInternal(session, options)
+        addAvChannelInternal(session)
     }
 
     override suspend fun removeAvChannel(sessionId: String) {
@@ -311,41 +311,7 @@ class JvmWebRtcBackend(
         removeAvChannelInternal(session)
     }
 
-    override suspend fun setAvControls(sessionId: String, update: AvSessionOptions) {
-        check(localDevice != null) { "WebRTC backend must be started before setting AV controls" }
-        val session = sessions[sessionId] ?: return
-        if (session.avDataChannel == null) {
-            logger.warn(
-                component = LogComponent.WEBRTC_BACKEND,
-                event = LogEvent.SESSION_FAILED,
-                message = "Failed to update AV controls because AV channel is inactive",
-                fields = mapOf("sessionId" to sessionId, "peer" to session.remotePeer),
-            )
-            emitAvChannelEvent(
-                WebRtcAvChannelEvent.Failed(
-                    sessionId = sessionId,
-                    peer = session.remotePeer,
-                    reason = "AV channel is not active",
-                )
-            )
-            return
-        }
-        logger.debug(
-            component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SESSION_STATE_CHANGED,
-            message = "AV controls updated at backend transport layer",
-            fields = mapOf(
-                "sessionId" to sessionId,
-                "peer" to session.remotePeer,
-                "audioEnabled" to update.audioEnabled,
-                "videoEnabled" to update.videoEnabled,
-                "screenShareEnabled" to update.screenShareEnabled,
-                "qualityTier" to update.qualityTier.name,
-            ),
-        )
-    }
-
-    private fun addAvChannelInternal(session: Session, options: AvSessionOptions?) {
+    private fun addAvChannelInternal(session: Session) {
         emitAvChannelEvent(WebRtcAvChannelEvent.Adding(sessionId = session.sessionId, peer = session.remotePeer))
         val existing = session.avDataChannel
         if (existing != null && existing.state != RTCDataChannelState.CLOSED) {
