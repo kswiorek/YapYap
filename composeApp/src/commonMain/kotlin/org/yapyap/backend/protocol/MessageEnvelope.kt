@@ -14,7 +14,7 @@ data class MessageEnvelope(
     val payload: MessagePayload,
 ) {
     init {
-        require(messageId.isNotBlank()) { "transferId must not be blank" }
+        require(messageId.isNotBlank()) { "messageId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 

@@ -4,6 +4,7 @@ import org.yapyap.backend.db.DeviceType;
 import org.yapyap.backend.db.RoomType;
 import org.yapyap.backend.db.RoomMemberRole;
 import org.yapyap.backend.db.MessagePayloadType;
+import org.yapyap.backend.db.MessageLifecycleState;
 import org.yapyap.backend.db.FileTransferStatus;
 import org.yapyap.backend.db.FileChunkStatus;
 

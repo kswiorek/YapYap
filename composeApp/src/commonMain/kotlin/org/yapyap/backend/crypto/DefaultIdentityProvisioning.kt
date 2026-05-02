@@ -1,6 +1,7 @@
 package org.yapyap.backend.crypto
 
 import org.yapyap.backend.db.AccountStatus
+import org.yapyap.backend.db.IdentityPublicKeyRepository
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
