@@ -3,7 +3,6 @@ package org.yapyap.backend.db
 import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
-import org.yapyap.backend.crypto.IdentityPublicKeyRepository
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
@@ -202,6 +201,20 @@ class DefaultIdentityPublicKeyRepository(
             ping_attempts = config.defaultPingAttempts,
             ping_successes = config.defaultPingSuccesses,
             last_seen_timestamp = config.defaultLastSeenTimestamp,
+        )
+    }
+
+    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> {
+        val queries = database.identityQueries
+        return queries.selectDevicesByAccountId(accountId.id).executeAsList().map { PeerId(it.device_id) }
+    }
+
+    override fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+        val queries = database.identityQueries
+        queries.updateDeviceTorEndpoint(
+            device_id = deviceId.id,
+            onion_address = torEndpoint.onionAddress,
+            onion_port = torEndpoint.port.toLong(),
         )
     }
 }

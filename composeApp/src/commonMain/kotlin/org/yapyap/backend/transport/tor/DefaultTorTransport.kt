@@ -23,12 +23,12 @@ class DefaultTorTransport(
     private val logger: AppLogger = NoopAppLogger,
 ) : TorTransport {
 
-    private val incomingFlow = MutableSharedFlow<BinaryEnvelope>(replay = 1, extraBufferCapacity = 64)
+    private val incomingFlow = MutableSharedFlow<TorIncomingEnvelope>(replay = 1, extraBufferCapacity = 64)
     private var scope: CoroutineScope? = null
     private var frameCollectorJob: Job? = null
     private var started = false
 
-    override val incoming: Flow<BinaryEnvelope> = incomingFlow.asSharedFlow()
+    override val incoming: Flow<TorIncomingEnvelope> = incomingFlow.asSharedFlow()
 
     override suspend fun start(): TorEndpoint {
         check(!started) { "Tor transport is already started" }
@@ -56,7 +56,10 @@ class DefaultTorTransport(
                     return@collect
                 }
                 incomingFlow.emit(
-                    envelope
+                    TorIncomingEnvelope(
+                        source = frame.source,
+                        envelope = envelope
+                    )
                 )
                 logger.debug(
                     component = LogComponent.TOR_TRANSPORT,

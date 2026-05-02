@@ -1,7 +1,6 @@
 package org.yapyap.backend.transport.webrtc
 
 import kotlinx.coroutines.flow.Flow
-import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.transport.webrtc.types.AvSessionOptions
@@ -12,7 +11,7 @@ import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 interface WebRtcTransport {
     // Data plane
-    val incomingEnvelopes: Flow<BinaryEnvelope>
+    val incomingEnvelopes: Flow<WebRtcIncomingEnvelope>
     val incomingAvFrames: Flow<WebRtcDataFrame>
 
     // Signaling plane (bootstrap only: OFFER/ANSWER/ICE/REJECT/CANCEL)
@@ -30,9 +29,11 @@ interface WebRtcTransport {
 
     // Session (transport)
     suspend fun openSession(target: PeerId, sessionId: String)
-    suspend fun sendEnvelope(sessionId: String, targetId: PeerId, payload: BinaryEnvelope)
+    suspend fun sendEnvelope(sessionId: String, targetId: PeerId, envelope: BinaryEnvelope)
     suspend fun closeSession(sessionId: String)
     suspend fun handleBootstrapSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long)
+
+    suspend fun getSessionForPeer(target: PeerId): String?
 
     // Call (in-band over WebRTC data)
     suspend fun inviteCall(target: PeerId, sessionId: String, options: AvSessionOptions)
@@ -42,3 +43,8 @@ interface WebRtcTransport {
     suspend fun endCall(sessionId: String, reason: String? = null)
 }
 
+data class WebRtcIncomingEnvelope(
+    val sessionId: String,
+    val source: PeerId,
+    val envelope: BinaryEnvelope,
+)

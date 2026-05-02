@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.db.IdentityPublicKeyRepository
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -128,5 +129,13 @@ class DefaultIdentityResolver(
         return publicKeyRepository.resolveDeviceKey(deviceId, IdentityKeyPurpose.ENCRYPTION)?.let {
             publicKeyRepository.resolveTorEndpointForDevice(deviceId)
         } ?: error("Missing encryption key for deviceId=$deviceId, cannot resolve Tor endpoint")
+    }
+
+    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> {
+        return publicKeyRepository.getAllPeerDevicesForAccount(accountId)
+    }
+
+    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+        publicKeyRepository.upsertPeerTorEndpoint(deviceId, torEndpoint)
     }
 }

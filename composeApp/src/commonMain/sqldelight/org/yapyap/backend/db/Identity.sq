@@ -42,10 +42,17 @@ SELECT *
 FROM devices
 WHERE device_id = ?;
 
-selectDevicesByAccountPubKey:
+selectDevicesByAccountId:
 SELECT *
 FROM devices
 WHERE account_id = ?;
+
+updateDeviceTorEndpoint:
+UPDATE devices
+SET
+    onion_address = ?,
+    onion_port = ?
+WHERE device_id = ?;
 
 selectAllDevices:
 SELECT *

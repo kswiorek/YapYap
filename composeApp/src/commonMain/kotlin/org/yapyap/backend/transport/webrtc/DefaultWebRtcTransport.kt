@@ -39,14 +39,14 @@ class DefaultWebRtcTransport(
     private val logger: AppLogger = NoopAppLogger,
 ) : WebRtcTransport {
 
-    private val incomingEnvelopeFlow = MutableSharedFlow<BinaryEnvelope>(extraBufferCapacity = 64)
+    private val incomingEnvelopeFlow = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
     private val sessionStateFlow = MutableStateFlow<WebRtcSessionState?>(null)
     private val incomingCallInviteFlow = MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
     private val callStateFlow = MutableStateFlow<WebRtcAvSessionState?>(null)
     private val outgoingBootstrapSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
 
-    override val incomingEnvelopes: Flow<BinaryEnvelope> = incomingEnvelopeFlow.asSharedFlow()
+    override val incomingEnvelopes: Flow<WebRtcIncomingEnvelope> = incomingEnvelopeFlow.asSharedFlow()
     override val incomingAvFrames: Flow<WebRtcDataFrame> = incomingAvFrameFlow.asSharedFlow()
     override val sessionStates: Flow<WebRtcSessionState> = sessionStateFlow.filterNotNull()
     override val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest> = incomingCallInviteFlow.asSharedFlow()
@@ -249,6 +249,10 @@ class DefaultWebRtcTransport(
         backend.openSession(target = target, sessionId = sessionId)
     }
 
+    override suspend fun getSessionForPeer(target: PeerId): String? {
+        return peerBySession.entries.find { it.value == target }?.key
+    }
+
     override suspend fun sendEnvelope(sessionId: String, targetId: PeerId, envelope: BinaryEnvelope) {
         check(started) { "WebRTC transport must be started before sending data" }
         val local = requireNotNull(localDevice) { "Local device is not available" }
@@ -420,7 +424,11 @@ class DefaultWebRtcTransport(
                         )
                         return
                     }
-                incomingEnvelopeFlow.emit(envelope)
+                incomingEnvelopeFlow.emit(WebRtcIncomingEnvelope(
+                    sessionId = frame.sessionId,
+                    source = peer,
+                    envelope = envelope,
+                ))
             }
             WebRtcDataType.AV_DATA -> {
                 if (handleAvControlFrame(frame, peer)) return
