@@ -48,7 +48,6 @@ class DefaultRouter(
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     val cryptoProvider: CryptoProvider,
-    val signatureProvider: SignatureProvider,
     val logger: AppLogger,
 ): Router {
     private var started = false
@@ -173,6 +172,7 @@ class DefaultRouter(
     }
 
     private suspend fun sendMessageToPeer(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport) {
+        //TODO Outbox logic
         val context = EnvelopeProtectContext(
             sourceDeviceId = localDeviceIdentity!!.deviceId,
             targetDeviceId = target,
@@ -301,6 +301,7 @@ class DefaultRouter(
                 ),
             ) }
         }
+        //TODO better ACK logic, update device state in db, etc
         val ackEnv = BinaryEnvelope(
             packetId = packetIdAllocator.allocate(),
             packetType = PacketType.ACK,
