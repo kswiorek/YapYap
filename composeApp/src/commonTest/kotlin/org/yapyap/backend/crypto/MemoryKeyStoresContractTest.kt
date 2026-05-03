@@ -5,16 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
-private class InMemoryPrivateKeyStore : PrivateKeyStore {
-    private val keys = mutableMapOf<KeyReference, ByteArray>()
-
-    override fun putKey(ref: KeyReference, key: ByteArray) {
-        keys[ref] = key.copyOf()
-    }
-
-    override fun getKey(ref: KeyReference): ByteArray? =
-        keys[ref]?.copyOf()
-}
 
 /** Always returns the same material (typical fake for tests). */
 private class FixedMasterKeyProvider(private val material: ByteArray) : MasterKeyProvider {

@@ -31,3 +31,10 @@ object SystemEpochSecondsProvider : EpochSecondsProvider {
         SystemEpochMillisecondsProvider.nowEpochMilliseconds() / 1_000L
 }
 
+/**
+ * Returns a constant epoch second value — useful for deterministic encode/decode tests.
+ */
+class FixedEpochSecondsProvider(private val epochSeconds: Long) : EpochSecondsProvider {
+    override fun nowEpochSeconds(): Long = epochSeconds
+}
+

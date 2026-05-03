@@ -71,6 +71,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutinesTest)
         }
         iosMain.dependencies {
             implementation("app.cash.sqldelight:native-driver:2.3.2")

@@ -86,7 +86,7 @@ class DefaultIdentityResolver(
     override fun getLocalAccountIdentityRecord(): AccountIdentityRecord {
         val publicSigningKey = privateKeyStore.getKey(
             ref = KeyReference(
-                keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
+                keyId = config.defaultAccountLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
                 purpose = IdentityKeyPurpose.SIGNING,
                 type = KeyType.PUBLIC,
             )
