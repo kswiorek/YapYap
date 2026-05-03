@@ -6,6 +6,7 @@ import dev.whyoleg.cryptography.algorithms.SHA256
 import dev.whyoleg.cryptography.algorithms.XDH
 import dev.whyoleg.cryptography.random.CryptographyRandom
 import kotlinx.coroutines.runBlocking
+import org.kotlincrypto.error.SignatureException
 import kotlin.random.Random
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
@@ -71,11 +72,21 @@ class KmpCryptoProvider(
         privateKey.signatureGenerator().generateSignature(message)
     }
 
-    override fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean = runBlocking {
-        val publicKey = edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
+    override fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean{
+        val publicKey = runBlocking {edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
             format = EdDSA.PublicKey.Format.DER,
             bytes = publicSigningKey,
-        )
-        publicKey.signatureVerifier().tryVerifySignature(message, signature)
+        )}
+        try {
+            return runBlocking {publicKey.signatureVerifier().tryVerifySignature(message, signature)}
+        } catch (e: SignatureException) {
+            logger.warn(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.SIGNATURE_VERIFICATION_FAILED,
+                message = "Detached signature verification failed with exception",
+                fields = mapOf("messageLength" to message.size, "exception" to e.toString()),
+            )
+            return false
+        }
     }
 }
