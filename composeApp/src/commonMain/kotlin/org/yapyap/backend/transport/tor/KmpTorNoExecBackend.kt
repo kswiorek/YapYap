@@ -45,6 +45,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -55,7 +56,7 @@ import kotlin.time.TimeSource
  * Tor backend powered by kmp-tor runtime using noexec resources.
  */
 class KmpTorNoExecBackend(
-    private val deviceId: String = "default-device",
+    private val deviceId: PeerId = PeerId("default-device"),
     private val torStateRootPath: File = defaultTorStateRootPath(),
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
     private val config: TorBackendConfig = TorBackendConfig(),
@@ -395,8 +396,8 @@ class KmpTorNoExecBackend(
     private class SocksConnectException(val code: Int) : RuntimeException()
 
 
-    private fun resolveDeviceStateDirectory(deviceId: String, rootPath: File): File {
-        val safeDeviceId = sanitizeDeviceId(deviceId)
+    private fun resolveDeviceStateDirectory(deviceId: PeerId, rootPath: File): File {
+        val safeDeviceId = sanitizeDeviceId(deviceId.id)
         return rootPath.resolve(safeDeviceId)
     }
 

@@ -148,3 +148,20 @@ sqldelight {
         }
     }
 }
+
+/**
+ * Opt-in slow / environment-sensitive JVM integration tests (real Tor, real WebRTC stack), e.g.:
+ * `./gradlew :composeApp:jvmTest -PintegrationTests=true --rerun-tasks`
+ */
+val integrationTestsEnabled =
+    (findProperty("integrationTests") as? String)?.equals("true", ignoreCase = true) == true
+
+tasks.named<Test>("jvmTest") {
+    filter {
+        if (!integrationTestsEnabled) {
+            excludeTestsMatching("*TorRealBackendTransportIntegrationTest")
+            excludeTestsMatching("*WebRtcInMemorySignalingIntegrationTest")
+            excludeTestsMatching("*DefaultRouterLiveIntegrationTest")
+        }
+    }
+}
