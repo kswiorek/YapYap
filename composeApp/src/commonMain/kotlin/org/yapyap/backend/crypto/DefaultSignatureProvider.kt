@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.kotlincrypto.error.SignatureException
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -36,23 +37,33 @@ class DefaultSignatureProvider(
             )
             return false
         }
-
-        val verified = cryptoProvider.verifyDetached(publicKey, message, signature)
-        if (!verified) {
-            logger.warn(
+        try {
+            val verified = cryptoProvider.verifyDetached(publicKey, message, signature)
+            if (!verified) {
+                logger.warn(
+                    component = LogComponent.CRYPTO,
+                    event = LogEvent.SIGNATURE_VERIFICATION_FAILED,
+                    message = "Detached signature verification failed",
+                    fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
+                )
+            } else {
+                logger.debug(
+                    component = LogComponent.CRYPTO,
+                    event = LogEvent.SIGNATURE_VERIFIED,
+                    message = "Detached signature verification succeeded",
+                    fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
+                )
+            }
+            return verified
+        }
+        catch (e: SignatureException) {
+            logger.error(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.SIGNATURE_VERIFICATION_FAILED,
-                message = "Detached signature verification failed",
-                fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
+                message = "Error during detached signature verification",
+                fields = mapOf("deviceId" to deviceId, "messageLength" to message.size, "error" to e.toString()),
             )
-        } else {
-            logger.debug(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.SIGNATURE_VERIFIED,
-                message = "Detached signature verification succeeded",
-                fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
-            )
+            return false
         }
-        return verified
     }
 }
