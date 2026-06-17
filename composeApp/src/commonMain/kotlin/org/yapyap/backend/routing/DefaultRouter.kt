@@ -17,6 +17,7 @@ import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.db.PacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
+import org.yapyap.backend.db.PacketOutbox
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -45,10 +46,12 @@ class DefaultRouter(
     val identityResolver: IdentityResolver,
     val packetIdAllocator: PacketIdAllocator,
     val packetDeduplicator: PacketDeduplicator,
+    val packetOutbox: PacketOutbox,
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     val cryptoProvider: CryptoProvider,
     val logger: AppLogger,
+    val routerConfig: RouterConfig,
 ): Router {
     private var started = false
     private var torEndpoint: TorEndpoint? = null
@@ -183,25 +186,28 @@ class DefaultRouter(
 
         val messageEnvelope = envelopeProtectionService.protectMessage(payload, context)
 
-
         val binaryEnvelope = BinaryEnvelope(
             packetId = packetIdAllocator.allocate(),
             packetType = PacketType.MESSAGE,
             createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
-            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + 2 * 24 * 3600, // 2 days
+            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + routerConfig.messageLifetimeSeconds, // 2 days
             source = messageEnvelope.source,
             target = messageEnvelope.target,
             payload = messageEnvelope.encode(),
         )
 
         when (forceTransport) {
-            RouterTransport.TOR -> torTransport.send(
-                target = identityResolver.resolveTorEndpointForDevice(target),
-                envelope = binaryEnvelope,
-            )
+            RouterTransport.TOR -> {
+                packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.torRetryDelaySeconds)
+                torTransport.send(
+                    target = identityResolver.resolveTorEndpointForDevice(target),
+                    envelope = binaryEnvelope,
+                )
+            }
             RouterTransport.WEBRTC -> {
                 val session = webRtcTransport.getSessionForPeer(target)
                 checkNotNull(session) { "No WebRTC session found for target $target" }
+                packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.webRtcRetryDelaySeconds)
                 webRtcTransport.sendEnvelope(
                     sessionId = session,
                     targetId = target,
@@ -213,12 +219,14 @@ class DefaultRouter(
                 //TODO opening WebRTC session on demand if not exists, fallback to Tor if session cannot be established, etc
                 val session = webRtcTransport.getSessionForPeer(target)
                 if (session != null) {
+                    packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.webRtcRetryDelaySeconds)
                     webRtcTransport.sendEnvelope(
                         sessionId = session,
                         targetId = target,
                         envelope = binaryEnvelope,
                     )
                 } else {
+                    packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.torRetryDelaySeconds)
                     torTransport.send(
                         target = identityResolver.resolveTorEndpointForDevice(target),
                         envelope = binaryEnvelope,
@@ -302,11 +310,12 @@ class DefaultRouter(
             ) }
         }
         //TODO better ACK logic, update device state in db, etc
+        //TODO SystemEnvelope - device state, ack as one of the types
         val ackEnv = BinaryEnvelope(
             packetId = packetIdAllocator.allocate(),
             packetType = PacketType.ACK,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            expiresAtEpochSeconds = timeProvider.nowEpochSeconds() + 3600, // 1 hour
+            expiresAtEpochSeconds = timeProvider.nowEpochSeconds() + routerConfig.ackLifetimeSeconds, // 1 hour
             source = localDeviceIdentity!!.deviceId,
             target = inbound.source,
             payload = inbound.packetId.toByteArray(),
@@ -453,6 +462,6 @@ class DefaultRouter(
         incomingMessageFlow.emit(payload)
     }
     private suspend fun handleAckEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
-        //TODO
+        val ackPayload = env
     }
 }

@@ -96,11 +96,13 @@ CREATE TABLE pending_syncs (
 
 CREATE TABLE outbox (
     packet_id TEXT NOT NULL PRIMARY KEY,
+    envelope_blob BLOB NOT NULL,
     message_id TEXT NOT NULL,
     target_device_id TEXT NOT NULL,
     retry_count INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
-    FOREIGN KEY (message_id) REFERENCES messages(message_id),
+    last_attempt_at INTEGER NOT NULL,
+    next_retry_at INTEGER NOT NULL,
     FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
 );
 
