@@ -103,17 +103,15 @@ sealed interface SystemPayload {
     fun encode(): ByteArray
 
     data class PacketAck(
-        val acknowledgedPacketId: PacketId,
-        val acknowledgedPacketType: PacketType,
-        val status: PacketAckStatus,
+        val packetId: PacketId,
+        val packetType: PacketType,
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PACKET_ACK
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + PacketId.SIZE_BYTES)
-            writer.writeBytes(acknowledgedPacketId.toByteArray())
-            writer.writeByte(acknowledgedPacketType.wireValue.toInt())
-            writer.writeByte(status.wireValue.toInt())
+            writer.writeBytes(packetId.toByteArray())
+            writer.writeByte(packetType.wireValue.toInt())
             return writer.toByteArray()
         }
 
@@ -122,20 +120,18 @@ sealed interface SystemPayload {
                 val reader = ByteReader(bytes)
                 val packetId = PacketId.fromBytes(reader.readBytes(PacketId.SIZE_BYTES))
                 val packetType = PacketType.fromWireValue(reader.readByte())
-                val status = PacketAckStatus.fromWireValue(reader.readByte())
                 reader.requireFullyRead()
                 return PacketAck(
-                    acknowledgedPacketId = packetId,
-                    acknowledgedPacketType = packetType,
-                    status = status,
+                    packetId = packetId,
+                    packetType = packetType,
                 )
             }
         }
     }
 
     data class PacketNack(
-        val rejectedPacketId: PacketId,
-        val rejectedPacketType: PacketType,
+        val packetId: PacketId,
+        val packetType: PacketType,
         val reason: PacketNackReason,
         val reasonText: String?,
     ) : SystemPayload {
@@ -143,8 +139,8 @@ sealed interface SystemPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(48 + PacketId.SIZE_BYTES + (reasonText?.length ?: 0))
-            writer.writeBytes(rejectedPacketId.toByteArray())
-            writer.writeByte(rejectedPacketType.wireValue.toInt())
+            writer.writeBytes(packetId.toByteArray())
+            writer.writeByte(packetType.wireValue.toInt())
             writer.writeByte(reason.wireValue.toInt())
             writer.writeNullableString(reasonText)
             return writer.toByteArray()
@@ -159,8 +155,8 @@ sealed interface SystemPayload {
                 val reasonText = reader.readNullableString()
                 reader.requireFullyRead()
                 return PacketNack(
-                    rejectedPacketId = packetId,
-                    rejectedPacketType = packetType,
+                    packetId = packetId,
+                    packetType = packetType,
                     reason = reason,
                     reasonText = reasonText,
                 )
@@ -188,20 +184,9 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
     }
 }
 
-enum class PacketAckStatus(val wireValue: Byte) {
-    RECEIVED(1),
-    PROCESSED(2);
-
-    companion object {
-        fun fromWireValue(value: Byte): PacketAckStatus =
-            entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported packet ack status wire value: $value")
-    }
-}
-
 enum class PacketNackReason(val wireValue: Byte) {
     WRONG_TARGET(1),
-    INVALID_SIGNATURE(2),
+    PROTECTION_FAILED(2),
     EXPIRED(3),
     UNSUPPORTED_TYPE(4),
     DECODE_FAILED(5);

@@ -17,9 +17,8 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemPayload_packetAck_encodeDecode_roundTrip() {
         val original = SystemPayload.PacketAck(
-            acknowledgedPacketId = samplePacketId,
-            acknowledgedPacketType = PacketType.MESSAGE,
-            status = PacketAckStatus.PROCESSED,
+            packetId = samplePacketId,
+            packetType = PacketType.MESSAGE,
         )
         val decoded = SystemPayload.PacketAck.decode(original.encode())
         assertPacketAckEquals(original, decoded)
@@ -28,8 +27,8 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemPayload_packetNack_encodeDecode_roundTrip() {
         val original = SystemPayload.PacketNack(
-            rejectedPacketId = samplePacketId,
-            rejectedPacketType = PacketType.FILE,
+            packetId = samplePacketId,
+            packetType = PacketType.FILE,
             reason = PacketNackReason.EXPIRED,
             reasonText = "ttl exceeded",
         )
@@ -40,8 +39,8 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemPayload_packetNack_encodeDecode_nullReasonText_roundTrip() {
         val original = SystemPayload.PacketNack(
-            rejectedPacketId = samplePacketId,
-            rejectedPacketType = PacketType.SIGNAL,
+            packetId = samplePacketId,
+            packetType = PacketType.SIGNAL,
             reason = PacketNackReason.WRONG_TARGET,
             reasonText = null,
         )
@@ -52,9 +51,8 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemEnvelope_full_encodeDecode_packetAck_roundTrip() {
         val payload = SystemPayload.PacketAck(
-            acknowledgedPacketId = samplePacketId,
-            acknowledgedPacketType = PacketType.SYSTEM,
-            status = PacketAckStatus.RECEIVED,
+            packetId = samplePacketId,
+            packetType = PacketType.SYSTEM,
         )
         val env = SystemEnvelope(
             correlationId = "ack:${samplePacketId.toHex()}",
@@ -73,8 +71,8 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemEnvelope_full_encodeDecode_packetNack_roundTrip() {
         val payload = SystemPayload.PacketNack(
-            rejectedPacketId = samplePacketId,
-            rejectedPacketType = PacketType.MESSAGE,
+            packetId = samplePacketId,
+            packetType = PacketType.MESSAGE,
             reason = PacketNackReason.DECODE_FAILED,
             reasonText = null,
         )
@@ -104,9 +102,8 @@ class SystemEnvelopeCodecTest {
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
                 payload = SystemPayload.PacketAck(
-                    acknowledgedPacketId = samplePacketId,
-                    acknowledgedPacketType = PacketType.MESSAGE,
-                    status = PacketAckStatus.RECEIVED,
+                    packetId = samplePacketId,
+                    packetType = PacketType.MESSAGE,
                 ),
             )
         }
@@ -116,13 +113,6 @@ class SystemEnvelopeCodecTest {
     fun systemEnvelopeKind_enum_wireValuesDistinct() {
         val wires = SystemEnvelopeKind.entries.map { it.wireValue }.toSet()
         assertEquals(SystemEnvelopeKind.entries.size, wires.size)
-    }
-
-    @Test
-    fun packetAckStatus_fromWireValue_coversAll() {
-        PacketAckStatus.entries.forEach { status ->
-            assertEquals(status, PacketAckStatus.fromWireValue(status.wireValue))
-        }
     }
 
     @Test
@@ -157,14 +147,13 @@ class SystemEnvelopeCodecTest {
     }
 
     private fun assertPacketAckEquals(expected: SystemPayload.PacketAck, actual: SystemPayload.PacketAck) {
-        assertEquals(expected.acknowledgedPacketId, actual.acknowledgedPacketId)
-        assertEquals(expected.acknowledgedPacketType, actual.acknowledgedPacketType)
-        assertEquals(expected.status, actual.status)
+        assertEquals(expected.packetId, actual.packetId)
+        assertEquals(expected.packetType, actual.packetType)
     }
 
     private fun assertPacketNackEquals(expected: SystemPayload.PacketNack, actual: SystemPayload.PacketNack) {
-        assertEquals(expected.rejectedPacketId, actual.rejectedPacketId)
-        assertEquals(expected.rejectedPacketType, actual.rejectedPacketType)
+        assertEquals(expected.packetId, actual.packetId)
+        assertEquals(expected.packetType, actual.packetType)
         assertEquals(expected.reason, actual.reason)
         assertEquals(expected.reasonText, actual.reasonText)
     }

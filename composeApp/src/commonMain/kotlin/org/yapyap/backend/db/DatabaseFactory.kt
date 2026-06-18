@@ -34,6 +34,9 @@ class DatabaseFactory(
                 devicesAdapter = Devices.Adapter(
                     device_typeAdapter = EnumColumnAdapter(),
                 ),
+                dedupAdapter = Dedup.Adapter(
+                    nack_reasonAdapter = EnumColumnAdapter(),
+                ),
             ),
             driver = driver,
         )

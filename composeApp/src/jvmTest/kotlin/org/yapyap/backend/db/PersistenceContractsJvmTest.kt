@@ -13,6 +13,7 @@ import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
 import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
@@ -49,6 +50,24 @@ class PersistenceContractsJvmTest {
 
         dedup.prune(receivedBeforeEpochSeconds = 15L)
         assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 20L))
+    }
+
+    @Test
+    fun packetDeduplicator_markNacked_thenGetNackReason_roundTrip() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val dedup = DefaultPacketDeduplicator(db)
+        val packetId = PacketId.fromHex("bb".repeat(PacketId.SIZE_BYTES))
+        val source = FixtureDevicePeerId
+
+        assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 10L))
+        assertEquals(null, dedup.getNackReason(packetId, source))
+
+        dedup.markNacked(packetId, source, PacketNackReason.DECODE_FAILED)
+        assertEquals(PacketNackReason.DECODE_FAILED, dedup.getNackReason(packetId, source))
+        assertTrue(!dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 11L))
     }
 
     @Test

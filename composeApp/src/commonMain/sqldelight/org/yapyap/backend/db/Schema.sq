@@ -1,12 +1,13 @@
 import kotlin.Boolean;
 import org.yapyap.backend.db.AccountStatus;
 import org.yapyap.backend.db.DeviceType;
-import org.yapyap.backend.db.RoomType;
-import org.yapyap.backend.db.RoomMemberRole;
-import org.yapyap.backend.db.MessagePayloadType;
-import org.yapyap.backend.db.MessageLifecycleState;
-import org.yapyap.backend.db.FileTransferStatus;
 import org.yapyap.backend.db.FileChunkStatus;
+import org.yapyap.backend.db.FileTransferStatus;
+import org.yapyap.backend.db.MessageLifecycleState;
+import org.yapyap.backend.db.MessagePayloadType;
+import org.yapyap.backend.db.RoomMemberRole;
+import org.yapyap.backend.db.RoomType;
+import org.yapyap.backend.protocol.PacketNackReason;
 
 CREATE TABLE accounts (
     account_id TEXT NOT NULL PRIMARY KEY,
@@ -133,6 +134,7 @@ CREATE TABLE dedup (
     packet_id TEXT NOT NULL,
     source_device_id TEXT NOT NULL,
     received_at INTEGER NOT NULL,
+    nack_reason TEXT AS PacketNackReason,
     PRIMARY KEY (source_device_id, packet_id),
     FOREIGN KEY (source_device_id) REFERENCES devices(device_id)
 );

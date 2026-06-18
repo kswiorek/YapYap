@@ -5,13 +5,13 @@ import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
-import org.yapyap.backend.crypto.IdentityPublicKeyRecord
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.SigningKeyPair
 import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.db.PacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.db.PacketOutbox
+import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protection.EnvelopeProtectContext
 import org.yapyap.backend.protection.EnvelopeProtectionService
@@ -121,8 +121,8 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
 
     override fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         val correlationId = when (input) {
-            is SystemPayload.PacketAck -> "ack:${input.acknowledgedPacketId.toHex()}"
-            is SystemPayload.PacketNack -> "nack:${input.rejectedPacketId.toHex()}"
+            is SystemPayload.PacketAck -> "ack:${input.packetId.toHex()}"
+            is SystemPayload.PacketNack -> "nack:${input.packetId.toHex()}"
         }
         return SystemEnvelope(
             correlationId = correlationId,
@@ -160,11 +160,19 @@ internal class SequencedPacketIdAllocator : PacketIdAllocator {
 
 internal class InMemoryPacketDeduplicator : PacketDeduplicator {
     private val seen = mutableSetOf<Pair<String, String>>()
+    private val nackReasons = mutableMapOf<Pair<String, String>, PacketNackReason>()
 
     override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         val key = sourceDeviceId.id to packetId.toHex()
         return seen.add(key)
     }
+
+    override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+        nackReasons[sourceDeviceId.id to packetId.toHex()] = nackReason
+    }
+
+    override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? =
+        nackReasons[sourceDeviceId.id to packetId.toHex()]
 
     override fun prune(receivedBeforeEpochSeconds: Long) {
         // No-op for router contract tests
@@ -174,6 +182,7 @@ internal class InMemoryPacketDeduplicator : PacketDeduplicator {
 internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplicator) : PacketDeduplicator {
     val firstSeenCalls = mutableListOf<Triple<PacketId, PeerId, Long>>()
     val firstSeenResults = mutableListOf<Boolean>()
+    val markNackedCalls = mutableListOf<Triple<PacketId, PeerId, PacketNackReason>>()
 
     override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         firstSeenCalls.add(Triple(packetId, sourceDeviceId, receivedAtEpochSeconds))
@@ -181,6 +190,14 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
         firstSeenResults.add(result)
         return result
     }
+
+    override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+        markNackedCalls.add(Triple(packetId, sourceDeviceId, nackReason))
+        delegate.markNacked(packetId, sourceDeviceId, nackReason)
+    }
+
+    override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? =
+        delegate.getNackReason(packetId, sourceDeviceId)
 
     override fun prune(receivedBeforeEpochSeconds: Long) {
         delegate.prune(receivedBeforeEpochSeconds)

@@ -18,7 +18,6 @@ import org.yapyap.backend.protocol.OpenedFileEnvelope
 import org.yapyap.backend.protocol.FileTransferClass
 import org.yapyap.backend.protocol.FileTransportPreference
 import org.yapyap.backend.protocol.MessagePayload
-import org.yapyap.backend.protocol.PacketAckStatus
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PacketType
@@ -78,23 +77,21 @@ internal fun samplePacketId(byte: Int = 1): PacketId =
 internal fun samplePacketAckPayload(
     packetId: PacketId = samplePacketId(),
     packetType: PacketType = PacketType.MESSAGE,
-    status: PacketAckStatus = PacketAckStatus.RECEIVED,
 ): SystemPayload.PacketAck =
     SystemPayload.PacketAck(
-        acknowledgedPacketId = packetId,
-        acknowledgedPacketType = packetType,
-        status = status,
+        packetId = packetId,
+        packetType = packetType,
     )
 
 internal fun samplePacketNackPayload(
     packetId: PacketId = samplePacketId(2),
     packetType: PacketType = PacketType.MESSAGE,
-    reason: PacketNackReason = PacketNackReason.INVALID_SIGNATURE,
+    reason: PacketNackReason = PacketNackReason.PROTECTION_FAILED,
     reasonText: String? = "bad sig",
 ): SystemPayload.PacketNack =
     SystemPayload.PacketNack(
-        rejectedPacketId = packetId,
-        rejectedPacketType = packetType,
+        packetId = packetId,
+        packetType = packetType,
         reason = reason,
         reasonText = reasonText,
     )

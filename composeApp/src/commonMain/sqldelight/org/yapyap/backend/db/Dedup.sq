@@ -12,6 +12,17 @@ WHERE source_device_id = ?
   AND packet_id = ?
 LIMIT 1;
 
+updateNackReason:
+UPDATE dedup
+SET
+    nack_reason = ?
+WHERE source_device_id = ? AND packet_id = ?;
+
+getNackReason:
+SELECT nack_reason
+FROM dedup
+WHERE source_device_id = ? AND packet_id = ?;
+
 deleteDedupReceivedBefore:
 DELETE FROM dedup
 WHERE received_at < ?;

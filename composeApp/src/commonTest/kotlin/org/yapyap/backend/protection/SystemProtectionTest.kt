@@ -6,10 +6,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.KmpCryptoProvider
-import org.yapyap.backend.protocol.PacketAckStatus
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.SystemEnvelope
-import org.yapyap.backend.protocol.SystemPayload
 
 class SystemProtectionTest {
 
@@ -18,7 +16,7 @@ class SystemProtectionTest {
     @Test
     fun plaintext_protectThenOpen_packetAck_roundTrip() {
         val protection = PlaintextSystemProtection()
-        val payload = samplePacketAckPayload(status = PacketAckStatus.PROCESSED)
+        val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             source = FixturePeerIds.A,
@@ -147,7 +145,7 @@ class SystemProtectionTest {
             target = targetPeer,
         )
         val envelope = protection.protect(payload, ctx)
-        assertEquals("ack:${payload.acknowledgedPacketId.toHex()}", envelope.correlationId)
+        assertEquals("ack:${payload.packetId.toHex()}", envelope.correlationId)
     }
 
     @Test
@@ -155,7 +153,7 @@ class SystemProtectionTest {
         val protection = PlaintextSystemProtection()
         val payload = samplePacketAckPayload()
         val envelope = SystemEnvelope(
-            correlationId = "ack:${payload.acknowledgedPacketId.toHex()}",
+            correlationId = "ack:${payload.packetId.toHex()}",
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
             createdAtEpochSeconds = 1L,

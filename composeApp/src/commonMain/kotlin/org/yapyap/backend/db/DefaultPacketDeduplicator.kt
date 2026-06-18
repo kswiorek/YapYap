@@ -5,6 +5,7 @@ import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PeerId
 
 class DefaultPacketDeduplicator(
@@ -42,6 +43,17 @@ class DefaultPacketDeduplicator(
                 true
             }
         }
+    }
+
+    override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+        database.dedupQueries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHex())
+    }
+
+    override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? {
+        return database.dedupQueries
+            .getNackReason(sourceDeviceId.id, packetId.toHex())
+            .executeAsOneOrNull()
+            ?.nack_reason
     }
 
     override fun prune(receivedBeforeEpochSeconds: Long) {

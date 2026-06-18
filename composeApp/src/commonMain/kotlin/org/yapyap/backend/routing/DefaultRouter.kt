@@ -14,7 +14,6 @@ import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityResolver
-import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.db.PacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.db.PacketOutbox
@@ -26,9 +25,13 @@ import org.yapyap.backend.protection.EnvelopeProtectionService
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.MessagePayload
+import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.time.EpochSecondsProvider
 import org.yapyap.backend.time.SystemEpochSecondsProvider
@@ -269,15 +272,48 @@ class DefaultRouter(
 
     private suspend fun handleInboundEnvelope(inbound: BinaryEnvelope, transport: RouterTransport) {
         val receivedAtEpochSeconds = timeProvider.nowEpochSeconds()
+
+        // DUPLICATE HANDLING
         if (!packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
                 sourceDeviceId = inbound.source,
                 receivedAtEpochSeconds = receivedAtEpochSeconds,
             )
         ) {
+            logger.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.PACKET_DUPLICATED,
+                message = "Packet ignored due to duplicate",
+                fields = mapOf(
+                    "packetId" to inbound.packetId,
+                    "packetType" to inbound.packetType,
+                    "sourceDeviceId" to inbound.source,
+                    "receivedAtEpochSeconds" to receivedAtEpochSeconds,
+                ),
+            )
+            when (inbound.packetType) {
+                PacketType.SYSTEM -> return
+                else -> sendDispositionForDuplicate(inbound, transport, packetDeduplicator.getNackReason(inbound.packetId, inbound.source))
+            }
             return
         }
 
+        // EXPIRED HANDLING
+        if (inbound.expiresAtEpochSeconds < receivedAtEpochSeconds) {
+            logger.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_EXPIRED,
+                message = "Envelope expired",
+                fields = mapOf(
+                    "expiresAtEpochSeconds" to inbound.expiresAtEpochSeconds,
+                    "receivedAtEpochSeconds" to receivedAtEpochSeconds,
+                ),
+            )
+            sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
+            return
+        }
+
+        // TARGET HANDLING
         if (inbound.target != localDeviceIdentity?.deviceId) {
             logger.info(
                 component = LogComponent.ROUTER,
@@ -289,48 +325,109 @@ class DefaultRouter(
                     "localDeviceId" to localDeviceIdentity?.deviceId,
                 ),
             )
+            sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
             return
         }
+        var nackReason: PacketNackReason?
 
         when (inbound.packetType) {
-            PacketType.SIGNAL -> handleSignalEnvelope(inbound, receivedAtEpochSeconds)
-            PacketType.FILE -> handleFileEnvelope(inbound, receivedAtEpochSeconds)
-            PacketType.MESSAGE -> handleMessageEnvelope(inbound, receivedAtEpochSeconds)
-            PacketType.ACK -> {
-                handleAckEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.SIGNAL -> nackReason = handleSignalEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.FILE -> nackReason = handleFileEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.MESSAGE -> nackReason = handleMessageEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.SYSTEM -> {
+                handleSystemEnvelope(inbound, receivedAtEpochSeconds)
                 return
             }
-            else -> { logger.info(
+            else -> {
+                logger.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
                 message = "Envelope ignored due to unknown packet type",
                 fields = mapOf(
                     "packetType" to inbound.packetType,
-                ),
-            ) }
+                    ),
+                )
+                nackReason = PacketNackReason.UNSUPPORTED_TYPE
+            }
         }
-        //TODO better ACK logic, update device state in db, etc
-        //TODO SystemEnvelope - device state, ack as one of the types
+        //TODO better ACK logic: update device state in db, etc
+
+        if (nackReason == null) {
+            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+        }
+        else {
+            sendNack(inbound.packetId, inbound.source, inbound.packetType, nackReason, transport)
+        }
+    }
+
+    private suspend fun sendDispositionForDuplicate(inbound: BinaryEnvelope, transport: RouterTransport, nackReason: PacketNackReason?) {
+        // if correct target and not expired, send ack, else nack
+        if (nackReason == null) {
+            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+        }
+        else {
+            sendNack(inbound.packetId, inbound.source, inbound.packetType, nackReason, transport)
+        }
+    }
+
+    private suspend fun sendAck(packetId: PacketId, source: PeerId, packetType: PacketType, transport: RouterTransport) {
+        val ackContext = EnvelopeProtectContext(
+            sourceDeviceId = localDeviceIdentity!!.deviceId,
+            targetDeviceId = source,
+            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
+        )
+        val ackPayload = SystemPayload.PacketAck(
+            packetId,
+            packetType
+        )
+        sendAckEnvelope(ackPayload, transport, ackContext)
+    }
+
+    private suspend fun sendNack(packetId: PacketId, source: PeerId, packetType: PacketType, reason: PacketNackReason, transport: RouterTransport, reasonText: String? = null) {
+        packetDeduplicator.markNacked(packetId, source, reason)
+
+        val ackContext = EnvelopeProtectContext(
+            sourceDeviceId = localDeviceIdentity!!.deviceId,
+            targetDeviceId = source,
+            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
+        )
+        val ackPayload = SystemPayload.PacketNack(
+            packetId,
+            packetType,
+            reason,
+            reasonText = reasonText,
+        )
+        sendAckEnvelope(ackPayload, transport, ackContext)
+    }
+
+    private suspend fun sendAckEnvelope(ackPayload: SystemPayload, transport: RouterTransport, context: EnvelopeProtectContext){
+        val ackEnvelope = envelopeProtectionService.protectSystem(ackPayload, context)
+
         val ackEnv = BinaryEnvelope(
             packetId = packetIdAllocator.allocate(),
-            packetType = PacketType.ACK,
+            packetType = PacketType.SYSTEM,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             expiresAtEpochSeconds = timeProvider.nowEpochSeconds() + routerConfig.ackLifetimeSeconds, // 1 hour
             source = localDeviceIdentity!!.deviceId,
-            target = inbound.source,
-            payload = inbound.packetId.toByteArray(),
+            target = context.targetDeviceId,
+            payload = ackEnvelope.encode(),
         )
+
         when (transport) {
             RouterTransport.TOR -> torTransport.send(
-                target = identityResolver.resolveTorEndpointForDevice(inbound.source),
+                target = identityResolver.resolveTorEndpointForDevice(context.targetDeviceId),
                 envelope = ackEnv,
             )
             RouterTransport.WEBRTC -> {
-                val session = webRtcTransport.getSessionForPeer(inbound.source)
+                val session = webRtcTransport.getSessionForPeer(context.targetDeviceId)
                 if (session != null) {
                     webRtcTransport.sendEnvelope(
                         sessionId = session,
-                        targetId = inbound.source,
+                        targetId = context.targetDeviceId,
                         envelope = ackEnv,
                     )
                 } else {
@@ -338,7 +435,7 @@ class DefaultRouter(
                         component = LogComponent.ROUTER,
                         event = LogEvent.ACK_NO_SESSION,
                         message = "Failed to send ACK due to missing WebRTC session",
-                        fields = mapOf("target" to inbound.source),
+                        fields = mapOf("target" to context.targetDeviceId),
                     )
                 }
             }
@@ -359,7 +456,7 @@ class DefaultRouter(
         webRtcTransport.closeSession(sessionId)
     }
 
-    private suspend fun handleSignalEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
+    private suspend fun handleSignalEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long): PacketNackReason? {
         val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -367,7 +464,7 @@ class DefaultRouter(
                 message = "Failed to decode signal envelope",
                 fields = mapOf("error" to "decode_failed"),
             )
-            return
+            return PacketNackReason.DECODE_FAILED
         }
         if (signalEnvelope.target != localDeviceIdentity?.deviceId) {
             logger.info(
@@ -380,7 +477,7 @@ class DefaultRouter(
                     "localDeviceId" to localDeviceIdentity?.deviceId,
                 ),
             )
-            return
+            return PacketNackReason.WRONG_TARGET
         }
         val signal = runCatching { envelopeProtectionService.openSignal(signalEnvelope) }.getOrNull() ?: run {
             logger.warn(
@@ -389,9 +486,10 @@ class DefaultRouter(
                 message = "Failed to open signal envelope",
                 fields = mapOf("error" to "protection_failed"),
             )
-            return
+            return PacketNackReason.PROTECTION_FAILED
         }
         webRtcTransport.handleBootstrapSignal(signal, receivedAtEpochSeconds = receivedAtEpochSeconds)
+        return null
     }
 
     private suspend fun handleWebRtcBootstrapSignal(signal: WebRtcSignal) {
@@ -418,11 +516,12 @@ class DefaultRouter(
         )
     }
 
-    private suspend fun handleFileEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
+    private suspend fun handleFileEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long): PacketNackReason? {
         // TODO
+        return null
     }
 
-    private suspend fun handleMessageEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
+    private suspend fun handleMessageEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long): PacketNackReason? {
         //TODO validate envelope fields before decryption to avoid expensive operations on invalid envelopes
         //TODO check decryption
         val messageEnvelope = runCatching { MessageEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -432,7 +531,7 @@ class DefaultRouter(
                 message = "Failed to decode message envelope",
                 fields = mapOf("error" to "decode_failed"),
             )
-            return
+            return PacketNackReason.DECODE_FAILED
         }
 
         if (messageEnvelope.target != localDeviceIdentity?.deviceId) {
@@ -447,7 +546,7 @@ class DefaultRouter(
                 ),
             )
             //TODO relay logic
-            return
+            return null
         }
 
         val payload = runCatching { envelopeProtectionService.openMessage(messageEnvelope) }.getOrNull() ?: run {
@@ -457,11 +556,59 @@ class DefaultRouter(
                 message = "Failed to open message envelope",
                 fields = mapOf("error" to "protection_failed"),
             )
-            return
+            return PacketNackReason.PROTECTION_FAILED
         }
         incomingMessageFlow.emit(payload)
+        return null
     }
-    private suspend fun handleAckEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
-        val ackPayload = env
+    private suspend fun handleSystemEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
+        val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
+            logger.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode message envelope",
+                fields = mapOf("error" to "decode_failed"),
+            )
+            return
+        }
+
+        if (systemEnvelope.target != localDeviceIdentity?.deviceId) {
+            logger.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_WRONG_TARGET,
+                message = "System envelope received for peer ${systemEnvelope.target}",
+                fields = mapOf(
+                    "sourceDeviceId" to systemEnvelope.source,
+                    "targetDeviceId" to systemEnvelope.target,
+                    "localDeviceId" to localDeviceIdentity?.deviceId,
+                ),
+            )
+            return
+        }
+
+        val payload = runCatching { envelopeProtectionService.openSystem(systemEnvelope) }.getOrNull() ?: run {
+            logger.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                message = "Failed to open system envelope",
+                fields = mapOf("error" to "protection_failed"),
+            )
+            return
+        }
+
+        when (payload) {
+            is SystemPayload.PacketAck -> {
+                packetOutbox.markDelivered(payload.packetId)
+            }
+            is SystemPayload.PacketNack -> {
+                when (payload.reason) {
+                    PacketNackReason.EXPIRED -> { packetOutbox.markDelivered(payload.packetId) }
+                    else -> {
+                        // keep retrying
+                        // TODO add logic
+                    }
+                }
+            }
+        }
     }
 }

@@ -126,6 +126,6 @@ class SignedSystemProtection(
 
 private fun systemEnvelopeCorrelationId(payload: SystemPayload): String =
     when (payload) {
-        is SystemPayload.PacketAck -> "ack:${payload.acknowledgedPacketId.toHex()}"
-        is SystemPayload.PacketNack -> "nack:${payload.rejectedPacketId.toHex()}"
+        is SystemPayload.PacketAck -> "ack:${payload.packetId.toHex()}"
+        is SystemPayload.PacketNack -> "nack:${payload.packetId.toHex()}"
     }

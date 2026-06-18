@@ -15,12 +15,16 @@ import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.transport.RecordingTorTransport
 import org.yapyap.backend.transport.RecordingWebRtcTransport
+import org.yapyap.backend.transport.tor.TorIncomingEnvelope
 
 class DefaultRouterContractTest {
 
@@ -113,50 +117,46 @@ class DefaultRouterContractTest {
     }
 
     @Test
-    fun duplicateInboundPacket_invokesDedupTwice_secondSeenAsDuplicate() = runBlocking {
+    fun inboundMessage_firstReceive_sendsSystemAck() = runBlocking {
         val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
         val remoteTor = TorEndpoint("remote.onion", 80)
-        val torMap = mutableMapOf(remotePeer to remoteTor)
-        val identity =
-            FakeIdentityResolverForRouter(
-                localDevice = localDevice(),
-                torByPeer = torMap,
-            )
+        val router = routerForInboundTests(tor, remoteTor)
+
+        router.start()
+
+        val packetId = PacketId.fromHex("aa".repeat(PacketId.SIZE_BYTES))
+        val incoming = inboundTorMessage(packetId = packetId, remoteTor = remoteTor)
+
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+
+        assertEquals(1, tor.sends.size)
+        assertSystemAck(
+            envelope = tor.sends.single().second,
+            expectedPacketId = packetId,
+            expectedPacketType = PacketType.MESSAGE,
+        )
+
+        router.stop()
+    }
+
+    @Test
+    fun duplicateInboundPacket_invokesDedupTwice_secondSeenAsDuplicate_andReSendsAck() = runBlocking {
+        val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
+        val remoteTor = TorEndpoint("remote.onion", 80)
         val innerDedup = InMemoryPacketDeduplicator()
         val recordingDedup = RecordingPacketDeduplicator(innerDedup)
         val router =
-            defaultRouterUnderTest(
+            routerForInboundTests(
                 tor = tor,
-                identity = identity,
+                remoteTor = remoteTor,
                 dedup = recordingDedup,
             )
 
         router.start()
 
-        val text = sampleTextPayload("dedup-msg")
-        val msgEnv =
-            MessageEnvelope(
-                messageId = text.messageId,
-                source = remotePeer,
-                target = localPeer,
-                createdAtEpochSeconds = 10_000L,
-                nonce = ByteArray(24) { 3 },
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = text,
-            )
         val packetId = PacketId.fromHex("aa".repeat(PacketId.SIZE_BYTES))
-        val bin =
-            BinaryEnvelope(
-                packetId = packetId,
-                packetType = PacketType.MESSAGE,
-                createdAtEpochSeconds = 10_000L,
-                expiresAtEpochSeconds = 11_000L,
-                source = remotePeer,
-                target = localPeer,
-                payload = msgEnv.encode(),
-            )
-        val incoming = org.yapyap.backend.transport.tor.TorIncomingEnvelope(remoteTor, bin)
+        val incoming = inboundTorMessage(packetId = packetId, remoteTor = remoteTor)
 
         tor.tryEmitIncoming(incoming)
         delay(400)
@@ -168,8 +168,207 @@ class DefaultRouterContractTest {
         assertEquals(packetId, recordingDedup.firstSeenCalls[1].first)
         assertTrue(recordingDedup.firstSeenResults[0])
         assertTrue(!recordingDedup.firstSeenResults[1])
+        assertTrue(recordingDedup.markNackedCalls.isEmpty())
+
+        assertEquals(2, tor.sends.size)
+        assertSystemAck(tor.sends[0].second, packetId, PacketType.MESSAGE)
+        assertSystemAck(tor.sends[1].second, packetId, PacketType.MESSAGE)
 
         router.stop()
+    }
+
+    @Test
+    fun expiredInboundPacket_sendsNack_andDuplicateReSendsNack() = runBlocking {
+        val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
+        val remoteTor = TorEndpoint("remote.onion", 80)
+        val recordingDedup = RecordingPacketDeduplicator(InMemoryPacketDeduplicator())
+        val router =
+            routerForInboundTests(
+                tor = tor,
+                remoteTor = remoteTor,
+                dedup = recordingDedup,
+                time = FixedEpochSecondsProvider(10_000L),
+            )
+
+        router.start()
+
+        val packetId = PacketId.fromHex("bb".repeat(PacketId.SIZE_BYTES))
+        val incoming =
+            inboundTorMessage(
+                packetId = packetId,
+                remoteTor = remoteTor,
+                expiresAtEpochSeconds = 9_999L,
+            )
+
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+
+        assertEquals(1, recordingDedup.markNackedCalls.size)
+        assertEquals(PacketNackReason.EXPIRED, recordingDedup.markNackedCalls.single().third)
+
+        assertEquals(2, tor.sends.size)
+        assertSystemNack(tor.sends[0].second, packetId, PacketNackReason.EXPIRED)
+        assertSystemNack(tor.sends[1].second, packetId, PacketNackReason.EXPIRED)
+
+        router.stop()
+    }
+
+    @Test
+    fun wrongTargetInbound_sendsNack_andDuplicateReSendsNack() = runBlocking {
+        val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
+        val remoteTor = TorEndpoint("remote.onion", 80)
+        val recordingDedup = RecordingPacketDeduplicator(InMemoryPacketDeduplicator())
+        val router =
+            routerForInboundTests(
+                tor = tor,
+                remoteTor = remoteTor,
+                dedup = recordingDedup,
+            )
+
+        router.start()
+
+        val packetId = PacketId.fromHex("cc".repeat(PacketId.SIZE_BYTES))
+        val incoming =
+            inboundTorMessage(
+                packetId = packetId,
+                remoteTor = remoteTor,
+                target = PeerId("wrongtargetcccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
+            )
+
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+
+        assertEquals(1, recordingDedup.markNackedCalls.size)
+        assertEquals(PacketNackReason.WRONG_TARGET, recordingDedup.markNackedCalls.single().third)
+
+        assertEquals(2, tor.sends.size)
+        assertSystemNack(tor.sends[0].second, packetId, PacketNackReason.WRONG_TARGET)
+        assertSystemNack(tor.sends[1].second, packetId, PacketNackReason.WRONG_TARGET)
+
+        router.stop()
+    }
+
+    @Test
+    fun decodeFailureInbound_sendsNack_andDuplicateReSendsNack() = runBlocking {
+        val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
+        val remoteTor = TorEndpoint("remote.onion", 80)
+        val recordingDedup = RecordingPacketDeduplicator(InMemoryPacketDeduplicator())
+        val router =
+            routerForInboundTests(
+                tor = tor,
+                remoteTor = remoteTor,
+                dedup = recordingDedup,
+            )
+
+        router.start()
+
+        val packetId = PacketId.fromHex("dd".repeat(PacketId.SIZE_BYTES))
+        val incoming =
+            TorIncomingEnvelope(
+                remoteTor,
+                BinaryEnvelope(
+                    packetId = packetId,
+                    packetType = PacketType.MESSAGE,
+                    createdAtEpochSeconds = 10_000L,
+                    expiresAtEpochSeconds = 11_000L,
+                    source = remotePeer,
+                    target = localPeer,
+                    payload = byteArrayOf(0x00, 0x01, 0x02),
+                ),
+            )
+
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+        tor.tryEmitIncoming(incoming)
+        delay(400)
+
+        assertEquals(1, recordingDedup.markNackedCalls.size)
+        assertEquals(PacketNackReason.DECODE_FAILED, recordingDedup.markNackedCalls.single().third)
+
+        assertEquals(2, tor.sends.size)
+        assertSystemNack(tor.sends[0].second, packetId, PacketNackReason.DECODE_FAILED)
+        assertSystemNack(tor.sends[1].second, packetId, PacketNackReason.DECODE_FAILED)
+
+        router.stop()
+    }
+
+    private fun routerForInboundTests(
+        tor: RecordingTorTransport,
+        remoteTor: TorEndpoint,
+        dedup: org.yapyap.backend.db.PacketDeduplicator = InMemoryPacketDeduplicator(),
+        time: FixedEpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    ): DefaultRouter {
+        val torMap = mutableMapOf(remotePeer to remoteTor)
+        val identity =
+            FakeIdentityResolverForRouter(
+                localDevice = localDevice(),
+                torByPeer = torMap,
+            )
+        return defaultRouterUnderTest(
+            tor = tor,
+            identity = identity,
+            dedup = dedup,
+            time = time,
+        )
+    }
+
+    private fun inboundTorMessage(
+        packetId: PacketId,
+        remoteTor: TorEndpoint,
+        text: MessagePayload.Text = sampleTextPayload("dedup-msg"),
+        expiresAtEpochSeconds: Long = 11_000L,
+        target: PeerId = localPeer,
+    ): TorIncomingEnvelope {
+        val msgEnv =
+            MessageEnvelope(
+                messageId = text.messageId,
+                source = remotePeer,
+                target = target,
+                createdAtEpochSeconds = 10_000L,
+                nonce = ByteArray(24) { 3 },
+                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+                signature = null,
+                payload = text,
+            )
+        val bin =
+            BinaryEnvelope(
+                packetId = packetId,
+                packetType = PacketType.MESSAGE,
+                createdAtEpochSeconds = 10_000L,
+                expiresAtEpochSeconds = expiresAtEpochSeconds,
+                source = remotePeer,
+                target = target,
+                payload = msgEnv.encode(),
+            )
+        return TorIncomingEnvelope(remoteTor, bin)
+    }
+
+    private fun assertSystemAck(
+        envelope: BinaryEnvelope,
+        expectedPacketId: PacketId,
+        expectedPacketType: PacketType,
+    ) {
+        assertEquals(PacketType.SYSTEM, envelope.packetType)
+        val payload = SystemEnvelope.decode(envelope.payload).decodePayload()
+        assertTrue(payload is SystemPayload.PacketAck, "expected PacketAck but was ${payload::class.simpleName}")
+        assertEquals(expectedPacketId, payload.packetId)
+        assertEquals(expectedPacketType, payload.packetType)
+    }
+
+    private fun assertSystemNack(
+        envelope: BinaryEnvelope,
+        expectedPacketId: PacketId,
+        expectedReason: PacketNackReason,
+    ) {
+        assertEquals(PacketType.SYSTEM, envelope.packetType)
+        val payload = SystemEnvelope.decode(envelope.payload).decodePayload()
+        assertTrue(payload is SystemPayload.PacketNack, "expected PacketNack but was ${payload::class.simpleName}")
+        assertEquals(expectedPacketId, payload.packetId)
+        assertEquals(expectedReason, payload.reason)
     }
 }
 
