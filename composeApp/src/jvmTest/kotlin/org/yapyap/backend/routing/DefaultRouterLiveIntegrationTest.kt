@@ -114,10 +114,12 @@ class DefaultRouterLiveIntegrationTest {
                 identityResolver = aliceIdentity,
                 packetIdAllocator = SequencedPacketIdAllocator(),
                 packetDeduplicator = InMemoryPacketDeduplicator(),
+                packetOutbox = InMemoryPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 cryptoProvider = StubCryptoProvider(),
                 logger = NoopAppLogger,
+                routerConfig = RouterConfig(),
             )
         val bobRouter =
             DefaultRouter(
@@ -126,10 +128,12 @@ class DefaultRouterLiveIntegrationTest {
                 identityResolver = bobIdentity,
                 packetIdAllocator = SequencedPacketIdAllocator(),
                 packetDeduplicator = InMemoryPacketDeduplicator(),
+                packetOutbox = InMemoryPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 cryptoProvider = StubCryptoProvider(),
                 logger = NoopAppLogger,
+                routerConfig = RouterConfig(),
             )
 
         try {

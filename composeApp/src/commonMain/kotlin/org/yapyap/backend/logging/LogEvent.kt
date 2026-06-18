@@ -41,4 +41,5 @@ enum class LogEvent {
     MESSAGE_NO_PEERS,
     ACK_NO_SESSION,
     ACK_UNKNOWN_TRANSPORT,
+    ENVELOPE_OPENED,
 }

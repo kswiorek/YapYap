@@ -3,6 +3,7 @@ package org.yapyap.backend.routing
 import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.FileEnvelope
 import org.yapyap.backend.protocol.MessageEnvelope
+import org.yapyap.backend.protocol.SystemEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 
 enum class FieldSensitivity {
@@ -78,6 +79,21 @@ object EnvelopeObservability {
             MessageEnvelope.Companion.Fields.SECURITY_SCHEME to FieldSensitivity.ROUTING_VISIBLE,
             MessageEnvelope.Companion.Fields.SIGNATURE to FieldSensitivity.ENDPOINT_VISIBLE,
             MessageEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
+        ),
+    )
+
+    val systemEnvelope = ObservabilityProfile(
+        schemaId = "system-envelope-v1",
+        fields = mapOf(
+            SystemEnvelope.Companion.Fields.CORRELATION_ID to FieldSensitivity.ROUTING_VISIBLE,
+            SystemEnvelope.Companion.Fields.KIND to FieldSensitivity.ROUTING_VISIBLE,
+            SystemEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
+            SystemEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
+            SystemEnvelope.Companion.Fields.CREATED_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
+            SystemEnvelope.Companion.Fields.NONCE to FieldSensitivity.ENDPOINT_VISIBLE,
+            SystemEnvelope.Companion.Fields.SECURITY_SCHEME to FieldSensitivity.ROUTING_VISIBLE,
+            SystemEnvelope.Companion.Fields.SIGNATURE to FieldSensitivity.ENDPOINT_VISIBLE,
+            SystemEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
         ),
     )
 

@@ -18,6 +18,11 @@ import org.yapyap.backend.protocol.OpenedFileEnvelope
 import org.yapyap.backend.protocol.FileTransferClass
 import org.yapyap.backend.protocol.FileTransportPreference
 import org.yapyap.backend.protocol.MessagePayload
+import org.yapyap.backend.protocol.PacketAckStatus
+import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PacketNackReason
+import org.yapyap.backend.protocol.PacketType
+import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
@@ -65,6 +70,33 @@ internal fun sampleWebRtcSignal(source: PeerId, target: PeerId): WebRtcSignal =
         source = source,
         target = target,
         payload = byteArrayOf(0x01, 0x02, 0x03),
+    )
+
+internal fun samplePacketId(byte: Int = 1): PacketId =
+    PacketId.fromHex(byte.toString(16).padStart(PacketId.SIZE_BYTES * 2, '0'))
+
+internal fun samplePacketAckPayload(
+    packetId: PacketId = samplePacketId(),
+    packetType: PacketType = PacketType.MESSAGE,
+    status: PacketAckStatus = PacketAckStatus.RECEIVED,
+): SystemPayload.PacketAck =
+    SystemPayload.PacketAck(
+        acknowledgedPacketId = packetId,
+        acknowledgedPacketType = packetType,
+        status = status,
+    )
+
+internal fun samplePacketNackPayload(
+    packetId: PacketId = samplePacketId(2),
+    packetType: PacketType = PacketType.MESSAGE,
+    reason: PacketNackReason = PacketNackReason.INVALID_SIGNATURE,
+    reasonText: String? = "bad sig",
+): SystemPayload.PacketNack =
+    SystemPayload.PacketNack(
+        rejectedPacketId = packetId,
+        rejectedPacketType = packetType,
+        reason = reason,
+        reasonText = reasonText,
     )
 
 internal fun sampleFileOfferPayload(): FilePayload.Offer =

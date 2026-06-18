@@ -5,25 +5,25 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
-import org.yapyap.backend.protocol.MessageEnvelope
-import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.routing.EnvelopeObservability
 
-interface MessageProtection {
-    fun open(envelope: MessageEnvelope): MessagePayload
-    fun protect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope
+interface SystemProtection {
+    fun open(envelope: SystemEnvelope): SystemPayload
+    fun protect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope
 }
 
-class PlaintextMessageProtection(
+class PlaintextSystemProtection(
     private val logger: AppLogger = NoopAppLogger,
-) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
-    override fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
+    override fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
-            "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextMessageProtection but got ${context.securityScheme}"
+            "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextSystemProtection but got ${context.securityScheme}"
         }
-        return MessageEnvelope(
-            messageId = messageEnvelopeId(input),
+        return SystemEnvelope(
+            correlationId = systemEnvelopeCorrelationId(input),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -34,38 +34,38 @@ class PlaintextMessageProtection(
         )
     }
 
-    override fun doOpen(envelope: MessageEnvelope): MessagePayload {
+    override fun doOpen(envelope: SystemEnvelope): SystemPayload {
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
-            message = "Opened plaintext message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "kind" to envelope.kind.name),
+            message = "Opened plaintext system envelope",
+            fields = mapOf("correlationId" to envelope.correlationId, "kind" to envelope.kind.name),
         )
         return envelope.decodePayload()
     }
 
-    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: SystemEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
 
-    override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
+    override fun observabilityPolicy() = EnvelopeObservability.systemEnvelope.fields
 
-    override fun envelopeLabel(): String = "Message envelope"
+    override fun envelopeLabel(): String = "System envelope"
 }
 
-class SignedMessageProtection(
+class SignedSystemProtection(
     private val signatureProvider: SignatureProvider,
     private val logger: AppLogger = NoopAppLogger,
-) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
-    override fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
+    override fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
-            "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
+            "Context security scheme must be SIGNED for SignedSystemProtection but got ${context.securityScheme}"
         }
         val encodedPayload = input.encode()
-        val envelopeId = messageEnvelopeId(input)
+        val correlationId = systemEnvelopeCorrelationId(input)
         val signingPayload = buildSigningPayload(
-            envelopeId = envelopeId,
+            envelopeId = correlationId,
             kindWireValue = input.kind.wireValue,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -74,8 +74,8 @@ class SignedMessageProtection(
             protectedPayload = encodedPayload,
         )
         val signature = signatureProvider.signDetached(signingPayload)
-        return MessageEnvelope(
-            messageId = envelopeId,
+        return SystemEnvelope(
+            correlationId = correlationId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -86,14 +86,14 @@ class SignedMessageProtection(
         )
     }
 
-    override fun doOpen(envelope: MessageEnvelope): MessagePayload {
+    override fun doOpen(envelope: SystemEnvelope): SystemPayload {
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("SIGNED message envelope must contain signature")
+        val signature = envelope.signature ?: error("SIGNED system envelope must contain signature")
         val protectedPayload = envelope.payload.encode()
         val signingPayload = buildSigningPayload(
-            envelopeId = envelope.messageId,
+            envelopeId = envelope.correlationId,
             kindWireValue = envelope.kind.wireValue,
             source = envelope.source,
             target = envelope.target,
@@ -102,26 +102,30 @@ class SignedMessageProtection(
             protectedPayload = protectedPayload,
         )
         require(signatureProvider.verifyDetached(envelope.source, signingPayload, signature)) {
-            "Message signature verification failed for source=${envelope.source}"
+            "System envelope signature verification failed for source=${envelope.source}"
         }
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
-            message = "Verified signed message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "kind" to envelope.kind.name),
+            message = "Verified signed system envelope",
+            fields = mapOf(
+                "correlationId" to envelope.correlationId,
+                "source" to envelope.source,
+                "kind" to envelope.kind.name,
+            ),
         )
         return envelope.decodePayload()
     }
 
-    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: SystemEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
 
-    override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
+    override fun observabilityPolicy() = EnvelopeObservability.systemEnvelope.fields
 
-    override fun envelopeLabel(): String = "Message envelope"
+    override fun envelopeLabel(): String = "System envelope"
 }
 
-private fun messageEnvelopeId(payload: MessagePayload): String =
+private fun systemEnvelopeCorrelationId(payload: SystemPayload): String =
     when (payload) {
-        is MessagePayload.Text -> payload.messageId
-        is MessagePayload.GlobalEvent -> payload.messageId
+        is SystemPayload.PacketAck -> "ack:${payload.acknowledgedPacketId.toHex()}"
+        is SystemPayload.PacketNack -> "nack:${payload.rejectedPacketId.toHex()}"
     }

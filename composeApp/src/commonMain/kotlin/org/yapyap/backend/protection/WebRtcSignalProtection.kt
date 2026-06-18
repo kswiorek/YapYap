@@ -52,7 +52,7 @@ class PlaintextWebRtcSignalProtection(
         }
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext WebRTC signal envelope",
             fields = mapOf("sessionId" to envelope.sessionId, "kind" to envelope.kind.name),
         )
@@ -122,7 +122,7 @@ class SignedWebRtcSignalProtection(
         }
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed WebRTC signal envelope",
             fields = mapOf("sessionId" to envelope.sessionId, "source" to envelope.source, "kind" to envelope.kind.name),
         )

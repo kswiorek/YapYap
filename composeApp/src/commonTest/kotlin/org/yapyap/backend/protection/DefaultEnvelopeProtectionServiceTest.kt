@@ -36,6 +36,7 @@ class DefaultEnvelopeProtectionServiceTest {
                     webRtcSignalProtection = PlaintextWebRtcSignalProtection(),
                     fileProtection = PassthroughFileProtection(),
                     messageProtection = PlaintextMessageProtection(),
+                    systemProtection = PlaintextSystemProtection(),
                 ),
                 scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             ),
@@ -45,6 +46,7 @@ class DefaultEnvelopeProtectionServiceTest {
                     webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider),
                     fileProtection = PassthroughFileProtection(),
                     messageProtection = SignedMessageProtection(signatureProvider),
+                    systemProtection = SignedSystemProtection(signatureProvider),
                 ),
                 scheme = SignalSecurityScheme.SIGNED,
             ),
@@ -69,6 +71,14 @@ class DefaultEnvelopeProtectionServiceTest {
             val text = sampleTextPayload("m-${row.name}")
             val messageOut = row.service.openMessage(row.service.protectMessage(text, ctx))
             assertEquals(text, messageOut, "message ${row.name}")
+
+            val ack = samplePacketAckPayload()
+            val ackOut = row.service.openSystem(row.service.protectSystem(ack, ctx))
+            assertEquals(ack, ackOut, "system ack ${row.name}")
+
+            val nack = samplePacketNackPayload()
+            val nackOut = row.service.openSystem(row.service.protectSystem(nack, ctx))
+            assertEquals(nack, nackOut, "system nack ${row.name}")
         }
     }
 
@@ -79,6 +89,7 @@ class DefaultEnvelopeProtectionServiceTest {
             webRtcSignalProtection = PlaintextWebRtcSignalProtection(),
             fileProtection = fileProtection,
             messageProtection = PlaintextMessageProtection(),
+            systemProtection = PlaintextSystemProtection(),
         )
         val chunk = FilePayload.EncryptedChunk(
             chunkIndex = 0,

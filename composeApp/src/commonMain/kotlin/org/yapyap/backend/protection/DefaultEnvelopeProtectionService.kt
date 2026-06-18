@@ -6,6 +6,8 @@ import org.yapyap.backend.protocol.FilePayload
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.OpenedFileEnvelope
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
@@ -13,6 +15,7 @@ class DefaultEnvelopeProtectionService(
     val webRtcSignalProtection: WebRtcSignalProtection,
     val fileProtection: FileProtection,
     val messageProtection: MessageProtection,
+    val systemProtection: SystemProtection,
 ): EnvelopeProtectionService {
     override fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
         return webRtcSignalProtection.protect(input, context)
@@ -42,5 +45,11 @@ class DefaultEnvelopeProtectionService(
         return messageProtection.open(envelope)
     }
 
+    override fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
+        return systemProtection.protect(input, context)
+    }
 
+    override fun openSystem(envelope: SystemEnvelope): SystemPayload {
+        return systemProtection.open(envelope)
+    }
 }

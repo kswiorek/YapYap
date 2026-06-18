@@ -11,16 +11,20 @@ import org.yapyap.backend.crypto.SigningKeyPair
 import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.db.PacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
+import org.yapyap.backend.db.PacketOutbox
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protection.EnvelopeProtectContext
 import org.yapyap.backend.protection.EnvelopeProtectionService
+import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.FileChunk
 import org.yapyap.backend.protocol.FileEnvelope
 import org.yapyap.backend.protocol.FilePayload
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.MessagePayload
-import org.yapyap.backend.protocol.OpenedFileEnvelope
 import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
+import org.yapyap.backend.protocol.OpenedFileEnvelope
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
@@ -114,6 +118,25 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     }
 
     override fun openMessage(envelope: MessageEnvelope): MessagePayload = envelope.decodePayload()
+
+    override fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
+        val correlationId = when (input) {
+            is SystemPayload.PacketAck -> "ack:${input.acknowledgedPacketId.toHex()}"
+            is SystemPayload.PacketNack -> "nack:${input.rejectedPacketId.toHex()}"
+        }
+        return SystemEnvelope(
+            correlationId = correlationId,
+            source = context.sourceDeviceId,
+            target = context.targetDeviceId,
+            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            nonce = context.nonce,
+            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            signature = null,
+            payload = input,
+        )
+    }
+
+    override fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
 }
 
 internal class SequencedPacketIdAllocator : PacketIdAllocator {
@@ -193,13 +216,31 @@ internal class FakeIdentityResolverForRouter(
     }
 }
 
+internal class InMemoryPacketOutbox : PacketOutbox {
+    val enqueued = mutableListOf<BinaryEnvelope>()
+
+    override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long?) {
+        enqueued.add(envelope)
+    }
+
+    override fun markDelivered(packetId: PacketId) = Unit
+
+    override fun recordAttempt(packetId: PacketId, nextRetryAt: Long?) = Unit
+
+    override fun listDue(now: Long): List<BinaryEnvelope> = emptyList()
+
+    override fun pruneExpired(now: Long) = Unit
+}
+
 internal fun defaultRouterUnderTest(
     tor: RecordingTorTransport = RecordingTorTransport(),
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     identity: FakeIdentityResolverForRouter,
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
+    outbox: PacketOutbox = InMemoryPacketOutbox(),
     allocator: PacketIdAllocator = SequencedPacketIdAllocator(),
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    routerConfig: RouterConfig = RouterConfig(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -207,8 +248,10 @@ internal fun defaultRouterUnderTest(
         identityResolver = identity,
         packetIdAllocator = allocator,
         packetDeduplicator = dedup,
+        packetOutbox = outbox,
         envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
         timeProvider = time,
         cryptoProvider = StubCryptoProvider(),
         logger = NoopAppLogger,
+        routerConfig = routerConfig,
     )

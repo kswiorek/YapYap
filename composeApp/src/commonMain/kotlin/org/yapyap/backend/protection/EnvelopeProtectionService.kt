@@ -8,6 +8,8 @@ import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.OpenedFileEnvelope
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
@@ -45,6 +47,15 @@ interface EnvelopeProtectionService {
     fun openMessage(
         envelope: MessageEnvelope,
     ): MessagePayload
+
+    fun protectSystem(
+        input: SystemPayload,
+        context: EnvelopeProtectContext,
+    ): SystemEnvelope
+
+    fun openSystem(
+        envelope: SystemEnvelope,
+    ): SystemPayload
 }
 
 data class EnvelopeProtectContext(

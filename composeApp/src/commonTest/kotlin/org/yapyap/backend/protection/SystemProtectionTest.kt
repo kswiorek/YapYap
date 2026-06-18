@@ -1,0 +1,171 @@
+package org.yapyap.backend.protection
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import org.yapyap.backend.crypto.DefaultSignatureProvider
+import org.yapyap.backend.crypto.KmpCryptoProvider
+import org.yapyap.backend.protocol.PacketAckStatus
+import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.protocol.SystemEnvelope
+import org.yapyap.backend.protocol.SystemPayload
+
+class SystemProtectionTest {
+
+    private val crypto = KmpCryptoProvider()
+
+    @Test
+    fun plaintext_protectThenOpen_packetAck_roundTrip() {
+        val protection = PlaintextSystemProtection()
+        val payload = samplePacketAckPayload(status = PacketAckStatus.PROCESSED)
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+        )
+        val envelope = protection.protect(payload, ctx)
+        val opened = protection.open(envelope)
+        assertEquals(payload, opened)
+    }
+
+    @Test
+    fun plaintext_protectThenOpen_packetNack_roundTrip() {
+        val protection = PlaintextSystemProtection()
+        val payload = samplePacketNackPayload(reasonText = null)
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+        )
+        val envelope = protection.protect(payload, ctx)
+        val opened = protection.open(envelope)
+        assertEquals(payload, opened)
+    }
+
+    @Test
+    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() {
+        val protection = PlaintextSystemProtection()
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+        )
+        assertFailsWith<IllegalArgumentException> {
+            protection.protect(samplePacketAckPayload(), ctx)
+        }
+    }
+
+    @Test
+    fun signed_protectThenOpen_packetAck_roundTrip() {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(
+            localSigningPrivateKey = signingKeys.privateKey,
+            peerRecords = mapOf(sourcePeer to record),
+        )
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+
+        val payload = samplePacketAckPayload()
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        val envelope = protection.protect(payload, ctx)
+        val opened = protection.open(envelope)
+        assertEquals(payload, opened)
+    }
+
+    @Test
+    fun signed_protectThenOpen_packetNack_roundTrip() {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(
+            localSigningPrivateKey = signingKeys.privateKey,
+            peerRecords = mapOf(sourcePeer to record),
+        )
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+
+        val payload = samplePacketNackPayload()
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        val envelope = protection.protect(payload, ctx)
+        val opened = protection.open(envelope)
+        assertEquals(payload, opened)
+    }
+
+    @Test
+    fun signed_open_throwsWhenSignatureInvalid() {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(
+            localSigningPrivateKey = signingKeys.privateKey,
+            peerRecords = mapOf(sourcePeer to record),
+        )
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+
+        val payload = samplePacketAckPayload()
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        val envelope = protection.protect(payload, ctx)
+        val corruptSignature = envelope.signature!!.copyOf().also {
+            it[0] = (it[0].toInt() xor 0xff).toByte()
+        }
+        val tamperedEnvelope = envelope.copy(signature = corruptSignature)
+
+        val ex = assertFailsWith<IllegalArgumentException> {
+            protection.open(tamperedEnvelope)
+        }
+        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
+    }
+
+    @Test
+    fun signed_protect_setsCorrelationIdFromPayload() {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(
+            localSigningPrivateKey = signingKeys.privateKey,
+            peerRecords = mapOf(sourcePeer to record),
+        )
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+
+        val payload = samplePacketAckPayload()
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        val envelope = protection.protect(payload, ctx)
+        assertEquals("ack:${payload.acknowledgedPacketId.toHex()}", envelope.correlationId)
+    }
+
+    @Test
+    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() {
+        val protection = PlaintextSystemProtection()
+        val payload = samplePacketAckPayload()
+        val envelope = SystemEnvelope(
+            correlationId = "ack:${payload.acknowledgedPacketId.toHex()}",
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+            createdAtEpochSeconds = 1L,
+            nonce = nonce24(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+            signature = ByteArray(64),
+            payload = payload,
+        )
+        assertFailsWith<IllegalArgumentException> {
+            protection.open(envelope)
+        }
+    }
+}
