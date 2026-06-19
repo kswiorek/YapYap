@@ -366,7 +366,7 @@ class DefaultRouter(
             sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
         }
         else {
-            sendNack(inbound.packetId, inbound.source, inbound.packetType, nackReason, transport)
+            sendNack(inbound.packetId, inbound.source, inbound.packetType, nackReason, transport, persistReason = false)
         }
     }
 
@@ -385,8 +385,11 @@ class DefaultRouter(
         sendAckEnvelope(ackPayload, transport, ackContext)
     }
 
-    private suspend fun sendNack(packetId: PacketId, source: PeerId, packetType: PacketType, reason: PacketNackReason, transport: RouterTransport, reasonText: String? = null) {
-        packetDeduplicator.markNacked(packetId, source, reason)
+    private suspend fun sendNack(packetId: PacketId, source: PeerId, packetType: PacketType, reason: PacketNackReason,
+                                 transport: RouterTransport, persistReason: Boolean = true, reasonText: String? = null) {
+        if (persistReason){
+            packetDeduplicator.markNacked(packetId, source, reason)
+        }
 
         val ackContext = EnvelopeProtectContext(
             sourceDeviceId = localDeviceIdentity!!.deviceId,

@@ -187,7 +187,7 @@ class DefaultRouterContractTest {
                 tor = tor,
                 remoteTor = remoteTor,
                 dedup = recordingDedup,
-                time = FixedEpochSecondsProvider(10_000L),
+                time = FixedEpochSecondsProvider(10_001L),
             )
 
         router.start()
@@ -197,7 +197,7 @@ class DefaultRouterContractTest {
             inboundTorMessage(
                 packetId = packetId,
                 remoteTor = remoteTor,
-                expiresAtEpochSeconds = 9_999L,
+                expiresAtEpochSeconds = 10_000L,
             )
 
         tor.tryEmitIncoming(incoming)
