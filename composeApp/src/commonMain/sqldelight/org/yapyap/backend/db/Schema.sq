@@ -98,7 +98,6 @@ CREATE TABLE pending_syncs (
 CREATE TABLE outbox (
     packet_id TEXT NOT NULL PRIMARY KEY,
     envelope_blob BLOB NOT NULL,
-    message_id TEXT NOT NULL,
     target_device_id TEXT NOT NULL,
     retry_count INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
@@ -158,7 +157,7 @@ CREATE INDEX messages_prev_idx ON messages(prev_id);
 CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
 CREATE INDEX pending_syncs_device_idx ON pending_syncs(target_device_id);
-CREATE INDEX outbox_message_idx ON outbox(message_id);
+CREATE INDEX outbox_message_idx ON outbox(packet_id);
 CREATE INDEX outbox_target_device_idx ON outbox(target_device_id);
 CREATE INDEX file_transfers_message_idx ON file_transfers(message_id);
 CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status);

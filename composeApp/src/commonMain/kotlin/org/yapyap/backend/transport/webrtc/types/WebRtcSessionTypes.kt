@@ -12,7 +12,7 @@ enum class WebRtcSessionPhase {
 
 data class WebRtcSessionState(
     val sessionId: String,
-    val peer: PeerId,
+    val peerId: PeerId,
     val phase: WebRtcSessionPhase,
     val reason: String? = null,
 )

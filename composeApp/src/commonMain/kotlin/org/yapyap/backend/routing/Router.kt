@@ -11,13 +11,12 @@ interface Router {
     suspend fun stop()
     fun isRunning(): Boolean
 
-    suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport = RouterTransport.AUTO)
+    suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport? = null)
 
 
 }
 
 enum class RouterTransport {
     TOR,
-    WEBRTC,
-    AUTO,
+    WEBRTC
 }

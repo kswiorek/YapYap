@@ -40,6 +40,8 @@ import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcIncomingEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
+import org.yapyap.backend.transport.webrtc.types.WebRtcSessionPhase
+import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -55,6 +57,7 @@ class DefaultRouter(
     val cryptoProvider: CryptoProvider,
     val logger: AppLogger,
     val routerConfig: RouterConfig,
+    val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
 ): Router {
     private var started = false
     private var torEndpoint: TorEndpoint? = null
@@ -65,6 +68,9 @@ class DefaultRouter(
     private var torIncomingJob: Job? = null
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
+    private var webRtcSessionJob: Job? = null
+    private lateinit var outboxRetryLoop: OutboxRetryLoop
+    private var outboxRetryJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
@@ -122,6 +128,20 @@ class DefaultRouter(
             }
         }
 
+        webRtcSessionJob = s.launch {
+            webRtcTransport.sessionStates.collect { state ->
+                handleWebRtcSessionState(state)
+            }
+        }
+
+        outboxRetryLoop = OutboxRetryLoop(
+            outbox = packetOutbox,
+            time = timeProvider,
+            processDue = { processDueOutbox() },
+            maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
+        )
+        outboxRetryJob = outboxRetryLoop.runIn(s)
+
         logger.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STARTED,
@@ -144,6 +164,10 @@ class DefaultRouter(
         webRtcOutgoingJob = null
         webRtcIncomingEnvelopeJob?.cancel()
         webRtcIncomingEnvelopeJob = null
+        webRtcSessionJob?.cancel()
+        webRtcSessionJob = null
+        outboxRetryJob?.cancel()
+        outboxRetryJob = null
         scope?.cancel()
         scope = null
 
@@ -160,7 +184,7 @@ class DefaultRouter(
         return started
     }
 
-    override suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport) {
+    override suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport?) {
         val peers = identityResolver.getAllPeerDevicesForAccount(target)
         if (peers.isEmpty()) {
             logger.warn(
@@ -177,7 +201,7 @@ class DefaultRouter(
         }
     }
 
-    private suspend fun sendMessageToPeer(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport) {
+    private suspend fun sendMessageToPeer(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport? = null) {
         //TODO Outbox logic
         val context = EnvelopeProtectContext(
             sourceDeviceId = localDeviceIdentity!!.deviceId,
@@ -198,47 +222,69 @@ class DefaultRouter(
             target = messageEnvelope.target,
             payload = messageEnvelope.encode(),
         )
+        //TODO opening WebRTC session on demand if not exists, fallback to Tor if session cannot be established, etc
 
-        when (forceTransport) {
-            RouterTransport.TOR -> {
-                packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.torRetryDelaySeconds)
-                torTransport.send(
-                    target = identityResolver.resolveTorEndpointForDevice(target),
-                    envelope = binaryEnvelope,
-                )
-            }
+        val plan = transportPolicy.resolve(
+            target = target,
+            hasWebRtcSession = webRtcTransport.getSessionForPeer(target) != null,
+            retries = 0,
+            forced = forceTransport,
+        )
+        packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + plan.retryDelaySeconds)
+        outboxRetryLoop.notifyChanged()
+        dispatchEnvelope(binaryEnvelope, plan.transport)
+    }
+
+    private suspend fun dispatchEnvelope(
+        envelope: BinaryEnvelope,
+        transport: RouterTransport,
+    ) {
+        when (transport) {
+            RouterTransport.TOR -> torTransport.send(
+                identityResolver.resolveTorEndpointForDevice(envelope.target),
+                envelope,
+            )
             RouterTransport.WEBRTC -> {
-                val session = webRtcTransport.getSessionForPeer(target)
-                checkNotNull(session) { "No WebRTC session found for target $target" }
-                packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.webRtcRetryDelaySeconds)
+                val session = webRtcTransport.getSessionForPeer(envelope.target)
+                checkNotNull(session) { "No WebRTC session found for target ${envelope.target}" }
                 webRtcTransport.sendEnvelope(
                     sessionId = session,
-                    targetId = target,
-                    envelope = binaryEnvelope,
+                    targetId = envelope.target,
+                    envelope = envelope,
                 )
-            }
-
-            RouterTransport.AUTO -> {
-                //TODO opening WebRTC session on demand if not exists, fallback to Tor if session cannot be established, etc
-                val session = webRtcTransport.getSessionForPeer(target)
-                if (session != null) {
-                    packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.webRtcRetryDelaySeconds)
-                    webRtcTransport.sendEnvelope(
-                        sessionId = session,
-                        targetId = target,
-                        envelope = binaryEnvelope,
-                    )
-                } else {
-                    packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + routerConfig.torRetryDelaySeconds)
-                    torTransport.send(
-                        target = identityResolver.resolveTorEndpointForDevice(target),
-                        envelope = binaryEnvelope,
-                    )
-                }
             }
         }
     }
 
+    private suspend fun processDueOutbox() {
+        val now = timeProvider.nowEpochSeconds()
+        packetOutbox.pruneExpired(now)
+        for (entry in packetOutbox.listDue(now)) {
+            val envelope = entry.envelope
+            val outbound = transportPolicy.resolve(
+                target = envelope.target,
+                retries = entry.attempts,
+                hasWebRtcSession = webRtcTransport.getSessionForPeer(envelope.target) != null,
+            )
+            dispatchEnvelope(envelope, outbound.transport)
+            packetOutbox.recordAttempt(envelope.packetId, now + outbound.retryDelaySeconds)
+        }
+        outboxRetryLoop.notifyChanged()
+        logger.info(
+            LogComponent.ROUTER,
+            LogEvent.OUTBOX_PROCESSED,
+            "Processed outbox for due envelopes",
+            mapOf("dueCount" to packetOutbox.listDue(now).size)
+        )
+    }
+
+    private suspend fun handleWebRtcSessionState(state: WebRtcSessionState) {
+        val phase = state.phase
+        if (phase == WebRtcSessionPhase.CONNECTED) {
+            packetOutbox.setDueForTarget(state.peerId, timeProvider.nowEpochSeconds())
+            outboxRetryLoop.notifyChanged()
+        }
+    }
 
     private suspend fun handleWebRtcInboundEnvelope(inbound: WebRtcIncomingEnvelope) {
         runCatching { handleInboundEnvelope(inbound.envelope, RouterTransport.WEBRTC) }
@@ -383,6 +429,17 @@ class DefaultRouter(
             packetType
         )
         sendAckEnvelope(ackPayload, transport, ackContext)
+        logger.info(
+            LogComponent.ROUTER,
+            LogEvent.ACK_SENT,
+            "ACK sent for packet $packetId",
+            mapOf(
+                "packetId" to packetId,
+                "packetType" to packetType,
+                "source" to source,
+                "transport" to transport,
+            )
+        )
     }
 
     private suspend fun sendNack(packetId: PacketId, source: PeerId, packetType: PacketType, reason: PacketNackReason,
@@ -405,6 +462,18 @@ class DefaultRouter(
             reasonText = reasonText,
         )
         sendAckEnvelope(ackPayload, transport, ackContext)
+        logger.info(
+            LogComponent.ROUTER,
+            LogEvent.NACK_SENT,
+            "NACK sent for packet $packetId",
+            mapOf(
+                "packetId" to packetId,
+                "packetType" to packetType,
+                "source" to source,
+                "transport" to transport,
+                "reason" to reason,
+            )
+        )
     }
 
     private suspend fun sendAckEnvelope(ackPayload: SystemPayload, transport: RouterTransport, context: EnvelopeProtectContext){
@@ -420,35 +489,7 @@ class DefaultRouter(
             payload = ackEnvelope.encode(),
         )
 
-        when (transport) {
-            RouterTransport.TOR -> torTransport.send(
-                target = identityResolver.resolveTorEndpointForDevice(context.targetDeviceId),
-                envelope = ackEnv,
-            )
-            RouterTransport.WEBRTC -> {
-                val session = webRtcTransport.getSessionForPeer(context.targetDeviceId)
-                if (session != null) {
-                    webRtcTransport.sendEnvelope(
-                        sessionId = session,
-                        targetId = context.targetDeviceId,
-                        envelope = ackEnv,
-                    )
-                } else {
-                    logger.warn(
-                        component = LogComponent.ROUTER,
-                        event = LogEvent.ACK_NO_SESSION,
-                        message = "Failed to send ACK due to missing WebRTC session",
-                        fields = mapOf("target" to context.targetDeviceId),
-                    )
-                }
-            }
-            else -> { logger.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ACK_UNKNOWN_TRANSPORT,
-                message = "Failed to send ACK due to unknown transport",
-                fields = mapOf("transport" to transport),
-            ) }
-        }
+        dispatchEnvelope(ackEnv, transport)
     }
 
     suspend fun testOpenWebRtcSession(target: PeerId, sessionId: String) {
@@ -602,16 +643,21 @@ class DefaultRouter(
         when (payload) {
             is SystemPayload.PacketAck -> {
                 packetOutbox.markDelivered(payload.packetId)
+                outboxRetryLoop.notifyChanged()
             }
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
-                    PacketNackReason.EXPIRED -> { packetOutbox.markDelivered(payload.packetId) }
+                    PacketNackReason.EXPIRED -> {
+                        packetOutbox.markDelivered(payload.packetId)
+                        outboxRetryLoop.notifyChanged()
+                    }
                     else -> {
                         // keep retrying
                         // TODO add logic
                     }
                 }
             }
+            //TODO send message on ping
         }
     }
 }

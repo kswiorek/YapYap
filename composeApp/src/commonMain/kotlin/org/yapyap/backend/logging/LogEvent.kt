@@ -44,4 +44,7 @@ enum class LogEvent {
     ENVELOPE_OPENED,
     PACKET_DUPLICATED,
     ENVELOPE_EXPIRED,
+    ACK_SENT,
+    NACK_SENT,
+    OUTBOX_PROCESSED,
 }

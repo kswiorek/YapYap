@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -97,7 +96,7 @@ class DefaultWebRtcTransport(
                         sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
-                                peer = event.peer,
+                                peerId = event.peer,
                                 phase = WebRtcSessionPhase.NEGOTIATING,
                             )
                         logger.debug(
@@ -112,7 +111,7 @@ class DefaultWebRtcTransport(
                         sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
-                                peer = event.peer,
+                                peerId = event.peer,
                                 phase = WebRtcSessionPhase.CONNECTED,
                             )
                         logger.info(
@@ -127,7 +126,7 @@ class DefaultWebRtcTransport(
                         sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
-                                peer = event.peer,
+                                peerId = event.peer,
                                 phase = WebRtcSessionPhase.CLOSED,
                             )
                         logger.info(
@@ -142,7 +141,7 @@ class DefaultWebRtcTransport(
                         sessionStateFlow.value =
                             WebRtcSessionState(
                                 sessionId = event.sessionId,
-                                peer = event.peer,
+                                peerId = event.peer,
                                 phase = WebRtcSessionPhase.FAILED,
                                 reason = event.reason,
                             )
@@ -366,7 +365,7 @@ class DefaultWebRtcTransport(
                 sessionStateFlow.value =
                     WebRtcSessionState(
                         sessionId = signal.sessionId,
-                        peer = signal.source,
+                        peerId = signal.source,
                         phase = WebRtcSessionPhase.NEGOTIATING,
                     )
                 backend.handleRemoteSignal(signal)
@@ -383,7 +382,7 @@ class DefaultWebRtcTransport(
                 sessionStateFlow.value =
                     WebRtcSessionState(
                         sessionId = signal.sessionId,
-                        peer = signal.source,
+                        peerId = signal.source,
                         phase = WebRtcSessionPhase.REJECTED,
                         reason = reason,
                     )

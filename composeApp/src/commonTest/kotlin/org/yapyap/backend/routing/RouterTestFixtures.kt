@@ -8,6 +8,7 @@ import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.SigningKeyPair
 import org.yapyap.backend.crypto.EncryptionKeyPair
+import org.yapyap.backend.db.OutboxEntry
 import org.yapyap.backend.db.PacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
 import org.yapyap.backend.db.PacketOutbox
@@ -241,12 +242,16 @@ internal class InMemoryPacketOutbox : PacketOutbox {
     }
 
     override fun markDelivered(packetId: PacketId) = Unit
+    override fun setDueForTarget(target: PeerId, nextRetryAt: Long) = Unit
 
     override fun recordAttempt(packetId: PacketId, nextRetryAt: Long?) = Unit
 
-    override fun listDue(now: Long): List<BinaryEnvelope> = emptyList()
+    override fun listAllForTarget(target: PeerId): List<OutboxEntry> = emptyList()
+
+    override fun listDue(now: Long): List<OutboxEntry> = emptyList()
 
     override fun pruneExpired(now: Long) = Unit
+    override fun earliestPendingRetryAt(): Long? = null
 }
 
 internal fun defaultRouterUnderTest(
