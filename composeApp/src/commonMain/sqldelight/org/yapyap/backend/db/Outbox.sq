@@ -1,0 +1,79 @@
+import kotlin.Boolean;
+
+CREATE TABLE outbox (
+    packet_id TEXT NOT NULL PRIMARY KEY,
+    envelope_blob BLOB NOT NULL,
+    blob_size INTEGER NOT NULL,
+    target_device_id TEXT NOT NULL,
+    is_relay INTEGER AS Boolean NOT NULL DEFAULT 0,
+    retry_count INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_attempt_at INTEGER NOT NULL,
+    next_retry_at INTEGER NOT NULL,
+    FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
+);
+
+insertOutbox:
+INSERT INTO outbox(
+    packet_id,
+    envelope_blob,
+    blob_size,
+    target_device_id,
+    is_relay,
+    retry_count,
+    expires_at,
+    last_attempt_at,
+    next_retry_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteByPacketId:
+DELETE FROM outbox WHERE packet_id = ?;
+
+deleteByPacketIds:
+DELETE FROM outbox
+WHERE packet_id IN ?;
+
+setNextRetry:
+UPDATE outbox
+SET next_retry_at = :now
+WHERE target_device_id = :target
+  AND next_retry_at > :now;
+
+updateAttempt:
+UPDATE outbox
+SET last_attempt_at = ?, retry_count = retry_count + 1, next_retry_at = ?
+WHERE packet_id = ?;
+
+getAllForTargetDevice:
+SELECT * FROM outbox
+WHERE target_device_id = ?;
+
+getDue:
+SELECT * FROM outbox
+WHERE next_retry_at <= ?;
+
+deleteExpired:
+DELETE FROM outbox
+WHERE expires_at <= ?;
+
+listRelayEvictionCandidates:
+SELECT packet_id, blob_size
+FROM outbox
+WHERE is_relay = 1
+ORDER BY expires_at ASC, packet_id ASC
+LIMIT :limit;
+
+getCacheSize:
+SELECT COALESCE(SUM(blob_size), 0)
+FROM outbox
+WHERE is_relay;
+
+getEarliestRetryAt:
+SELECT next_retry_at
+FROM outbox
+ORDER BY next_retry_at ASC
+LIMIT 1;
+
+CREATE INDEX outbox_message_idx ON outbox(packet_id);
+CREATE INDEX outbox_target_device_idx ON outbox(target_device_id);
+CREATE INDEX outbox_relay_lru_idx ON outbox(is_relay, expires_at);

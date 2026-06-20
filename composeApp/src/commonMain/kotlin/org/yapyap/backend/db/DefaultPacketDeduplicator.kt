@@ -12,9 +12,9 @@ class DefaultPacketDeduplicator(
     private val database: YapYapDatabase,
     private val logger: AppLogger = NoopAppLogger,
 ) : PacketDeduplicator {
+    val queries = database.dedupQueries
     override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         val packetHex = packetId.toHex()
-        val queries = database.dedupQueries
         return queries.transactionWithResult {
             val existing = queries.selectDedupBySourceAndPacketId(
                 source_device_id = sourceDeviceId.id,
@@ -46,18 +46,18 @@ class DefaultPacketDeduplicator(
     }
 
     override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
-        database.dedupQueries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHex())
+        queries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHex())
     }
 
     override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? {
-        return database.dedupQueries
+        return queries
             .getNackReason(sourceDeviceId.id, packetId.toHex())
             .executeAsOneOrNull()
             ?.nack_reason
     }
 
     override fun prune(receivedBeforeEpochSeconds: Long) {
-        database.dedupQueries.deleteDedupReceivedBefore(receivedBeforeEpochSeconds)
+        queries.deleteDedupReceivedBefore(receivedBeforeEpochSeconds)
         logger.info(
             component = LogComponent.DATABASE,
             event = LogEvent.DEDUP_PRUNED,

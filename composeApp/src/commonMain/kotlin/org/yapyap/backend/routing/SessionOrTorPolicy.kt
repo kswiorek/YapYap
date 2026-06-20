@@ -5,7 +5,7 @@ import org.yapyap.backend.protocol.PeerId
 class SessionOrTorPolicy(
     private val config: RouterConfig,
 ) : OutboundPolicy {
-    override fun resolve(target: PeerId, hasWebRtcSession: Boolean, retries: Int, forced: RouterTransport?): ResolvedOutbound {
+    override fun resolve(target: PeerId, hasWebRtcSession: Boolean, retries: Long, forced: RouterTransport?): ResolvedOutbound {
 
         var transport: RouterTransport
         if (forced != null) {

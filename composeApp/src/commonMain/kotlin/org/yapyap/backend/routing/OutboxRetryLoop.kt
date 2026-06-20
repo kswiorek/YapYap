@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlin.coroutines.cancellation.CancellationException
 import org.yapyap.backend.db.PacketOutbox
 import org.yapyap.backend.time.EpochSecondsProvider
 import kotlinx.coroutines.selects.onTimeout
@@ -16,6 +17,7 @@ class OutboxRetryLoop(
     private val time: EpochSecondsProvider,
     private val processDue: suspend () -> Unit,
     private val maxIdlePollSeconds: Long = 60,
+    private val onProcessFailed: (Throwable) -> Unit = {},
 ) {
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
@@ -23,15 +25,23 @@ class OutboxRetryLoop(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun runIn(scope: CoroutineScope): Job = scope.launch {
-        processDue() // boot / start recovery
+        runProcessDueSafely()
         while (isActive) {
             val sleepSeconds = computeSleepSeconds()
             select {
                 wake.onReceive { }
                 onTimeout(sleepSeconds * 1000) { }
             }
-            processDue()
+            runProcessDueSafely()
         }
+    }
+
+    private suspend fun runProcessDueSafely() {
+        runCatching { processDue() }
+            .onFailure { error ->
+                if (error is CancellationException) throw error
+                onProcessFailed(error)
+            }
     }
 
     private fun computeSleepSeconds(): Long {

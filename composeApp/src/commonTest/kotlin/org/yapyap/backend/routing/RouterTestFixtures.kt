@@ -148,7 +148,7 @@ internal class SequencedPacketIdAllocator : PacketIdAllocator {
         localPeer = deviceId
     }
 
-    override fun allocate(): PacketId {
+    override fun allocate(now: Long): PacketId {
         checkNotNull(localPeer) { "assignLocalDevice first" }
         seq++
         val bytes = ByteArray(PacketId.SIZE_BYTES)
@@ -234,32 +234,114 @@ internal class FakeIdentityResolverForRouter(
     }
 }
 
-internal class InMemoryPacketOutbox : PacketOutbox {
-    val enqueued = mutableListOf<BinaryEnvelope>()
+internal class TrackingPacketOutbox : PacketOutbox {
+    private data class StoredEntry(
+        val envelope: BinaryEnvelope,
+        var nextRetryAt: Long,
+        var attempts: Long,
+        val relayMessage: Boolean,
+        val expiresAtEpochSeconds: Long,
+        val blobSize: Long,
+    )
 
-    override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long?) {
+    private val entries = linkedMapOf<String, StoredEntry>()
+    val enqueued = mutableListOf<BinaryEnvelope>()
+    val markDeliveredCalls = mutableListOf<PacketId>()
+    val recordAttemptCalls = mutableListOf<Triple<PacketId, Long, Long>>()
+    val setDueForTargetCalls = mutableListOf<Pair<PeerId, Long>>()
+
+    override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
+        val blobSize = envelope.encode().size.toLong()
+        entries[envelope.packetId.toHex()] = StoredEntry(
+            envelope = envelope,
+            nextRetryAt = nextRetryAt,
+            attempts = 0,
+            relayMessage = relayMessage,
+            expiresAtEpochSeconds = envelope.expiresAtEpochSeconds,
+            blobSize = blobSize,
+        )
         enqueued.add(envelope)
     }
 
-    override fun markDelivered(packetId: PacketId) = Unit
-    override fun setDueForTarget(target: PeerId, nextRetryAt: Long) = Unit
+    override fun markDelivered(packetId: PacketId) {
+        markDeliveredCalls.add(packetId)
+        entries.remove(packetId.toHex())
+    }
 
-    override fun recordAttempt(packetId: PacketId, nextRetryAt: Long?) = Unit
+    override fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
+        setDueForTargetCalls.add(target to nextRetryAt)
+        for (entry in entries.values) {
+            if (entry.envelope.target == target && entry.nextRetryAt > nextRetryAt) {
+                entry.nextRetryAt = nextRetryAt
+            }
+        }
+    }
 
-    override fun listAllForTarget(target: PeerId): List<OutboxEntry> = emptyList()
+    override fun recordAttempt(packetId: PacketId, nextRetryAt: Long, now: Long) {
+        recordAttemptCalls.add(Triple(packetId, nextRetryAt, now))
+        val entry = entries[packetId.toHex()] ?: return
+        entry.attempts += 1
+        entry.nextRetryAt = nextRetryAt
+    }
 
-    override fun listDue(now: Long): List<OutboxEntry> = emptyList()
+    override fun listAllForTarget(target: PeerId): List<OutboxEntry> =
+        entries.values
+            .filter { it.envelope.target == target }
+            .map { it.toOutboxEntry() }
 
-    override fun pruneExpired(now: Long) = Unit
-    override fun earliestPendingRetryAt(): Long? = null
+    override fun listDue(now: Long): List<OutboxEntry> =
+        entries.values
+            .filter { it.nextRetryAt <= now }
+            .map { it.toOutboxEntry() }
+
+    override fun pruneExpired(now: Long): Int {
+        val expiredKeys = entries.filterValues { it.expiresAtEpochSeconds <= now }.keys
+        expiredKeys.forEach { entries.remove(it) }
+        return expiredKeys.size
+    }
+
+    override fun earliestPendingRetryAt(): Long? =
+        entries.values.minOfOrNull { it.nextRetryAt }
+
+    override fun relayCacheBytes(): Long =
+        entries.values.filter { it.relayMessage }.sumOf { it.blobSize }
+
+    override fun pruneRelayOverCapacity(maxBytes: Long): Int {
+        var evicted = 0
+        while (relayCacheBytes() > maxBytes) {
+            val victim = entries.values
+                .filter { it.relayMessage }
+                .minWithOrNull(compareBy<StoredEntry> { it.expiresAtEpochSeconds }.thenBy { it.envelope.packetId.toHex() })
+                ?: break
+            entries.remove(victim.envelope.packetId.toHex())
+            evicted++
+        }
+        return evicted
+    }
+
+    fun contains(packetId: PacketId): Boolean = entries.containsKey(packetId.toHex())
+
+    fun getNextRetryAt(packetId: PacketId): Long? = entries[packetId.toHex()]?.nextRetryAt
+
+    fun getAttempts(packetId: PacketId): Long = entries[packetId.toHex()]?.attempts ?: 0L
+
+    private fun StoredEntry.toOutboxEntry(): OutboxEntry =
+        OutboxEntry(
+            packetId = envelope.packetId,
+            envelope = envelope,
+            nextRetryAt = nextRetryAt,
+            attempts = attempts,
+        )
 }
+
+internal typealias InMemoryPacketOutbox = TrackingPacketOutbox
 
 internal fun defaultRouterUnderTest(
     tor: RecordingTorTransport = RecordingTorTransport(),
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     identity: FakeIdentityResolverForRouter,
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
-    outbox: PacketOutbox = InMemoryPacketOutbox(),
+    outbox: PacketOutbox = TrackingPacketOutbox(),
     allocator: PacketIdAllocator = SequencedPacketIdAllocator(),
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),

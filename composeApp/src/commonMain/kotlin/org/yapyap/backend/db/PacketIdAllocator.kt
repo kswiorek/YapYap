@@ -8,5 +8,5 @@ interface PacketIdAllocator {
      * Allocates a packet ID unique for local device by reserving it in persistence.
      */
     fun assignLocalDevice(deviceId: PeerId)
-    fun allocate(): PacketId
+    fun allocate(now: Long): PacketId
 }

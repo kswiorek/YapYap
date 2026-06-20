@@ -139,8 +139,28 @@ class DefaultRouter(
             time = timeProvider,
             processDue = { processDueOutbox() },
             maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
+            onProcessFailed = { error ->
+                logger.error(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.OUTBOX_PROCESS_FAILED,
+                    message = "Outbox processing failed",
+                    throwable = error,
+                )
+            },
         )
         outboxRetryJob = outboxRetryLoop.runIn(s)
+
+        try {
+            packetOutbox.pruneRelayOverCapacity(routerConfig.outboxMaxSizeBytes)
+        }
+        catch (e: Exception) {
+            logger.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_PRUNE_FAILED,
+                message = "Failed to prune outbox for relay over capacity",
+                throwable = e,
+            )
+        }
 
         logger.info(
             component = LogComponent.ROUTER,
@@ -202,7 +222,6 @@ class DefaultRouter(
     }
 
     private suspend fun sendMessageToPeer(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport? = null) {
-        //TODO Outbox logic
         val context = EnvelopeProtectContext(
             sourceDeviceId = localDeviceIdentity!!.deviceId,
             targetDeviceId = target,
@@ -214,7 +233,7 @@ class DefaultRouter(
         val messageEnvelope = envelopeProtectionService.protectMessage(payload, context)
 
         val binaryEnvelope = BinaryEnvelope(
-            packetId = packetIdAllocator.allocate(),
+            packetId = packetIdAllocator.allocate(timeProvider.nowEpochSeconds()),
             packetType = PacketType.MESSAGE,
             createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
             expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + routerConfig.messageLifetimeSeconds, // 2 days
@@ -230,8 +249,20 @@ class DefaultRouter(
             retries = 0,
             forced = forceTransport,
         )
-        packetOutbox.enqueue(binaryEnvelope, timeProvider.nowEpochSeconds() + plan.retryDelaySeconds)
+        val nextRetryAt = timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
+        packetOutbox.enqueue(binaryEnvelope, nextRetryAt)
         outboxRetryLoop.notifyChanged()
+        logger.debug(
+            component = LogComponent.ROUTER,
+            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+            message = "Queued outbound message in outbox",
+            fields = mapOf(
+                "packetId" to binaryEnvelope.packetId,
+                "target" to target,
+                "transport" to plan.transport,
+                "nextRetryAt" to nextRetryAt,
+            ),
+        )
         dispatchEnvelope(binaryEnvelope, plan.transport)
     }
 
@@ -258,31 +289,89 @@ class DefaultRouter(
 
     private suspend fun processDueOutbox() {
         val now = timeProvider.nowEpochSeconds()
-        packetOutbox.pruneExpired(now)
-        for (entry in packetOutbox.listDue(now)) {
+        val pruned = packetOutbox.pruneExpired(now)
+        val dueEntries = packetOutbox.listDue(now)
+        if (dueEntries.isNotEmpty() || pruned > 0) {
+            logger.debug(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_PROCESSED,
+                message = "Processing due outbox entries",
+                fields = mapOf(
+                    "dueCount" to dueEntries.size,
+                    "prunedCount" to pruned,
+                ),
+            )
+        }
+        for (entry in dueEntries) {
             val envelope = entry.envelope
             val outbound = transportPolicy.resolve(
                 target = envelope.target,
                 retries = entry.attempts,
                 hasWebRtcSession = webRtcTransport.getSessionForPeer(envelope.target) != null,
             )
-            dispatchEnvelope(envelope, outbound.transport)
-            packetOutbox.recordAttempt(envelope.packetId, now + outbound.retryDelaySeconds)
+            val nextRetryAt = now + outbound.retryDelaySeconds
+            runCatching {
+                dispatchEnvelope(envelope, outbound.transport)
+            }.onSuccess {
+                packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
+                logger.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.OUTBOX_RETRY_DISPATCHED,
+                    message = "Dispatched due outbox envelope",
+                    fields = mapOf(
+                        "packetId" to envelope.packetId,
+                        "packetType" to envelope.packetType,
+                        "target" to envelope.target,
+                        "transport" to outbound.transport,
+                        "attempts" to entry.attempts + 1,
+                        "nextRetryAt" to nextRetryAt,
+                    ),
+                )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                logger.error(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.OUTBOX_DISPATCH_FAILED,
+                    message = "Failed to dispatch outbox envelope",
+                    throwable = error,
+                    fields = mapOf(
+                        "packetId" to envelope.packetId,
+                        "target" to envelope.target,
+                        "transport" to outbound.transport,
+                        "attempts" to entry.attempts,
+                        "nextRetryAt" to nextRetryAt,
+                    ),
+                )
+                packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
+            }
         }
         outboxRetryLoop.notifyChanged()
-        logger.info(
-            LogComponent.ROUTER,
-            LogEvent.OUTBOX_PROCESSED,
-            "Processed outbox for due envelopes",
-            mapOf("dueCount" to packetOutbox.listDue(now).size)
-        )
+        if (dueEntries.isNotEmpty()) {
+            logger.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_PROCESSED,
+                message = "Processed outbox for due envelopes",
+                fields = mapOf("dueCount" to dueEntries.size),
+            )
+        }
     }
 
     private suspend fun handleWebRtcSessionState(state: WebRtcSessionState) {
         val phase = state.phase
         if (phase == WebRtcSessionPhase.CONNECTED) {
-            packetOutbox.setDueForTarget(state.peerId, timeProvider.nowEpochSeconds())
+            val now = timeProvider.nowEpochSeconds()
+            packetOutbox.setDueForTarget(state.peerId, now)
             outboxRetryLoop.notifyChanged()
+            logger.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_WEBRTC_DUE_SET,
+                message = "WebRTC session connected; accelerated outbox retries for peer",
+                fields = mapOf(
+                    "peerId" to state.peerId,
+                    "sessionId" to state.sessionId,
+                    "nextRetryAt" to now,
+                ),
+            )
         }
     }
 
@@ -480,7 +569,7 @@ class DefaultRouter(
         val ackEnvelope = envelopeProtectionService.protectSystem(ackPayload, context)
 
         val ackEnv = BinaryEnvelope(
-            packetId = packetIdAllocator.allocate(),
+            packetId = packetIdAllocator.allocate(timeProvider.nowEpochSeconds()),
             packetType = PacketType.SYSTEM,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             expiresAtEpochSeconds = timeProvider.nowEpochSeconds() + routerConfig.ackLifetimeSeconds, // 1 hour
@@ -549,7 +638,7 @@ class DefaultRouter(
         torTransport.send(
             target = identityResolver.resolveTorEndpointForDevice(signal.target),
             envelope = BinaryEnvelope(
-                packetId = packetIdAllocator.allocate(),
+                packetId = packetIdAllocator.allocate(timeProvider.nowEpochSeconds()),
                 packetType = PacketType.SIGNAL,
                 createdAtEpochSeconds = context.createdAtEpochSeconds,
                 expiresAtEpochSeconds = context.createdAtEpochSeconds + 600,
@@ -644,14 +733,46 @@ class DefaultRouter(
             is SystemPayload.PacketAck -> {
                 packetOutbox.markDelivered(payload.packetId)
                 outboxRetryLoop.notifyChanged()
+                logger.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.OUTBOX_ACK_RECEIVED,
+                    message = "Removed acknowledged packet from outbox",
+                    fields = mapOf(
+                        "packetId" to payload.packetId,
+                        "packetType" to payload.packetType,
+                        "source" to systemEnvelope.source,
+                    ),
+                )
             }
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
                     PacketNackReason.EXPIRED -> {
                         packetOutbox.markDelivered(payload.packetId)
                         outboxRetryLoop.notifyChanged()
+                        logger.info(
+                            component = LogComponent.ROUTER,
+                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            message = "Stopped retrying expired packet after NACK",
+                            fields = mapOf(
+                                "packetId" to payload.packetId,
+                                "packetType" to payload.packetType,
+                                "reason" to payload.reason,
+                                "source" to systemEnvelope.source,
+                            ),
+                        )
                     }
                     else -> {
+                        logger.debug(
+                            component = LogComponent.ROUTER,
+                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            message = "Received NACK for outbox packet; keeping retry schedule",
+                            fields = mapOf(
+                                "packetId" to payload.packetId,
+                                "packetType" to payload.packetType,
+                                "reason" to payload.reason,
+                                "source" to systemEnvelope.source,
+                            ),
+                        )
                         // keep retrying
                         // TODO add logic
                     }

@@ -1,3 +1,14 @@
+import org.yapyap.backend.protocol.PacketNackReason;
+
+CREATE TABLE dedup (
+    packet_id TEXT NOT NULL,
+    source_device_id TEXT NOT NULL,
+    received_at INTEGER NOT NULL,
+    nack_reason TEXT AS PacketNackReason,
+    PRIMARY KEY (source_device_id, packet_id),
+    FOREIGN KEY (source_device_id) REFERENCES devices(device_id)
+);
+
 insertDedup:
 INSERT INTO dedup (
     packet_id,
@@ -26,3 +37,15 @@ WHERE source_device_id = ? AND packet_id = ?;
 deleteDedupReceivedBefore:
 DELETE FROM dedup
 WHERE received_at < ?;
+
+tryReservePacketId:
+INSERT OR IGNORE INTO dedup (
+    packet_id,
+    source_device_id,
+    received_at
+) VALUES (?, ?, ?);
+
+selectLastInsertChanges:
+SELECT changes();
+
+CREATE INDEX dedup_source_device_idx ON dedup(source_device_id);

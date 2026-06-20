@@ -8,6 +8,9 @@ import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
+import org.yapyap.backend.protocol.BinaryEnvelope
+import org.yapyap.backend.protocol.PacketId
+import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
@@ -62,6 +65,62 @@ internal val FixtureDevicePeerId =
 
 internal val FixtureTorEndpoint = TorEndpoint(onionAddress = "fixturerelay.onion", port = 443)
 
+internal val FixtureRemotePeerId =
+    PeerId("fixtureremotepeeridbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+internal fun seedPeerDevice(
+    database: YapYapDatabase,
+    accountId: AccountId,
+    deviceId: PeerId,
+    torEndpoint: TorEndpoint = TorEndpoint(onionAddress = "peer.onion", port = 80),
+) {
+    val repo = DefaultIdentityPublicKeyRepository(database)
+    val deviceRecord = DeviceIdentityRecord(
+        deviceId = deviceId,
+        signing = IdentityPublicKeyRecord(
+            keyId = "fixture-peer-signing",
+            keyVersion = 0L,
+            purpose = IdentityKeyPurpose.SIGNING,
+            publicKey = byteArrayOf(0x05, 0x06),
+        ),
+        encryption = IdentityPublicKeyRecord(
+            keyId = "fixture-peer-encryption",
+            keyVersion = 0L,
+            purpose = IdentityKeyPurpose.ENCRYPTION,
+            publicKey = byteArrayOf(0x07, 0x08),
+        ),
+    )
+    repo.insertPeerDevice(
+        accountId = accountId,
+        deviceType = DeviceType.DESKTOP,
+        identity = deviceRecord,
+        torEndpoint = torEndpoint,
+    )
+}
+
+internal fun seedLocalAndRemoteDevices(database: YapYapDatabase) {
+    seedLocalAccountAndDevice(database, FixtureAccountId, FixtureDevicePeerId)
+    seedPeerDevice(database, FixtureAccountId, FixtureRemotePeerId, FixtureTorEndpoint)
+}
+
+internal fun sampleOutboxEnvelope(
+    packetId: PacketId,
+    target: PeerId,
+    now: Long,
+    expiresAt: Long = now + 3_600,
+    payload: ByteArray = byteArrayOf(0x01, 0x02, 0x03),
+    source: PeerId = target,
+): BinaryEnvelope =
+    BinaryEnvelope(
+        packetId = packetId,
+        packetType = PacketType.MESSAGE,
+        createdAtEpochSeconds = now,
+        expiresAtEpochSeconds = expiresAt,
+        source = source,
+        target = target,
+        payload = payload,
+    )
+
 internal fun readPragmaUserVersion(driver: SqlDriver): Long =
     driver.executeQuery(
         identifier = null,
@@ -91,3 +150,15 @@ internal fun readPragmaForeignKeys(driver: SqlDriver): Boolean =
         parameters = 0,
         binders = null,
     ).value
+
+internal fun corruptOutboxBlob(driver: SqlDriver, packetIdHex: String, corruptBlob: ByteArray = byteArrayOf(0x00)) {
+    driver.execute(
+        identifier = null,
+        sql = "UPDATE outbox SET envelope_blob = ? WHERE packet_id = ?",
+        parameters = 2,
+        binders = {
+            bindBytes(0, corruptBlob)
+            bindString(1, packetIdHex)
+        },
+    )
+}

@@ -14,8 +14,5 @@ interface PacketDeduplicator {
 
     fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason?
 
-    /**
-     * Deletes dedup markers older than [receivedBeforeEpochSeconds].
-     */
     fun prune(receivedBeforeEpochSeconds: Long)
 }

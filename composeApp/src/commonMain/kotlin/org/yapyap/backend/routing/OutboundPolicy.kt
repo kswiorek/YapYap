@@ -6,7 +6,7 @@ interface OutboundPolicy {
     fun resolve(
         target: PeerId,
         hasWebRtcSession: Boolean,
-        retries: Int,
+        retries: Long,
         forced: RouterTransport?=null,      // non-null only in tests / explicit override
     ): ResolvedOutbound
 }

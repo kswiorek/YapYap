@@ -16,6 +16,7 @@ import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import kotlin.test.assertNull
 
 class PersistenceContractsJvmTest {
 
@@ -84,12 +85,12 @@ class PersistenceContractsJvmTest {
         assertFailsWith<IllegalArgumentException>(
             message = "allocate() before assignLocalDevice should fail",
         ) {
-            allocator.allocate()
+            allocator.allocate(10_000L)
         }
 
         allocator.assignLocalDevice(FixtureDevicePeerId)
 
-        val ids = List(12) { allocator.allocate() }
+        val ids = List(12) { allocator.allocate(10_000L) }
         val distinct = ids.map { it.toHex() }.toSet()
         assertEquals(ids.size, distinct.size, "allocated PacketIds must be unique (random IDs, not ordered)")
     }
@@ -177,5 +178,274 @@ class PersistenceContractsJvmTest {
         val loaded = repo.getAccountPublicKey(accountId)
         assertEquals(accountId.id, loaded!!.accountId.id)
         assertContentEquals(byteArrayOf(0x55), loaded.key.publicKey)
+    }
+
+    @Test
+    fun packetOutbox_listDue_dropsCorruptRow_andKeepsValidRows() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val validPacketId = PacketId.fromHex("cc".repeat(PacketId.SIZE_BYTES))
+        val corruptPacketId = PacketId.fromHex("dd".repeat(PacketId.SIZE_BYTES))
+        val now = 1_000L
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(validPacketId, FixtureDevicePeerId, now = now),
+            nextRetryAt = now,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(corruptPacketId, FixtureDevicePeerId, now = now),
+            nextRetryAt = now,
+        )
+
+        corruptOutboxBlob(connection!!.driver, corruptPacketId.toHex())
+
+        val due = outbox.listDue(now)
+        assertEquals(1, due.size)
+        assertEquals(validPacketId, due.single().packetId)
+        assertEquals(1, outbox.listAllForTarget(FixtureDevicePeerId).size)
+    }
+
+    @Test
+    fun packetOutbox_enqueue_listDue_markDelivered_roundTrip() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val packetId = PacketId.fromHex("ee".repeat(PacketId.SIZE_BYTES))
+        val now = 1_000L
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(packetId, FixtureDevicePeerId, now = now),
+            nextRetryAt = now + 100,
+        )
+        assertTrue(outbox.listDue(now).isEmpty())
+        assertEquals(now + 100, outbox.earliestPendingRetryAt())
+
+        val due = outbox.listDue(now + 100)
+        assertEquals(1, due.size)
+        assertEquals(packetId, due.single().packetId)
+
+        outbox.markDelivered(packetId)
+        assertTrue(outbox.listDue(now + 100).isEmpty())
+        assertNull(outbox.earliestPendingRetryAt())
+    }
+
+    @Test
+    fun packetOutbox_recordAttempt_reschedulesRow() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val packetId = PacketId.fromHex("ff".repeat(PacketId.SIZE_BYTES))
+        val now = 2_000L
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(packetId, FixtureDevicePeerId, now = now),
+            nextRetryAt = now,
+        )
+        outbox.recordAttempt(packetId, nextRetryAt = now + 60, now = now)
+
+        assertTrue(outbox.listDue(now).isEmpty())
+        assertEquals(now + 60, outbox.earliestPendingRetryAt())
+        assertEquals(1L, outbox.listDue(now + 60).single().attempts)
+    }
+
+    @Test
+    fun packetOutbox_pruneExpired_removesExpiredRowsOnly() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val now = 3_000L
+        val expiredId = PacketId.fromHex("11".repeat(PacketId.SIZE_BYTES))
+        val validId = PacketId.fromHex("22".repeat(PacketId.SIZE_BYTES))
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = expiredId,
+                target = FixtureDevicePeerId,
+                now = now - 200,
+                expiresAt = now - 1,
+            ),
+            nextRetryAt = now,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = validId,
+                target = FixtureDevicePeerId,
+                now = now,
+                expiresAt = now + 100,
+            ),
+            nextRetryAt = now,
+        )
+
+        assertEquals(1, outbox.pruneExpired(now))
+        assertEquals(validId, outbox.listDue(now).single().packetId)
+    }
+
+    @Test
+    fun packetOutbox_setDueForTarget_acceleratesOnlyFutureRetries() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val now = 4_000L
+        val dueId = PacketId.fromHex("33".repeat(PacketId.SIZE_BYTES))
+        val futureId = PacketId.fromHex("44".repeat(PacketId.SIZE_BYTES))
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(dueId, FixtureDevicePeerId, now = now),
+            nextRetryAt = now,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(futureId, FixtureDevicePeerId, now = now),
+            nextRetryAt = now + 120,
+        )
+
+        outbox.setDueForTarget(FixtureDevicePeerId, now)
+
+        val due = outbox.listDue(now).map { it.packetId }.toSet()
+        assertEquals(setOf(dueId, futureId), due)
+    }
+
+    @Test
+    fun packetOutbox_earliestPendingRetryAt_returnsMinimum() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val now = 5_000L
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                PacketId.fromHex("55".repeat(PacketId.SIZE_BYTES)),
+                FixtureDevicePeerId,
+                now = now,
+            ),
+            nextRetryAt = now + 200,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                PacketId.fromHex("66".repeat(PacketId.SIZE_BYTES)),
+                FixtureDevicePeerId,
+                now = now,
+            ),
+            nextRetryAt = now + 100,
+        )
+
+        assertEquals(now + 100, outbox.earliestPendingRetryAt())
+    }
+
+    @Test
+    fun packetOutbox_relayCacheBytes_countsRelayOnly() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val now = 6_000L
+        val relayPayload = ByteArray(400) { 0x01 }
+        val localPayload = ByteArray(800) { 0x02 }
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = PacketId.fromHex("77".repeat(PacketId.SIZE_BYTES)),
+                target = FixtureDevicePeerId,
+                now = now,
+                payload = relayPayload,
+            ),
+            nextRetryAt = now + 60,
+            relayMessage = true,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = PacketId.fromHex("88".repeat(PacketId.SIZE_BYTES)),
+                target = FixtureDevicePeerId,
+                now = now,
+                payload = localPayload,
+            ),
+            nextRetryAt = now + 60,
+            relayMessage = false,
+        )
+
+        val relayEnvelopeSize = sampleOutboxEnvelope(
+            packetId = PacketId.fromHex("77".repeat(PacketId.SIZE_BYTES)),
+            target = FixtureDevicePeerId,
+            now = now,
+            payload = relayPayload,
+        ).encode().size.toLong()
+
+        assertEquals(relayEnvelopeSize, outbox.relayCacheBytes())
+    }
+
+    @Test
+    fun packetOutbox_pruneRelayOverCapacity_evictsRelayRowsAndKeepsLocalRows() {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val now = 7_000L
+        val relayPayload = ByteArray(500) { 0x01 }
+        val localPayload = ByteArray(500) { 0x02 }
+
+        val relaySoon = PacketId.fromHex("99".repeat(PacketId.SIZE_BYTES))
+        val relayLater = PacketId.fromHex("ab".repeat(PacketId.SIZE_BYTES))
+        val localId = PacketId.fromHex("cd".repeat(PacketId.SIZE_BYTES))
+
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = relaySoon,
+                target = FixtureDevicePeerId,
+                now = now,
+                expiresAt = now + 100,
+                payload = relayPayload,
+            ),
+            nextRetryAt = now + 60,
+            relayMessage = true,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = relayLater,
+                target = FixtureDevicePeerId,
+                now = now,
+                expiresAt = now + 200,
+                payload = relayPayload,
+            ),
+            nextRetryAt = now + 60,
+            relayMessage = true,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(
+                packetId = localId,
+                target = FixtureDevicePeerId,
+                now = now,
+                payload = localPayload,
+            ),
+            nextRetryAt = now + 60,
+            relayMessage = false,
+        )
+
+        val relayBlobSize = sampleOutboxEnvelope(
+            packetId = relaySoon,
+            target = FixtureDevicePeerId,
+            now = now,
+            expiresAt = now + 100,
+            payload = relayPayload,
+        ).encode().size.toLong()
+
+        val evicted = outbox.pruneRelayOverCapacity(relayBlobSize-1)
+        assertTrue(evicted >= 1)
+        assertTrue(outbox.relayCacheBytes() <= relayBlobSize)
+        assertEquals(1, outbox.listAllForTarget(FixtureDevicePeerId).size)
+        assertEquals(localId, outbox.listAllForTarget(FixtureDevicePeerId).single().packetId)
     }
 }

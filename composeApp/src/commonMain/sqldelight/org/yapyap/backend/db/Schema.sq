@@ -1,42 +1,10 @@
 import kotlin.Boolean;
-import org.yapyap.backend.db.AccountStatus;
-import org.yapyap.backend.db.DeviceType;
 import org.yapyap.backend.db.FileChunkStatus;
 import org.yapyap.backend.db.FileTransferStatus;
 import org.yapyap.backend.db.MessageLifecycleState;
 import org.yapyap.backend.db.MessagePayloadType;
 import org.yapyap.backend.db.RoomMemberRole;
 import org.yapyap.backend.db.RoomType;
-import org.yapyap.backend.protocol.PacketNackReason;
-
-CREATE TABLE accounts (
-    account_id TEXT NOT NULL PRIMARY KEY,
-    account_pub_key BLOB NOT NULL,
-    pub_key_version INTEGER NOT NULL,
-    pub_key_id TEXT NOT NULL,
-    is_admin INTEGER AS Boolean NOT NULL,
-    status TEXT AS AccountStatus NOT NULL,
-    display_name TEXT NOT NULL
-);
-
-CREATE TABLE devices (
-    device_id TEXT NOT NULL PRIMARY KEY,
-    account_id TEXT NOT NULL,
-    device_type TEXT AS DeviceType NOT NULL,
-    onion_address TEXT NOT NULL,
-    onion_port INTEGER NOT NULL,
-    signing_pub_key BLOB NOT NULL,
-    signing_key_id TEXT NOT NULL,
-    signing_key_version INTEGER NOT NULL,
-    encryption_pub_key BLOB NOT NULL,
-    encryption_key_id TEXT NOT NULL,
-    encryption_key_version INTEGER NOT NULL,
-    push_token TEXT,
-    ping_attempts INTEGER NOT NULL,
-    ping_successes INTEGER NOT NULL,
-    last_seen_timestamp INTEGER NOT NULL,
-    FOREIGN KEY (account_id) REFERENCES accounts(account_id)
-);
 
 CREATE TABLE spaces (
     space_id TEXT NOT NULL PRIMARY KEY,
@@ -95,17 +63,6 @@ CREATE TABLE pending_syncs (
     FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
 );
 
-CREATE TABLE outbox (
-    packet_id TEXT NOT NULL PRIMARY KEY,
-    envelope_blob BLOB NOT NULL,
-    target_device_id TEXT NOT NULL,
-    retry_count INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    last_attempt_at INTEGER NOT NULL,
-    next_retry_at INTEGER NOT NULL,
-    FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
-);
-
 CREATE TABLE file_transfers (
     transfer_id TEXT NOT NULL PRIMARY KEY,
     message_id TEXT NOT NULL,
@@ -129,15 +86,6 @@ CREATE TABLE file_chunk_tracker (
     FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
 );
 
-CREATE TABLE dedup (
-    packet_id TEXT NOT NULL,
-    source_device_id TEXT NOT NULL,
-    received_at INTEGER NOT NULL,
-    nack_reason TEXT AS PacketNackReason,
-    PRIMARY KEY (source_device_id, packet_id),
-    FOREIGN KEY (source_device_id) REFERENCES devices(device_id)
-);
-
 CREATE TABLE crypto_sessions (
     session_id TEXT NOT NULL PRIMARY KEY,
     peer_device_id TEXT NOT NULL,
@@ -148,7 +96,6 @@ CREATE TABLE crypto_sessions (
     FOREIGN KEY (peer_device_id) REFERENCES devices(device_id)
 );
 
-CREATE INDEX devices_account_idx ON devices(account_id);
 CREATE INDEX rooms_space_idx ON rooms(space_id);
 CREATE INDEX room_members_account_idx ON room_members(account_id);
 CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
@@ -157,9 +104,6 @@ CREATE INDEX messages_prev_idx ON messages(prev_id);
 CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
 CREATE INDEX pending_syncs_device_idx ON pending_syncs(target_device_id);
-CREATE INDEX outbox_message_idx ON outbox(packet_id);
-CREATE INDEX outbox_target_device_idx ON outbox(target_device_id);
 CREATE INDEX file_transfers_message_idx ON file_transfers(message_id);
 CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status);
-CREATE INDEX dedup_source_device_idx ON dedup(source_device_id);
 CREATE INDEX crypto_sessions_peer_device_idx ON crypto_sessions(peer_device_id);

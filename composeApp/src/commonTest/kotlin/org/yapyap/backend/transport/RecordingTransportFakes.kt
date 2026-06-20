@@ -35,6 +35,7 @@ class RecordingTorTransport(
     var stopCalls = 0
         private set
     val sends = mutableListOf<Pair<TorEndpoint, BinaryEnvelope>>()
+    var failNextSend: Boolean = false
 
     override suspend fun start(): TorEndpoint {
         startCalls++
@@ -46,6 +47,10 @@ class RecordingTorTransport(
     }
 
     override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
+        if (failNextSend) {
+            failNextSend = false
+            error("simulated Tor send failure")
+        }
         sends.add(target to envelope)
     }
 
@@ -136,6 +141,8 @@ class RecordingWebRtcTransport : WebRtcTransport {
     }
 
     fun tryEmitIncomingEnvelope(e: WebRtcIncomingEnvelope): Boolean = incomingEnvelopesMutable.tryEmit(e)
+
+    fun tryEmitSessionState(state: WebRtcSessionState): Boolean = sessionStatesMutable.tryEmit(state)
 }
 
 /** Recording lower-level Tor backend (byte payloads). */

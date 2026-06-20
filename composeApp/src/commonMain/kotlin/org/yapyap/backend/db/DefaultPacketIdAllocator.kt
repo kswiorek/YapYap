@@ -31,11 +31,11 @@ class DefaultPacketIdAllocator(
         )
     }
 
-    override fun allocate(): PacketId {
+    override fun allocate(now: Long): PacketId {
         requireNotNull(localDeviceId) { "Local device ID must be assigned before allocating packet ID" }
         repeat(maxAttempts) {
             val candidate = PacketId.random(random)
-            if (tryReserve(sourceDeviceId = localDeviceId!!, packetId = candidate, receivedAtEpochSeconds = -1)) {
+            if (tryReserve(sourceDeviceId = localDeviceId!!, packetId = candidate, receivedAtEpochSeconds = now)) {
                 logger.debug(
                     component = LogComponent.DATABASE,
                     event = LogEvent.PACKET_ID_ALLOCATED,
@@ -55,7 +55,7 @@ class DefaultPacketIdAllocator(
     }
 
     private fun tryReserve(sourceDeviceId: PeerId, packetId: PacketId, receivedAtEpochSeconds: Long): Boolean {
-        val queries = database.allocQueries
+        val queries = database.dedupQueries
         return queries.transactionWithResult {
             queries.tryReservePacketId(
                 packet_id = packetId.toHex(),
