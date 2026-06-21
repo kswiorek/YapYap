@@ -9,6 +9,7 @@ interface IdentityResolver {
     suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord
 
     suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray
+    suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray
 
     fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord?
 

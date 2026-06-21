@@ -16,6 +16,10 @@ internal class InMemoryKeyStore : KeyStore {
 
     override suspend fun getKey(ref: KeyReference): ByteArray? =
         keys[ref]?.copyOf()
+
+    override suspend fun deleteKey(ref: KeyReference) {
+        keys.remove(ref)
+    }
 }
 
 /**

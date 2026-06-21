@@ -170,6 +170,7 @@ class DefaultSignatureProviderTest {
             require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }
             return localSigningPrivateKey
         }
+        override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used in test")
 
         override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
 

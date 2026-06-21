@@ -121,6 +121,17 @@ class DefaultIdentityResolver(
         ) ?: error("Missing local private key for keyId=$keyId, purpose=$purpose")
     }
 
+    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
+        val keyId = config.defaultDeviceLocalKeyPrefix + purpose.name.lowercase()
+        return privateKeyStore.getKey(
+            ref = KeyReference(
+                keyId = config.defaultAccountLocalKeyPrefix + purpose.name.lowercase(),
+                purpose = purpose,
+                type = KeyType.PRIVATE,
+            )
+        ) ?: error("Missing local private key for keyId=$keyId, purpose=$purpose")
+    }
+
     override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? {
         return publicKeyRepository.getDevicePublicKey(deviceId)
     }

@@ -161,6 +161,8 @@ internal class FakeIdentityResolverForProtection(
         return localSigningPrivateKey
     }
 
+    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
+
     override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")

@@ -230,6 +230,9 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
+    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+        error("FakeIdentityResolverForRouter: private key not stubbed")
+
     override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = null
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
