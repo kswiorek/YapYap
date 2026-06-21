@@ -1,10 +1,10 @@
 package org.yapyap.backend.crypto
 
-import com.github.javakeyring.Keyring
 import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.logging.NoopAppLogger
 
@@ -16,38 +16,39 @@ import org.yapyap.backend.logging.NoopAppLogger
  */
 class DefaultKeyStoreJavaKeyringIntegrationTest {
 
-    private var serviceName: String? = null
-    private var accountName: String? = null
+    private var store: DefaultKeyStore? = null
+    private var ref: KeyReference? = null
 
     @AfterTest
-    fun tearDown() {
-        val service = serviceName ?: return
-        val account = accountName ?: return
-        runCatching {
-            Keyring.create().use { keyring ->
-                keyring.deletePassword(service, account)
-            }
-        }
+    fun tearDown() = runTest {
+        val activeStore = store ?: return@runTest
+        val activeRef = ref ?: return@runTest
+        activeStore.deleteKey(activeRef)
     }
 
     @Test
     fun putKey_then_getKey_roundTrip_usesOsCredentialStore() = runTest {
-        val ref = KeyReference(
+        val keyRef = KeyReference(
             keyId = "integration-${UUID.randomUUID()}",
             purpose = IdentityKeyPurpose.SIGNING,
             type = KeyType.PRIVATE,
         )
-        serviceName = "yapyap.it.keyring.${UUID.randomUUID()}"
-        accountName = "${ref.purpose.name.lowercase()}:${ref.keyId}:${ref.type.name.lowercase()}"
-        val store = DefaultKeyStore(
-            serviceName = serviceName!!,
+        val activeStore = DefaultKeyStore(
+            serviceName = "yapyap.it.keyring.${UUID.randomUUID()}",
             sessionFactory = JavaKeyringSessionFactory,
             logger = NoopAppLogger,
         )
+        store = activeStore
+        ref = keyRef
         val material = byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05)
 
-        store.putKey(ref, material)
+        activeStore.putKey(keyRef, material)
 
-        assertContentEquals(material, store.getKey(ref))
+        assertContentEquals(material, activeStore.getKey(keyRef))
+
+        activeStore.deleteKey(keyRef)
+
+        assertNull(activeStore.getKey(keyRef))
+        ref = null
     }
 }

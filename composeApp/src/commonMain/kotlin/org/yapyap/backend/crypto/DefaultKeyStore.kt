@@ -54,6 +54,25 @@ class DefaultKeyStore(
         return decode(encoded)
     }
 
+    override suspend fun deleteKey(ref: KeyReference) {
+        val deleted = withContext(Dispatchers.IO) {
+            sessionFactory.open().use { session ->
+                runCatching {
+                    session.deletePassword(serviceName, accountName(ref))
+                    true
+                }.getOrDefault(false)
+            }
+        }
+        if (deleted) {
+            logger.info(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.KEY_DELETED,
+                message = "Deleted key from keyring",
+                fields = mapOf("keyId" to ref.keyId, "purpose" to ref.purpose.name, "type" to ref.type.name),
+            )
+        }
+    }
+
     private fun accountName(ref: KeyReference): String {
         return "${ref.purpose.name.lowercase()}:${ref.keyId}:${ref.type.name.lowercase()}"
     }

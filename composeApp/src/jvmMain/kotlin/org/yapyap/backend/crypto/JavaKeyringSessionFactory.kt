@@ -13,6 +13,10 @@ object JavaKeyringSessionFactory : KeyringSessionFactory {
             override fun getPassword(serviceName: String, accountName: String): String =
                 keyring.getPassword(serviceName, accountName)
 
+            override fun deletePassword(serviceName: String, accountName: String) {
+                keyring.deletePassword(serviceName, accountName)
+            }
+
             override fun close() {
                 keyring.close()
             }

@@ -38,6 +38,29 @@ class DefaultKeyStoreIntegrationTest {
     }
 
     @Test
+    fun deleteKey_removesEntry_andIsIdempotentWhenMissing() = runTest {
+        val backing = mutableMapOf<Pair<String, String>, String>()
+        val store = defaultStore(serviceName = "yapyap.test.pk.delete", backing = backing)
+        val ref = KeyReference(
+            keyId = "device-local-signing",
+            purpose = IdentityKeyPurpose.SIGNING,
+            type = KeyType.PRIVATE,
+        )
+        val otherRef = ref.copy(keyId = "other-key")
+        val material = byteArrayOf(0x0A, 0x0B)
+
+        store.putKey(ref, material)
+        store.putKey(otherRef, byteArrayOf(0x0C))
+
+        store.deleteKey(ref)
+
+        assertNull(store.getKey(ref))
+        assertContentEquals(byteArrayOf(0x0C), store.getKey(otherRef))
+        assertEquals(1, backing.size)
+        store.deleteKey(ref)
+    }
+
+    @Test
     fun getOrCreateMasterKey_secondCall_returnsSameMaterial() = runTest {
         val backing = mutableMapOf<Pair<String, String>, String>()
         val store = defaultStore(serviceName = "yapyap.test.mk", backing = backing)

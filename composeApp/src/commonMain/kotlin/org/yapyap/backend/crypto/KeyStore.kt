@@ -19,4 +19,6 @@ interface KeyStore {
     suspend fun putKey(ref: KeyReference, key: ByteArray)
 
     suspend fun getKey(ref: KeyReference): ByteArray?
+
+    suspend fun deleteKey(ref: KeyReference)
 }

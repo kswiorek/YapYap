@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 
 class MemoryKeyStoresContractTest {
 
@@ -25,5 +26,25 @@ class MemoryKeyStoresContractTest {
         val retrieved = store.getKey(ref)!!
         assertNotSame(material, retrieved, "store should not expose stored buffer")
         assertContentEquals(material, retrieved)
+    }
+
+    @Test
+    fun deleteKey_removesEntry_andIsIdempotentWhenMissing() = runTest {
+        val store = InMemoryKeyStore()
+        val ref = KeyReference(
+            keyId = "yapyap:test:key",
+            purpose = IdentityKeyPurpose.SIGNING,
+            type = KeyType.PRIVATE,
+        )
+        val otherRef = ref.copy(keyId = "other-key")
+
+        store.putKey(ref, byteArrayOf(0x01))
+        store.putKey(otherRef, byteArrayOf(0x02))
+
+        store.deleteKey(ref)
+
+        assertNull(store.getKey(ref))
+        assertContentEquals(byteArrayOf(0x02), store.getKey(otherRef))
+        store.deleteKey(ref)
     }
 }

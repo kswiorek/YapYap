@@ -17,6 +17,10 @@ internal class MapBackedKeyringSessionFactory(
                 storage[serviceName to accountName]
                     ?: error("no password")
 
+            override fun deletePassword(serviceName: String, accountName: String) {
+                storage.remove(serviceName to accountName)
+            }
+
             override fun close() {}
         }
 }
