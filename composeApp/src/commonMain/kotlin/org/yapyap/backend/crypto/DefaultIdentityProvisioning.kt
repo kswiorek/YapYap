@@ -11,7 +11,7 @@ import org.yapyap.backend.protocol.TorEndpoint
 class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityPublicKeyRepository,
-    private val privateKeyStore: PrivateKeyStore,
+    private val keyStore: KeyStore,
     private val config: IdentityKeyServiceConfig,
     private val identityResolver: IdentityResolver,
     private val logger: AppLogger = NoopAppLogger,
@@ -41,11 +41,11 @@ class DefaultIdentityProvisioning(
         val privateEncryptionKeyRef = KeyReference(keyId = encryptionKeyRecord.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
         val publicEncryptionKeyRef = KeyReference(keyId = encryptionKeyRecord.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PUBLIC)
 
-        privateKeyStore.putKey(privateSigningKeyRef, signingKey.privateKey)
-        privateKeyStore.putKey(publicSigningKeyRef, signingKey.publicKey)
+        keyStore.putKey(privateSigningKeyRef, signingKey.privateKey)
+        keyStore.putKey(publicSigningKeyRef, signingKey.publicKey)
 
-        privateKeyStore.putKey(privateEncryptionKeyRef, encryptionKey.privateKey)
-        privateKeyStore.putKey(publicEncryptionKeyRef, encryptionKey.publicKey)
+        keyStore.putKey(privateEncryptionKeyRef, encryptionKey.privateKey)
+        keyStore.putKey(publicEncryptionKeyRef, encryptionKey.publicKey)
         val identity = DeviceIdentityRecord(deviceId, signingKeyRecord, encryptionKeyRecord)
 
         val accountRecord = identityResolver.getLocalAccountIdentityRecord()
@@ -78,8 +78,8 @@ class DefaultIdentityProvisioning(
         val privateAccountKeyRef = KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
         val publicAccountKeyRef = KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
 
-        privateKeyStore.putKey(privateAccountKeyRef, signingKey.privateKey)
-        privateKeyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
+        keyStore.putKey(privateAccountKeyRef, signingKey.privateKey)
+        keyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
 
         val accountRecord = AccountIdentityRecord(accountId, key = accountKeyRecord)
         publicKeyRepository.insertLocalAccount(displayName, accountRecord)

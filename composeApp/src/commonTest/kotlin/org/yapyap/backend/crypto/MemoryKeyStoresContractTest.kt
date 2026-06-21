@@ -1,21 +1,16 @@
 package org.yapyap.backend.crypto
 
-import org.yapyap.backend.db.MasterKeyProvider
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
 
-/** Always returns the same material (typical fake for tests). */
-private class FixedMasterKeyProvider(private val material: ByteArray) : MasterKeyProvider {
-    override fun getOrCreateMasterKey(): ByteArray = material.copyOf()
-}
-
 class MemoryKeyStoresContractTest {
 
     @Test
-    fun privateKeyStore_putThenGet_roundTrip_andIsolation() {
-        val store = InMemoryPrivateKeyStore()
+    fun privateKeyStore_putThenGet_roundTrip_andIsolation() = runTest {
+        val store = InMemoryKeyStore()
         val ref = KeyReference(
             keyId = "yapyap:test:key",
             purpose = IdentityKeyPurpose.SIGNING,
@@ -30,20 +25,5 @@ class MemoryKeyStoresContractTest {
         val retrieved = store.getKey(ref)!!
         assertNotSame(material, retrieved, "store should not expose stored buffer")
         assertContentEquals(material, retrieved)
-    }
-
-    @Test
-    fun masterKeyProvider_returnsStableCopyEachCall() {
-        val secret = ByteArray(32) { it.toByte() }
-        val provider = FixedMasterKeyProvider(secret)
-
-        val a = provider.getOrCreateMasterKey()
-        val b = provider.getOrCreateMasterKey()
-
-        assertContentEquals(secret, a)
-        assertContentEquals(secret, b)
-        assertContentEquals(a, b)
-        assertNotSame(a, b)
-        assertNotSame(secret, a)
     }
 }

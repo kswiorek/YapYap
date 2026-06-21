@@ -227,7 +227,7 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("FakeIdentityResolverForRouter: account record not stubbed")
 
-    override fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
     override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = null

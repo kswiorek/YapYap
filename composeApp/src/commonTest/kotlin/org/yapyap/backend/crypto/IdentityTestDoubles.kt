@@ -6,15 +6,15 @@ import org.yapyap.backend.db.IdentityPublicKeyRepository
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
-/** In-memory [PrivateKeyStore] for unit tests. */
-internal class InMemoryPrivateKeyStore : PrivateKeyStore {
+/** In-memory [KeyStore] for unit tests. */
+internal class InMemoryKeyStore : KeyStore {
     private val keys = mutableMapOf<KeyReference, ByteArray>()
 
-    override fun putKey(ref: KeyReference, key: ByteArray) {
+    override suspend fun putKey(ref: KeyReference, key: ByteArray) {
         keys[ref] = key.copyOf()
     }
 
-    override fun getKey(ref: KeyReference): ByteArray? =
+    override suspend fun getKey(ref: KeyReference): ByteArray? =
         keys[ref]?.copyOf()
 }
 

@@ -155,7 +155,7 @@ class DefaultSignatureProviderTest {
     }
 
     /**
-     * Only [loadLocalPrivateKey] and [resolvePeerIdentityRecord] are used by [DefaultSignatureProvider].
+     * Only [getLocalDevicePrivateKey] and [resolvePeerIdentityRecord] are used by [DefaultSignatureProvider].
      */
     private class FakeIdentityResolverForSignature(
         private val localSigningPrivateKey: ByteArray,
@@ -166,7 +166,7 @@ class DefaultSignatureProviderTest {
 
         override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used in test")
 
-        override fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
+        override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
             require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }
             return localSigningPrivateKey
         }

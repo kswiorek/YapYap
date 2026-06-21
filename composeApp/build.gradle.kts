@@ -46,7 +46,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
-            implementation("app.cash.sqldelight:android-driver:2.3.2")
+            implementation(libs.android.driver)
         }
         val ktor_version: String by project
         val vKmpTorResource: String by project
@@ -60,32 +60,32 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.kotlinx.coroutinesCore)
-            implementation("io.matthewnelson.kmp-tor:runtime:2.6.0")
+            implementation(libs.runtime)
             implementation("io.matthewnelson.kmp-tor:resource-exec-tor:${vKmpTorResource}")
             implementation("io.matthewnelson.kmp-tor:resource-noexec-tor:${vKmpTorResource}")
             implementation("io.ktor:ktor-network:${ktor_version}")
             implementation("io.ktor:ktor-io:${ktor_version}")
-            implementation("app.cash.sqldelight:coroutines-extensions:2.3.2")
-            implementation("dev.whyoleg.cryptography:cryptography-core:0.6.0")
-            implementation("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
+            implementation(libs.coroutines.extensions)
+            implementation(libs.cryptography.core)
+            implementation(libs.cryptography.provider.optimal)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutinesTest)
         }
         iosMain.dependencies {
-            implementation("app.cash.sqldelight:native-driver:2.3.2")
+            implementation(libs.native.driver)
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
-            implementation("dev.onvoid.webrtc:webrtc-java:0.14.0")
+            implementation(libs.webrtc.java)
             if (webrtcNativeClassifier != null) {
                 runtimeOnly("dev.onvoid.webrtc:webrtc-java:0.14.0:$webrtcNativeClassifier")
             }
-            implementation("app.cash.sqldelight:sqlite-driver:2.3.2")
-            implementation("io.github.willena:sqlite-jdbc:3.51.2.0")
-            implementation("com.github.javakeyring:java-keyring:1.0.4")
+            implementation(libs.sqlite.driver)
+            implementation(libs.sqlite.jdbc)
+            implementation(libs.java.keyring)
         }
         jvmTest.dependencies {
             implementation(libs.kotlin.test)
@@ -150,7 +150,7 @@ sqldelight {
 }
 
 /**
- * Opt-in slow / environment-sensitive JVM integration tests (real Tor, real WebRTC stack), e.g.:
+ * Opt-in slow / environment-sensitive JVM integration tests (real Tor, real WebRTC stack, OS keyring), e.g.:
  * `./gradlew :composeApp:jvmTest -PintegrationTests=true --rerun-tasks`
  */
 val integrationTestsEnabled =
@@ -162,6 +162,7 @@ tasks.named<Test>("jvmTest") {
             excludeTestsMatching("*TorRealBackendTransportIntegrationTest")
             excludeTestsMatching("*WebRtcInMemorySignalingIntegrationTest")
             excludeTestsMatching("*DefaultRouterLiveIntegrationTest")
+            excludeTestsMatching("*DefaultKeyStoreJavaKeyringIntegrationTest")
         }
     }
 }

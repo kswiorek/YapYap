@@ -24,11 +24,11 @@ class DefaultIdentityOrchestrationTest {
 
     private fun stack(logger: RecordingAppLogger = RecordingAppLogger()): Triple<
         InMemoryIdentityPublicKeyRepository,
-        InMemoryPrivateKeyStore,
+        InMemoryKeyStore,
         Triple<DefaultIdentityResolver, DefaultIdentityProvisioning, RecordingAppLogger>,
         > {
         val repo = InMemoryIdentityPublicKeyRepository(defaultLocalTor = fixedTor)
-        val store = InMemoryPrivateKeyStore()
+        val store = InMemoryKeyStore()
         val crypto = KmpCryptoProvider()
         val resolver = DefaultIdentityResolver(crypto, repo, store, config, logger)
         val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, logger)

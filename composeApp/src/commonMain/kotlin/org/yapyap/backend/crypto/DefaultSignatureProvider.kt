@@ -13,7 +13,7 @@ class DefaultSignatureProvider(
 ) : SignatureProvider {
 
     override suspend fun sign(message: ByteArray): ByteArray {
-        val privateKey = identityResolver.loadLocalPrivateKey(
+        val privateKey = identityResolver.getLocalDevicePrivateKey(
             purpose = IdentityKeyPurpose.SIGNING,
         )
         logger.debug(

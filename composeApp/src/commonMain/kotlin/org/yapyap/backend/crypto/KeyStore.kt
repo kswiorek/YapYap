@@ -15,8 +15,8 @@ data class KeyReference(
     }
 }
 
-interface PrivateKeyStore {
-    fun putKey(ref: KeyReference, key: ByteArray)
+interface KeyStore {
+    suspend fun putKey(ref: KeyReference, key: ByteArray)
 
-    fun getKey(ref: KeyReference): ByteArray?
+    suspend fun getKey(ref: KeyReference): ByteArray?
 }

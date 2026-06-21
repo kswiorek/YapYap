@@ -11,7 +11,7 @@ import org.yapyap.backend.protocol.TorEndpoint
 class DefaultIdentityResolver(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityPublicKeyRepository,
-    private val privateKeyStore: PrivateKeyStore,
+    private val privateKeyStore: KeyStore,
     private val config: IdentityKeyServiceConfig,
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityResolver {
@@ -24,7 +24,7 @@ class DefaultIdentityResolver(
                 purpose = IdentityKeyPurpose.SIGNING,
                 type = KeyType.PUBLIC,
             )
-        ) ?: error("Missing local signing private key")
+        ) ?: error("Missing local signing public key")
 
         val publicEncryptionKey = privateKeyStore.getKey(
             ref = KeyReference(
@@ -32,7 +32,7 @@ class DefaultIdentityResolver(
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 type = KeyType.PUBLIC,
             )
-        ) ?: error("Missing local encryption private key")
+        ) ?: error("Missing local encryption public key")
 
         val deviceId = cryptoProvider.peerIdFromPublicKey(publicSigningKey)
 
@@ -110,7 +110,7 @@ class DefaultIdentityResolver(
     }
 
 
-    override fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
+    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
         val keyId = config.defaultDeviceLocalKeyPrefix + purpose.name.lowercase()
         return privateKeyStore.getKey(
             ref = KeyReference(
