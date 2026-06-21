@@ -50,12 +50,12 @@ class WebRtcInMemorySignalingIntegrationTest {
 
             relayJobs += relayScope.launch {
                 alice.outgoingBootstrapSignals.collect { sig ->
-                    bob.handleBootstrapSignal(sig, epochSeconds)
+                    bob.handleBootstrapSignal(sig)
                 }
             }
             relayJobs += relayScope.launch {
                 bob.outgoingBootstrapSignals.collect { sig ->
-                    alice.handleBootstrapSignal(sig, epochSeconds)
+                    alice.handleBootstrapSignal(sig)
                 }
             }
 

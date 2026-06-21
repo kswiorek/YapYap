@@ -117,7 +117,6 @@ class DefaultRouterLiveIntegrationTest {
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
-                cryptoProvider = StubCryptoProvider(),
                 logger = NoopAppLogger,
                 routerConfig = RouterConfig(),
             )
@@ -131,7 +130,6 @@ class DefaultRouterLiveIntegrationTest {
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
-                cryptoProvider = StubCryptoProvider(),
                 logger = NoopAppLogger,
                 routerConfig = RouterConfig(),
             )
