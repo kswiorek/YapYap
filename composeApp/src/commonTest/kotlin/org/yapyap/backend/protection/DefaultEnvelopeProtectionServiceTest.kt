@@ -3,6 +3,7 @@ package org.yapyap.backend.protection
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.FilePayload
@@ -13,7 +14,7 @@ class DefaultEnvelopeProtectionServiceTest {
     private val crypto = KmpCryptoProvider()
 
     @Test
-    fun defaultService_signal_file_message_roundTrip_tableDriven() {
+    fun defaultService_signal_file_message_roundTrip_tableDriven() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -33,20 +34,20 @@ class DefaultEnvelopeProtectionServiceTest {
             Row(
                 name = "signal_plaintext",
                 service = DefaultEnvelopeProtectionService(
-                    webRtcSignalProtection = PlaintextWebRtcSignalProtection(),
+                    webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
                     fileProtection = PassthroughFileProtection(),
-                    messageProtection = PlaintextMessageProtection(),
-                    systemProtection = PlaintextSystemProtection(),
+                    messageProtection = PlaintextMessageProtection(crypto),
+                    systemProtection = PlaintextSystemProtection(crypto),
                 ),
                 scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             ),
             Row(
                 name = "signal_signed",
                 service = DefaultEnvelopeProtectionService(
-                    webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider),
+                    webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider, crypto),
                     fileProtection = PassthroughFileProtection(),
-                    messageProtection = SignedMessageProtection(signatureProvider),
-                    systemProtection = SignedSystemProtection(signatureProvider),
+                    messageProtection = SignedMessageProtection(signatureProvider, crypto),
+                    systemProtection = SignedSystemProtection(signatureProvider, crypto),
                 ),
                 scheme = SignalSecurityScheme.SIGNED,
             ),
@@ -83,13 +84,13 @@ class DefaultEnvelopeProtectionServiceTest {
     }
 
     @Test
-    fun defaultService_decryptFileChunk_delegatesToFileProtection() {
+    fun defaultService_decryptFileChunk_delegatesToFileProtection() = runTest {
         val fileProtection = PassthroughFileProtection()
         val service = DefaultEnvelopeProtectionService(
-            webRtcSignalProtection = PlaintextWebRtcSignalProtection(),
+            webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
             fileProtection = fileProtection,
-            messageProtection = PlaintextMessageProtection(),
-            systemProtection = PlaintextSystemProtection(),
+            messageProtection = PlaintextMessageProtection(crypto),
+            systemProtection = PlaintextSystemProtection(crypto),
         )
         val chunk = FilePayload.EncryptedChunk(
             chunkIndex = 0,

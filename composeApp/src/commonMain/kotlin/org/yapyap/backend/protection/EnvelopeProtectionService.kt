@@ -14,53 +14,49 @@ import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 interface EnvelopeProtectionService {
-    // Signal
-    fun protectSignal(
+    suspend fun protectSignal(
         input: WebRtcSignal,
         context: EnvelopeProtectContext,
     ): WebRtcSignalEnvelope
 
-    fun openSignal(
+    suspend fun openSignal(
         envelope: WebRtcSignalEnvelope,
     ): WebRtcSignal
 
-    // File
-    fun protectFile(
+    suspend fun protectFile(
         input: FilePayload,
         context: EnvelopeProtectContext,
     ): FileEnvelope
 
-    fun openFile(
+    suspend fun openFile(
         envelope: FileEnvelope,
     ): OpenedFileEnvelope
 
-    fun decryptFileChunk(
+    suspend fun decryptFileChunk(
         chunk: FilePayload.EncryptedChunk,
     ): FileChunk
 
-    // Future message envelope
-    fun protectMessage(
+    suspend fun protectMessage(
         input: MessagePayload,
         context: EnvelopeProtectContext,
     ): MessageEnvelope
 
-    fun openMessage(
+    suspend fun openMessage(
         envelope: MessageEnvelope,
     ): MessagePayload
 
-    fun protectSystem(
+    suspend fun protectSystem(
         input: SystemPayload,
         context: EnvelopeProtectContext,
     ): SystemEnvelope
 
-    fun openSystem(
+    suspend fun openSystem(
         envelope: SystemEnvelope,
     ): SystemPayload
 }
 
 data class EnvelopeProtectContext(
     val createdAtEpochSeconds: Long,
-    val nonce: ByteArray,
     val sourceDeviceId: PeerId,
     val targetDeviceId: PeerId,
     val securityScheme: SignalSecurityScheme,

@@ -1,11 +1,13 @@
 package org.yapyap.backend.crypto
 
+import dev.whyoleg.cryptography.BinarySize.Companion.bytes
 import dev.whyoleg.cryptography.CryptographyProvider
+import dev.whyoleg.cryptography.algorithms.ChaCha20Poly1305
 import dev.whyoleg.cryptography.algorithms.EdDSA
+import dev.whyoleg.cryptography.algorithms.HKDF
 import dev.whyoleg.cryptography.algorithms.SHA256
 import dev.whyoleg.cryptography.algorithms.XDH
 import dev.whyoleg.cryptography.random.CryptographyRandom
-import kotlinx.coroutines.runBlocking
 import org.kotlincrypto.error.SignatureException
 import kotlin.random.Random
 import org.yapyap.backend.logging.AppLogger
@@ -21,22 +23,71 @@ class KmpCryptoProvider(
 ) : CryptoProvider {
     private val edDsa: EdDSA by lazy { provider.get(EdDSA) }
     private val xdh: XDH by lazy { provider.get(XDH) }
+    private val hkdf: HKDF by lazy { provider.get(HKDF) }
+    private val chacha20Poly1305: ChaCha20Poly1305 by lazy { provider.get(ChaCha20Poly1305) }
 
-    override fun sha256(bytes: ByteArray): ByteArray = runBlocking {
-        provider.get(SHA256).hasher().hash(bytes)
+    companion object {
+        const val AEAD_KEY_SIZE_BYTES: Int = 32
     }
+
+    override suspend fun sha256(bytes: ByteArray): ByteArray =
+        provider.get(SHA256).hasher().hash(bytes)
 
     override fun randomBytes(size: Int): ByteArray {
         require(size > 0) { "size must be greater than 0" }
         return random.nextBytes(size)
     }
 
-    override fun generateNonce(scheme: SignalSecurityScheme): ByteArray {
+    override fun generateNonce(scheme: SignalSecurityScheme): ByteArray =
+        random.nextBytes(scheme.nonceSize)
 
-        return random.nextBytes(scheme.nonceSize)
+    override suspend fun deriveSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray {
+        require(privateKey.isNotEmpty()) { "privateKey must not be empty" }
+        require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
+        val privateXdhKey = xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(
+            format = XDH.PrivateKey.Format.DER,
+            bytes = privateKey,
+        )
+        val publicXdhKey = xdh.publicKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(
+            format = XDH.PublicKey.Format.DER,
+            bytes = publicKey,
+        )
+        return privateXdhKey.sharedSecretGenerator().generateSharedSecretToByteArray(publicXdhKey)
     }
 
-    override fun generateSigningKeyPair(): SigningKeyPair = runBlocking {
+    override suspend fun hkdf(
+        ikm: ByteArray,
+        salt: ByteArray?,
+        info: ByteArray,
+        outputLength: Int,
+    ): ByteArray {
+        require(ikm.isNotEmpty()) { "ikm must not be empty" }
+        require(outputLength > 0) { "outputLength must be greater than 0" }
+        return hkdf.secretDerivation(
+            digest = SHA256,
+            outputSize = outputLength.bytes,
+            salt = salt,
+            info = info,
+        ).deriveSecretToByteArray(ikm)
+    }
+
+    override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray =
+        aeadKey(key).cipher().encrypt(plaintext)
+
+    override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray =
+        aeadKey(key).cipher().decrypt(ciphertext)
+
+    private suspend fun aeadKey(key: ByteArray): ChaCha20Poly1305.Key {
+        require(key.size == AEAD_KEY_SIZE_BYTES) {
+            "AEAD key must be $AEAD_KEY_SIZE_BYTES bytes but was ${key.size}"
+        }
+        return chacha20Poly1305.keyDecoder().decodeFromByteArray(
+            format = ChaCha20Poly1305.Key.Format.RAW,
+            bytes = key,
+        )
+    }
+
+    override suspend fun generateSigningKeyPair(): SigningKeyPair {
         val keyPair = edDsa.keyPairGenerator(EdDSA.Curve.Ed25519).generateKey()
         logger.info(
             component = LogComponent.CRYPTO,
@@ -44,13 +95,13 @@ class KmpCryptoProvider(
             message = "Generated signing key pair",
             fields = mapOf("keyPurpose" to IdentityKeyPurpose.SIGNING.name),
         )
-        SigningKeyPair(
+        return SigningKeyPair(
             publicKey = keyPair.publicKey.encodeToByteArray(EdDSA.PublicKey.Format.DER),
             privateKey = keyPair.privateKey.encodeToByteArray(EdDSA.PrivateKey.Format.DER),
         )
     }
 
-    override fun generateEncryptionKeyPair(): EncryptionKeyPair = runBlocking {
+    override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair {
         val keyPair = xdh.keyPairGenerator(XDH.Curve.X25519).generateKey()
         logger.info(
             component = LogComponent.CRYPTO,
@@ -58,27 +109,27 @@ class KmpCryptoProvider(
             message = "Generated encryption key pair",
             fields = mapOf("keyPurpose" to IdentityKeyPurpose.ENCRYPTION.name),
         )
-        EncryptionKeyPair(
+        return EncryptionKeyPair(
             publicKey = keyPair.publicKey.encodeToByteArray(XDH.PublicKey.Format.DER),
             privateKey = keyPair.privateKey.encodeToByteArray(XDH.PrivateKey.Format.DER),
         )
     }
 
-    override fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray = runBlocking {
+    override suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray {
         val privateKey = edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
             format = EdDSA.PrivateKey.Format.DER,
             bytes = privateSigningKey,
         )
-        privateKey.signatureGenerator().generateSignature(message)
+        return privateKey.signatureGenerator().generateSignature(message)
     }
 
-    override fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean{
-        val publicKey = runBlocking {edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
+    override suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean {
+        val publicKey = edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
             format = EdDSA.PublicKey.Format.DER,
             bytes = publicSigningKey,
-        )}
-        try {
-            return runBlocking {publicKey.signatureVerifier().tryVerifySignature(message, signature)}
+        )
+        return try {
+            publicKey.signatureVerifier().tryVerifySignature(message, signature)
         } catch (e: SignatureException) {
             logger.warn(
                 component = LogComponent.CRYPTO,
@@ -86,7 +137,7 @@ class KmpCryptoProvider(
                 message = "Detached signature verification failed with exception",
                 fields = mapOf("messageLength" to message.size, "exception" to e.toString()),
             )
-            return false
+            false
         }
     }
 }

@@ -1,5 +1,6 @@
 package org.yapyap.backend.protection
 
+import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
@@ -11,14 +12,15 @@ import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.routing.EnvelopeObservability
 
 interface MessageProtection {
-    fun open(envelope: MessageEnvelope): MessagePayload
-    fun protect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope
+    suspend fun open(envelope: MessageEnvelope): MessagePayload
+    suspend fun protect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope
 }
 
 class PlaintextMessageProtection(
+    private val cryptoProvider: CryptoProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
-    override fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+    override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextMessageProtection but got ${context.securityScheme}"
         }
@@ -27,14 +29,14 @@ class PlaintextMessageProtection(
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.PLAINTEXT_TEST_ONLY),
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
             payload = input,
         )
     }
 
-    override fun doOpen(envelope: MessageEnvelope): MessagePayload {
+    override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
@@ -56,52 +58,39 @@ class PlaintextMessageProtection(
 
 class SignedMessageProtection(
     private val signatureProvider: SignatureProvider,
+    private val cryptoProvider: CryptoProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
-    override fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+    override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
-        val encodedPayload = input.encode()
-        val envelopeId = messageEnvelopeId(input)
-        val signingPayload = buildSigningPayload(
-            envelopeId = envelopeId,
-            kindWireValue = input.kind.wireValue,
+        val unsigned = MessageEnvelope(
+            messageId = messageEnvelopeId(input),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
-            protectedPayload = encodedPayload,
-        )
-        val signature = signatureProvider.signDetached(signingPayload)
-        return MessageEnvelope(
-            messageId = envelopeId,
-            source = context.sourceDeviceId,
-            target = context.targetDeviceId,
-            createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
             securityScheme = SignalSecurityScheme.SIGNED,
-            signature = signature,
+            signature = null,
             payload = input,
         )
+        val signature = signatureProvider.sign(unsigned.encodeForSigning())
+        return unsigned.copy(signature = signature)
     }
 
-    override fun doOpen(envelope: MessageEnvelope): MessagePayload {
+    override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
         val signature = envelope.signature ?: error("SIGNED message envelope must contain signature")
-        val protectedPayload = envelope.payload.encode()
-        val signingPayload = buildSigningPayload(
-            envelopeId = envelope.messageId,
-            kindWireValue = envelope.kind.wireValue,
-            source = envelope.source,
-            target = envelope.target,
-            createdAtEpochSeconds = envelope.createdAtEpochSeconds,
-            nonce = envelope.nonce,
-            protectedPayload = protectedPayload,
-        )
-        require(signatureProvider.verifyDetached(envelope.source, signingPayload, signature)) {
+        require(
+            signatureProvider.verify(
+                deviceId = envelope.source,
+                message = envelope.encodeForSigning(),
+                signature = signature,
+            ),
+        ) {
             "Message signature verification failed for source=${envelope.source}"
         }
         logger.debug(

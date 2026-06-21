@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import org.yapyap.backend.crypto.AccountId
-import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.db.PacketDeduplicator
@@ -54,7 +53,6 @@ class DefaultRouter(
     val packetOutbox: PacketOutbox,
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
-    val cryptoProvider: CryptoProvider,
     val logger: AppLogger,
     val routerConfig: RouterConfig,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
@@ -227,7 +225,6 @@ class DefaultRouter(
             targetDeviceId = target,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             securityScheme = SignalSecurityScheme.SIGNED,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
         )
 
         val messageEnvelope = envelopeProtectionService.protectMessage(payload, context)
@@ -356,7 +353,7 @@ class DefaultRouter(
         }
     }
 
-    private suspend fun handleWebRtcSessionState(state: WebRtcSessionState) {
+    private fun handleWebRtcSessionState(state: WebRtcSessionState) {
         val phase = state.phase
         if (phase == WebRtcSessionPhase.CONNECTED) {
             val now = timeProvider.nowEpochSeconds()
@@ -466,11 +463,11 @@ class DefaultRouter(
         var nackReason: PacketNackReason?
 
         when (inbound.packetType) {
-            PacketType.SIGNAL -> nackReason = handleSignalEnvelope(inbound, receivedAtEpochSeconds)
-            PacketType.FILE -> nackReason = handleFileEnvelope(inbound, receivedAtEpochSeconds)
-            PacketType.MESSAGE -> nackReason = handleMessageEnvelope(inbound, receivedAtEpochSeconds)
+            PacketType.SIGNAL -> nackReason = handleSignalEnvelope(inbound)
+            PacketType.FILE -> nackReason = handleFileEnvelope(inbound)
+            PacketType.MESSAGE -> nackReason = handleMessageEnvelope(inbound)
             PacketType.SYSTEM -> {
-                handleSystemEnvelope(inbound, receivedAtEpochSeconds)
+                handleSystemEnvelope(inbound)
                 return
             }
             else -> {
@@ -511,7 +508,6 @@ class DefaultRouter(
             targetDeviceId = source,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             securityScheme = SignalSecurityScheme.SIGNED,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
         )
         val ackPayload = SystemPayload.PacketAck(
             packetId,
@@ -542,7 +538,6 @@ class DefaultRouter(
             targetDeviceId = source,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             securityScheme = SignalSecurityScheme.SIGNED,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
         )
         val ackPayload = SystemPayload.PacketNack(
             packetId,
@@ -589,7 +584,7 @@ class DefaultRouter(
         webRtcTransport.closeSession(sessionId)
     }
 
-    private suspend fun handleSignalEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long): PacketNackReason? {
+    private suspend fun handleSignalEnvelope(env: BinaryEnvelope): PacketNackReason? {
         val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -612,7 +607,11 @@ class DefaultRouter(
             )
             return PacketNackReason.WRONG_TARGET
         }
-        val signal = runCatching { envelopeProtectionService.openSignal(signalEnvelope) }.getOrNull() ?: run {
+        val signal = try {
+            envelopeProtectionService.openSignal(signalEnvelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             logger.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_PROTECTION_FAILED,
@@ -621,7 +620,7 @@ class DefaultRouter(
             )
             return PacketNackReason.PROTECTION_FAILED
         }
-        webRtcTransport.handleBootstrapSignal(signal, receivedAtEpochSeconds = receivedAtEpochSeconds)
+        webRtcTransport.handleBootstrapSignal(signal)
         return null
     }
 
@@ -631,7 +630,6 @@ class DefaultRouter(
             targetDeviceId = signal.target,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             securityScheme = SignalSecurityScheme.SIGNED,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
         )
         val envelope = envelopeProtectionService.protectSignal(signal, context)
 
@@ -649,12 +647,12 @@ class DefaultRouter(
         )
     }
 
-    private suspend fun handleFileEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long): PacketNackReason? {
+    private suspend fun handleFileEnvelope(env: BinaryEnvelope): PacketNackReason? {
         // TODO
         return null
     }
 
-    private suspend fun handleMessageEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long): PacketNackReason? {
+    private suspend fun handleMessageEnvelope(env: BinaryEnvelope): PacketNackReason? {
         //TODO validate envelope fields before decryption to avoid expensive operations on invalid envelopes
         //TODO check decryption
         val messageEnvelope = runCatching { MessageEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -682,7 +680,11 @@ class DefaultRouter(
             return null
         }
 
-        val payload = runCatching { envelopeProtectionService.openMessage(messageEnvelope) }.getOrNull() ?: run {
+        val payload = try {
+            envelopeProtectionService.openMessage(messageEnvelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             logger.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_PROTECTION_FAILED,
@@ -694,7 +696,7 @@ class DefaultRouter(
         incomingMessageFlow.emit(payload)
         return null
     }
-    private suspend fun handleSystemEnvelope(env: BinaryEnvelope, receivedAtEpochSeconds: Long) {
+    private suspend fun handleSystemEnvelope(env: BinaryEnvelope) {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -719,7 +721,11 @@ class DefaultRouter(
             return
         }
 
-        val payload = runCatching { envelopeProtectionService.openSystem(systemEnvelope) }.getOrNull() ?: run {
+        val payload = try {
+            envelopeProtectionService.openSystem(systemEnvelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             logger.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_PROTECTION_FAILED,

@@ -5,6 +5,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.SignalSecurityScheme
@@ -15,8 +16,8 @@ class WebRtcSignalProtectionTest {
     private val crypto = KmpCryptoProvider()
 
     @Test
-    fun plaintext_protectThenOpen_roundTrip() {
-        val protection = PlaintextWebRtcSignalProtection()
+    fun plaintext_protectThenOpen_roundTrip() = runTest {
+        val protection = PlaintextWebRtcSignalProtection(crypto)
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             source = FixturePeerIds.A,
@@ -31,8 +32,8 @@ class WebRtcSignalProtectionTest {
     }
 
     @Test
-    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() {
-        val protection = PlaintextWebRtcSignalProtection()
+    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() = runTest {
+        val protection = PlaintextWebRtcSignalProtection(crypto)
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,
             source = FixturePeerIds.A,
@@ -45,8 +46,8 @@ class WebRtcSignalProtectionTest {
     }
 
     @Test
-    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() {
-        val protection = PlaintextWebRtcSignalProtection()
+    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() = runTest {
+        val protection = PlaintextWebRtcSignalProtection(crypto)
         val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
         val envelope = WebRtcSignalEnvelope(
             sessionId = input.sessionId,
@@ -65,7 +66,7 @@ class WebRtcSignalProtectionTest {
     }
 
     @Test
-    fun signed_protectThenOpen_roundTrip() {
+    fun signed_protectThenOpen_roundTrip() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -74,7 +75,7 @@ class WebRtcSignalProtectionTest {
             peerRecords = mapOf(sourcePeer to record),
         )
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
-        val protection = SignedWebRtcSignalProtection(signatureProvider)
+        val protection = SignedWebRtcSignalProtection(signatureProvider, crypto)
 
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,
@@ -89,12 +90,12 @@ class WebRtcSignalProtectionTest {
     }
 
     @Test
-    fun signed_protect_throwsWhenContextSchemeNotSigned() {
+    fun signed_protect_throwsWhenContextSchemeNotSigned() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
         val resolver = FakeIdentityResolverForProtection(signingKeys.privateKey, mapOf(sourcePeer to record))
-        val protection = SignedWebRtcSignalProtection(DefaultSignatureProvider(resolver, crypto))
+        val protection = SignedWebRtcSignalProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -107,7 +108,7 @@ class WebRtcSignalProtectionTest {
     }
 
     @Test
-    fun signed_open_throwsWhenSignatureInvalid() {
+    fun signed_open_throwsWhenSignatureInvalid() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -116,7 +117,7 @@ class WebRtcSignalProtectionTest {
             peerRecords = mapOf(sourcePeer to record),
         )
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
-        val protection = SignedWebRtcSignalProtection(signatureProvider)
+        val protection = SignedWebRtcSignalProtection(signatureProvider, crypto)
 
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,

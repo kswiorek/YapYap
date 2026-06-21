@@ -3,6 +3,7 @@ package org.yapyap.backend.crypto
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
@@ -15,7 +16,7 @@ class DefaultSignatureProviderTest {
     private val crypto = KmpCryptoProvider()
 
     @Test
-    fun signDetached_thenVerifyDetached_withRegisteredPeer_succeeds() {
+    fun signDetached_thenVerifyDetached_withRegisteredPeer_succeeds() = runTest {
         val signingKeys = crypto.generateSigningKeyPair()
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
@@ -43,13 +44,13 @@ class DefaultSignatureProviderTest {
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
 
         val message = "router-bound payload".encodeToByteArray()
-        val sig = signatureProvider.signDetached(message)
+        val sig = signatureProvider.sign(message)
 
-        assertTrue(signatureProvider.verifyDetached(peerId, message, sig))
+        assertTrue(signatureProvider.verify(peerId, message, sig))
     }
 
     @Test
-    fun verifyDetached_falseWhenMessageModified() {
+    fun verifyDetached_falseWhenMessageModified() = runTest {
         val signingKeys = crypto.generateSigningKeyPair()
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
@@ -77,14 +78,14 @@ class DefaultSignatureProviderTest {
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
 
         val message = "original".encodeToByteArray()
-        val sig = signatureProvider.signDetached(message)
+        val sig = signatureProvider.sign(message)
         val tampered = message + byteArrayOf(0)
 
-        assertFalse(signatureProvider.verifyDetached(peerId, tampered, sig))
+        assertFalse(signatureProvider.verify(peerId, tampered, sig))
     }
 
     @Test
-    fun verifyDetached_falseWhenSignatureTampered() {
+    fun verifyDetached_falseWhenSignatureTampered() = runTest {
         val signingKeys = crypto.generateSigningKeyPair()
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
@@ -112,14 +113,14 @@ class DefaultSignatureProviderTest {
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
 
         val message = "integrity".encodeToByteArray()
-        val sig = signatureProvider.signDetached(message).copyOf()
+        val sig = signatureProvider.sign(message).copyOf()
         sig[0] = (sig[0].toInt() xor 0xff).toByte()
 
-        assertFalse(signatureProvider.verifyDetached(peerId, message, sig))
+        assertFalse(signatureProvider.verify(peerId, message, sig))
     }
 
     @Test
-    fun verifyDetached_falseWhenPeerUnknown() {
+    fun verifyDetached_falseWhenPeerUnknown() = runTest {
         val signingKeys = crypto.generateSigningKeyPair()
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
@@ -148,9 +149,9 @@ class DefaultSignatureProviderTest {
 
         val otherPeerId = crypto.peerIdFromPublicKey(crypto.generateSigningKeyPair().publicKey)
         val message = "m".encodeToByteArray()
-        val sig = signatureProvider.signDetached(message)
+        val sig = signatureProvider.sign(message)
 
-        assertFalse(signatureProvider.verifyDetached(otherPeerId, message, sig))
+        assertFalse(signatureProvider.verify(otherPeerId, message, sig))
     }
 
     /**
@@ -161,9 +162,9 @@ class DefaultSignatureProviderTest {
         private val peerRecords: Map<PeerId, DeviceIdentityRecord>,
     ) : IdentityResolver {
 
-        override fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used in test")
+        override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used in test")
 
-        override fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used in test")
+        override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used in test")
 
         override fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
             require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }

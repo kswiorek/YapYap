@@ -18,6 +18,9 @@ data class SystemEnvelope(
     val kind: SystemEnvelopeKind
         get() = payload.kind
 
+    /** Canonical wire bytes with [signature] cleared; used as Ed25519 signing input. */
+    fun encodeForSigning(): ByteArray = copy(signature = null).encode()
+
     fun encode(): ByteArray {
         val encodedPayload = payload.encode()
         val writer = ByteWriter(256 + nonce.size + encodedPayload.size + (signature?.size ?: 0))

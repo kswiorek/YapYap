@@ -41,10 +41,8 @@ internal fun sampleEnvelopeContext(
     source: PeerId,
     target: PeerId,
     createdAtEpochSeconds: Long = 1_700_000_000L,
-    nonce: ByteArray = nonce24(),
 ): EnvelopeProtectContext = EnvelopeProtectContext(
     createdAtEpochSeconds = createdAtEpochSeconds,
-    nonce = nonce,
     sourceDeviceId = source,
     targetDeviceId = target,
     securityScheme = scheme,
@@ -115,7 +113,7 @@ internal fun sampleFileOfferPayload(): FilePayload.Offer =
 /**
  * Local signing key plus two distinct [PeerId]s for source/target roles.
  */
-internal fun samplePeerTriplet(crypto: KmpCryptoProvider): Triple<SigningKeyPair, PeerId, PeerId> {
+internal suspend fun samplePeerTriplet(crypto: KmpCryptoProvider): Triple<SigningKeyPair, PeerId, PeerId> {
     val localSigning = crypto.generateSigningKeyPair()
     val sourcePeer = crypto.peerIdFromPublicKey(localSigning.publicKey)
     val remoteSigning = crypto.generateSigningKeyPair()
@@ -123,7 +121,7 @@ internal fun samplePeerTriplet(crypto: KmpCryptoProvider): Triple<SigningKeyPair
     return Triple(localSigning, sourcePeer, targetPeer)
 }
 
-internal fun deviceRecordFor(
+internal suspend fun deviceRecordFor(
     crypto: KmpCryptoProvider,
     signingKeys: SigningKeyPair,
     encryptionKeys: EncryptionKeyPair,
@@ -154,9 +152,9 @@ internal class FakeIdentityResolverForProtection(
     private val peerRecords: Map<PeerId, DeviceIdentityRecord>,
 ) : IdentityResolver {
 
-    override fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
+    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
 
-    override fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
+    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
 
     override fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
         require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }
@@ -178,19 +176,19 @@ internal class FakeIdentityResolverForProtection(
  */
 internal class PassthroughFileProtection : FileProtection {
 
-    override fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+    override suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
         FileEnvelope(
             transferId = "fixture-transfer-id",
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
+            nonce = ByteArray(context.securityScheme.nonceSize) { 7 },
             securityScheme = context.securityScheme,
             signature = null,
             payload = input,
         )
 
-    override fun open(input: FileEnvelope): OpenedFileEnvelope =
+    override suspend fun open(input: FileEnvelope): OpenedFileEnvelope =
         OpenedFileEnvelope(
             transferId = input.transferId,
             source = input.source.id,
@@ -200,7 +198,7 @@ internal class PassthroughFileProtection : FileProtection {
             payload = input.payload,
         )
 
-    override fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+    override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
         FileChunk(
             fileName = "fixture.bin",
             chunkIndex = chunk.chunkIndex,

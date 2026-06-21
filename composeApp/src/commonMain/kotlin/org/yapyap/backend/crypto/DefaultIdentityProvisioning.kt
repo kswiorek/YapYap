@@ -16,7 +16,7 @@ class DefaultIdentityProvisioning(
     private val identityResolver: IdentityResolver,
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityProvisioning {
-    override fun createNewDeviceIdentity(): DeviceIdentityRecord {
+    override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord {
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.STARTED,
@@ -60,7 +60,7 @@ class DefaultIdentityProvisioning(
         return identity
     }
 
-    override fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
+    override suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.STARTED,

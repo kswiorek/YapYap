@@ -22,6 +22,9 @@ data class WebRtcSignalEnvelope(
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
+    /** Canonical wire bytes with [signature] cleared; used as Ed25519 signing input. */
+    fun encodeForSigning(): ByteArray = copy(signature = null).encode()
+
     fun encode(): ByteArray {
         val writer = ByteWriter(256 + protectedPayload.size + nonce.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)

@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.db.AccountStatus
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -35,7 +36,7 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun provisioning_createAccount_then_createDevice_resolver_roundTrip() {
+    fun provisioning_createAccount_then_createDevice_resolver_roundTrip() = runTest {
         val (_, _, triple) = stack()
         val (resolver, provisioning, logger) = triple
 
@@ -66,7 +67,7 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun resolver_getLocalAccount_throwsWhenAccountRowMissing() {
+    fun resolver_getLocalAccount_throwsWhenAccountRowMissing() = runTest {
         val (_, store, triple) = stack()
         val (resolver, _, _) = triple
 
@@ -88,7 +89,7 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun provisioning_provisionPeerDevice_then_resolveTor_and_listPeers() {
+    fun provisioning_provisionPeerDevice_then_resolveTor_and_listPeers() = runTest {
         val (repo, _, triple) = stack()
         val (resolver, provisioning, _) = triple
 
@@ -115,7 +116,7 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun provisioning_provisionPeerAccount_persistsInRepository() {
+    fun provisioning_provisionPeerAccount_persistsInRepository() = runTest {
         val (repo, _, triple) = stack()
         val (_, provisioning, _) = triple
 

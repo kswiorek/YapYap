@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.MessageEnvelope
@@ -14,8 +15,8 @@ class MessageProtectionTest {
     private val crypto = KmpCryptoProvider()
 
     @Test
-    fun plaintext_protectThenOpen_roundTrip() {
-        val protection = PlaintextMessageProtection()
+    fun plaintext_protectThenOpen_roundTrip() = runTest {
+        val protection = PlaintextMessageProtection(crypto)
         val payload = sampleTextPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -29,8 +30,8 @@ class MessageProtectionTest {
     }
 
     @Test
-    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() {
-        val protection = PlaintextMessageProtection()
+    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() = runTest {
+        val protection = PlaintextMessageProtection(crypto)
         val payload = sampleTextPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,
@@ -43,8 +44,8 @@ class MessageProtectionTest {
     }
 
     @Test
-    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() {
-        val protection = PlaintextMessageProtection()
+    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() = runTest {
+        val protection = PlaintextMessageProtection(crypto)
         val payload = sampleTextPayload()
         val envelope = MessageEnvelope(
             messageId = payload.messageId,
@@ -62,7 +63,7 @@ class MessageProtectionTest {
     }
 
     @Test
-    fun signed_protectThenOpen_roundTrip() {
+    fun signed_protectThenOpen_roundTrip() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -71,7 +72,7 @@ class MessageProtectionTest {
             peerRecords = mapOf(sourcePeer to record),
         )
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
-        val protection = SignedMessageProtection(signatureProvider)
+        val protection = SignedMessageProtection(signatureProvider, crypto)
 
         val payload = sampleTextPayload("signed-msg-1")
         val ctx = sampleEnvelopeContext(
@@ -85,12 +86,12 @@ class MessageProtectionTest {
     }
 
     @Test
-    fun signed_protect_throwsWhenContextSchemeNotSigned() {
+    fun signed_protect_throwsWhenContextSchemeNotSigned() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
         val resolver = FakeIdentityResolverForProtection(signingKeys.privateKey, mapOf(sourcePeer to record))
-        val protection = SignedMessageProtection(DefaultSignatureProvider(resolver, crypto))
+        val protection = SignedMessageProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -103,7 +104,7 @@ class MessageProtectionTest {
     }
 
     @Test
-    fun signed_open_throwsWhenSignatureInvalid() {
+    fun signed_open_throwsWhenSignatureInvalid() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -112,7 +113,7 @@ class MessageProtectionTest {
             peerRecords = mapOf(sourcePeer to record),
         )
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
-        val protection = SignedMessageProtection(signatureProvider)
+        val protection = SignedMessageProtection(signatureProvider, crypto)
 
         val payload = sampleTextPayload("tamper-msg")
         val ctx = sampleEnvelopeContext(

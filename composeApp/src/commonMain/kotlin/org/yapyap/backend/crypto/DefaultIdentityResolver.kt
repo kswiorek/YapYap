@@ -16,7 +16,7 @@ class DefaultIdentityResolver(
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityResolver {
 
-    override fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord {
+    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord {
 
         val publicSigningKey = privateKeyStore.getKey(
             ref = KeyReference(
@@ -83,7 +83,7 @@ class DefaultIdentityResolver(
         }
     }
 
-    override fun getLocalAccountIdentityRecord(): AccountIdentityRecord {
+    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord {
         val publicSigningKey = privateKeyStore.getKey(
             ref = KeyReference(
                 keyId = config.defaultAccountLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),

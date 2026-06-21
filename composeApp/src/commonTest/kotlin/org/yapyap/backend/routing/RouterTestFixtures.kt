@@ -43,24 +43,34 @@ internal class FixedEpochSecondsProvider(private val fixed: Long) : EpochSeconds
 internal class StubCryptoProvider(
     private val nonceFill: Byte = 1,
 ) : CryptoProvider {
-    override fun sha256(bytes: ByteArray): ByteArray = ByteArray(32) { (it + bytes.size).toByte() }
+    override suspend fun sha256(bytes: ByteArray): ByteArray = ByteArray(32) { (it + bytes.size).toByte() }
 
     override fun randomBytes(size: Int): ByteArray = ByteArray(size) { 3 }
 
-    override fun generateSigningKeyPair(): SigningKeyPair =
+    override suspend fun generateSigningKeyPair(): SigningKeyPair =
         SigningKeyPair(publicKey = byteArrayOf(9), privateKey = byteArrayOf(8))
 
-    override fun generateEncryptionKeyPair(): EncryptionKeyPair =
+    override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair =
         EncryptionKeyPair(publicKey = byteArrayOf(7), privateKey = byteArrayOf(6))
 
-    override fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray =
+    override suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray =
         byteArrayOf(4, 5, 6)
 
-    override fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean =
+    override suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean =
         true
 
     override fun generateNonce(scheme: SignalSecurityScheme): ByteArray =
         ByteArray(scheme.nonceSize) { nonceFill }
+
+    override suspend fun deriveSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray =
+        ByteArray(32) { 5 }
+
+    override suspend fun hkdf(ikm: ByteArray, salt: ByteArray?, info: ByteArray, outputLength: Int): ByteArray =
+        ByteArray(outputLength) { 6 }
+
+    override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray = plaintext
+
+    override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray = ciphertext
 }
 
 /**
@@ -69,20 +79,20 @@ internal class StubCryptoProvider(
  */
 internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionService {
 
-    override fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
+    override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
         WebRtcSignalEnvelope(
             sessionId = input.sessionId,
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
+            nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
             protectedPayload = input.payload,
         )
 
-    override fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
+    override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
         WebRtcSignal(
             sessionId = envelope.sessionId,
             kind = envelope.kind,
@@ -91,16 +101,16 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             payload = envelope.protectedPayload,
         )
 
-    override fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+    override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
         error("not used in router transport tests")
 
-    override fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
+    override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         error("not used in router transport tests")
 
-    override fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
         error("not used in router transport tests")
 
-    override fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+    override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         val messageId =
             when (input) {
                 is MessagePayload.Text -> input.messageId
@@ -111,16 +121,16 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
+            nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
             payload = input,
         )
     }
 
-    override fun openMessage(envelope: MessageEnvelope): MessagePayload = envelope.decodePayload()
+    override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = envelope.decodePayload()
 
-    override fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
+    override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         val correlationId = when (input) {
             is SystemPayload.PacketAck -> "ack:${input.packetId.toHex()}"
             is SystemPayload.PacketNack -> "nack:${input.packetId.toHex()}"
@@ -130,14 +140,14 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = context.nonce,
+            nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
             payload = input,
         )
     }
 
-    override fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
+    override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
 }
 
 internal class SequencedPacketIdAllocator : PacketIdAllocator {
@@ -212,9 +222,9 @@ internal class FakeIdentityResolverForRouter(
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
 ) : IdentityResolver {
 
-    override fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = localDevice
+    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = localDevice
 
-    override fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
+    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("FakeIdentityResolverForRouter: account record not stubbed")
 
     override fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
@@ -334,8 +344,6 @@ internal class TrackingPacketOutbox : PacketOutbox {
         )
 }
 
-internal typealias InMemoryPacketOutbox = TrackingPacketOutbox
-
 internal fun defaultRouterUnderTest(
     tor: RecordingTorTransport = RecordingTorTransport(),
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
@@ -355,7 +363,6 @@ internal fun defaultRouterUnderTest(
         packetOutbox = outbox,
         envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
         timeProvider = time,
-        cryptoProvider = StubCryptoProvider(),
         logger = NoopAppLogger,
         routerConfig = routerConfig,
     )

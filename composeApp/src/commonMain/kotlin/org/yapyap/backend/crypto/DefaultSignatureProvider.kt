@@ -12,7 +12,7 @@ class DefaultSignatureProvider(
     private val logger: AppLogger = NoopAppLogger,
 ) : SignatureProvider {
 
-    override fun signDetached(message: ByteArray): ByteArray {
+    override suspend fun sign(message: ByteArray): ByteArray {
         val privateKey = identityResolver.loadLocalPrivateKey(
             purpose = IdentityKeyPurpose.SIGNING,
         )
@@ -25,7 +25,7 @@ class DefaultSignatureProvider(
         return cryptoProvider.signDetached(privateKey, message)
     }
 
-    override fun verifyDetached(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean {
+    override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean {
         val publicKey = identityResolver.resolvePeerIdentityRecord(deviceId)?.signing?.publicKey
         if (publicKey == null) {
             logger.warn(

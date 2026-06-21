@@ -17,39 +17,30 @@ class DefaultEnvelopeProtectionService(
     val messageProtection: MessageProtection,
     val systemProtection: SystemProtection,
 ): EnvelopeProtectionService {
-    override fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
-        return webRtcSignalProtection.protect(input, context)
-    }
+    override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
+        webRtcSignalProtection.protect(input, context)
 
-    override fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal {
-        return webRtcSignalProtection.open(envelope)
-    }
+    override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
+        webRtcSignalProtection.open(envelope)
 
-    override fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope {
-        return fileProtection.protect(input, context)
-    }
+    override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+        fileProtection.protect(input, context)
 
-    override fun openFile(envelope: FileEnvelope): OpenedFileEnvelope {
-        return fileProtection.open(envelope)
-    }
+    override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
+        fileProtection.open(envelope)
 
-    override fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk {
-        return fileProtection.decryptChunk(chunk)
-    }
+    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+        fileProtection.decryptChunk(chunk)
 
-    override fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
-        return messageProtection.protect(input, context)
-    }
+    override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
+        messageProtection.protect(input, context)
 
-    override fun openMessage(envelope: MessageEnvelope): MessagePayload {
-        return messageProtection.open(envelope)
-    }
+    override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload =
+        messageProtection.open(envelope)
 
-    override fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
-        return systemProtection.protect(input, context)
-    }
+    override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
+        systemProtection.protect(input, context)
 
-    override fun openSystem(envelope: SystemEnvelope): SystemPayload {
-        return systemProtection.open(envelope)
-    }
+    override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload =
+        systemProtection.open(envelope)
 }

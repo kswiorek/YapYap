@@ -102,6 +102,34 @@ class MessageEnvelopeCodecTest {
     }
 
     @Test
+    fun messageEnvelope_encodeForSigning_omitsSignatureBytes() {
+        val payload = MessagePayload.Text(
+            messageId = "mid-sign",
+            roomId = "r",
+            senderAccountId = "a",
+            prevId = null,
+            lamportClock = 0L,
+            messagePayload = byteArrayOf(9),
+            lifecycleState = MessageLifecycleState.CREATED,
+            isOrphaned = false,
+        )
+        val sig = ByteArray(64) { it.toByte() }
+        val signed = MessageEnvelope(
+            messageId = "mid-sign",
+            source = source,
+            target = target,
+            createdAtEpochSeconds = 0L,
+            nonce = nonce,
+            securityScheme = SignalSecurityScheme.SIGNED,
+            signature = sig,
+            payload = payload,
+        )
+        val unsigned = signed.copy(signature = null)
+        assertContentEquals(unsigned.encode(), signed.encodeForSigning())
+        assertMessageEnvelopeEquals(unsigned, MessageEnvelope.decode(signed.encodeForSigning()))
+    }
+
+    @Test
     fun messageEnvelope_full_encodeDecode_signedSignatureBytes_roundTrip() {
         val payload = MessagePayload.Text(
             messageId = "mid-3",

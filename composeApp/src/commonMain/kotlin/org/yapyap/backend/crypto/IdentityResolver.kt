@@ -4,9 +4,9 @@ import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
 interface IdentityResolver {
-    fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord
+    suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord
 
-    fun getLocalAccountIdentityRecord(): AccountIdentityRecord
+    suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord
 
     fun loadLocalPrivateKey(purpose: IdentityKeyPurpose): ByteArray
 

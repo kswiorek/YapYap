@@ -5,17 +5,17 @@ import org.yapyap.backend.protocol.SignalSecurityScheme
 
 
 interface CryptoProvider {
-    fun sha256(bytes: ByteArray): ByteArray
+    suspend fun sha256(bytes: ByteArray): ByteArray
 
     fun randomBytes(size: Int): ByteArray
 
-    fun generateSigningKeyPair(): SigningKeyPair
+    suspend fun generateSigningKeyPair(): SigningKeyPair
 
-    fun generateEncryptionKeyPair(): EncryptionKeyPair
+    suspend fun generateEncryptionKeyPair(): EncryptionKeyPair
 
-    fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray
+    suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray
 
-    fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean
+    suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean
 
     fun toHex(bytes: ByteArray): String = bytes.joinToString(separator = "") { byte ->
         byte.toInt().and(0xff).toString(16).padStart(2, '0')
@@ -23,11 +23,21 @@ interface CryptoProvider {
 
     fun generateNonce(scheme: SignalSecurityScheme): ByteArray
 
-    fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): AccountId =
+    suspend fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): AccountId =
         AccountId(toHex(sha256(accountSigningPublicKey)))
 
-    fun peerIdFromPublicKey(deviceSigningPublicKey: ByteArray): PeerId =
+    suspend fun peerIdFromPublicKey(deviceSigningPublicKey: ByteArray): PeerId =
         PeerId(toHex(sha256(deviceSigningPublicKey)))
+
+    suspend fun deriveSharedSecret(privateKey: ByteArray, publicKey: ByteArray): ByteArray
+
+    suspend fun hkdf(ikm: ByteArray, salt: ByteArray?, info: ByteArray, outputLength: Int): ByteArray
+
+    /** ChaCha20-Poly1305; returned bytes are `IV || ciphertext || tag` (library-managed IV). */
+    suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray
+
+    /** Inverse of [encryptAead]; expects the same `IV || ciphertext || tag` layout. */
+    suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray
 }
 
 data class SigningKeyPair(
@@ -41,8 +51,7 @@ data class EncryptionKeyPair(
 )
 
 interface SignatureProvider {
+    suspend fun sign(message: ByteArray): ByteArray
 
-    fun signDetached(message: ByteArray): ByteArray
-
-    fun verifyDetached(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean
+    suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean
 }

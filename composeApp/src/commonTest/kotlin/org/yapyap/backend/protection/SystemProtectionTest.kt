@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.SignalSecurityScheme
@@ -14,8 +15,8 @@ class SystemProtectionTest {
     private val crypto = KmpCryptoProvider()
 
     @Test
-    fun plaintext_protectThenOpen_packetAck_roundTrip() {
-        val protection = PlaintextSystemProtection()
+    fun plaintext_protectThenOpen_packetAck_roundTrip() = runTest {
+        val protection = PlaintextSystemProtection(crypto)
         val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -28,8 +29,8 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun plaintext_protectThenOpen_packetNack_roundTrip() {
-        val protection = PlaintextSystemProtection()
+    fun plaintext_protectThenOpen_packetNack_roundTrip() = runTest {
+        val protection = PlaintextSystemProtection(crypto)
         val payload = samplePacketNackPayload(reasonText = null)
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -42,8 +43,8 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() {
-        val protection = PlaintextSystemProtection()
+    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() = runTest {
+        val protection = PlaintextSystemProtection(crypto)
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,
             source = FixturePeerIds.A,
@@ -55,7 +56,7 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun signed_protectThenOpen_packetAck_roundTrip() {
+    fun signed_protectThenOpen_packetAck_roundTrip() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -63,7 +64,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
         val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(
@@ -77,7 +78,7 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun signed_protectThenOpen_packetNack_roundTrip() {
+    fun signed_protectThenOpen_packetNack_roundTrip() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -85,7 +86,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
         val payload = samplePacketNackPayload()
         val ctx = sampleEnvelopeContext(
@@ -99,7 +100,7 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun signed_open_throwsWhenSignatureInvalid() {
+    fun signed_open_throwsWhenSignatureInvalid() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -107,7 +108,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
         val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(
@@ -128,7 +129,7 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun signed_protect_setsCorrelationIdFromPayload() {
+    fun signed_protect_setsCorrelationIdFromPayload() = runTest {
         val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
@@ -136,7 +137,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto))
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
         val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(
@@ -149,8 +150,8 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() {
-        val protection = PlaintextSystemProtection()
+    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() = runTest {
+        val protection = PlaintextSystemProtection(crypto)
         val payload = samplePacketAckPayload()
         val envelope = SystemEnvelope(
             correlationId = "ack:${payload.packetId.toHex()}",
