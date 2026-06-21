@@ -347,7 +347,7 @@ class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun handleBootstrapSignal(signal: WebRtcSignal, receivedAtEpochSeconds: Long) {
+    override suspend fun handleBootstrapSignal(signal: WebRtcSignal) {
         val local = requireNotNull(localDevice) { "Local device is not available" }
         if (signal.target != local) {
             logger.debug(
