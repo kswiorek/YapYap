@@ -1,0 +1,94 @@
+---
+config:
+  layout: elk
+---
+
+flowchart TD
+%% Styling
+    classDef directory fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px;
+    classDef handshake fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+    classDef crypto fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    classDef transport fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
+    classDef epoch fill:#d4edda,stroke:#28a745,stroke-width:2px;
+
+%% Actors
+    Alice((Alice\nInitiator))
+    Bob((Bob\nResponder))
+    Roster[(Local Roster / Device DB\nIK + SPK per peer)]
+    Relay((Tor Relays\nStore-and-Forward))
+
+%% ==========================================
+%% DIRECTORY: NO CENTRAL PREKEY SERVER
+%% ==========================================
+    subgraph Directory ["Directory Layer (mesh-gossiped, not fetched from offline peer)"]
+        BobLogin[Bob logs in:\ngenerate / rotate SPK\nsign with device key]:::directory
+        PublishSPK[Publish DeviceDirectoryUpdate:\nIK_B + SPK_B + spk_id + signature]:::directory
+        RosterGossip[Roster propagates via mesh\nPING / global events / intro sync]:::directory
+        PeersStore[Each peer stores IK_B + SPK_B locally]:::directory
+
+        BobLogin --> PublishSPK --> RosterGossip --> PeersStore
+        PeersStore --> Roster
+    end
+
+    Bob --> BobLogin
+    RosterGossip -. "mesh" .-> Roster
+
+%% ==========================================
+%% EPOCH 1: 3-DH OFFLINE-FIRST CONTACT
+%% ==========================================
+    subgraph Epoch1 ["Epoch 1 — 3-DH Session (Bob may be offline)"]
+        AliceRead[Alice loads IK_B + SPK_B from roster]:::handshake
+        GenEK_A[Alice generates ephemeral EK_A]:::crypto
+        SK3["Compute SK₃:\nDH1 = DH(IK_A, SPK_B)\nDH2 = DH(EK_A, IK_B)\nDH3 = DH(EK_A, SPK_B)\nSK₃ = KDF(DH1 ‖ DH2 ‖ DH3)"]:::crypto
+        Ratchet1["DoubleRatchetSession epoch 1\ncreateInitiator → encrypt"]:::epoch
+        FirstWire[First messages include:\nEK_A pub, spk_id, session_epoch=1\n+ ratchet ciphertext]:::handshake
+        QueueRelay["Send ENCRYPTED_AND_SIGNED envelopes\nTor → relay holds ciphertext"]:::transport
+
+        AliceRead --> GenEK_A --> SK3 --> Ratchet1 --> FirstWire --> QueueRelay
+        Roster --> AliceRead
+        QueueRelay --> Relay
+    end
+
+    Alice --> AliceRead
+
+%% ==========================================
+%% BOB CATCH-UP ON EPOCH 1
+%% ==========================================
+    subgraph BobCatchUp ["Bob Online — Catch Up Epoch 1"]
+        BobRecv[Bob receives queued envelopes]:::transport
+        BobSK3["Bob computes same SK₃\nusing EK_A pub from message\n+ local IK_B / SPK_B private keys"]:::crypto
+        Ratchet1Bob["DoubleRatchetSession epoch 1\ncreateResponder → decrypt backlog"]:::epoch
+        BobReply[Bob replies on epoch 1 ratchet]:::handshake
+
+        Relay --> BobRecv --> BobSK3 --> Ratchet1Bob --> BobReply
+    end
+
+    Bob --> BobRecv
+    QueueRelay -. "when Bob offline" .-> Relay
+
+%% ==========================================
+%% EPOCH 2: OPTIONAL 4-DH RE-KEY (NEW SESSION)
+%% ==========================================
+    subgraph Epoch2 ["Epoch 2 — 4-DH Session (new session, not in-place upgrade)"]
+        BobOPK[Bob selects OPK_B from local pool\nmarks it consumed]:::crypto
+        SendOPK[Bob sends OPK_B pub + opk_id\nsigned message OR inside epoch-1 E2EE]:::handshake
+        SK4["Both compute SK₄:\nDH4 = DH(EK_A, OPK_B)\nSK₄ = KDF(DH1 ‖ DH2 ‖ DH3 ‖ DH4)\n(same EK_A or agreed EK_A′)"]:::crypto
+        Ratchet2[New DoubleRatchetSession epoch 2\ncreateInitiator / createResponder]:::epoch
+        NewTraffic[Further messages use session_epoch=2]:::handshake
+
+        BobReply --> BobOPK --> SendOPK --> SK4 --> Ratchet2 --> NewTraffic
+    end
+
+    SendOPK -. "Alice offline OK" .-> Relay
+    Relay -. "Alice receives OPK_B" .-> SK4
+    Alice -. "when online" .-> SK4
+
+%% ==========================================
+%% SPK ROTATION (ONGOING, INDEPENDENT OF OPK RE-KEY)
+%% ==========================================
+    subgraph SpkRotation ["SPK Rotation (ongoing)"]
+        RotateSPK[Bob rotates SPK periodically\nnew signed roster update]:::directory
+        NewInitiators[New initiators use new SPK_B\nExisting ratchet sessions unaffected]:::handshake
+        PublishSPK --> RotateSPK
+        RotateSPK --> NewInitiators
+    end

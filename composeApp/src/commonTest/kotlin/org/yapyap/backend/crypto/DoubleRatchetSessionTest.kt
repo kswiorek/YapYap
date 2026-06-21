@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 class DoubleRatchetSessionTest {
 
     private val crypto = KmpCryptoProvider()
+    private val x3dh = X3dhHandshake(crypto)
 
     @Test
     fun encryptDecrypt_initiatorToResponder_roundTrip() = runTest {
@@ -103,16 +104,33 @@ class DoubleRatchetSessionTest {
     }
 
     private suspend fun testBootstraps(): Pair<RatchetBootstrap, RatchetBootstrap> {
-        val bobKeys = crypto.generateEncryptionKeyPair()
-        val aliceKeys = crypto.generateEncryptionKeyPair()
-        val sharedSecret = crypto.deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey)
-        return RatchetBootstrap(
-            sharedSecret = sharedSecret,
-            remoteDhPublicKey = bobKeys.publicKey,
-        ) to RatchetBootstrap(
-            sharedSecret = sharedSecret,
-            localDhPrivateKey = bobKeys.privateKey,
-            localDhPublicKey = bobKeys.publicKey,
+        val aliceIk = crypto.generateEncryptionKeyPair()
+        val bobIk = crypto.generateEncryptionKeyPair()
+        val bobSpk = crypto.generateEncryptionKeyPair()
+        val ekA = crypto.generateEncryptionKeyPair()
+        val initiator = x3dh.initiatorCompute3Dh(
+            local = X3dhLocalInitiatorKeys(
+                identityEncryptionPrivateKey = aliceIk.privateKey,
+                identityEncryptionPublicKey = aliceIk.publicKey,
+            ),
+            remote = X3dhRemotePeerKeys(
+                identityEncryptionPublicKey = bobIk.publicKey,
+                signedPreKeyPublicKey = bobSpk.publicKey,
+                signedPreKeyId = "spk-test",
+            ),
+            ephemeral = ekA,
         )
+        val responder = x3dh.responderCompute3Dh(
+            local = X3dhLocalResponderKeys(
+                identityEncryptionPrivateKey = bobIk.privateKey,
+                identityEncryptionPublicKey = bobIk.publicKey,
+                signedPreKeyPrivateKey = bobSpk.privateKey,
+                signedPreKeyPublicKey = bobSpk.publicKey,
+                signedPreKeyId = "spk-test",
+            ),
+            remoteIdentityEncryptionPublicKey = aliceIk.publicKey,
+            wire = initiator.wire,
+        )
+        return initiator.ratchetBootstrap to responder.ratchetBootstrap
     }
 }

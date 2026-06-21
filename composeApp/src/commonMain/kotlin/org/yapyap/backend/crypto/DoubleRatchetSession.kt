@@ -249,16 +249,6 @@ data class RatchetSkippedKeyId(
     }
 }
 
-/** Output of X3DH (or test fixtures) used to construct a session. */
-data class RatchetBootstrap(
-    val sharedSecret: ByteArray,
-    /** Initiator: responder's signed prekey / ratchet key from the X3DH bundle. */
-    val remoteDhPublicKey: ByteArray? = null,
-    /** Responder: local signed prekey private material used in the first DH ratchet step. */
-    val localDhPrivateKey: ByteArray? = null,
-    val localDhPublicKey: ByteArray? = null,
-)
-
 private data class MutableRatchetState(
     var rootKey: ByteArray,
     var sendChainKey: ByteArray?,

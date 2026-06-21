@@ -3,63 +3,65 @@ flowchart TD
     classDef handshake fill:#cce5ff,stroke:#007bff,stroke-width:2px;
     classDef ratchet fill:#d4edda,stroke:#28a745,stroke-width:2px;
     classDef crypto fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
+    classDef ref fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px;
 
 %% Actors
     Init((Initiator\nPeer A))
     Resp((Responder\nPeer B))
 
 %% ==========================================
-%% PHASE 1: THE X3DH HANDSHAKE
+%% PHASE 1: X3DH (SEE DEDICATED DIAGRAM)
 %% ==========================================
-    subgraph Handshake ["Phase 1: X3DH Initial Handshake (Once per device pair)"]
-        ReqBundle[1. Send 'Hello' over Tor\nRequest PreKey Bundle]:::handshake
+    subgraph X3DH ["Phase 1: X3DH Session Setup (per device pair, per session epoch)"]
+        X3DHRef["See x3dh diagram.mmd\n\n• IK + SPK from gossiped roster (no central bundle server)\n• Epoch 1: 3-DH while responder offline (relay queue)\n• Epoch 2: optional new 4-DH session after Bob sends OPK_B\n• Yields sharedSecret → RatchetBootstrap"]:::ref
 
-        GenBundle[2. Generate & Send Bundle:\nIdentity Key, Signed PreKey,\nOne-Time PreKey]:::handshake
-
-        ComputeX3DH[3. Compute X3DH Math:\nDH1, DH2, DH3, DH4\nYields: Root Secret]:::crypto
-
-        ReqBundle -. "Tor" .-> GenBundle
-        GenBundle -. "Tor" .-> ComputeX3DH
+        SKOut["(sharedSecret SK\n→ DoubleRatchetSession)"]:::crypto
+        X3DHRef --> SKOut
     end
 
-    Init --> Handshake
-    Resp --> Handshake
+    Init --> X3DH
+    Resp --> X3DH
 
 %% ==========================================
 %% PHASE 2: THE DOUBLE RATCHET
 %% ==========================================
-    subgraph DoubleRatchet ["Phase 2: The Double Ratchet Engine (Per Message)"]
+    subgraph DoubleRatchet ["Phase 2: Double Ratchet Engine (per message, per session epoch)"]
 
     %% Sender Side (Peer A)
         RootA[(Root Key KDF)]:::crypto
         SendChainA[(Sending Chain KDF)]:::crypto
-        GenMsgKeyA[4. Derive Message Key N\nAdvance Symmetric Ratchet]:::ratchet
-        Encrypt[5. Encrypt Payload + Attach\nPeer A's Current DH PubKey]:::ratchet
+        GenMsgKeyA[1. Derive Message Key N\nAdvance Symmetric Ratchet]:::ratchet
+        Encrypt[2. Encrypt Payload + Attach\nsender DH PubKey, messageNumber, pn]:::ratchet
 
-        ComputeX3DH --> RootA
+        SKOut --> RootA
         RootA --> SendChainA --> GenMsgKeyA --> Encrypt
 
     %% The Network Transfer
-        Transfer((Encrypted Envelope\nSent over Tor/WebRTC))
+        Transfer((Encrypted Envelope\nENCRYPTED_AND_SIGNED\nsession_epoch + ratchet frame\nover Tor / WebRTC))
         Encrypt --> Transfer
 
     %% Receiver Side (Peer B)
-        Transfer --> ExtractKey[6. Extract A's DH PubKey]:::ratchet
+        Transfer --> ExtractKey[3. Read ratchet header\nDH PubKey, n, pn]:::ratchet
 
         RootB[(Root Key KDF)]:::crypto
         RecvChainB[(Receiving Chain KDF)]:::crypto
 
-        ExtractKey --> DHRatchetB{7. Is this a new\\nDH PubKey?}
+        ExtractKey --> DHRatchetB{4. New sender\nDH PubKey?}
 
     %% The Asymmetric Ratchet Step
-        DHRatchetB -- "Yes (Asymmetric Ratchet)" --> AdvanceRootB[Calculate new DH Secret\nAdvance Root Key\nCreate new Receiving Chain]:::crypto
+        DHRatchetB -- "Yes (DH ratchet)" --> AdvanceRootB[New DH secret\nAdvance root + recv chain\nRotate local send DH key]:::crypto
         AdvanceRootB --> RecvChainB
 
     %% The Symmetric Ratchet Step
-        DHRatchetB -- "No" --> RecvChainB
+        DHRatchetB -- "No (same chain)" --> RecvChainB
 
-        GenMsgKeyB[8. Derive Message Key N\nAdvance Symmetric Ratchet]:::ratchet
-        Decrypt[9. Decrypt Payload]:::ratchet
+        TrySkipped["5. Try skipped message key\n(out-of-order P2P)"]:::ratchet
+        RecvChainB --> TrySkipped
+        GenMsgKeyB[6. Derive Message Key N\nAdvance Symmetric Ratchet]:::ratchet
+        Decrypt[7. Decrypt Payload]:::ratchet
 
-        RecvChainB --> GenMsgKeyB --> Decrypt
+        TrySkipped --> GenMsgKeyB --> Decrypt
     end
+
+    Resp --> DoubleRatchet
+    Init --> DoubleRatchet
