@@ -1,6 +1,7 @@
 package org.yapyap.backend.crypto
 
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
@@ -49,6 +50,12 @@ class DefaultIdentityOrchestrationTest {
         val resolvedDevice = resolver.getLocalDeviceIdentityRecord()
         assertEquals(device.deviceId, resolvedDevice.deviceId)
         assertEquals(device.signing.publicKey.contentHashCode(), resolvedDevice.signing.publicKey.contentHashCode())
+        assertNotNull(resolvedDevice.signedPreKey)
+        assertEquals(device.signedPreKey!!.keyId, resolvedDevice.signedPreKey.keyId)
+
+        val localSpk = resolver.getCurrentLocalSignedPreKey()
+        assertEquals(resolvedDevice.signedPreKey.keyId, localSpk.keyId)
+        assertContentEquals(resolvedDevice.signedPreKey.publicKey, localSpk.publicKey)
 
         assertEquals(fixedTor, resolver.resolveTorEndpointForDevice(device.deviceId))
 
@@ -135,5 +142,17 @@ class DefaultIdentityOrchestrationTest {
 
         assertNotNull(repo.accounts["external-acc-id"])
         assertEquals(acc.accountId, repo.accounts["external-acc-id"]!!.accountId)
+    }
+
+    @Test
+    fun oneTimePreKeyStore_allocateThenConsume_onceOnly() = runTest {
+        val crypto = KmpCryptoProvider()
+        val store = InMemoryOneTimePreKeyStore(crypto)
+
+        val opk = store.allocate()
+        val consumed = store.consume(opk.keyId)
+        assertNotNull(consumed)
+        assertContentEquals(opk.publicKey, consumed.publicKey)
+        assertEquals(null, store.consume(opk.keyId))
     }
 }

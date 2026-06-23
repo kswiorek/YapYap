@@ -767,6 +767,20 @@ class DefaultRouter(
                             ),
                         )
                     }
+                    PacketNackReason.PROTECTION_FAILED -> {
+                        //Possibly message corrupted, retry
+                        logger.warn(
+                            component = LogComponent.ROUTER,
+                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            message = "Received NACK for outbox packet due to protection failure; will retry",
+                            fields = mapOf(
+                                "packetId" to payload.packetId,
+                                "packetType" to payload.packetType,
+                                "reason" to payload.reason,
+                                "source" to systemEnvelope.source,
+                            ),
+                        )
+                    }
                     else -> {
                         logger.debug(
                             component = LogComponent.ROUTER,

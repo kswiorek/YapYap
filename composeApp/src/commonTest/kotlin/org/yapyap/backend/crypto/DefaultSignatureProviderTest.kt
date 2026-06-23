@@ -179,5 +179,7 @@ class DefaultSignatureProviderTest {
         override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used in test")
 
         override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used in test")
+
+        override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used in test")
     }
 }

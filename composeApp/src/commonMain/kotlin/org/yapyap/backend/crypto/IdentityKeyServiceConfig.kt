@@ -13,6 +13,9 @@ data class IdentityKeyServiceConfig(
     val defaultDeviceLocalKeyPrefix: String = "yapyap:local_device:",
     val defaultAccountLocalKeyPrefix: String = "yapyap:local_account:",
 ) {
+    fun localSignedPreKeyKeyId(signedPreKeyId: String): String =
+        defaultDeviceLocalKeyPrefix + "signed_prekey:$signedPreKeyId"
+
     init {
         require(defaultOnionAddress.endsWith(".onion")) { "defaultOnionAddress must end with .onion" }
         require(defaultOnionPort in 1L..65535L) { "defaultOnionPort must be in range 1..65535" }

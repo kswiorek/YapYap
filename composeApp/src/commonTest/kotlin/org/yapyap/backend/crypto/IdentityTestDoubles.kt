@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.crypto.e2ee.OneTimePreKeyStore
 import org.yapyap.backend.db.AccountStatus
 import org.yapyap.backend.db.DeviceType
 import org.yapyap.backend.db.IdentityPublicKeyRepository
@@ -70,6 +71,14 @@ internal class InMemoryIdentityPublicKeyRepository(
         return when (purpose) {
             IdentityKeyPurpose.SIGNING -> d.signing
             IdentityKeyPurpose.ENCRYPTION -> d.encryption
+            IdentityKeyPurpose.SIGNED_PREKEY -> d.signedPreKey?.let { spk ->
+                IdentityPublicKeyRecord(
+                    keyId = spk.keyId,
+                    keyVersion = 0,
+                    purpose = IdentityKeyPurpose.SIGNED_PREKEY,
+                    publicKey = spk.publicKey,
+                )
+            }
         }
     }
 
@@ -93,8 +102,41 @@ internal class InMemoryIdentityPublicKeyRepository(
         torForDevice[deviceId.id] = torEndpoint
     }
 
+    override fun upsertDeviceSignedPreKey(deviceId: PeerId, signedPreKey: SignedPreKeyRecord) {
+        val existing = devices[deviceId.id] ?: error("Device not found: $deviceId")
+        devices[deviceId.id] = existing.copy(signedPreKey = signedPreKey)
+    }
+
     /** Seeds Tor for a device already stored (e.g. after [insertLocalDevice]). */
     fun seedTorEndpoint(deviceId: PeerId, endpoint: TorEndpoint) {
         torForDevice[deviceId.id] = endpoint
+    }
+}
+
+/** In-memory [org.yapyap.backend.crypto.e2ee.OneTimePreKeyStore] for unit tests. */
+internal class InMemoryOneTimePreKeyStore(
+    private val crypto: CryptoProvider,
+) : OneTimePreKeyStore {
+    private val keys = mutableMapOf<String, LocalOneTimePreKey>()
+    private val consumed = mutableSetOf<String>()
+    private var counter = 0
+
+    override suspend fun allocate(): LocalOneTimePreKey {
+        val keyPair = crypto.generateEncryptionKeyPair()
+        val opkId = "opk-test-${++counter}"
+        val opk = LocalOneTimePreKey(
+            keyId = opkId,
+            publicKey = keyPair.publicKey,
+            privateKey = keyPair.privateKey,
+        )
+        keys[opkId] = opk
+        return opk
+    }
+
+    override suspend fun consume(opkId: String): LocalOneTimePreKey? {
+        if (opkId in consumed) return null
+        val opk = keys[opkId] ?: return null
+        consumed.add(opkId)
+        return opk
     }
 }

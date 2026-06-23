@@ -6,6 +6,7 @@ import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityResolver
+import org.yapyap.backend.crypto.LocalSignedPreKey
 import org.yapyap.backend.crypto.SigningKeyPair
 import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.db.OutboxEntry
@@ -245,6 +246,9 @@ internal class FakeIdentityResolverForRouter(
         torUpdates.add(deviceId to torEndpoint)
         torByPeer[deviceId] = torEndpoint
     }
+
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey =
+        error("FakeIdentityResolverForRouter: signed prekey not stubbed")
 }
 
 internal class TrackingPacketOutbox : PacketOutbox {

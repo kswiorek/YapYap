@@ -6,6 +6,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlinx.coroutines.test.runTest
+import org.yapyap.backend.crypto.e2ee.DoubleRatchetSession
+import org.yapyap.backend.crypto.e2ee.X3dhHandshake
+import org.yapyap.backend.crypto.e2ee.X3dhLocalInitiatorKeys
+import org.yapyap.backend.crypto.e2ee.X3dhLocalResponderKeys
+import org.yapyap.backend.crypto.e2ee.X3dhMode
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 
 class X3dhHandshakeTest {
 

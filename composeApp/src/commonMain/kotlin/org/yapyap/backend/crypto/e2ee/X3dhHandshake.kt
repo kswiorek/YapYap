@@ -1,11 +1,22 @@
-package org.yapyap.backend.crypto
+package org.yapyap.backend.crypto.e2ee
+
+import org.yapyap.backend.crypto.CryptoProvider
+import org.yapyap.backend.crypto.EncryptionKeyPair
+import org.yapyap.backend.crypto.KmpCryptoProvider
 
 private const val SHARED_SECRET_SIZE = KmpCryptoProvider.AEAD_KEY_SIZE_BYTES
 private val X3DH_KDF_INFO = "YapYapX3DH".encodeToByteArray()
 
-enum class X3dhMode {
-    THREE_DH,
-    FOUR_DH,
+enum class X3dhMode(val wireValue: Byte) {
+
+    THREE_DH(3),
+    FOUR_DH(4);
+
+    companion object {
+        fun fromWireValue(value: Byte): X3dhMode =
+            X3dhMode.entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported packet type value: $value")
+    }
 }
 
 data class X3dhRemotePeerKeys(

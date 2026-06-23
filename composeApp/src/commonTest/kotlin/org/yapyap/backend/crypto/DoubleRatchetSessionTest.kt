@@ -4,6 +4,13 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
+import org.yapyap.backend.crypto.e2ee.DoubleRatchetSession
+import org.yapyap.backend.crypto.e2ee.RatchetBootstrap
+import org.yapyap.backend.crypto.e2ee.RatchetCiphertext
+import org.yapyap.backend.crypto.e2ee.X3dhHandshake
+import org.yapyap.backend.crypto.e2ee.X3dhLocalInitiatorKeys
+import org.yapyap.backend.crypto.e2ee.X3dhLocalResponderKeys
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 
 class DoubleRatchetSessionTest {
 

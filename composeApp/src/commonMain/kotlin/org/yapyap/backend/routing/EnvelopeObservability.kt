@@ -33,7 +33,7 @@ object EnvelopeObservability {
             BinaryEnvelope.Companion.Fields.EXPIRES_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
-            BinaryEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
+            BinaryEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.ENDPOINT_VISIBLE,
         ),
     )
 

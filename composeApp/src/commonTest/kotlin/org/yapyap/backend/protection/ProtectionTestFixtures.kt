@@ -5,6 +5,7 @@ import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
 import org.yapyap.backend.crypto.IdentityResolver
+import org.yapyap.backend.crypto.LocalSignedPreKey
 import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.crypto.SigningKeyPair
@@ -170,6 +171,8 @@ internal class FakeIdentityResolverForProtection(
     override fun getAllPeerDevicesForAccount(accountId: AccountId) = error("not used")
 
     override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
+
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used")
 }
 
 /**

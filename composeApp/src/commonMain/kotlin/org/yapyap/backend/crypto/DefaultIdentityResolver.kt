@@ -149,4 +149,23 @@ class DefaultIdentityResolver(
     override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         publicKeyRepository.upsertPeerTorEndpoint(deviceId, torEndpoint)
     }
+
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey {
+        val device = getLocalDeviceIdentityRecord()
+        val signedPreKey = device.signedPreKey
+            ?: error("Local device ${device.deviceId} has no signed prekey published")
+        val privateKey = privateKeyStore.getKey(
+            ref = KeyReference(
+                keyId = config.localSignedPreKeyKeyId(signedPreKey.keyId),
+                purpose = IdentityKeyPurpose.SIGNED_PREKEY,
+                type = KeyType.PRIVATE,
+            ),
+        ) ?: error("Missing private signed prekey for keyId=${signedPreKey.keyId}")
+        return LocalSignedPreKey(
+            keyId = signedPreKey.keyId,
+            publicKey = signedPreKey.publicKey,
+            privateKey = privateKey,
+            signature = signedPreKey.signature,
+        )
+    }
 }

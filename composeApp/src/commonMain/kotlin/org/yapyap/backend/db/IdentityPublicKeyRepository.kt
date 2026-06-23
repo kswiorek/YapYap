@@ -5,6 +5,7 @@ import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
+import org.yapyap.backend.crypto.SignedPreKeyRecord
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
@@ -28,4 +29,5 @@ interface IdentityPublicKeyRepository {
 
     fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
+    fun upsertDeviceSignedPreKey(deviceId: PeerId, signedPreKey: SignedPreKeyRecord)
 }

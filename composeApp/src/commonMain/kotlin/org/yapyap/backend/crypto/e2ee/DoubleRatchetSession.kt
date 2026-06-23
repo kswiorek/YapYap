@@ -1,4 +1,7 @@
-package org.yapyap.backend.crypto
+package org.yapyap.backend.crypto.e2ee
+
+import org.yapyap.backend.crypto.CryptoProvider
+import org.yapyap.backend.crypto.KmpCryptoProvider
 
 private const val KEY_SIZE = KmpCryptoProvider.AEAD_KEY_SIZE_BYTES
 private const val MAX_SKIP = 256

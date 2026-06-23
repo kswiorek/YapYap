@@ -3,6 +3,7 @@ package org.yapyap.backend.db
 import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
+import org.yapyap.backend.crypto.SignedPreKeyRecord
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
@@ -82,7 +83,15 @@ class DefaultIdentityPublicKeyRepository(
                     keyVersion = device.encryption_key_version,
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = device.encryption_pub_key,
-                )
+                ),
+                signedPreKey = device.signed_prekey_id?.let { spkId ->
+                    SignedPreKeyRecord(
+                        keyId = spkId,
+                        publicKey = device.signed_prekey_pub
+                            ?: error("signed_prekey_pub missing for deviceId=${device.device_id}, spkId=$spkId"),
+                        signature = device.signed_prekey_signature,
+                    )
+                },
             )
         }
     }
@@ -102,6 +111,9 @@ class DefaultIdentityPublicKeyRepository(
             encryption_pub_key = identity.encryption.publicKey,
             encryption_key_id = identity.encryption.keyId,
             encryption_key_version = identity.encryption.keyVersion,
+            signed_prekey_pub = identity.signedPreKey?.publicKey,
+            signed_prekey_id = identity.signedPreKey?.keyId,
+            signed_prekey_signature = identity.signedPreKey?.signature,
             push_token = config.defaultPushToken,
             ping_attempts = config.defaultPingAttempts,
             ping_successes = config.defaultPingSuccesses,
@@ -156,6 +168,17 @@ class DefaultIdentityPublicKeyRepository(
                     publicKey = device.encryption_pub_key,
                 )
             }
+            IdentityKeyPurpose.SIGNED_PREKEY -> {
+                val spkId = device.signed_prekey_id ?: return null
+                val spkPub = device.signed_prekey_pub ?: return null
+                if (spkId.isBlank() || spkPub.isEmpty()) return null
+                IdentityPublicKeyRecord(
+                    keyId = spkId,
+                    keyVersion = 0,
+                    purpose = IdentityKeyPurpose.SIGNED_PREKEY,
+                    publicKey = spkPub,
+                )
+            }
         }
     }
 
@@ -197,10 +220,28 @@ class DefaultIdentityPublicKeyRepository(
             encryption_pub_key = identity.encryption.publicKey,
             encryption_key_id = identity.encryption.keyId,
             encryption_key_version = identity.encryption.keyVersion,
+            signed_prekey_pub = identity.signedPreKey?.publicKey,
+            signed_prekey_id = identity.signedPreKey?.keyId,
+            signed_prekey_signature = identity.signedPreKey?.signature,
             push_token = config.defaultPushToken,
             ping_attempts = config.defaultPingAttempts,
             ping_successes = config.defaultPingSuccesses,
             last_seen_timestamp = config.defaultLastSeenTimestamp,
+        )
+    }
+
+    override fun upsertDeviceSignedPreKey(deviceId: PeerId, signedPreKey: SignedPreKeyRecord) {
+        database.identityQueries.updateDeviceSignedPreKey(
+            signed_prekey_pub = signedPreKey.publicKey,
+            signed_prekey_id = signedPreKey.keyId,
+            signed_prekey_signature = signedPreKey.signature,
+            device_id = deviceId.id,
+        )
+        logger.info(
+            component = LogComponent.DATABASE,
+            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+            message = "Updated device signed prekey",
+            fields = mapOf("deviceId" to deviceId, "signedPreKeyId" to signedPreKey.keyId),
         )
     }
 

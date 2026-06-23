@@ -6,6 +6,7 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
+import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
 class DefaultIdentityProvisioning(
@@ -51,13 +52,50 @@ class DefaultIdentityProvisioning(
         val accountRecord = identityResolver.getLocalAccountIdentityRecord()
 
         publicKeyRepository.insertLocalDevice(accountRecord.accountId, identity)
+        val signedPreKey = provisionInitialSignedPreKey(
+            deviceId = deviceId,
+            signingPrivateKey = signingKey.privateKey,
+        )
+        val identityWithSpk = identity.copy(signedPreKey = signedPreKey)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Created and persisted new local device identity",
             fields = mapOf("deviceId" to deviceId, "accountId" to accountRecord.accountId),
         )
-        return identity
+        return identityWithSpk
+    }
+
+    private suspend fun provisionInitialSignedPreKey(
+        deviceId: PeerId,
+        signingPrivateKey: ByteArray,
+    ): SignedPreKeyRecord {
+        val spkPair = cryptoProvider.generateEncryptionKeyPair()
+        val spkId = "spk-${cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}"
+        val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
+        val record = SignedPreKeyRecord(
+            keyId = spkId,
+            publicKey = spkPair.publicKey,
+            signature = signature,
+        )
+        publicKeyRepository.upsertDeviceSignedPreKey(deviceId, record)
+        keyStore.putKey(
+            ref = KeyReference(
+                keyId = config.localSignedPreKeyKeyId(spkId),
+                purpose = IdentityKeyPurpose.SIGNED_PREKEY,
+                type = KeyType.PRIVATE,
+            ),
+            key = spkPair.privateKey,
+        )
+        keyStore.putKey(
+            ref = KeyReference(
+                keyId = config.localSignedPreKeyKeyId(spkId),
+                purpose = IdentityKeyPurpose.SIGNED_PREKEY,
+                type = KeyType.PUBLIC,
+            ),
+            key = spkPair.publicKey,
+        )
+        return record
     }
 
     override suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
@@ -110,5 +148,9 @@ class DefaultIdentityProvisioning(
             message = "Provisioned local account identity",
             fields = mapOf("accountId" to accountIdentity.accountId, "displayName" to displayName),
         )
+    }
+
+    companion object {
+        private const val SPK_ID_BYTES = 8
     }
 }
