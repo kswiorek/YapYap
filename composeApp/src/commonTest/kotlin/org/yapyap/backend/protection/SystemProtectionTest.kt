@@ -161,7 +161,7 @@ class SystemProtectionTest {
             nonce = nonce24(),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64),
-            payload = payload,
+            payload = payload.encode(),
         )
         assertFailsWith<IllegalArgumentException> {
             protection.open(envelope)

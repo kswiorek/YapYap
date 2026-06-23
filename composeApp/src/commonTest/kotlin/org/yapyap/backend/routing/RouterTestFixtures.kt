@@ -125,7 +125,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = input,
+            payload = input.encode(),
         )
     }
 
@@ -144,7 +144,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = input,
+            payload = input.encode(),
         )
     }
 

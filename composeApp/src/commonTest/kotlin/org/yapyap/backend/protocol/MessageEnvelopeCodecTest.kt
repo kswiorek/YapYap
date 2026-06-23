@@ -69,7 +69,7 @@ class MessageEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = byteArrayOf(1, 2, 3),
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = MessageEnvelope.decode(env.encode())
         assertMessageEnvelopeEquals(env, round)
@@ -95,7 +95,7 @@ class MessageEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = MessageEnvelope.decode(env.encode())
         assertMessageEnvelopeEquals(env, round)
@@ -122,7 +122,7 @@ class MessageEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = sig,
-            payload = payload,
+            payload = payload.encode(),
         )
         val unsigned = signed.copy(signature = null)
         assertContentEquals(unsigned.encode(), signed.encodeForSigning())
@@ -150,7 +150,7 @@ class MessageEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = sig,
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = MessageEnvelope.decode(env.encode())
         assertMessageEnvelopeEquals(env, round)
@@ -176,7 +176,7 @@ class MessageEnvelopeCodecTest {
                     messagePayload = byteArrayOf(),
                     lifecycleState = MessageLifecycleState.CREATED,
                     isOrphaned = false,
-                ),
+                ).encode(),
             )
         }
     }
@@ -226,7 +226,7 @@ class MessageEnvelopeCodecTest {
             expected.signature == null -> assertNull(actual.signature)
             else -> assertContentEquals(expected.signature, actual.signature!!)
         }
-        assertMessagePayloadEquals(expected.payload, actual.payload)
+        assertMessagePayloadEquals(expected.decodePayload(), actual.decodePayload())
     }
 
     private fun assertMessagePayloadEquals(expected: MessagePayload, actual: MessagePayload) {

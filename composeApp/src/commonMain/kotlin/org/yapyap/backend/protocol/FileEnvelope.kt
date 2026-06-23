@@ -8,22 +8,17 @@ data class FileEnvelope(
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
     val signature: ByteArray?,
-    val payload: FilePayload,
+    val payload: ByteArray,
 ) {
     init {
         require(transferId.isNotBlank()) { "transferId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
-    val kind: FileEnvelopeKind
-        get() = payload.kind
-
     fun encode(): ByteArray {
-        val encodedPayload = payload.encode()
-        val writer = ByteWriter(256 + nonce.size + encodedPayload.size + (signature?.size ?: 0))
+        val writer = ByteWriter(256 + nonce.size + payload.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeByte(payload.kind.wireValue.toInt())
         writer.writeString(transferId)
         writer.writePeerId(source)
         writer.writePeerId(target)
@@ -31,15 +26,12 @@ data class FileEnvelope(
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
         writer.writeNullableByteArray(signature)
-        writer.writeByteArray(encodedPayload)
+        writer.writeByteArray(payload)
         return writer.toByteArray()
     }
 
-    fun decodePayload(): FilePayload = payload
-
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
         Fields.TRANSFER_ID to transferId,
-        Fields.KIND to kind,
         Fields.SOURCE to source,
         Fields.TARGET to target,
         Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
@@ -48,10 +40,11 @@ data class FileEnvelope(
         Fields.SIGNATURE to signature,
     )
 
+    fun decodePayload(): FilePayload = FilePayload.decode(payload)
+
     companion object {
         object Fields {
             const val TRANSFER_ID = "transferId"
-            const val KIND = "kind"
             const val SOURCE = "source"
             const val TARGET = "target"
             const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
@@ -72,7 +65,6 @@ data class FileEnvelope(
             val version = reader.readByte()
             require(version == VERSION) { "Unsupported file envelope version: $version" }
 
-            val kind = FileEnvelopeKind.fromWireValue(reader.readByte())
             val transferId = reader.readString()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
@@ -91,7 +83,7 @@ data class FileEnvelope(
                 nonce = nonce,
                 securityScheme = securityScheme,
                 signature = signature,
-                payload = FilePayload.decode(kind, encodedPayload),
+                payload = encodedPayload,
             )
         }
     }
@@ -148,6 +140,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(128 + objectHash.size)
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeNullableString(fileNameHint)
             writer.writeNullableString(mimeType)
             writer.writeLong(totalBytes)
@@ -161,6 +154,9 @@ sealed interface FilePayload {
         companion object {
             fun decode(bytes: ByteArray): Offer {
                 val reader = ByteReader(bytes)
+                require(FileEnvelopeKind.fromWireValue(reader.readByte()) == FileEnvelopeKind.OFFER) {
+                    "Expected OFFER payload kind"
+                }
                 val payload = Offer(
                     fileNameHint = reader.readNullableString(),
                     mimeType = reader.readNullableString(),
@@ -173,6 +169,36 @@ sealed interface FilePayload {
                 reader.requireFullyRead()
                 return payload
             }
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as Offer
+
+            if (totalBytes != other.totalBytes) return false
+            if (chunkSizeBytes != other.chunkSizeBytes) return false
+            if (chunkCount != other.chunkCount) return false
+            if (fileNameHint != other.fileNameHint) return false
+            if (mimeType != other.mimeType) return false
+            if (!objectHash.contentEquals(other.objectHash)) return false
+            if (control != other.control) return false
+            if (kind != other.kind) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = totalBytes.hashCode()
+            result = 31 * result + chunkSizeBytes
+            result = 31 * result + chunkCount
+            result = 31 * result + (fileNameHint?.hashCode() ?: 0)
+            result = 31 * result + (mimeType?.hashCode() ?: 0)
+            result = 31 * result + objectHash.contentHashCode()
+            result = 31 * result + control.hashCode()
+            result = 31 * result + kind.hashCode()
+            return result
         }
     }
 
@@ -192,6 +218,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64 + chunkCiphertext.size)
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeInt(chunkIndex)
             writer.writeInt(chunkCount)
             writer.writeByteArray(chunkCiphertext)
@@ -201,6 +228,9 @@ sealed interface FilePayload {
         companion object {
             fun decode(bytes: ByteArray): EncryptedChunk {
                 val reader = ByteReader(bytes)
+                require(FileEnvelopeKind.fromWireValue(reader.readByte()) == FileEnvelopeKind.CHUNK) {
+                    "Expected CHUNK payload kind"
+                }
                 val payload = EncryptedChunk(
                     chunkIndex = reader.readInt(),
                     chunkCount = reader.readInt(),
@@ -209,6 +239,28 @@ sealed interface FilePayload {
                 reader.requireFullyRead()
                 return payload
             }
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as EncryptedChunk
+
+            if (chunkIndex != other.chunkIndex) return false
+            if (chunkCount != other.chunkCount) return false
+            if (!chunkCiphertext.contentEquals(other.chunkCiphertext)) return false
+            if (kind != other.kind) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = chunkIndex
+            result = 31 * result + chunkCount
+            result = 31 * result + chunkCiphertext.contentHashCode()
+            result = 31 * result + kind.hashCode()
+            return result
         }
     }
 
@@ -225,6 +277,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + (missingChunkIndices.size * 4))
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeInt(highestContiguousChunk)
             writer.writeInt(missingChunkIndices.size)
             missingChunkIndices.forEach { writer.writeInt(it) }
@@ -234,6 +287,9 @@ sealed interface FilePayload {
         companion object {
             fun decode(bytes: ByteArray): Ack {
                 val reader = ByteReader(bytes)
+                require(FileEnvelopeKind.fromWireValue(reader.readByte()) == FileEnvelopeKind.ACK) {
+                    "Expected ACK payload kind"
+                }
                 val highestContiguousChunk = reader.readInt()
                 val missingCount = reader.readInt()
                 require(missingCount >= 0) { "missing chunk count must be >= 0" }
@@ -245,6 +301,26 @@ sealed interface FilePayload {
                 reader.requireFullyRead()
                 return payload
             }
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as Ack
+
+            if (highestContiguousChunk != other.highestContiguousChunk) return false
+            if (!missingChunkIndices.contentEquals(other.missingChunkIndices)) return false
+            if (kind != other.kind) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = highestContiguousChunk
+            result = 31 * result + missingChunkIndices.contentHashCode()
+            result = 31 * result + kind.hashCode()
+            return result
         }
     }
 
@@ -259,6 +335,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + objectHash.size)
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeByteArray(objectHash)
             return writer.toByteArray()
         }
@@ -266,12 +343,33 @@ sealed interface FilePayload {
         companion object {
             fun decode(bytes: ByteArray): Complete {
                 val reader = ByteReader(bytes)
+                require(FileEnvelopeKind.fromWireValue(reader.readByte()) == FileEnvelopeKind.COMPLETE) {
+                    "Expected COMPLETE payload kind"
+                }
                 val payload = Complete(
                     objectHash = reader.readByteArray(),
                 )
                 reader.requireFullyRead()
                 return payload
             }
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as Complete
+
+            if (!objectHash.contentEquals(other.objectHash)) return false
+            if (kind != other.kind) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = objectHash.contentHashCode()
+            result = 31 * result + kind.hashCode()
+            return result
         }
     }
 
@@ -283,6 +381,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + (reasonText?.length ?: 0))
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeByte(reasonCode.toInt())
             writer.writeNullableString(reasonText)
             return writer.toByteArray()
@@ -291,6 +390,9 @@ sealed interface FilePayload {
         companion object {
             fun decode(bytes: ByteArray): Cancel {
                 val reader = ByteReader(bytes)
+                require(FileEnvelopeKind.fromWireValue(reader.readByte()) == FileEnvelopeKind.CANCEL) {
+                    "Expected CANCEL payload kind"
+                }
                 val payload = Cancel(
                     reasonCode = reader.readByte(),
                     reasonText = reader.readNullableString(),
@@ -302,14 +404,16 @@ sealed interface FilePayload {
     }
 
     companion object {
-        fun decode(kind: FileEnvelopeKind, bytes: ByteArray): FilePayload =
-            when (kind) {
+        fun decode(bytes: ByteArray): FilePayload {
+            val kind = FileEnvelopeKind.fromWireValue(ByteReader(bytes).readByte())
+            return when (kind) {
                 FileEnvelopeKind.OFFER -> Offer.decode(bytes)
                 FileEnvelopeKind.CHUNK -> EncryptedChunk.decode(bytes)
                 FileEnvelopeKind.ACK -> Ack.decode(bytes)
                 FileEnvelopeKind.COMPLETE -> Complete.decode(bytes)
                 FileEnvelopeKind.CANCEL -> Cancel.decode(bytes)
             }
+        }
     }
 }
 

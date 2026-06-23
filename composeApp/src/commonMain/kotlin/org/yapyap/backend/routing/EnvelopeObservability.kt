@@ -41,7 +41,6 @@ object EnvelopeObservability {
         schemaId = "file-envelope-v1",
         fields = mapOf(
             FileEnvelope.Companion.Fields.TRANSFER_ID to FieldSensitivity.ROUTING_VISIBLE,
-            FileEnvelope.Companion.Fields.KIND to FieldSensitivity.ROUTING_VISIBLE,
             FileEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
             FileEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
             FileEnvelope.Companion.Fields.CREATED_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
@@ -71,7 +70,6 @@ object EnvelopeObservability {
         schemaId = "message-envelope-v1",
         fields = mapOf(
             MessageEnvelope.Companion.Fields.MESSAGE_ID to FieldSensitivity.ROUTING_VISIBLE,
-            MessageEnvelope.Companion.Fields.KIND to FieldSensitivity.ROUTING_VISIBLE,
             MessageEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
             MessageEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
             MessageEnvelope.Companion.Fields.CREATED_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,
@@ -86,7 +84,6 @@ object EnvelopeObservability {
         schemaId = "system-envelope-v1",
         fields = mapOf(
             SystemEnvelope.Companion.Fields.CORRELATION_ID to FieldSensitivity.ROUTING_VISIBLE,
-            SystemEnvelope.Companion.Fields.KIND to FieldSensitivity.ROUTING_VISIBLE,
             SystemEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
             SystemEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
             SystemEnvelope.Companion.Fields.CREATED_AT_EPOCH_SECONDS to FieldSensitivity.ROUTING_VISIBLE,

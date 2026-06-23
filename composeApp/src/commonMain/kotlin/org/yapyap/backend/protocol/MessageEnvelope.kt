@@ -11,25 +11,20 @@ data class MessageEnvelope(
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
     val signature: ByteArray?,
-    val payload: MessagePayload,
+    val payload: ByteArray,
 ) {
     init {
         require(messageId.isNotBlank()) { "messageId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
-    val kind: MessageEnvelopeKind
-        get() = payload.kind
-
     /** Canonical wire bytes with [signature] cleared; used as Ed25519 signing input. */
     fun encodeForSigning(): ByteArray = copy(signature = null).encode()
 
     fun encode(): ByteArray {
-        val encodedPayload = payload.encode()
-        val writer = ByteWriter(256 + nonce.size + encodedPayload.size + (signature?.size ?: 0))
+        val writer = ByteWriter(256 + nonce.size + payload.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeByte(kind.wireValue.toInt())
         writer.writeString(messageId)
         writer.writePeerId(source)
         writer.writePeerId(target)
@@ -37,15 +32,13 @@ data class MessageEnvelope(
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
         writer.writeNullableByteArray(signature)
-        writer.writeByteArray(encodedPayload)
+        writer.writeByteArray(payload)
         return writer.toByteArray()
     }
-
-    fun decodePayload(): MessagePayload = payload
+    fun decodePayload(): MessagePayload = MessagePayload.decode(payload)
 
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
         Fields.MESSAGE_ID to messageId,
-        Fields.KIND to kind,
         Fields.SOURCE to source,
         Fields.TARGET to target,
         Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
@@ -57,7 +50,6 @@ data class MessageEnvelope(
     companion object {
         object Fields {
             const val MESSAGE_ID = "messageId"
-            const val KIND = "kind"
             const val SOURCE = "source"
             const val TARGET = "target"
             const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
@@ -78,7 +70,6 @@ data class MessageEnvelope(
             val version = reader.readByte()
             require(version == VERSION) { "Unsupported message envelope version: $version" }
 
-            val kind = MessageEnvelopeKind.fromWireValue(reader.readByte())
             val transferId = reader.readString()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
@@ -97,7 +88,7 @@ data class MessageEnvelope(
                 nonce = nonce,
                 securityScheme = securityScheme,
                 signature = signature,
-                payload = MessagePayload.decode(kind, encodedPayload),
+                payload = encodedPayload
             )
         }
     }
@@ -132,6 +123,7 @@ sealed interface MessagePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(256 + messagePayload.size)
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeString(messageId)
             writer.writeString(roomId)
             writer.writeString(senderAccountId)
@@ -146,6 +138,9 @@ sealed interface MessagePayload {
         companion object {
             fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
+                require(MessageEnvelopeKind.fromWireValue(reader.readByte()) == MessageEnvelopeKind.TEXT) {
+                    "Expected TEXT payload kind"
+                }
                 val payload = Text(
                     messageId = reader.readString(),
                     roomId = reader.readString(),
@@ -159,6 +154,40 @@ sealed interface MessagePayload {
                 reader.requireFullyRead()
                 return payload
             }
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as Text
+
+            if (lamportClock != other.lamportClock) return false
+            if (isOrphaned != other.isOrphaned) return false
+            if (messageId != other.messageId) return false
+            if (roomId != other.roomId) return false
+            if (senderAccountId != other.senderAccountId) return false
+            if (prevId != other.prevId) return false
+            if (!messagePayload.contentEquals(other.messagePayload)) return false
+            if (lifecycleState != other.lifecycleState) return false
+            if (kind != other.kind) return false
+            if (payloadType != other.payloadType) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = lamportClock.hashCode()
+            result = 31 * result + isOrphaned.hashCode()
+            result = 31 * result + messageId.hashCode()
+            result = 31 * result + roomId.hashCode()
+            result = 31 * result + senderAccountId.hashCode()
+            result = 31 * result + (prevId?.hashCode() ?: 0)
+            result = 31 * result + messagePayload.contentHashCode()
+            result = 31 * result + lifecycleState.hashCode()
+            result = 31 * result + kind.hashCode()
+            result = 31 * result + payloadType.hashCode()
+            return result
         }
     }
 
@@ -184,6 +213,7 @@ sealed interface MessagePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(256 + eventPayload.size)
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeString(messageId)
             writer.writeString(roomId)
             writer.writeString(senderAccountId)
@@ -199,6 +229,9 @@ sealed interface MessagePayload {
         companion object {
             fun decode(bytes: ByteArray): GlobalEvent {
                 val reader = ByteReader(bytes)
+                require(MessageEnvelopeKind.fromWireValue(reader.readByte()) == MessageEnvelopeKind.GLOBAL_EVENT) {
+                    "Expected GLOBAL_EVENT payload kind"
+                }
                 val payload = GlobalEvent(
                     messageId = reader.readString(),
                     roomId = reader.readString(),
@@ -214,14 +247,50 @@ sealed interface MessagePayload {
                 return payload
             }
         }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as GlobalEvent
+
+            if (lamportClock != other.lamportClock) return false
+            if (isOrphaned != other.isOrphaned) return false
+            if (messageId != other.messageId) return false
+            if (roomId != other.roomId) return false
+            if (senderAccountId != other.senderAccountId) return false
+            if (prevId != other.prevId) return false
+            if (!eventPayload.contentEquals(other.eventPayload)) return false
+            if (lifecycleState != other.lifecycleState) return false
+            if (kind != other.kind) return false
+            if (payloadType != other.payloadType) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = lamportClock.hashCode()
+            result = 31 * result + isOrphaned.hashCode()
+            result = 31 * result + messageId.hashCode()
+            result = 31 * result + roomId.hashCode()
+            result = 31 * result + senderAccountId.hashCode()
+            result = 31 * result + (prevId?.hashCode() ?: 0)
+            result = 31 * result + eventPayload.contentHashCode()
+            result = 31 * result + lifecycleState.hashCode()
+            result = 31 * result + kind.hashCode()
+            result = 31 * result + payloadType.hashCode()
+            return result
+        }
     }
 
     companion object {
-        fun decode(kind: MessageEnvelopeKind, bytes: ByteArray): MessagePayload =
-            when (kind) {
+        fun decode(bytes: ByteArray): MessagePayload {
+            val kind = MessageEnvelopeKind.fromWireValue(ByteReader(bytes).readByte())
+            return when (kind) {
                 MessageEnvelopeKind.TEXT -> Text.decode(bytes)
                 MessageEnvelopeKind.GLOBAL_EVENT -> GlobalEvent.decode(bytes)
             }
+        }
     }
 }
 

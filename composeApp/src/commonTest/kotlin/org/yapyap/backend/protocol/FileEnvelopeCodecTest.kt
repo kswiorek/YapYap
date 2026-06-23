@@ -112,7 +112,7 @@ class FileEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = FileEnvelope.decode(env.encode())
         assertFileEnvelopeEquals(env, round)
@@ -133,7 +133,7 @@ class FileEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(32) { 2 },
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = FileEnvelope.decode(env.encode())
         assertFileEnvelopeEquals(env, round)
@@ -149,7 +149,7 @@ class FileEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = FilePayload.Complete(objectHash = byteArrayOf(3)),
+            payload = FilePayload.Complete(objectHash = byteArrayOf(3)).encode(),
         ).encode()
         val bad = good.copyOf()
         bad[0] = 0x00
@@ -169,7 +169,7 @@ class FileEnvelopeCodecTest {
                 nonce = nonce,
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
-                payload = FilePayload.Complete(objectHash = byteArrayOf(1)),
+                payload = FilePayload.Complete(objectHash = byteArrayOf(1)).encode(),
             )
         }
     }
@@ -185,7 +185,7 @@ class FileEnvelopeCodecTest {
             expected.signature == null -> assertNull(actual.signature)
             else -> assertContentEquals(expected.signature, actual.signature!!)
         }
-        assertFilePayloadEquals(expected.payload, actual.payload)
+        assertFilePayloadEquals(expected.decodePayload(), actual.decodePayload())
     }
 
     private fun assertFilePayloadEquals(expected: FilePayload, actual: FilePayload) {

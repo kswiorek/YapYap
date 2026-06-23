@@ -85,7 +85,7 @@ class BaseProtectionObservabilityTest {
                 nonce = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
-                payload = input,
+                payload = input.encode(),
             )
         }
 
@@ -96,7 +96,7 @@ class BaseProtectionObservabilityTest {
 
         override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
             envelope.observableHeaderValues() +
-                (MessageEnvelope.Companion.Fields.PAYLOAD to envelope.payload.encode())
+                (MessageEnvelope.Companion.Fields.PAYLOAD to envelope.payload)
 
         override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
 

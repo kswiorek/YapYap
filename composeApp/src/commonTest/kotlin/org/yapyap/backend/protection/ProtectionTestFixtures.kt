@@ -1,14 +1,19 @@
 package org.yapyap.backend.protection
 
 import org.yapyap.backend.crypto.AccountIdentityRecord
+import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
 import org.yapyap.backend.crypto.IdentityResolver
+import org.yapyap.backend.crypto.InMemoryOneTimePreKeyStore
 import org.yapyap.backend.crypto.LocalSignedPreKey
 import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.crypto.KmpCryptoProvider
+import org.yapyap.backend.crypto.MapBackedCryptoSessionStore
 import org.yapyap.backend.crypto.SigningKeyPair
+import org.yapyap.backend.crypto.buildTestPeerIdentity
+import org.yapyap.backend.crypto.managerForPeer
 import org.yapyap.backend.db.MessageLifecycleState
 import org.yapyap.backend.protocol.FileChunk
 import org.yapyap.backend.protocol.FileControlPayload
@@ -122,6 +127,54 @@ internal suspend fun samplePeerTriplet(crypto: KmpCryptoProvider): Triple<Signin
     return Triple(localSigning, sourcePeer, targetPeer)
 }
 
+internal data class SignedAndEncryptedProtectionPair(
+    val sender: SignedAndEncryptedMessageProtection,
+    val receiver: SignedAndEncryptedMessageProtection,
+    val sourcePeer: PeerId,
+    val targetPeer: PeerId,
+)
+
+internal suspend fun sampleSignedAndEncryptedProtectionPair(
+    crypto: KmpCryptoProvider,
+): SignedAndEncryptedProtectionPair {
+    val senderPeer = buildTestPeerIdentity(crypto, "sae-sender")
+    val receiverPeer = buildTestPeerIdentity(crypto, "sae-receiver")
+    val senderSession = managerForPeer(
+        crypto = crypto,
+        local = senderPeer,
+        peer = receiverPeer,
+        sessionStore = MapBackedCryptoSessionStore(),
+        oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+    )
+    val receiverSession = managerForPeer(
+        crypto = crypto,
+        local = receiverPeer,
+        peer = senderPeer,
+        sessionStore = MapBackedCryptoSessionStore(),
+        oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+    )
+    val senderSignatureProvider = DefaultSignatureProvider(
+        FakeIdentityResolverForProtection(
+            localSigningPrivateKey = senderPeer.signingPrivateKey,
+            peerRecords = emptyMap(),
+        ),
+        crypto,
+    )
+    val receiverSignatureProvider = DefaultSignatureProvider(
+        FakeIdentityResolverForProtection(
+            localSigningPrivateKey = receiverPeer.signingPrivateKey,
+            peerRecords = mapOf(senderPeer.device.deviceId to senderPeer.device),
+        ),
+        crypto,
+    )
+    return SignedAndEncryptedProtectionPair(
+        sender = SignedAndEncryptedMessageProtection(senderSignatureProvider, senderSession, crypto),
+        receiver = SignedAndEncryptedMessageProtection(receiverSignatureProvider, receiverSession, crypto),
+        sourcePeer = senderPeer.device.deviceId,
+        targetPeer = receiverPeer.device.deviceId,
+    )
+}
+
 internal suspend fun deviceRecordFor(
     crypto: KmpCryptoProvider,
     signingKeys: SigningKeyPair,
@@ -190,7 +243,7 @@ internal class PassthroughFileProtection : FileProtection {
             nonce = ByteArray(context.securityScheme.nonceSize) { 7 },
             securityScheme = context.securityScheme,
             signature = null,
-            payload = input,
+            payload = input.encode(),
         )
 
     override suspend fun open(input: FileEnvelope): OpenedFileEnvelope =
@@ -200,7 +253,7 @@ internal class PassthroughFileProtection : FileProtection {
             target = input.target.id,
             createdAtEpochSeconds = input.createdAtEpochSeconds,
             securityScheme = input.securityScheme,
-            payload = input.payload,
+            payload = input.decodePayload(),
         )
 
     override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk =

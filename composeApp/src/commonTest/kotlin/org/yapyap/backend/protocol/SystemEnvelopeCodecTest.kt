@@ -62,7 +62,7 @@ class SystemEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64) { it.toByte() },
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = SystemEnvelope.decode(env.encode())
         assertSystemEnvelopeEquals(env, round)
@@ -84,7 +84,7 @@ class SystemEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = payload,
+            payload = payload.encode(),
         )
         val round = SystemEnvelope.decode(env.encode())
         assertSystemEnvelopeEquals(env, round)
@@ -104,7 +104,7 @@ class SystemEnvelopeCodecTest {
                 payload = SystemPayload.PacketAck(
                     packetId = samplePacketId,
                     packetType = PacketType.MESSAGE,
-                ),
+                ).encode(),
             )
         }
     }
@@ -133,7 +133,7 @@ class SystemEnvelopeCodecTest {
             expected.signature == null -> assertNull(actual.signature)
             else -> assertContentEquals(expected.signature, actual.signature!!)
         }
-        assertSystemPayloadEquals(expected.payload, actual.payload)
+        assertSystemPayloadEquals(expected.decodePayload(), actual.decodePayload())
     }
 
     private fun assertSystemPayloadEquals(expected: SystemPayload, actual: SystemPayload) {

@@ -8,25 +8,20 @@ data class SystemEnvelope(
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
     val signature: ByteArray?,
-    val payload: SystemPayload,
+    val payload: ByteArray,
 ) {
     init {
         require(correlationId.isNotBlank()) { "correlationId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
-    val kind: SystemEnvelopeKind
-        get() = payload.kind
-
     /** Canonical wire bytes with [signature] cleared; used as Ed25519 signing input. */
     fun encodeForSigning(): ByteArray = copy(signature = null).encode()
 
     fun encode(): ByteArray {
-        val encodedPayload = payload.encode()
-        val writer = ByteWriter(256 + nonce.size + encodedPayload.size + (signature?.size ?: 0))
+        val writer = ByteWriter(256 + nonce.size + payload.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeByte(kind.wireValue.toInt())
         writer.writeString(correlationId)
         writer.writePeerId(source)
         writer.writePeerId(target)
@@ -34,15 +29,12 @@ data class SystemEnvelope(
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
         writer.writeNullableByteArray(signature)
-        writer.writeByteArray(encodedPayload)
+        writer.writeByteArray(payload)
         return writer.toByteArray()
     }
 
-    fun decodePayload(): SystemPayload = payload
-
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
         Fields.CORRELATION_ID to correlationId,
-        Fields.KIND to kind,
         Fields.SOURCE to source,
         Fields.TARGET to target,
         Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
@@ -51,10 +43,11 @@ data class SystemEnvelope(
         Fields.SIGNATURE to signature,
     )
 
+    fun decodePayload(): SystemPayload = SystemPayload.decode(payload)
+
     companion object {
         object Fields {
             const val CORRELATION_ID = "correlationId"
-            const val KIND = "kind"
             const val SOURCE = "source"
             const val TARGET = "target"
             const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
@@ -75,7 +68,6 @@ data class SystemEnvelope(
             val version = reader.readByte()
             require(version == VERSION) { "Unsupported system envelope version: $version" }
 
-            val kind = SystemEnvelopeKind.fromWireValue(reader.readByte())
             val correlationId = reader.readString()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
@@ -94,7 +86,7 @@ data class SystemEnvelope(
                 nonce = nonce,
                 securityScheme = securityScheme,
                 signature = signature,
-                payload = SystemPayload.decode(kind, encodedPayload),
+                payload = encodedPayload,
             )
         }
     }
@@ -113,6 +105,7 @@ sealed interface SystemPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + PacketId.SIZE_BYTES)
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeBytes(packetId.toByteArray())
             writer.writeByte(packetType.wireValue.toInt())
             return writer.toByteArray()
@@ -121,6 +114,9 @@ sealed interface SystemPayload {
         companion object {
             fun decode(bytes: ByteArray): PacketAck {
                 val reader = ByteReader(bytes)
+                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.PACKET_ACK) {
+                    "Expected PACKET_ACK payload kind"
+                }
                 val packetId = PacketId.fromBytes(reader.readBytes(PacketId.SIZE_BYTES))
                 val packetType = PacketType.fromWireValue(reader.readByte())
                 reader.requireFullyRead()
@@ -142,6 +138,7 @@ sealed interface SystemPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(48 + PacketId.SIZE_BYTES + (reasonText?.length ?: 0))
+            writer.writeByte(kind.wireValue.toInt())
             writer.writeBytes(packetId.toByteArray())
             writer.writeByte(packetType.wireValue.toInt())
             writer.writeByte(reason.wireValue.toInt())
@@ -152,6 +149,9 @@ sealed interface SystemPayload {
         companion object {
             fun decode(bytes: ByteArray): PacketNack {
                 val reader = ByteReader(bytes)
+                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.PACKET_NACK) {
+                    "Expected PACKET_NACK payload kind"
+                }
                 val packetId = PacketId.fromBytes(reader.readBytes(PacketId.SIZE_BYTES))
                 val packetType = PacketType.fromWireValue(reader.readByte())
                 val reason = PacketNackReason.fromWireValue(reader.readByte())
@@ -168,11 +168,13 @@ sealed interface SystemPayload {
     }
 
     companion object {
-        fun decode(kind: SystemEnvelopeKind, bytes: ByteArray): SystemPayload =
-            when (kind) {
+        fun decode(bytes: ByteArray): SystemPayload {
+            val kind = SystemEnvelopeKind.fromWireValue(ByteReader(bytes).readByte())
+            return when (kind) {
                 SystemEnvelopeKind.PACKET_ACK -> PacketAck.decode(bytes)
                 SystemEnvelopeKind.PACKET_NACK -> PacketNack.decode(bytes)
             }
+        }
     }
 }
 

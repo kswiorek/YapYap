@@ -32,7 +32,7 @@ class PlaintextSystemProtection(
             nonce = cryptoProvider.generateNonce(SignalSecurityScheme.PLAINTEXT_TEST_ONLY),
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = input,
+            payload = input.encode(),
         )
     }
 
@@ -40,13 +40,14 @@ class PlaintextSystemProtection(
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
+        val systemPayload = SystemPayload.decode(envelope.payload)
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext system envelope",
-            fields = mapOf("correlationId" to envelope.correlationId, "kind" to envelope.kind.name),
+            fields = mapOf("correlationId" to envelope.correlationId, "kind" to systemPayload.kind.name),
         )
-        return envelope.decodePayload()
+        return systemPayload
     }
 
     override fun observableHeaderValues(envelope: SystemEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
@@ -73,7 +74,7 @@ class SignedSystemProtection(
             nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = null,
-            payload = input,
+            payload = input.encode(),
         )
         val signature = signatureProvider.sign(unsigned.encodeForSigning())
         return unsigned.copy(signature = signature)
@@ -93,6 +94,7 @@ class SignedSystemProtection(
         ) {
             "System envelope signature verification failed for source=${envelope.source}"
         }
+        val systemPayload = SystemPayload.decode(envelope.payload)
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
@@ -100,10 +102,10 @@ class SignedSystemProtection(
             fields = mapOf(
                 "correlationId" to envelope.correlationId,
                 "source" to envelope.source,
-                "kind" to envelope.kind.name,
+                "kind" to systemPayload.kind.name,
             ),
         )
-        return envelope.decodePayload()
+        return systemPayload
     }
 
     override fun observableHeaderValues(envelope: SystemEnvelope): Map<String, Any?> = envelope.observableHeaderValues()

@@ -332,7 +332,7 @@ class DefaultRouterContractTest {
                 nonce = ByteArray(24) { 3 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
-                payload = text,
+                payload = text.encode(),
             )
         val bin =
             BinaryEnvelope(

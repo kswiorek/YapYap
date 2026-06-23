@@ -55,7 +55,7 @@ class MessageProtectionTest {
             nonce = nonce24(),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64), // invalid but scheme check runs first
-            payload = payload,
+            payload = payload.encode(),
         )
         assertFailsWith<IllegalArgumentException> {
             protection.open(envelope)
@@ -129,6 +129,54 @@ class MessageProtectionTest {
 
         val ex = assertFailsWith<IllegalArgumentException> {
             protection.open(tamperedEnvelope)
+        }
+        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
+    }
+
+    @Test
+    fun signedAndEncrypted_protectThenOpen_roundTrip() = runTest {
+        val pair = sampleSignedAndEncryptedProtectionPair(crypto)
+        val payload = sampleTextPayload("signed-encrypted-msg-1")
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+            source = pair.sourcePeer,
+            target = pair.targetPeer,
+        )
+        val envelope = pair.sender.protect(payload, ctx)
+        val opened = pair.receiver.open(envelope)
+        assertEquals(payload, opened)
+    }
+
+    @Test
+    fun signedAndEncrypted_protect_throwsWhenContextSchemeNotEncryptedAndSigned() = runTest {
+        val pair = sampleSignedAndEncryptedProtectionPair(crypto)
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = pair.sourcePeer,
+            target = pair.targetPeer,
+        )
+        assertFailsWith<IllegalArgumentException> {
+            pair.sender.protect(sampleTextPayload(), ctx)
+        }
+    }
+
+    @Test
+    fun signedAndEncrypted_open_throwsWhenSignatureInvalid() = runTest {
+        val pair = sampleSignedAndEncryptedProtectionPair(crypto)
+        val payload = sampleTextPayload("signed-encrypted-tamper-msg")
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+            source = pair.sourcePeer,
+            target = pair.targetPeer,
+        )
+        val envelope = pair.sender.protect(payload, ctx)
+        val corruptSignature = envelope.signature!!.copyOf().also {
+            it[0] = (it[0].toInt() xor 0xff).toByte()
+        }
+        val tamperedEnvelope = envelope.copy(signature = corruptSignature)
+
+        val ex = assertFailsWith<IllegalArgumentException> {
+            pair.receiver.open(tamperedEnvelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))
     }

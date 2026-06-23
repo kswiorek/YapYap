@@ -156,7 +156,7 @@ class DefaultRouterOutboxIntegrationTest {
                 nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 1 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
-                payload = ackPayload,
+                payload = ackPayload.encode(),
             )
         val binaryEnvelope =
             BinaryEnvelope(

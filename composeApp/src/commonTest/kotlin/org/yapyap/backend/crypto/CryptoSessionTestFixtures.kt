@@ -9,6 +9,7 @@ import org.yapyap.backend.protocol.TorEndpoint
 
 internal data class TestPeerIdentity(
     val device: DeviceIdentityRecord,
+    val signingPrivateKey: ByteArray,
     val encryptionPrivateKey: ByteArray,
     val signedPreKey: LocalSignedPreKey,
 )
@@ -58,6 +59,7 @@ internal suspend fun buildTestPeerIdentity(
     val spkId = "spk-$label"
     val spkSignature = crypto.signDetached(signing.privateKey, spk.publicKey)
     return TestPeerIdentity(
+        signingPrivateKey = signing.privateKey,
         device = DeviceIdentityRecord(
             deviceId = deviceId,
             signing = IdentityPublicKeyRecord(
