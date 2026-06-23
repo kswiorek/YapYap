@@ -2,6 +2,7 @@ package org.yapyap.backend.db
 
 import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.SqlDriver
+import org.yapyap.backend.crypto.e2ee.X3dhMode
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -36,6 +37,11 @@ class DatabaseFactory(
                 ),
                 dedupAdapter = Dedup.Adapter(
                     nack_reasonAdapter = EnumColumnAdapter(),
+                ),
+                crypto_sessionsAdapter = Crypto_sessions.Adapter(
+                    roleAdapter = EnumColumnAdapter(),
+                    x3dh_modeAdapter = EnumColumnAdapter<X3dhMode>(),
+                    statusAdapter = EnumColumnAdapter(),
                 ),
             ),
             driver = driver,
