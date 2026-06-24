@@ -7,16 +7,23 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
+import kotlin.test.assertNotNull
+import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.AccountId
 import org.yapyap.backend.crypto.AccountIdentityRecord
+import org.yapyap.backend.crypto.DefaultIdentityProvisioning
+import org.yapyap.backend.crypto.DefaultIdentityResolver
 import org.yapyap.backend.crypto.DeviceIdentityRecord
+import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
+import org.yapyap.backend.crypto.InMemoryKeyStore
+import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
-import kotlin.test.assertNull
 
 class PersistenceContractsJvmTest {
 
@@ -178,6 +185,65 @@ class PersistenceContractsJvmTest {
         val loaded = repo.getAccountPublicKey(accountId)
         assertEquals(accountId.id, loaded!!.accountId.id)
         assertContentEquals(byteArrayOf(0x55), loaded.key.publicKey)
+    }
+
+    @Test
+    fun identityPublicKeyRepository_getDevicePublicKey_roundTripsKeySignature() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        val repo = DefaultIdentityPublicKeyRepository(db)
+        val store = InMemoryKeyStore()
+        val crypto = KmpCryptoProvider()
+        val config = IdentityKeyServiceConfig(
+            defaultOnionAddress = "keysig-test.onion",
+            defaultOnionPort = 443L,
+        )
+        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver)
+
+        provisioning.createNewAccountIdentity(displayName = "KeySig User")
+        val device = provisioning.createNewDeviceIdentity()
+
+        val loaded = repo.getDevicePublicKey(device.deviceId)
+        assertNotNull(loaded?.keySignature)
+        assertContentEquals(device.keySignature, loaded.keySignature)
+
+        val resolved = resolver.resolvePeerIdentityRecord(device.deviceId)
+        assertNotNull(resolved)
+        assertContentEquals(device.keySignature, resolved.keySignature)
+    }
+
+    @Test
+    fun identityPublicKeyRepository_signedPreKey_roundTripsViaTable() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        val repo = DefaultIdentityPublicKeyRepository(db)
+        val store = InMemoryKeyStore()
+        val crypto = KmpCryptoProvider()
+        val config = IdentityKeyServiceConfig(
+            defaultOnionAddress = "spk-test.onion",
+            defaultOnionPort = 443L,
+        )
+        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver)
+
+        provisioning.createNewAccountIdentity(displayName = "SPK User")
+        val device = provisioning.createNewDeviceIdentity()
+        val spkId = device.signedPreKey!!.keyId
+
+        val stored = repo.getSignedPreKey(spkId)
+        assertNotNull(stored)
+        assertEquals(device.deviceId, stored.deviceId)
+        assertContentEquals(device.signedPreKey.publicKey, stored.publicKey)
+        assertNotNull(stored.privateKey)
+
+        val active = repo.getActiveSignedPreKeyForDevice(device.deviceId)
+        assertNotNull(active)
+        assertEquals(spkId, active.spkId)
+
+        val localSpk = resolver.resolveLocalSignedPreKey(spkId)
+        assertEquals(spkId, localSpk.keyId)
+        assertContentEquals(device.signedPreKey.publicKey, localSpk.publicKey)
     }
 
     @Test

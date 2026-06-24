@@ -135,8 +135,8 @@ class SignedAndEncryptedMessageProtection(
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
-            securityScheme = SignalSecurityScheme.SIGNED,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.ENCRYPTED_AND_SIGNED),
+            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = null,
             payload = encryptedInput.encode(),
         )
@@ -146,10 +146,10 @@ class SignedAndEncryptedMessageProtection(
     }
 
     override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
-        require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
-            "Expected SIGNED security scheme but got ${envelope.securityScheme}"
+        require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
+            "Expected ENCRYPTED_AND_SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("SIGNED message envelope must contain signature")
+        val signature = envelope.signature ?: error("ENCRYPTED_AND_SIGNED message envelope must contain signature")
         require(
             signatureProvider.verify(
                 deviceId = envelope.source,

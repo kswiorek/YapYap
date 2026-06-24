@@ -1,8 +1,10 @@
 package org.yapyap.backend.crypto
 
+import io.ktor.utils.io.core.toByteArray
 import org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.backend.crypto.e2ee.SessionUpgradePolicy
 import org.yapyap.backend.crypto.e2ee.X3dhHandshake
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.db.CryptoSessionStore
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
@@ -17,6 +19,7 @@ internal data class TestPeerIdentity(
 internal class TestIdentityResolver(
     private val local: TestPeerIdentity,
     private val peers: Map<PeerId, TestPeerIdentity>,
+    private val cryptoProvider: CryptoProvider = KmpCryptoProvider(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
@@ -33,7 +36,7 @@ internal class TestIdentityResolver(
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("not used in crypto session tests")
 
-    override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? =
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? =
         peers[deviceId]?.device
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
@@ -45,7 +48,38 @@ internal class TestIdentityResolver(
     override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
         error("not used in crypto session tests")
 
+    override suspend fun resolvePeerX3dhRemoteKeys(
+        deviceId: PeerId,
+        signedPreKeyId: String?,
+    ): X3dhRemotePeerKeys {
+        val device = resolvePeerIdentityRecord(deviceId)
+            ?: error("Missing peer identity record for deviceId=$deviceId")
+        val signedPreKey = when {
+            signedPreKeyId != null -> {
+                device.signedPreKey?.takeIf { it.keyId == signedPreKeyId }
+                    ?: error("Signed prekey not found: $signedPreKeyId")
+            }
+            else -> device.signedPreKey
+                ?: error("Missing signed prekey on roster for deviceId=$deviceId")
+        }
+        require(cryptoProvider.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
+            "failed to verify signed prekey signature"
+        }
+        return X3dhRemotePeerKeys(
+            identityEncryptionPublicKey = device.encryption.publicKey,
+            signedPreKeyPublicKey = signedPreKey.publicKey,
+            signedPreKeyId = signedPreKey.keyId,
+        )
+    }
+
     override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = local.signedPreKey
+
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey {
+        require(signedPreKeyId == local.signedPreKey.keyId) {
+            "Signed prekey not found: $signedPreKeyId"
+        }
+        return local.signedPreKey
+    }
 }
 
 internal suspend fun buildTestPeerIdentity(
@@ -56,6 +90,7 @@ internal suspend fun buildTestPeerIdentity(
     val encryption = crypto.generateEncryptionKeyPair()
     val spk = crypto.generateEncryptionKeyPair()
     val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
+    val encryptionKeyId = "encryption-$label"
     val spkId = "spk-$label"
     val spkSignature = crypto.signDetached(signing.privateKey, spk.publicKey)
     return TestPeerIdentity(
@@ -69,7 +104,7 @@ internal suspend fun buildTestPeerIdentity(
                 publicKey = signing.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "encryption-$label",
+                keyId = encryptionKeyId,
                 keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryption.publicKey,
@@ -79,6 +114,7 @@ internal suspend fun buildTestPeerIdentity(
                 publicKey = spk.publicKey,
                 signature = spkSignature,
             ),
+            keySignature = crypto.signDetached(signing.privateKey, encryption.publicKey + encryptionKeyId.encodeToByteArray()),
         ),
         encryptionPrivateKey = encryption.privateKey,
         signedPreKey = LocalSignedPreKey(

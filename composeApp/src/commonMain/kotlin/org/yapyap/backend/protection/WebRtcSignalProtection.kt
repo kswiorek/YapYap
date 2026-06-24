@@ -8,7 +8,7 @@ import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.routing.EnvelopeObservability
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 /**

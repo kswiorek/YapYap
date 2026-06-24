@@ -7,7 +7,7 @@ import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.routing.EnvelopeObservability
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 

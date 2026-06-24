@@ -9,7 +9,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.DefaultSignatureProvider
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.SignalSecurityScheme
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 
 class WebRtcSignalProtectionTest {
 

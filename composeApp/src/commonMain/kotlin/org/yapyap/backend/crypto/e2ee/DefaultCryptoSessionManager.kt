@@ -99,7 +99,7 @@ class DefaultCryptoSessionManager(
     }
 
     private suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId): LoadedSession {
-        val remote = identityResolver.resolvePeerLatestX3dhRemoteKeys(peerDeviceId)
+        val remote = identityResolver.resolvePeerX3dhRemoteKeys(peerDeviceId)
         val localIkPrivate = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION)
         val localIkPublic = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey
         val ephemeral = crypto.generateEncryptionKeyPair()
@@ -137,7 +137,7 @@ class DefaultCryptoSessionManager(
 
     private suspend fun bootstrapEpoch1Responder(peerDeviceId: PeerId, wire: X3dhWireInfo): LoadedSession {
         require(wire.mode == X3dhMode.THREE_DH) { "expected THREE_DH for epoch 1 bootstrap" }
-        val localSpk = identityResolver.getCurrentLocalSignedPreKey()
+        val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
         val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId)?.encryption?.publicKey
             ?: error("Missing peer identity encryption key for peer=$peerDeviceId")
         val result = x3dh.responderCompute3Dh(
@@ -173,7 +173,7 @@ class DefaultCryptoSessionManager(
         val opkId = wire.oneTimePreKeyId ?: offeredOpkId
         val opk = oneTimePreKeyStore.consume(opkId)
             ?: throw CryptoSessionException.OpkConsumeFailed(opkId)
-        val localSpk = identityResolver.getCurrentLocalSignedPreKey()
+        val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
         val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId)?.encryption?.publicKey
             ?: error("Missing peer identity encryption key for peer=$peerDeviceId")
         val result = x3dh.responderCompute4Dh(
@@ -218,7 +218,10 @@ class DefaultCryptoSessionManager(
             ?: throw CryptoSessionException.MissingInitiatorEphemeral(peerDeviceId)
         val ephemeralPublic = epoch1.meta.initiatorEphemeralPublicKey
             ?: throw CryptoSessionException.MissingInitiatorEphemeral(peerDeviceId)
-        val remote = identityResolver.resolvePeerX3dhRemoteKeys(peerDeviceId, epoch1.meta.handshakeSpkId)
+        val remote = identityResolver.resolvePeerX3dhRemoteKeys(
+            peerDeviceId,
+            signedPreKeyId = epoch1.meta.handshakeSpkId,
+        )
         val localIkPrivate = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION)
         val localIkPublic = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey
         val ephemeral = EncryptionKeyPair(

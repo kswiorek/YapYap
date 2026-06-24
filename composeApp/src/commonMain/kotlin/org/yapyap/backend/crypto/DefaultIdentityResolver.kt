@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.db.IdentityPublicKeyRepository
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
@@ -53,6 +54,21 @@ class DefaultIdentityResolver(
                 message = "Local device identity record missing, creating from local keys",
                 fields = mapOf("deviceId" to deviceId),
             )
+
+            val privateSigningKey = privateKeyStore.getKey(
+                ref = KeyReference(
+                    keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
+                    purpose = IdentityKeyPurpose.SIGNING,
+                    type = KeyType.PRIVATE,
+                )
+            ) ?: error("Missing local encryption public key")
+
+            val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+            val keySignature = cryptoProvider.signDetached(
+                privateSigningKey,
+                publicEncryptionKey + encryptionKeyId.encodeToByteArray(),
+            )
+
             val identity = DeviceIdentityRecord(
                 deviceId,
                 IdentityPublicKeyRecord(
@@ -62,11 +78,12 @@ class DefaultIdentityResolver(
                     publicKey = publicSigningKey,
                 ),
                 IdentityPublicKeyRecord(
-                    keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase(),
+                    keyId = encryptionKeyId,
                     keyVersion = 0,
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = publicEncryptionKey,
-                )
+                ),
+                keySignature = keySignature
             )
             val accountRecord = getLocalAccountIdentityRecord()
             publicKeyRepository.insertLocalDevice(
@@ -132,8 +149,11 @@ class DefaultIdentityResolver(
         ) ?: error("Missing local private key for keyId=$keyId, purpose=$purpose")
     }
 
-    override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? {
-        return publicKeyRepository.getDevicePublicKey(deviceId)
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? {
+        val device = publicKeyRepository.getDevicePublicKey(deviceId) ?: return null
+        if (device.keySignature == null) return null
+        if (!cryptoProvider.verifyDetached(device.signing.publicKey, (device.encryption.publicKey + device.encryption.keyId.encodeToByteArray()), device.keySignature)) return null
+        return device
     }
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
@@ -150,22 +170,64 @@ class DefaultIdentityResolver(
         publicKeyRepository.upsertPeerTorEndpoint(deviceId, torEndpoint)
     }
 
+    override suspend fun resolvePeerX3dhRemoteKeys(
+        deviceId: PeerId,
+        signedPreKeyId: String?,
+    ): X3dhRemotePeerKeys {
+        val device = resolvePeerIdentityRecord(deviceId)
+            ?: error("Missing peer identity record for deviceId=$deviceId")
+        val signedPreKey = when {
+            signedPreKeyId != null -> {
+                val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
+                    ?: error("Signed prekey not found: $signedPreKeyId")
+                require(stored.deviceId == deviceId) {
+                    "Signed prekey $signedPreKeyId does not belong to deviceId=$deviceId"
+                }
+                stored.toRecord()
+            }
+            else -> device.signedPreKey
+                ?: error("Missing signed prekey on roster for deviceId=$deviceId")
+        }
+        require(cryptoProvider.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
+            "failed to verify signed prekey signature"
+        }
+        return X3dhRemotePeerKeys(
+            identityEncryptionPublicKey = device.encryption.publicKey,
+            signedPreKeyPublicKey = signedPreKey.publicKey,
+            signedPreKeyId = signedPreKey.keyId,
+        )
+    }
+
     override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey {
         val device = getLocalDeviceIdentityRecord()
-        val signedPreKey = device.signedPreKey
+        val activeId = publicKeyRepository.getActiveSignedPreKeyForDevice(device.deviceId)?.spkId
+            ?: device.signedPreKey?.keyId
             ?: error("Local device ${device.deviceId} has no signed prekey published")
-        val privateKey = privateKeyStore.getKey(
+        return resolveLocalSignedPreKey(activeId)
+    }
+
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey {
+        val device = getLocalDeviceIdentityRecord()
+        val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
+            ?: error("Signed prekey not found: $signedPreKeyId")
+        require(stored.deviceId == device.deviceId) {
+            "Signed prekey $signedPreKeyId does not belong to local device ${device.deviceId}"
+        }
+        require(cryptoProvider.verifyDetached(device.signing.publicKey, stored.publicKey, stored.signature)) {
+            "failed to verify local signed prekey signature"
+        }
+        val privateKey = stored.privateKey ?: privateKeyStore.getKey(
             ref = KeyReference(
-                keyId = config.localSignedPreKeyKeyId(signedPreKey.keyId),
+                keyId = config.localSignedPreKeyKeyId(signedPreKeyId),
                 purpose = IdentityKeyPurpose.SIGNED_PREKEY,
                 type = KeyType.PRIVATE,
             ),
-        ) ?: error("Missing private signed prekey for keyId=${signedPreKey.keyId}")
+        ) ?: error("Missing private signed prekey for keyId=$signedPreKeyId")
         return LocalSignedPreKey(
-            keyId = signedPreKey.keyId,
-            publicKey = signedPreKey.publicKey,
+            keyId = stored.spkId,
+            publicKey = stored.publicKey,
             privateKey = privateKey,
-            signature = signedPreKey.signature,
+            signature = stored.signature,
         )
     }
 }

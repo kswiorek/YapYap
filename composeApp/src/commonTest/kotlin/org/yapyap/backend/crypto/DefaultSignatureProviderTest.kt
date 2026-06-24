@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
 
@@ -172,7 +173,7 @@ class DefaultSignatureProviderTest {
         }
         override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used in test")
 
-        override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
+        override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
 
         override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used in test")
 
@@ -180,6 +181,13 @@ class DefaultSignatureProviderTest {
 
         override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used in test")
 
+        override suspend fun resolvePeerX3dhRemoteKeys(
+            deviceId: PeerId,
+            signedPreKeyId: String?,
+        ): X3dhRemotePeerKeys = error("not used in test")
+
         override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used in test")
+
+        override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey = error("not used in test")
     }
 }

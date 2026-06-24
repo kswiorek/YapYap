@@ -9,6 +9,7 @@ import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.LocalSignedPreKey
 import org.yapyap.backend.crypto.SigningKeyPair
 import org.yapyap.backend.crypto.EncryptionKeyPair
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.db.OutboxEntry
 import org.yapyap.backend.db.PacketDeduplicator
 import org.yapyap.backend.db.PacketIdAllocator
@@ -31,7 +32,7 @@ import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.time.EpochSecondsProvider
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import org.yapyap.backend.transport.RecordingTorTransport
 import org.yapyap.backend.transport.RecordingWebRtcTransport
@@ -234,7 +235,7 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
-    override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = null
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = null
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
         torByPeer[deviceId] ?: TorEndpoint(onionAddress = "missing.onion", port = 80)
@@ -247,7 +248,15 @@ internal class FakeIdentityResolverForRouter(
         torByPeer[deviceId] = torEndpoint
     }
 
+    override suspend fun resolvePeerX3dhRemoteKeys(
+        deviceId: PeerId,
+        signedPreKeyId: String?,
+    ): X3dhRemotePeerKeys = error("not used in test")
+
     override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey =
+        error("FakeIdentityResolverForRouter: signed prekey not stubbed")
+
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey =
         error("FakeIdentityResolverForRouter: signed prekey not stubbed")
 }
 

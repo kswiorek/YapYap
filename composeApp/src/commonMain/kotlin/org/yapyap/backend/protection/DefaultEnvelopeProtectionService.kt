@@ -8,7 +8,7 @@ import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.OpenedFileEnvelope
 import org.yapyap.backend.protocol.SystemEnvelope
 import org.yapyap.backend.protocol.SystemPayload
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 class DefaultEnvelopeProtectionService(

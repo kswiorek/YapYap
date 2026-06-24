@@ -37,7 +37,7 @@ import org.yapyap.backend.time.SystemEpochSecondsProvider
 import org.yapyap.backend.transport.tor.TorIncomingEnvelope
 import org.yapyap.backend.transport.tor.TorTransport
 import org.yapyap.backend.transport.webrtc.WebRtcIncomingEnvelope
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.WebRtcTransport
 import org.yapyap.backend.transport.webrtc.types.WebRtcSessionPhase
 import org.yapyap.backend.transport.webrtc.types.WebRtcSessionState
@@ -224,7 +224,7 @@ class DefaultRouter(
             sourceDeviceId = localDeviceIdentity!!.deviceId,
             targetDeviceId = target,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            securityScheme = SignalSecurityScheme.SIGNED,
+            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
         )
 
         val messageEnvelope = envelopeProtectionService.protectMessage(payload, context)
@@ -696,6 +696,7 @@ class DefaultRouter(
         incomingMessageFlow.emit(payload)
         return null
     }
+
     private suspend fun handleSystemEnvelope(env: BinaryEnvelope) {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(

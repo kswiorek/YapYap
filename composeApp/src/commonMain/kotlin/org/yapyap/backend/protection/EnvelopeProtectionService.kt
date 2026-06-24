@@ -10,7 +10,7 @@ import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.SystemEnvelope
 import org.yapyap.backend.protocol.SystemPayload
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 
 interface EnvelopeProtectionService {

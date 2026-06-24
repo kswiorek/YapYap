@@ -5,10 +5,22 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.yapyap.backend.crypto.AccountId
+import org.yapyap.backend.crypto.AccountIdentityRecord
+import org.yapyap.backend.crypto.DefaultIdentityResolver
 import org.yapyap.backend.crypto.DefaultSignatureProvider
+import org.yapyap.backend.crypto.DeviceIdentityRecord
+import org.yapyap.backend.crypto.IdentityKeyPurpose
+import org.yapyap.backend.crypto.IdentityKeyServiceConfig
+import org.yapyap.backend.crypto.IdentityPublicKeyRecord
+import org.yapyap.backend.crypto.InMemoryIdentityPublicKeyRepository
+import org.yapyap.backend.crypto.InMemoryKeyStore
+import org.yapyap.backend.crypto.KeyReference
+import org.yapyap.backend.crypto.KeyType
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.SignalSecurityScheme
+import org.yapyap.backend.protocol.TorEndpoint
 
 class MessageProtectionTest {
 
@@ -177,6 +189,95 @@ class MessageProtectionTest {
 
         val ex = assertFailsWith<IllegalArgumentException> {
             pair.receiver.open(tamperedEnvelope)
+        }
+        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
+    }
+
+    @Test
+    fun signed_open_failsWhenPeerEncryptionKeyAttestationInvalid() = runTest {
+        val crypto = KmpCryptoProvider()
+        val repo = InMemoryIdentityPublicKeyRepository()
+        val store = InMemoryKeyStore()
+        val config = IdentityKeyServiceConfig()
+        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+
+        val senderSigning = crypto.generateSigningKeyPair()
+        val senderEncryption = crypto.generateEncryptionKeyPair()
+        val senderPeer = crypto.peerIdFromPublicKey(senderSigning.publicKey)
+        val encryptionKeyId = "${config.defaultDeviceLocalKeyPrefix}encryption"
+        val signingKeyId = "${config.defaultDeviceLocalKeyPrefix}signing"
+
+        store.putKey(
+            KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PRIVATE),
+            senderSigning.privateKey,
+        )
+        store.putKey(
+            KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PUBLIC),
+            senderSigning.publicKey,
+        )
+
+        val validKeySignature = crypto.signDetached(
+            senderSigning.privateKey,
+            senderEncryption.publicKey + encryptionKeyId.encodeToByteArray(),
+        )
+        val invalidKeySignature = validKeySignature.copyOf().also {
+            it[0] = (it[0].toInt() xor 0xff).toByte()
+        }
+
+        val accountId = AccountId("protection-attest-account")
+        repo.insertLocalAccount(
+            displayName = "Protection",
+            identity = AccountIdentityRecord(
+                accountId = accountId,
+                key = IdentityPublicKeyRecord("acc-k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
+            ),
+        )
+        repo.insertPeerDevice(
+            accountId = accountId,
+            deviceType = org.yapyap.backend.db.DeviceType.DESKTOP,
+            identity = DeviceIdentityRecord(
+                deviceId = senderPeer,
+                signing = IdentityPublicKeyRecord(
+                    keyId = signingKeyId,
+                    keyVersion = 0,
+                    purpose = IdentityKeyPurpose.SIGNING,
+                    publicKey = senderSigning.publicKey,
+                ),
+                encryption = IdentityPublicKeyRecord(
+                    keyId = encryptionKeyId,
+                    keyVersion = 0,
+                    purpose = IdentityKeyPurpose.ENCRYPTION,
+                    publicKey = senderEncryption.publicKey,
+                ),
+                keySignature = invalidKeySignature,
+            ),
+            torEndpoint = TorEndpoint(onionAddress = "sender-attest.onion", port = 443),
+        )
+
+        val senderProtection = SignedMessageProtection(
+            DefaultSignatureProvider(
+                FakeIdentityResolverForProtection(
+                    localSigningPrivateKey = senderSigning.privateKey,
+                    peerRecords = emptyMap(),
+                ),
+                crypto,
+            ),
+            crypto,
+        )
+        val receiverProtection = SignedMessageProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+
+        val payload = sampleTextPayload("attest-invalid-msg")
+        val envelope = senderProtection.protect(
+            payload,
+            sampleEnvelopeContext(
+                scheme = SignalSecurityScheme.SIGNED,
+                source = senderPeer,
+                target = FixturePeerIds.B,
+            ),
+        )
+
+        val ex = assertFailsWith<IllegalArgumentException> {
+            receiverProtection.open(envelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))
     }

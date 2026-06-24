@@ -29,6 +29,7 @@ import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.crypto.AccountId
+import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
@@ -217,7 +218,7 @@ internal class FakeIdentityResolverForProtection(
 
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
 
-    override fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")
 
@@ -225,7 +226,14 @@ internal class FakeIdentityResolverForProtection(
 
     override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
 
+    override suspend fun resolvePeerX3dhRemoteKeys(
+        deviceId: PeerId,
+        signedPreKeyId: String?,
+    ): X3dhRemotePeerKeys = error("not used in test")
+
     override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used")
+
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey = error("not used")
 }
 
 /**

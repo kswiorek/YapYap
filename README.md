@@ -1,5 +1,7 @@
 This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM).
 
+If you do not have the Android SDK installed, the Gradle build will automatically skip the Android target and import the project as JVM-only. To force Android back on later, set `enableAndroid=true` in Gradle or provide an Android SDK path via `local.properties`.
+
 * [/composeApp](./composeApp/src) is for code that will be shared across your Compose Multiplatform applications.
   It contains several subfolders:
   - [commonMain](./composeApp/src/commonMain/kotlin) is for code that’s common for all targets.

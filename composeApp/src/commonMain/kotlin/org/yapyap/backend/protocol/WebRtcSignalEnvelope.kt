@@ -1,9 +1,5 @@
-package org.yapyap.backend.transport.webrtc
+package org.yapyap.backend.protocol
 
-import org.yapyap.backend.protocol.ByteReader
-import org.yapyap.backend.protocol.ByteWriter
-import org.yapyap.backend.protocol.PeerId
-import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignalKind
 
 data class WebRtcSignalEnvelope(

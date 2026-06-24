@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.db.Signed_prekeys
 import org.yapyap.backend.protocol.PeerId
 
 enum class IdentityKeyPurpose {
@@ -26,11 +27,12 @@ data class AccountId(
 data class SignedPreKeyRecord(
     val keyId: String,
     val publicKey: ByteArray,
-    val signature: ByteArray?,
+    val signature: ByteArray,
 ) {
     init {
         require(keyId.isNotBlank()) { "keyId must not be blank" }
         require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
+        require(signature.isNotEmpty()) { "signature must not be empty" }
     }
 }
 
@@ -66,9 +68,27 @@ data class DeviceIdentityRecord(
     val signing: IdentityPublicKeyRecord,
     val encryption: IdentityPublicKeyRecord,
     val signedPreKey: SignedPreKeyRecord? = null,
+    val keySignature: ByteArray? = null,
 )
 
 data class AccountIdentityRecord(
     val accountId: AccountId,
     val key: IdentityPublicKeyRecord,
 )
+
+//data class StoredSignedPreKey(
+//    val spkId: String,
+//    val deviceId: PeerId,
+//    val publicKey: ByteArray,
+//    val privateKey: ByteArray?,
+//    val signature: ByteArray,
+//    val isActive: Boolean,
+//    val createdAtEpochSeconds: Long,
+//) {
+//    fun toRecord(): SignedPreKeyRecord =
+//        SignedPreKeyRecord(
+//            keyId = spkId,
+//            publicKey = publicKey,
+//            signature = signature,
+//        )
+//}

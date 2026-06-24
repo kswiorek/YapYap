@@ -7,6 +7,7 @@ import org.yapyap.backend.crypto.SignedPreKeyRecord
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
+import org.yapyap.backend.crypto.StoredSignedPreKey
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -84,41 +85,49 @@ class DefaultIdentityPublicKeyRepository(
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = device.encryption_pub_key,
                 ),
-                signedPreKey = device.signed_prekey_id?.let { spkId ->
-                    SignedPreKeyRecord(
-                        keyId = spkId,
-                        publicKey = device.signed_prekey_pub
-                            ?: error("signed_prekey_pub missing for deviceId=${device.device_id}, spkId=$spkId"),
-                        signature = device.signed_prekey_signature,
-                    )
-                },
+                signedPreKey = getActiveSignedPreKeyForDevice(deviceId),
+                keySignature = device.key_signature,
             )
         }
     }
 
-    override fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord) {
+    override fun insertLocalDevice(
+        accountId: AccountId,
+        identity: DeviceIdentityRecord,
+        localSignedPreKeyPrivateKey: ByteArray?,
+    ) {
         val queries = database.identityQueries
-
-        queries.putDevice(
-            device_id = identity.deviceId.id,
-            account_id = accountId.id,
-            device_type = config.defaultDeviceType,
-            onion_address = config.defaultOnionAddress,
-            onion_port = config.defaultOnionPort,
-            signing_pub_key = identity.signing.publicKey,
-            signing_key_id = identity.signing.keyId,
-            signing_key_version = identity.signing.keyVersion,
-            encryption_pub_key = identity.encryption.publicKey,
-            encryption_key_id = identity.encryption.keyId,
-            encryption_key_version = identity.encryption.keyVersion,
-            signed_prekey_pub = identity.signedPreKey?.publicKey,
-            signed_prekey_id = identity.signedPreKey?.keyId,
-            signed_prekey_signature = identity.signedPreKey?.signature,
-            push_token = config.defaultPushToken,
-            ping_attempts = config.defaultPingAttempts,
-            ping_successes = config.defaultPingSuccesses,
-            last_seen_timestamp = config.defaultLastSeenTimestamp,
-        )
+        database.transaction {
+            queries.putDevice(
+                device_id = identity.deviceId.id,
+                account_id = accountId.id,
+                device_type = config.defaultDeviceType,
+                onion_address = config.defaultOnionAddress,
+                onion_port = config.defaultOnionPort,
+                signing_pub_key = identity.signing.publicKey,
+                signing_key_id = identity.signing.keyId,
+                signing_key_version = identity.signing.keyVersion,
+                encryption_pub_key = identity.encryption.publicKey,
+                encryption_key_id = identity.encryption.keyId,
+                encryption_key_version = identity.encryption.keyVersion,
+                key_signature = identity.keySignature,
+                current_signed_prekey_id = null,
+                push_token = config.defaultPushToken,
+                ping_attempts = config.defaultPingAttempts,
+                ping_successes = config.defaultPingSuccesses,
+                last_seen_timestamp = config.defaultLastSeenTimestamp,
+            )
+            identity.signedPreKey?.let { spk ->
+                persistSignedPreKey(
+                    deviceId = identity.deviceId,
+                    signedPreKey = spk,
+                    privateKey = localSignedPreKeyPrivateKey,
+                    isActive = true,
+                    createdAtEpochSeconds = config.defaultLastSeenTimestamp,
+                    activateOnDevice = true,
+                )
+            }
+        }
         logger.info(
             component = LogComponent.DATABASE,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
@@ -169,14 +178,12 @@ class DefaultIdentityPublicKeyRepository(
                 )
             }
             IdentityKeyPurpose.SIGNED_PREKEY -> {
-                val spkId = device.signed_prekey_id ?: return null
-                val spkPub = device.signed_prekey_pub ?: return null
-                if (spkId.isBlank() || spkPub.isEmpty()) return null
+                val active = getActiveSignedPreKeyForDevice(deviceId) ?: return null
                 IdentityPublicKeyRecord(
-                    keyId = spkId,
+                    keyId = active.keyId,
                     keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNED_PREKEY,
-                    publicKey = spkPub,
+                    publicKey = active.publicKey,
                 )
             }
         }
@@ -207,36 +214,88 @@ class DefaultIdentityPublicKeyRepository(
 
     override fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
         val queries = database.identityQueries
+        database.transaction {
+            queries.putDevice(
+                device_id = identity.deviceId.id,
+                account_id = accountId.id,
+                device_type = deviceType,
+                onion_address = torEndpoint.onionAddress,
+                onion_port = torEndpoint.port.toLong(),
+                signing_pub_key = identity.signing.publicKey,
+                signing_key_id = identity.signing.keyId,
+                signing_key_version = identity.signing.keyVersion,
+                encryption_pub_key = identity.encryption.publicKey,
+                encryption_key_id = identity.encryption.keyId,
+                encryption_key_version = identity.encryption.keyVersion,
+                key_signature = identity.keySignature,
+                current_signed_prekey_id = null,
+                push_token = config.defaultPushToken,
+                ping_attempts = config.defaultPingAttempts,
+                ping_successes = config.defaultPingSuccesses,
+                last_seen_timestamp = config.defaultLastSeenTimestamp,
+            )
+            identity.signedPreKey?.let { spk ->
+                persistSignedPreKey(
+                    deviceId = identity.deviceId,
+                    signedPreKey = spk,
+                    privateKey = null,
+                    isActive = true,
+                    createdAtEpochSeconds = config.defaultLastSeenTimestamp,
+                    activateOnDevice = true,
+                )
+            }
+        }
+    }
 
-        queries.putDevice(
-            device_id = identity.deviceId.id,
-            account_id = accountId.id,
-            device_type = deviceType,
-            onion_address = torEndpoint.onionAddress,
-            onion_port = torEndpoint.port.toLong(),
-            signing_pub_key = identity.signing.publicKey,
-            signing_key_id = identity.signing.keyId,
-            signing_key_version = identity.signing.keyVersion,
-            encryption_pub_key = identity.encryption.publicKey,
-            encryption_key_id = identity.encryption.keyId,
-            encryption_key_version = identity.encryption.keyVersion,
-            signed_prekey_pub = identity.signedPreKey?.publicKey,
-            signed_prekey_id = identity.signedPreKey?.keyId,
-            signed_prekey_signature = identity.signedPreKey?.signature,
-            push_token = config.defaultPushToken,
-            ping_attempts = config.defaultPingAttempts,
-            ping_successes = config.defaultPingSuccesses,
-            last_seen_timestamp = config.defaultLastSeenTimestamp,
+    override fun getSignedPreKey(spkId: String): SignedPreKeyRecord? =
+        database.identityQueries.selectSignedPreKeyById(spkId).executeAsOneOrNull().let {
+            if (it == null) null else
+            SignedPreKeyRecord(
+            it.spk_id,
+            it.public_key,
+            it.signature,
+            )
+        }
+
+    override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
+        database.identityQueries.selectActiveSignedPreKeyForDevice(deviceId.id).executeAsOneOrNull().let {
+            if (it == null) null else
+            SignedPreKeyRecord(
+                it.spk_id,
+                it.public_key,
+                it.signature,
+            )
+        }
+
+    override fun insertSignedPreKey(stored: StoredSignedPreKey) {
+        database.identityQueries.insertSignedPreKey(
+            spk_id = stored.spkId,
+            device_id = stored.deviceId.id,
+            public_key = stored.publicKey,
+            private_key = stored.privateKey,
+            signature = stored.signature,
+            is_active = stored.isActive,
+            created_at_epoch_seconds = stored.createdAtEpochSeconds,
         )
     }
 
-    override fun upsertDeviceSignedPreKey(deviceId: PeerId, signedPreKey: SignedPreKeyRecord) {
-        database.identityQueries.updateDeviceSignedPreKey(
-            signed_prekey_pub = signedPreKey.publicKey,
-            signed_prekey_id = signedPreKey.keyId,
-            signed_prekey_signature = signedPreKey.signature,
-            device_id = deviceId.id,
-        )
+    override fun upsertDeviceSignedPreKey(
+        deviceId: PeerId,
+        signedPreKey: SignedPreKeyRecord,
+        privateKey: ByteArray?,
+        createdAtEpochSeconds: Long,
+    ) {
+        database.transaction {
+            database.identityQueries.deactivateSignedPreKeysForDevice(deviceId.id)
+            persistSignedPreKey(
+                deviceId = deviceId,
+                signedPreKey = signedPreKey,
+                privateKey = privateKey,
+                isActive = true,
+                createdAtEpochSeconds = createdAtEpochSeconds,
+                activateOnDevice = true,
+            )
+        }
         logger.info(
             component = LogComponent.DATABASE,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
@@ -258,4 +317,40 @@ class DefaultIdentityPublicKeyRepository(
             onion_port = torEndpoint.port.toLong(),
         )
     }
+
+    private fun persistSignedPreKey(
+        deviceId: PeerId,
+        signedPreKey: SignedPreKeyRecord,
+        privateKey: ByteArray?,
+        isActive: Boolean,
+        createdAtEpochSeconds: Long,
+        activateOnDevice: Boolean,
+    ) {
+        database.identityQueries.insertSignedPreKey(
+            spk_id = signedPreKey.keyId,
+            device_id = deviceId.id,
+            public_key = signedPreKey.publicKey,
+            private_key = privateKey,
+            signature = signedPreKey.signature,
+            is_active = isActive,
+            created_at_epoch_seconds = createdAtEpochSeconds,
+        )
+        if (activateOnDevice && isActive) {
+            database.identityQueries.updateDeviceCurrentSignedPreKey(
+                current_signed_prekey_id = signedPreKey.keyId,
+                device_id = deviceId.id,
+            )
+        }
+    }
+
+//    private fun Signed_prekeys.toStored(): StoredSignedPreKey =
+//        StoredSignedPreKey(
+//            spkId = spk_id,
+//            deviceId = PeerId(device_id),
+//            publicKey = public_key,
+//            privateKey = private_key,
+//            signature = signature,
+//            isActive = is_active,
+//            createdAtEpochSeconds = created_at_epoch_seconds,
+//        )
 }

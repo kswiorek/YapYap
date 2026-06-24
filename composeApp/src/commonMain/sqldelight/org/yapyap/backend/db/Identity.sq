@@ -24,14 +24,24 @@ CREATE TABLE devices (
     encryption_pub_key BLOB NOT NULL,
     encryption_key_id TEXT NOT NULL,
     encryption_key_version INTEGER NOT NULL,
-    signed_prekey_pub BLOB,
-    signed_prekey_id TEXT,
-    signed_prekey_signature BLOB,
+    key_signature BLOB,
+    current_signed_prekey_id TEXT,
     push_token TEXT,
     ping_attempts INTEGER NOT NULL,
     ping_successes INTEGER NOT NULL,
     last_seen_timestamp INTEGER NOT NULL,
     FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+);
+
+CREATE TABLE signed_prekeys (
+    spk_id TEXT NOT NULL PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    public_key BLOB NOT NULL,
+    private_key BLOB,
+    signature BLOB NOT NULL,
+    is_active INTEGER AS Boolean NOT NULL DEFAULT 0,
+    created_at_epoch_seconds INTEGER NOT NULL,
+    FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 
 CREATE TABLE one_time_prekeys (
@@ -76,14 +86,45 @@ INSERT OR REPLACE INTO devices (
     encryption_pub_key,
     encryption_key_id,
     encryption_key_version,
-    signed_prekey_pub,
-    signed_prekey_id,
-    signed_prekey_signature,
+    key_signature,
+    current_signed_prekey_id,
     push_token,
     ping_attempts,
     ping_successes,
     last_seen_timestamp
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateDeviceCurrentSignedPreKey:
+UPDATE devices
+SET current_signed_prekey_id = ?
+WHERE device_id = ?;
+
+insertSignedPreKey:
+INSERT OR REPLACE INTO signed_prekeys (
+    spk_id,
+    device_id,
+    public_key,
+    private_key,
+    signature,
+    is_active,
+    created_at_epoch_seconds
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectSignedPreKeyById:
+SELECT *
+FROM signed_prekeys
+WHERE spk_id = ?;
+
+selectActiveSignedPreKeyForDevice:
+SELECT *
+FROM signed_prekeys
+WHERE device_id = ? AND is_active = 1
+LIMIT 1;
+
+deactivateSignedPreKeysForDevice:
+UPDATE signed_prekeys
+SET is_active = 0
+WHERE device_id = ?;
 
 insertOneTimePreKey:
 INSERT OR REPLACE INTO one_time_prekeys (
@@ -103,14 +144,6 @@ markOneTimePreKeyConsumed:
 UPDATE one_time_prekeys
 SET is_consumed = 1
 WHERE opk_id = ?;
-
-updateDeviceSignedPreKey:
-UPDATE devices
-SET
-    signed_prekey_pub = ?,
-    signed_prekey_id = ?,
-    signed_prekey_signature = ?
-WHERE device_id = ?;
 
 selectDeviceById:
 SELECT *
@@ -161,4 +194,6 @@ SET
 WHERE device_id = ?;
 
 CREATE INDEX devices_account_idx ON devices(account_id);
+CREATE INDEX signed_prekeys_device_idx ON signed_prekeys(device_id);
+CREATE INDEX signed_prekeys_device_active_idx ON signed_prekeys(device_id, is_active);
 CREATE INDEX one_time_prekeys_device_idx ON one_time_prekeys(device_id);

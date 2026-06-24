@@ -14,7 +14,11 @@ interface IdentityPublicKeyRepository {
 
     fun getDevicePublicKey(deviceId: PeerId): DeviceIdentityRecord?
 
-    fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord)
+    fun insertLocalDevice(
+        accountId: AccountId,
+        identity: DeviceIdentityRecord,
+        localSignedPreKeyPrivateKey: ByteArray? = null,
+    )
 
     fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
@@ -29,5 +33,17 @@ interface IdentityPublicKeyRepository {
 
     fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
-    fun upsertDeviceSignedPreKey(deviceId: PeerId, signedPreKey: SignedPreKeyRecord)
+    fun getSignedPreKey(spkId: String): SignedPreKeyRecord?
+
+    fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord?
+
+    fun insertSignedPreKey(stored: StoredSignedPreKey)
+
+    /** Inserts a new active SPK, deactivates prior active rows, and updates [devices.current_signed_prekey_id]. */
+    fun upsertDeviceSignedPreKey(
+        deviceId: PeerId,
+        signedPreKey: SignedPreKeyRecord,
+        privateKey: ByteArray? = null,
+        createdAtEpochSeconds: Long,
+    )
 }

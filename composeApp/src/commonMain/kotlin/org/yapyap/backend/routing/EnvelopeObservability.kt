@@ -4,7 +4,7 @@ import org.yapyap.backend.protocol.BinaryEnvelope
 import org.yapyap.backend.protocol.FileEnvelope
 import org.yapyap.backend.protocol.MessageEnvelope
 import org.yapyap.backend.protocol.SystemEnvelope
-import org.yapyap.backend.transport.webrtc.WebRtcSignalEnvelope
+import org.yapyap.backend.protocol.WebRtcSignalEnvelope
 
 enum class FieldSensitivity {
     ROUTING_VISIBLE,

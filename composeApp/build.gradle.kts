@@ -1,13 +1,40 @@
+@file:OptIn(ExperimentalKotlinGradlePluginApi::class)
+
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.androidApplication) apply false
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
     id("app.cash.sqldelight") version "2.3.2"
+}
+
+fun hasAndroidSdkConfigured(): Boolean {
+    val localPropertiesFile = rootProject.file("local.properties")
+
+    if (localPropertiesFile.exists()) {
+        val properties = Properties()
+        localPropertiesFile.inputStream().use(properties::load)
+        if (!properties.getProperty("sdk.dir").isNullOrBlank()) {
+            return true
+        }
+    }
+
+    return !System.getenv("ANDROID_SDK_ROOT").isNullOrBlank() || !System.getenv("ANDROID_HOME").isNullOrBlank()
+}
+
+val enableAndroid = providers.gradleProperty("enableAndroid")
+    .map(String::toBoolean)
+    .orElse(hasAndroidSdkConfigured())
+    .get()
+
+if (enableAndroid) {
+    apply(plugin = "com.android.application")
 }
 
 val webrtcNativeClassifier: String? = run {
@@ -24,9 +51,11 @@ val webrtcNativeClassifier: String? = run {
 }
 
 kotlin {
-    androidTarget {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+    if (enableAndroid) {
+        androidTarget {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_11)
+            }
         }
     }
     
@@ -43,10 +72,12 @@ kotlin {
     jvm()
     
     sourceSets {
-        androidMain.dependencies {
-            implementation(libs.compose.uiToolingPreview)
-            implementation(libs.androidx.activity.compose)
-            implementation(libs.android.driver)
+        if (enableAndroid) {
+            androidMain.dependencies {
+                implementation(libs.compose.uiToolingPreview)
+                implementation(libs.androidx.activity.compose)
+                implementation(libs.android.driver)
+            }
         }
         val ktor_version: String by project
         val vKmpTorResource: String by project
@@ -94,35 +125,37 @@ kotlin {
     }
 }
 
-android {
-    namespace = "org.yapyap"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
+if (enableAndroid) {
+    extensions.configure<com.android.build.api.dsl.ApplicationExtension>("android") {
+        namespace = "org.yapyap"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
 
-    defaultConfig {
-        applicationId = "org.yapyap"
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
-    }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        defaultConfig {
+            applicationId = "org.yapyap"
+            minSdk = libs.versions.android.minSdk.get().toInt()
+            targetSdk = libs.versions.android.targetSdk.get().toInt()
+            versionCode = 1
+            versionName = "1.0"
+        }
+        packaging {
+            resources {
+                excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            }
+        }
+        buildTypes {
+            getByName("release") {
+                isMinifyEnabled = false
+            }
+        }
+        compileOptions {
+            sourceCompatibility = JavaVersion.VERSION_11
+            targetCompatibility = JavaVersion.VERSION_11
         }
     }
-    buildTypes {
-        getByName("release") {
-            isMinifyEnabled = false
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-}
 
-dependencies {
-    debugImplementation(libs.compose.uiTooling)
+    dependencies {
+        add("debugImplementation", libs.compose.uiTooling)
+    }
 }
 
 compose.desktop {
@@ -150,7 +183,7 @@ sqldelight {
 }
 
 /**
- * Opt-in slow / environment-sensitive JVM integration tests (real Tor, real WebRTC stack, OS keyring), e.g.:
+ * Opt-in slow / environment-sensitive JVM integration tests (real Tor, real WebRTC stack), e.g.:
  * `./gradlew :composeApp:jvmTest -PintegrationTests=true --rerun-tasks`
  */
 val integrationTestsEnabled =

@@ -47,29 +47,38 @@ class DefaultIdentityProvisioning(
 
         keyStore.putKey(privateEncryptionKeyRef, encryptionKey.privateKey)
         keyStore.putKey(publicEncryptionKeyRef, encryptionKey.publicKey)
-        val identity = DeviceIdentityRecord(deviceId, signingKeyRecord, encryptionKeyRecord)
+
+        val keySignature = cryptoProvider.signDetached(
+            signingKey.privateKey,
+            encryptionKey.publicKey + encryptionKeyRecord.keyId.encodeToByteArray()
+        )
+
+        val (signedPreKey, signedPreKeyPrivateKey) = provisionInitialSignedPreKey(
+            signingPrivateKey = signingKey.privateKey,
+        )
+
+        val identity = DeviceIdentityRecord(deviceId, signingKeyRecord, encryptionKeyRecord, signedPreKey = signedPreKey, keySignature = keySignature)
 
         val accountRecord = identityResolver.getLocalAccountIdentityRecord()
 
-        publicKeyRepository.insertLocalDevice(accountRecord.accountId, identity)
-        val signedPreKey = provisionInitialSignedPreKey(
-            deviceId = deviceId,
-            signingPrivateKey = signingKey.privateKey,
+        publicKeyRepository.insertLocalDevice(
+            accountId = accountRecord.accountId,
+            identity = identity,
+            localSignedPreKeyPrivateKey = signedPreKeyPrivateKey,
         )
-        val identityWithSpk = identity.copy(signedPreKey = signedPreKey)
+
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Created and persisted new local device identity",
             fields = mapOf("deviceId" to deviceId, "accountId" to accountRecord.accountId),
         )
-        return identityWithSpk
+        return identity
     }
 
     private suspend fun provisionInitialSignedPreKey(
-        deviceId: PeerId,
         signingPrivateKey: ByteArray,
-    ): SignedPreKeyRecord {
+    ): Pair<SignedPreKeyRecord, ByteArray> {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
         val spkId = "spk-${cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}"
         val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
@@ -78,7 +87,6 @@ class DefaultIdentityProvisioning(
             publicKey = spkPair.publicKey,
             signature = signature,
         )
-        publicKeyRepository.upsertDeviceSignedPreKey(deviceId, record)
         keyStore.putKey(
             ref = KeyReference(
                 keyId = config.localSignedPreKeyKeyId(spkId),
@@ -95,7 +103,7 @@ class DefaultIdentityProvisioning(
             ),
             key = spkPair.publicKey,
         )
-        return record
+        return record to spkPair.privateKey
     }
 
     override suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
