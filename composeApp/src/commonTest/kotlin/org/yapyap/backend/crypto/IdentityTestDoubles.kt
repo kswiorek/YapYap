@@ -44,6 +44,7 @@ internal suspend fun buildAttestedDeviceIdentity(
             keyId = spkId,
             publicKey = spk.publicKey,
             signature = spkSignature,
+            privateKey = null,
         ),
         keySignature = keySignature,
     )
@@ -75,7 +76,7 @@ internal class InMemoryIdentityPublicKeyRepository(
 
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
     val devices = mutableMapOf<String, DeviceIdentityRecord>()
-    private val signedPreKeys = mutableMapOf<String, StoredSignedPreKey>()
+    private val signedPreKeys = mutableMapOf<String, Pair<SignedPreKeyRecord, PeerId>>()
     private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
     private val deviceToAccount = mutableMapOf<String, String>()
     private val peersForAccount = mutableMapOf<String, MutableSet<String>>()
@@ -87,14 +88,13 @@ internal class InMemoryIdentityPublicKeyRepository(
     override fun getDevicePublicKey(deviceId: PeerId): DeviceIdentityRecord? =
         devices[deviceId.id]?.let { device ->
             val activeSpkId = activeSignedPreKeyByDevice[deviceId.id]
-            val activeSpk = activeSpkId?.let { signedPreKeys[it]?.toRecord() } ?: device.signedPreKey
+            val activeSpk = activeSpkId?.let { signedPreKeys[it]!!.first } ?: device.signedPreKey
             if (activeSpk == device.signedPreKey) device else device.copy(signedPreKey = activeSpk)
         }
 
     override fun insertLocalDevice(
         accountId: AccountId,
         identity: DeviceIdentityRecord,
-        localSignedPreKeyPrivateKey: ByteArray?,
     ) {
         devices[identity.deviceId.id] = identity
         deviceToAccount[identity.deviceId.id] = accountId.id
@@ -104,7 +104,6 @@ internal class InMemoryIdentityPublicKeyRepository(
             persistSignedPreKey(
                 deviceId = identity.deviceId,
                 signedPreKey = spk,
-                privateKey = localSignedPreKeyPrivateKey,
                 isActive = true,
                 createdAtEpochSeconds = 0L,
             )
@@ -125,7 +124,6 @@ internal class InMemoryIdentityPublicKeyRepository(
             persistSignedPreKey(
                 deviceId = identity.deviceId,
                 signedPreKey = spk,
-                privateKey = null,
                 isActive = true,
                 createdAtEpochSeconds = 0L,
             )
@@ -143,7 +141,7 @@ internal class InMemoryIdentityPublicKeyRepository(
             IdentityKeyPurpose.ENCRYPTION -> d.encryption
             IdentityKeyPurpose.SIGNED_PREKEY -> getActiveSignedPreKeyForDevice(deviceId)?.let { spk ->
                 IdentityPublicKeyRecord(
-                    keyId = spk.spkId,
+                    keyId = spk.keyId,
                     keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNED_PREKEY,
                     publicKey = spk.publicKey,
@@ -172,15 +170,15 @@ internal class InMemoryIdentityPublicKeyRepository(
         torForDevice[deviceId.id] = torEndpoint
     }
 
-    override fun getSignedPreKey(spkId: String): StoredSignedPreKey? = signedPreKeys[spkId]
+    override fun getSignedPreKey(spkId: String): Pair<SignedPreKeyRecord, PeerId> = signedPreKeys[spkId]!!
 
-    override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): StoredSignedPreKey? =
-        activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it] }
+    override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
+        activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it]!!.first }
 
-    override fun insertSignedPreKey(stored: StoredSignedPreKey) {
-        signedPreKeys[stored.spkId] = stored
-        if (stored.isActive) {
-            activeSignedPreKeyByDevice[stored.deviceId.id] = stored.spkId
+    override fun insertSignedPreKey(spk: SignedPreKeyRecord, peerId: PeerId) {
+        signedPreKeys[spk.keyId] = spk to peerId
+        if (spk.isActive) {
+            activeSignedPreKeyByDevice[peerId.id] = spk.keyId
         }
     }
 
@@ -192,13 +190,12 @@ internal class InMemoryIdentityPublicKeyRepository(
     ) {
         val existing = devices[deviceId.id] ?: error("Device not found: $deviceId")
         signedPreKeys.values
-            .filter { it.deviceId == deviceId && it.isActive }
-            .forEach { signedPreKeys[it.spkId] = it.copy(isActive = false) }
+            .filter { it.second == deviceId && it.first.isActive }
+            .forEach { signedPreKeys[it.first.keyId] = it.first.copy(isActive = false) to it.second }
         devices[deviceId.id] = existing.copy(signedPreKey = signedPreKey)
         persistSignedPreKey(
             deviceId = deviceId,
             signedPreKey = signedPreKey,
-            privateKey = privateKey,
             isActive = true,
             createdAtEpochSeconds = createdAtEpochSeconds,
         )
@@ -207,25 +204,23 @@ internal class InMemoryIdentityPublicKeyRepository(
     private fun persistSignedPreKey(
         deviceId: PeerId,
         signedPreKey: SignedPreKeyRecord,
-        privateKey: ByteArray?,
         isActive: Boolean,
         createdAtEpochSeconds: Long,
     ) {
         signedPreKeys.values
-            .filter { it.deviceId == deviceId && it.isActive }
-            .forEach { signedPreKeys[it.spkId] = it.copy(isActive = false) }
-        val stored = StoredSignedPreKey(
-            spkId = signedPreKey.keyId,
-            deviceId = deviceId,
+            .filter { it.second == deviceId && it.first.isActive }
+            .forEach { signedPreKeys[it.first.keyId] = it.first.copy(isActive = false) to it.second }
+        val stored = SignedPreKeyRecord(
+            keyId = signedPreKey.keyId,
             publicKey = signedPreKey.publicKey,
-            privateKey = privateKey,
+            privateKey = signedPreKey.privateKey,
             signature = signedPreKey.signature,
             isActive = isActive,
             createdAtEpochSeconds = createdAtEpochSeconds,
         )
-        signedPreKeys[stored.spkId] = stored
+        signedPreKeys[stored.keyId] = stored to deviceId
         if (isActive) {
-            activeSignedPreKeyByDevice[deviceId.id] = stored.spkId
+            activeSignedPreKeyByDevice[deviceId.id] = stored.keyId
         }
     }
 

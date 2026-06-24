@@ -1,6 +1,5 @@
 package org.yapyap.backend.crypto
 
-import org.yapyap.backend.db.Signed_prekeys
 import org.yapyap.backend.protocol.PeerId
 
 enum class IdentityKeyPurpose {
@@ -28,25 +27,14 @@ data class SignedPreKeyRecord(
     val keyId: String,
     val publicKey: ByteArray,
     val signature: ByteArray,
+    val privateKey: ByteArray?,
+    val isActive: Boolean = true,
+    val createdAtEpochSeconds: Long? = null,
 ) {
     init {
         require(keyId.isNotBlank()) { "keyId must not be blank" }
         require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
         require(signature.isNotEmpty()) { "signature must not be empty" }
-    }
-}
-
-/** Local signed prekey material (responder / X3DH paths). */
-data class LocalSignedPreKey(
-    val keyId: String,
-    val publicKey: ByteArray,
-    val privateKey: ByteArray,
-    val signature: ByteArray?,
-) {
-    init {
-        require(keyId.isNotBlank()) { "keyId must not be blank" }
-        require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
-        require(privateKey.isNotEmpty()) { "privateKey must not be empty" }
     }
 }
 

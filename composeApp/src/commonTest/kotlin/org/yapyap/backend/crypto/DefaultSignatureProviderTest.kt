@@ -186,8 +186,8 @@ class DefaultSignatureProviderTest {
             signedPreKeyId: String?,
         ): X3dhRemotePeerKeys = error("not used in test")
 
-        override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used in test")
+        override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used in test")
 
-        override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey = error("not used in test")
+        override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used in test")
     }
 }

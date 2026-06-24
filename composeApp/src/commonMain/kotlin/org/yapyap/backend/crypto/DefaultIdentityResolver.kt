@@ -178,12 +178,12 @@ class DefaultIdentityResolver(
             ?: error("Missing peer identity record for deviceId=$deviceId")
         val signedPreKey = when {
             signedPreKeyId != null -> {
-                val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
+                val (stored, keyDeviceId) = publicKeyRepository.getSignedPreKey(signedPreKeyId)
                     ?: error("Signed prekey not found: $signedPreKeyId")
-                require(stored.deviceId == deviceId) {
+                require(keyDeviceId == deviceId) {
                     "Signed prekey $signedPreKeyId does not belong to deviceId=$deviceId"
                 }
-                stored.toRecord()
+                stored
             }
             else -> device.signedPreKey
                 ?: error("Missing signed prekey on roster for deviceId=$deviceId")
@@ -198,36 +198,24 @@ class DefaultIdentityResolver(
         )
     }
 
-    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey {
+    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord {
         val device = getLocalDeviceIdentityRecord()
-        val activeId = publicKeyRepository.getActiveSignedPreKeyForDevice(device.deviceId)?.spkId
+        val activeId = publicKeyRepository.getActiveSignedPreKeyForDevice(device.deviceId)?.keyId
             ?: device.signedPreKey?.keyId
             ?: error("Local device ${device.deviceId} has no signed prekey published")
         return resolveLocalSignedPreKey(activeId)
     }
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey {
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord {
         val device = getLocalDeviceIdentityRecord()
-        val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
+        val (stored, peerId) = publicKeyRepository.getSignedPreKey(signedPreKeyId)
             ?: error("Signed prekey not found: $signedPreKeyId")
-        require(stored.deviceId == device.deviceId) {
+        require(peerId == device.deviceId) {
             "Signed prekey $signedPreKeyId does not belong to local device ${device.deviceId}"
         }
         require(cryptoProvider.verifyDetached(device.signing.publicKey, stored.publicKey, stored.signature)) {
             "failed to verify local signed prekey signature"
         }
-        val privateKey = stored.privateKey ?: privateKeyStore.getKey(
-            ref = KeyReference(
-                keyId = config.localSignedPreKeyKeyId(signedPreKeyId),
-                purpose = IdentityKeyPurpose.SIGNED_PREKEY,
-                type = KeyType.PRIVATE,
-            ),
-        ) ?: error("Missing private signed prekey for keyId=$signedPreKeyId")
-        return LocalSignedPreKey(
-            keyId = stored.spkId,
-            publicKey = stored.publicKey,
-            privateKey = privateKey,
-            signature = stored.signature,
-        )
+        return stored
     }
 }

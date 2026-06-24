@@ -13,6 +13,7 @@ import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.RecordingAppLogger
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.FixedEpochSecondsProvider
 
 class DefaultIdentityOrchestrationTest {
 
@@ -32,7 +33,8 @@ class DefaultIdentityOrchestrationTest {
         val store = InMemoryKeyStore()
         val crypto = KmpCryptoProvider()
         val resolver = DefaultIdentityResolver(crypto, repo, store, config, logger)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, logger)
+        val timeProvider = FixedEpochSecondsProvider(0L)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider, logger)
         return Triple(repo, store, Triple(resolver, provisioning, logger))
     }
 

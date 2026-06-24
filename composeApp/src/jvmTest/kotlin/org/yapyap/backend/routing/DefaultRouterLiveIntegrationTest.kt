@@ -25,6 +25,7 @@ import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.MessagePayload
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.FixedEpochSecondsProvider
 import org.yapyap.backend.transport.tor.DefaultTorTransport
 import org.yapyap.backend.transport.tor.KmpTorNoExecBackend
 import org.yapyap.backend.transport.tor.TorBackendConfig

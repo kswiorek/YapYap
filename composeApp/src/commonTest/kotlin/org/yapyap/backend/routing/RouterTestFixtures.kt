@@ -6,9 +6,9 @@ import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.DeviceIdentityRecord
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityResolver
-import org.yapyap.backend.crypto.LocalSignedPreKey
 import org.yapyap.backend.crypto.SigningKeyPair
 import org.yapyap.backend.crypto.EncryptionKeyPair
+import org.yapyap.backend.crypto.SignedPreKeyRecord
 import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.db.OutboxEntry
 import org.yapyap.backend.db.PacketDeduplicator
@@ -33,13 +33,11 @@ import org.yapyap.backend.protocol.SignalSecurityScheme
 import org.yapyap.backend.protocol.TorEndpoint
 import org.yapyap.backend.time.EpochSecondsProvider
 import org.yapyap.backend.protocol.WebRtcSignalEnvelope
+import org.yapyap.backend.time.FixedEpochSecondsProvider
 import org.yapyap.backend.transport.webrtc.types.WebRtcSignal
 import org.yapyap.backend.transport.RecordingTorTransport
 import org.yapyap.backend.transport.RecordingWebRtcTransport
 
-internal class FixedEpochSecondsProvider(private val fixed: Long) : EpochSecondsProvider {
-    override fun nowEpochSeconds(): Long = fixed
-}
 
 /** Minimal crypto surface used by [DefaultRouter] in tests. */
 internal class StubCryptoProvider(
@@ -253,10 +251,10 @@ internal class FakeIdentityResolverForRouter(
         signedPreKeyId: String?,
     ): X3dhRemotePeerKeys = error("not used in test")
 
-    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey =
+    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord =
         error("FakeIdentityResolverForRouter: signed prekey not stubbed")
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey =
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord =
         error("FakeIdentityResolverForRouter: signed prekey not stubbed")
 }
 

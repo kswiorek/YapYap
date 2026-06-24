@@ -6,8 +6,8 @@ import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
-import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.EpochSecondsProvider
 
 class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
@@ -15,6 +15,7 @@ class DefaultIdentityProvisioning(
     private val keyStore: KeyStore,
     private val config: IdentityKeyServiceConfig,
     private val identityResolver: IdentityResolver,
+    private val timeProvider: EpochSecondsProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityProvisioning {
     override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord {
@@ -53,8 +54,9 @@ class DefaultIdentityProvisioning(
             encryptionKey.publicKey + encryptionKeyRecord.keyId.encodeToByteArray()
         )
 
-        val (signedPreKey, signedPreKeyPrivateKey) = provisionInitialSignedPreKey(
+        val signedPreKey = provisionInitialSignedPreKey(
             signingPrivateKey = signingKey.privateKey,
+            createdAtEpochSeconds = timeProvider.nowEpochSeconds()
         )
 
         val identity = DeviceIdentityRecord(deviceId, signingKeyRecord, encryptionKeyRecord, signedPreKey = signedPreKey, keySignature = keySignature)
@@ -64,7 +66,6 @@ class DefaultIdentityProvisioning(
         publicKeyRepository.insertLocalDevice(
             accountId = accountRecord.accountId,
             identity = identity,
-            localSignedPreKeyPrivateKey = signedPreKeyPrivateKey,
         )
 
         logger.info(
@@ -78,7 +79,8 @@ class DefaultIdentityProvisioning(
 
     private suspend fun provisionInitialSignedPreKey(
         signingPrivateKey: ByteArray,
-    ): Pair<SignedPreKeyRecord, ByteArray> {
+        createdAtEpochSeconds: Long
+    ): SignedPreKeyRecord {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
         val spkId = "spk-${cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}"
         val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
@@ -86,24 +88,10 @@ class DefaultIdentityProvisioning(
             keyId = spkId,
             publicKey = spkPair.publicKey,
             signature = signature,
+            privateKey = spkPair.privateKey,
+            createdAtEpochSeconds = createdAtEpochSeconds,
         )
-        keyStore.putKey(
-            ref = KeyReference(
-                keyId = config.localSignedPreKeyKeyId(spkId),
-                purpose = IdentityKeyPurpose.SIGNED_PREKEY,
-                type = KeyType.PRIVATE,
-            ),
-            key = spkPair.privateKey,
-        )
-        keyStore.putKey(
-            ref = KeyReference(
-                keyId = config.localSignedPreKeyKeyId(spkId),
-                purpose = IdentityKeyPurpose.SIGNED_PREKEY,
-                type = KeyType.PUBLIC,
-            ),
-            key = spkPair.publicKey,
-        )
-        return record to spkPair.privateKey
+        return record
     }
 
     override suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {

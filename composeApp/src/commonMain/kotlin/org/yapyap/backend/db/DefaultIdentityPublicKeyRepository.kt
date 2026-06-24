@@ -7,7 +7,6 @@ import org.yapyap.backend.crypto.SignedPreKeyRecord
 import org.yapyap.backend.crypto.IdentityKeyServiceConfig
 import org.yapyap.backend.crypto.AccountIdentityRecord
 import org.yapyap.backend.crypto.DeviceIdentityRecord
-import org.yapyap.backend.crypto.StoredSignedPreKey
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -94,7 +93,6 @@ class DefaultIdentityPublicKeyRepository(
     override fun insertLocalDevice(
         accountId: AccountId,
         identity: DeviceIdentityRecord,
-        localSignedPreKeyPrivateKey: ByteArray?,
     ) {
         val queries = database.identityQueries
         database.transaction {
@@ -111,7 +109,7 @@ class DefaultIdentityPublicKeyRepository(
                 encryption_key_id = identity.encryption.keyId,
                 encryption_key_version = identity.encryption.keyVersion,
                 key_signature = identity.keySignature,
-                current_signed_prekey_id = null,
+                current_signed_prekey_id = identity.signedPreKey?.keyId,
                 push_token = config.defaultPushToken,
                 ping_attempts = config.defaultPingAttempts,
                 ping_successes = config.defaultPingSuccesses,
@@ -121,7 +119,6 @@ class DefaultIdentityPublicKeyRepository(
                 persistSignedPreKey(
                     deviceId = identity.deviceId,
                     signedPreKey = spk,
-                    privateKey = localSignedPreKeyPrivateKey,
                     isActive = true,
                     createdAtEpochSeconds = config.defaultLastSeenTimestamp,
                     activateOnDevice = true,
@@ -238,7 +235,6 @@ class DefaultIdentityPublicKeyRepository(
                 persistSignedPreKey(
                     deviceId = identity.deviceId,
                     signedPreKey = spk,
-                    privateKey = null,
                     isActive = true,
                     createdAtEpochSeconds = config.defaultLastSeenTimestamp,
                     activateOnDevice = true,
@@ -247,14 +243,15 @@ class DefaultIdentityPublicKeyRepository(
         }
     }
 
-    override fun getSignedPreKey(spkId: String): SignedPreKeyRecord? =
+    override fun getSignedPreKey(spkId: String): Pair<SignedPreKeyRecord, PeerId>? =
         database.identityQueries.selectSignedPreKeyById(spkId).executeAsOneOrNull().let {
             if (it == null) null else
             SignedPreKeyRecord(
             it.spk_id,
             it.public_key,
             it.signature,
-            )
+            it.private_key,
+            ) to PeerId(it.device_id)
         }
 
     override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
@@ -264,18 +261,19 @@ class DefaultIdentityPublicKeyRepository(
                 it.spk_id,
                 it.public_key,
                 it.signature,
+                it.private_key,
             )
         }
 
-    override fun insertSignedPreKey(stored: StoredSignedPreKey) {
+    override fun insertSignedPreKey(spk: SignedPreKeyRecord, peerId: PeerId) {
         database.identityQueries.insertSignedPreKey(
-            spk_id = stored.spkId,
-            device_id = stored.deviceId.id,
-            public_key = stored.publicKey,
-            private_key = stored.privateKey,
-            signature = stored.signature,
-            is_active = stored.isActive,
-            created_at_epoch_seconds = stored.createdAtEpochSeconds,
+            spk_id = spk.keyId,
+            device_id = peerId.id,
+            public_key = spk.publicKey,
+            private_key = spk.privateKey,
+            signature = spk.signature,
+            is_active = spk.isActive,
+            created_at_epoch_seconds = spk.createdAtEpochSeconds?: 0L,
         )
     }
 
@@ -290,7 +288,6 @@ class DefaultIdentityPublicKeyRepository(
             persistSignedPreKey(
                 deviceId = deviceId,
                 signedPreKey = signedPreKey,
-                privateKey = privateKey,
                 isActive = true,
                 createdAtEpochSeconds = createdAtEpochSeconds,
                 activateOnDevice = true,
@@ -321,7 +318,6 @@ class DefaultIdentityPublicKeyRepository(
     private fun persistSignedPreKey(
         deviceId: PeerId,
         signedPreKey: SignedPreKeyRecord,
-        privateKey: ByteArray?,
         isActive: Boolean,
         createdAtEpochSeconds: Long,
         activateOnDevice: Boolean,
@@ -330,7 +326,7 @@ class DefaultIdentityPublicKeyRepository(
             spk_id = signedPreKey.keyId,
             device_id = deviceId.id,
             public_key = signedPreKey.publicKey,
-            private_key = privateKey,
+            private_key = signedPreKey.privateKey,
             signature = signedPreKey.signature,
             is_active = isActive,
             created_at_epoch_seconds = createdAtEpochSeconds,

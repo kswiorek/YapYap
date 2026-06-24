@@ -25,8 +25,8 @@ interface IdentityResolver {
         signedPreKeyId: String? = null,
     ): X3dhRemotePeerKeys
 
-    suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey
+    suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord
 
     /** Resolves a local SPK by wire id (supports archived keys after rotation). */
-    suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey
+    suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord
 }

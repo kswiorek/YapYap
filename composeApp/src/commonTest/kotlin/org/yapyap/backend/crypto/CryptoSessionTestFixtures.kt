@@ -1,6 +1,5 @@
 package org.yapyap.backend.crypto
 
-import io.ktor.utils.io.core.toByteArray
 import org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.backend.crypto.e2ee.SessionUpgradePolicy
 import org.yapyap.backend.crypto.e2ee.X3dhHandshake
@@ -13,7 +12,7 @@ internal data class TestPeerIdentity(
     val device: DeviceIdentityRecord,
     val signingPrivateKey: ByteArray,
     val encryptionPrivateKey: ByteArray,
-    val signedPreKey: LocalSignedPreKey,
+    val signedPreKey: SignedPreKeyRecord,
 )
 
 internal class TestIdentityResolver(
@@ -72,9 +71,9 @@ internal class TestIdentityResolver(
         )
     }
 
-    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = local.signedPreKey
+    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = local.signedPreKey
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey {
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord {
         require(signedPreKeyId == local.signedPreKey.keyId) {
             "Signed prekey not found: $signedPreKeyId"
         }
@@ -113,11 +112,12 @@ internal suspend fun buildTestPeerIdentity(
                 keyId = spkId,
                 publicKey = spk.publicKey,
                 signature = spkSignature,
+                privateKey = null
             ),
             keySignature = crypto.signDetached(signing.privateKey, encryption.publicKey + encryptionKeyId.encodeToByteArray()),
         ),
         encryptionPrivateKey = encryption.privateKey,
-        signedPreKey = LocalSignedPreKey(
+        signedPreKey = SignedPreKeyRecord(
             keyId = spkId,
             publicKey = spk.publicKey,
             privateKey = spk.privateKey,

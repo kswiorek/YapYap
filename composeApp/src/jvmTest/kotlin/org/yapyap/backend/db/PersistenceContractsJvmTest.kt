@@ -24,6 +24,7 @@ import org.yapyap.backend.protocol.PacketId
 import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.FixedEpochSecondsProvider
 
 class PersistenceContractsJvmTest {
 
@@ -198,8 +199,9 @@ class PersistenceContractsJvmTest {
             defaultOnionAddress = "keysig-test.onion",
             defaultOnionPort = 443L,
         )
+        val timeProvider = FixedEpochSecondsProvider(0L)
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
 
         provisioning.createNewAccountIdentity(displayName = "KeySig User")
         val device = provisioning.createNewDeviceIdentity()
@@ -224,22 +226,23 @@ class PersistenceContractsJvmTest {
             defaultOnionAddress = "spk-test.onion",
             defaultOnionPort = 443L,
         )
+        val timeProvider = FixedEpochSecondsProvider(0L)
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
 
         provisioning.createNewAccountIdentity(displayName = "SPK User")
         val device = provisioning.createNewDeviceIdentity()
         val spkId = device.signedPreKey!!.keyId
 
-        val stored = repo.getSignedPreKey(spkId)
+        val (stored, deviceId) = repo.getSignedPreKey(spkId)!!
         assertNotNull(stored)
-        assertEquals(device.deviceId, stored.deviceId)
+        assertEquals(device.deviceId, deviceId)
         assertContentEquals(device.signedPreKey.publicKey, stored.publicKey)
         assertNotNull(stored.privateKey)
 
         val active = repo.getActiveSignedPreKeyForDevice(device.deviceId)
         assertNotNull(active)
-        assertEquals(spkId, active.spkId)
+        assertEquals(spkId, active.keyId)
 
         val localSpk = resolver.resolveLocalSignedPreKey(spkId)
         assertEquals(spkId, localSpk.keyId)

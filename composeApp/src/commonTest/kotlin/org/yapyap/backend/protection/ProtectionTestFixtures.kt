@@ -7,7 +7,7 @@ import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityPublicKeyRecord
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.InMemoryOneTimePreKeyStore
-import org.yapyap.backend.crypto.LocalSignedPreKey
+
 import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.crypto.KmpCryptoProvider
 import org.yapyap.backend.crypto.MapBackedCryptoSessionStore
@@ -29,6 +29,7 @@ import org.yapyap.backend.protocol.PacketNackReason
 import org.yapyap.backend.protocol.PacketType
 import org.yapyap.backend.protocol.SystemPayload
 import org.yapyap.backend.crypto.AccountId
+import org.yapyap.backend.crypto.SignedPreKeyRecord
 import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.SignalSecurityScheme
@@ -231,9 +232,9 @@ internal class FakeIdentityResolverForProtection(
         signedPreKeyId: String?,
     ): X3dhRemotePeerKeys = error("not used in test")
 
-    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used")
+    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): LocalSignedPreKey = error("not used")
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used")
 }
 
 /**

@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.db.DeviceType
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.FixedEpochSecondsProvider
 
 class DeviceIdentityAttestationTest {
 
@@ -27,7 +28,8 @@ class DeviceIdentityAttestationTest {
         val store = InMemoryKeyStore()
         val crypto = KmpCryptoProvider()
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver)
+        val timeProvider = FixedEpochSecondsProvider(0L)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
         return Triple(repo, store, resolver to provisioning)
     }
 

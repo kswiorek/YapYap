@@ -144,7 +144,7 @@ class DefaultCryptoSessionManager(
             local = X3dhLocalResponderKeys(
                 identityEncryptionPrivateKey = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION),
                 identityEncryptionPublicKey = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey,
-                signedPreKeyPrivateKey = localSpk.privateKey,
+                signedPreKeyPrivateKey = localSpk.privateKey!!,
                 signedPreKeyPublicKey = localSpk.publicKey,
                 signedPreKeyId = localSpk.keyId,
             ),
@@ -180,7 +180,7 @@ class DefaultCryptoSessionManager(
             local = X3dhLocalResponderKeys(
                 identityEncryptionPrivateKey = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION),
                 identityEncryptionPublicKey = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey,
-                signedPreKeyPrivateKey = localSpk.privateKey,
+                signedPreKeyPrivateKey = localSpk.privateKey!!,
                 signedPreKeyPublicKey = localSpk.publicKey,
                 signedPreKeyId = localSpk.keyId,
             ),
