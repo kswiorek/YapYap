@@ -71,6 +71,9 @@ internal class StubCryptoProvider(
     override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray = plaintext
 
     override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray = ciphertext
+    override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray = error("not used")
+
+    override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray = error("not used")
 }
 
 /**
@@ -232,6 +235,8 @@ internal class FakeIdentityResolverForRouter(
 
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
+
+    override suspend fun getLocalDeviceId(): PeerId  = error("not used")
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = null
 

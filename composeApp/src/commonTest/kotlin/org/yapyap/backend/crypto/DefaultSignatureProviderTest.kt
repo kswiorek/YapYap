@@ -172,6 +172,7 @@ class DefaultSignatureProviderTest {
             return localSigningPrivateKey
         }
         override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used in test")
+        override suspend fun getLocalDeviceId(): PeerId  = error("not used in test")
 
         override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
 

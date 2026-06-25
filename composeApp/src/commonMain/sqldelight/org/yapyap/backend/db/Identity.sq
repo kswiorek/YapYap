@@ -14,6 +14,7 @@ CREATE TABLE accounts (
 
 CREATE TABLE devices (
     device_id TEXT NOT NULL PRIMARY KEY,
+    is_local_device INTEGER AS Boolean NOT NULL,
     account_id TEXT NOT NULL,
     device_type TEXT AS DeviceType NOT NULL,
     onion_address TEXT NOT NULL,
@@ -37,7 +38,6 @@ CREATE TABLE signed_prekeys (
     spk_id TEXT NOT NULL PRIMARY KEY,
     device_id TEXT NOT NULL,
     public_key BLOB NOT NULL,
-    private_key BLOB,
     signature BLOB NOT NULL,
     is_active INTEGER AS Boolean NOT NULL DEFAULT 0,
     created_at_epoch_seconds INTEGER NOT NULL,
@@ -48,7 +48,6 @@ CREATE TABLE one_time_prekeys (
     opk_id TEXT NOT NULL PRIMARY KEY,
     device_id TEXT NOT NULL,
     public_key BLOB NOT NULL,
-    private_key BLOB NOT NULL,
     is_consumed INTEGER AS Boolean NOT NULL DEFAULT 0,
     FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
@@ -76,6 +75,7 @@ FROM accounts;
 putDevice:
 INSERT OR REPLACE INTO devices (
     device_id,
+    is_local_device,
     account_id,
     device_type,
     onion_address,
@@ -92,7 +92,7 @@ INSERT OR REPLACE INTO devices (
     ping_attempts,
     ping_successes,
     last_seen_timestamp
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateDeviceCurrentSignedPreKey:
 UPDATE devices
@@ -104,11 +104,10 @@ INSERT OR REPLACE INTO signed_prekeys (
     spk_id,
     device_id,
     public_key,
-    private_key,
     signature,
     is_active,
     created_at_epoch_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?);
 
 selectSignedPreKeyById:
 SELECT *
@@ -131,9 +130,8 @@ INSERT OR REPLACE INTO one_time_prekeys (
     opk_id,
     device_id,
     public_key,
-    private_key,
     is_consumed
-) VALUES (?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?);
 
 selectOneTimePreKeyById:
 SELECT *
@@ -149,6 +147,11 @@ selectDeviceById:
 SELECT *
 FROM devices
 WHERE device_id = ?;
+
+selectLocalDevice:
+SELECT *
+FROM devices
+WHERE is_local_device = 1;
 
 selectDevicesByAccountId:
 SELECT *

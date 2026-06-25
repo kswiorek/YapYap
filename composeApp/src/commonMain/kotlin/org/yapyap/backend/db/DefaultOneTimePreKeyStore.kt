@@ -1,12 +1,17 @@
 package org.yapyap.backend.db
 
 import org.yapyap.backend.crypto.CryptoProvider
+import org.yapyap.backend.crypto.IdentityKeyPurpose
+import org.yapyap.backend.crypto.KeyReference
+import org.yapyap.backend.crypto.KeyStore
+import org.yapyap.backend.crypto.KeyType
 import org.yapyap.backend.crypto.LocalOneTimePreKey
 import org.yapyap.backend.crypto.e2ee.OneTimePreKeyStore
 import org.yapyap.backend.protocol.PeerId
 
 class DefaultOneTimePreKeyStore(
     private val database: YapYapDatabase,
+    private val keyStore: KeyStore,
     private val crypto: CryptoProvider,
     private val localDeviceId: PeerId,
 ) : OneTimePreKeyStore {
@@ -23,9 +28,13 @@ class DefaultOneTimePreKeyStore(
             opk_id = opk.keyId,
             device_id = localDeviceId.id,
             public_key = opk.publicKey,
-            private_key = opk.privateKey,
             is_consumed = false,
         )
+
+        val opkRef = KeyReference(keyId = opk.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
+
+        keyStore.putKey(opkRef, opk.privateKey)
+
         return opk
     }
 
@@ -34,10 +43,15 @@ class DefaultOneTimePreKeyStore(
         if (row.is_consumed) return null
         if (row.device_id != localDeviceId.id) return null
         database.identityQueries.markOneTimePreKeyConsumed(opk_id = opkId)
+
+        val opkRef = KeyReference(keyId = opkId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
+
+        val privateKey = keyStore.getKey(opkRef)?: return null
+        
         return LocalOneTimePreKey(
             keyId = row.opk_id,
             publicKey = row.public_key,
-            privateKey = row.private_key,
+            privateKey = privateKey,
         )
     }
 

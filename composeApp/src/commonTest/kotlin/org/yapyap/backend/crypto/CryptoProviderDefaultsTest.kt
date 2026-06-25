@@ -79,5 +79,13 @@ class CryptoProviderDefaultsTest {
 
         override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray =
             error("not stubbed: decryptAead")
+
+        override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
+            error("not stubbed: privateSigningKeyToPublicKey")
+        }
+
+        override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray {
+            error("not stubbed: privateEncryptionKeyToPublicKey")
+        }
     }
 }

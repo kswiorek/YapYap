@@ -38,6 +38,10 @@ interface CryptoProvider {
 
     /** Inverse of [encryptAead]; expects the same `IV || ciphertext || tag` layout. */
     suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray
+
+    suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray
+
+    suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray
 }
 
 data class SigningKeyPair(

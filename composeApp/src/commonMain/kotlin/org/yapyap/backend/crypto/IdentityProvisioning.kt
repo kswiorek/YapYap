@@ -11,4 +11,6 @@ interface IdentityProvisioning {
     fun provisionDeviceIdentity(accountId: AccountId, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
     fun provisionAccountIdentity(displayName: String, accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus)
+
+    suspend fun provisionSignedPreKey(): SignedPreKeyRecord
 }

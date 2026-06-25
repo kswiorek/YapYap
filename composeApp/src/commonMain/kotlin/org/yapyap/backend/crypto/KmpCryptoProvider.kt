@@ -77,6 +77,18 @@ class KmpCryptoProvider(
     override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray =
         aeadKey(key).cipher().decrypt(ciphertext)
 
+    override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
+        val privateEdDsaKey =  edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.DER, privateKey)
+
+        return  privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.DER)
+    }
+
+    override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray {
+        val privateXdhKey =  xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(XDH.PrivateKey.Format.DER, privateKey)
+
+        return  privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.DER)
+    }
+
     private suspend fun aeadKey(key: ByteArray): ChaCha20Poly1305.Key {
         require(key.size == AEAD_KEY_SIZE_BYTES) {
             "AEAD key must be $AEAD_KEY_SIZE_BYTES bytes but was ${key.size}"

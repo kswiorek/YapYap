@@ -132,7 +132,7 @@ class PersistenceContractsJvmTest {
         repo.insertLocalDevice(accountId = accountId, identity = devA)
 
         assertEquals(accountRecord.accountId.id, repo.getAccountPublicKey(accountId)!!.accountId.id)
-        assertEquals(deviceA.id, repo.getDevicePublicKey(deviceA)!!.deviceId.id)
+        assertEquals(deviceA.id, repo.getDeviceRecord(deviceA)!!.deviceId.id)
 
         assertContentEquals(byteArrayOf(0x21), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.SIGNING)!!.publicKey)
         assertContentEquals(byteArrayOf(0x31), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.ENCRYPTION)!!.publicKey)
@@ -206,7 +206,7 @@ class PersistenceContractsJvmTest {
         provisioning.createNewAccountIdentity(displayName = "KeySig User")
         val device = provisioning.createNewDeviceIdentity()
 
-        val loaded = repo.getDevicePublicKey(device.deviceId)
+        val loaded = repo.getDeviceRecord(device.deviceId)
         assertNotNull(loaded?.keySignature)
         assertContentEquals(device.keySignature, loaded.keySignature)
 
@@ -234,11 +234,10 @@ class PersistenceContractsJvmTest {
         val device = provisioning.createNewDeviceIdentity()
         val spkId = device.signedPreKey!!.keyId
 
-        val (stored, deviceId) = repo.getSignedPreKey(spkId)!!
+        val stored = repo.getSignedPreKey(spkId)!!
         assertNotNull(stored)
-        assertEquals(device.deviceId, deviceId)
+        assertEquals(device.deviceId, stored.deviceId)
         assertContentEquals(device.signedPreKey.publicKey, stored.publicKey)
-        assertNotNull(stored.privateKey)
 
         val active = repo.getActiveSignedPreKeyForDevice(device.deviceId)
         assertNotNull(active)

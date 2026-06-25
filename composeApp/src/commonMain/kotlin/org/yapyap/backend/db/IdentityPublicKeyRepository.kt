@@ -12,12 +12,11 @@ import org.yapyap.backend.protocol.TorEndpoint
 interface IdentityPublicKeyRepository {
     fun getAccountPublicKey(accountId: AccountId): AccountIdentityRecord?
 
-    fun getDevicePublicKey(deviceId: PeerId): DeviceIdentityRecord?
+    fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord?
 
-    fun insertLocalDevice(
-        accountId: AccountId,
-        identity: DeviceIdentityRecord,
-    )
+    fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord)
+
+    fun getLocalDeviceRecord(): DeviceIdentityRecord?
 
     fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
@@ -32,16 +31,11 @@ interface IdentityPublicKeyRepository {
 
     fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
-    fun getSignedPreKey(spkId: String): Pair<SignedPreKeyRecord, PeerId>?
+    fun getSignedPreKey(spkId: String): SignedPreKeyRecord?
 
     fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord?
 
-    fun insertSignedPreKey(spk: SignedPreKeyRecord, peerId: PeerId)
+    fun insertSignedPreKey(spk: SignedPreKeyRecord)
 
-    fun upsertDeviceSignedPreKey(
-        deviceId: PeerId,
-        signedPreKey: SignedPreKeyRecord,
-        privateKey: ByteArray? = null,
-        createdAtEpochSeconds: Long,
-    )
+    fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord)
 }

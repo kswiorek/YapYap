@@ -28,6 +28,7 @@ data class SignedPreKeyRecord(
     val publicKey: ByteArray,
     val signature: ByteArray,
     val privateKey: ByteArray?,
+    val deviceId: PeerId,
     val isActive: Boolean = true,
     val createdAtEpochSeconds: Long? = null,
 ) {
@@ -63,20 +64,3 @@ data class AccountIdentityRecord(
     val accountId: AccountId,
     val key: IdentityPublicKeyRecord,
 )
-
-//data class StoredSignedPreKey(
-//    val spkId: String,
-//    val deviceId: PeerId,
-//    val publicKey: ByteArray,
-//    val privateKey: ByteArray?,
-//    val signature: ByteArray,
-//    val isActive: Boolean,
-//    val createdAtEpochSeconds: Long,
-//) {
-//    fun toRecord(): SignedPreKeyRecord =
-//        SignedPreKeyRecord(
-//            keyId = spkId,
-//            publicKey = publicKey,
-//            signature = signature,
-//        )
-//}

@@ -41,7 +41,7 @@ class DeviceIdentityAttestationTest {
         provisioning.createNewAccountIdentity(displayName = "Attestation User")
         val device = provisioning.createNewDeviceIdentity()
 
-        val loaded = repo.getDevicePublicKey(device.deviceId)
+        val loaded = repo.getDeviceRecord(device.deviceId)
         assertNotNull(loaded?.keySignature)
         assertContentEquals(device.keySignature, loaded.keySignature)
 

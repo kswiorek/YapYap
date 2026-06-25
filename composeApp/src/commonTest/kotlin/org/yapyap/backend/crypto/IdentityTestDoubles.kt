@@ -41,6 +41,7 @@ internal suspend fun buildAttestedDeviceIdentity(
             publicKey = encryption.publicKey,
         ),
         signedPreKey = SignedPreKeyRecord(
+            deviceId = deviceId,
             keyId = spkId,
             publicKey = spk.publicKey,
             signature = spkSignature,
@@ -76,7 +77,8 @@ internal class InMemoryIdentityPublicKeyRepository(
 
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
     val devices = mutableMapOf<String, DeviceIdentityRecord>()
-    private val signedPreKeys = mutableMapOf<String, Pair<SignedPreKeyRecord, PeerId>>()
+    var localDevice : DeviceIdentityRecord? = null
+    private val signedPreKeys = mutableMapOf<String, SignedPreKeyRecord>()
     private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
     private val deviceToAccount = mutableMapOf<String, String>()
     private val peersForAccount = mutableMapOf<String, MutableSet<String>>()
@@ -85,10 +87,10 @@ internal class InMemoryIdentityPublicKeyRepository(
     override fun getAccountPublicKey(accountId: AccountId): AccountIdentityRecord? =
         accounts[accountId.id]
 
-    override fun getDevicePublicKey(deviceId: PeerId): DeviceIdentityRecord? =
+    override fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
         devices[deviceId.id]?.let { device ->
             val activeSpkId = activeSignedPreKeyByDevice[deviceId.id]
-            val activeSpk = activeSpkId?.let { signedPreKeys[it]!!.first } ?: device.signedPreKey
+            val activeSpk = activeSpkId?.let { signedPreKeys[it] } ?: device.signedPreKey
             if (activeSpk == device.signedPreKey) device else device.copy(signedPreKey = activeSpk)
         }
 
@@ -97,6 +99,7 @@ internal class InMemoryIdentityPublicKeyRepository(
         identity: DeviceIdentityRecord,
     ) {
         devices[identity.deviceId.id] = identity
+        localDevice = identity
         deviceToAccount[identity.deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
         torForDevice[identity.deviceId.id] = defaultLocalTor
@@ -109,6 +112,8 @@ internal class InMemoryIdentityPublicKeyRepository(
             )
         }
     }
+
+    override fun getLocalDeviceRecord(): DeviceIdentityRecord? = localDevice
 
     override fun insertPeerDevice(
         accountId: AccountId,
@@ -170,34 +175,30 @@ internal class InMemoryIdentityPublicKeyRepository(
         torForDevice[deviceId.id] = torEndpoint
     }
 
-    override fun getSignedPreKey(spkId: String): Pair<SignedPreKeyRecord, PeerId> = signedPreKeys[spkId]!!
+    override fun getSignedPreKey(spkId: String): SignedPreKeyRecord = signedPreKeys[spkId]!!
 
     override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
-        activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it]!!.first }
+        activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it]!! }
 
-    override fun insertSignedPreKey(spk: SignedPreKeyRecord, peerId: PeerId) {
-        signedPreKeys[spk.keyId] = spk to peerId
+    override fun insertSignedPreKey(spk: SignedPreKeyRecord) {
+        signedPreKeys[spk.keyId] = spk
         if (spk.isActive) {
-            activeSignedPreKeyByDevice[peerId.id] = spk.keyId
+            activeSignedPreKeyByDevice[spk.deviceId.id] = spk.keyId
         }
     }
 
-    override fun upsertDeviceSignedPreKey(
-        deviceId: PeerId,
-        signedPreKey: SignedPreKeyRecord,
-        privateKey: ByteArray?,
-        createdAtEpochSeconds: Long,
-    ) {
+    override fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord) {
+        val deviceId = spk.deviceId
         val existing = devices[deviceId.id] ?: error("Device not found: $deviceId")
         signedPreKeys.values
-            .filter { it.second == deviceId && it.first.isActive }
-            .forEach { signedPreKeys[it.first.keyId] = it.first.copy(isActive = false) to it.second }
-        devices[deviceId.id] = existing.copy(signedPreKey = signedPreKey)
+            .filter { it.deviceId == deviceId && it.isActive }
+            .forEach { signedPreKeys[it.keyId] = it.copy(isActive = false) }
+        devices[deviceId.id] = existing.copy(signedPreKey = spk)
         persistSignedPreKey(
             deviceId = deviceId,
-            signedPreKey = signedPreKey,
+            signedPreKey = spk,
             isActive = true,
-            createdAtEpochSeconds = createdAtEpochSeconds,
+            createdAtEpochSeconds = spk.createdAtEpochSeconds?:0L,
         )
     }
 
@@ -208,9 +209,10 @@ internal class InMemoryIdentityPublicKeyRepository(
         createdAtEpochSeconds: Long,
     ) {
         signedPreKeys.values
-            .filter { it.second == deviceId && it.first.isActive }
-            .forEach { signedPreKeys[it.first.keyId] = it.first.copy(isActive = false) to it.second }
+            .filter { it.deviceId == deviceId && it.isActive }
+            .forEach { signedPreKeys[it.keyId] = it.copy(isActive = false) }
         val stored = SignedPreKeyRecord(
+            deviceId = deviceId,
             keyId = signedPreKey.keyId,
             publicKey = signedPreKey.publicKey,
             privateKey = signedPreKey.privateKey,
@@ -218,7 +220,7 @@ internal class InMemoryIdentityPublicKeyRepository(
             isActive = isActive,
             createdAtEpochSeconds = createdAtEpochSeconds,
         )
-        signedPreKeys[stored.keyId] = stored to deviceId
+        signedPreKeys[stored.keyId] = stored
         if (isActive) {
             activeSignedPreKeyByDevice[deviceId.id] = stored.keyId
         }
