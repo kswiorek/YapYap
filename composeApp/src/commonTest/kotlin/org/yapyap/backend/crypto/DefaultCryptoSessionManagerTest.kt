@@ -19,6 +19,9 @@ import org.yapyap.backend.crypto.e2ee.X3dhWireInfo
 import org.yapyap.backend.db.SessionRole
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class SessionWireCodecTest {
 
@@ -313,5 +316,121 @@ class DefaultCryptoSessionManagerTest {
         val opened = bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
         assertContentEquals(byteArrayOf(3), opened)
         assertNotNull(bobStore.loadCanonical(alicePeer.device.deviceId, sessionEpoch = 2))
+    }
+
+    @Test
+    fun epoch1_firstMessageLost_secondMessageStillCarriesHandshake() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+
+        alice.encryptMessage(bobPeer.device.deviceId, "lost".encodeToByteArray())
+
+        val second = alice.encryptMessage(bobPeer.device.deviceId, "delivered".encodeToByteArray())
+        assertNotNull(second.outerHandshake)
+
+        val opened = bob.decryptMessage(alicePeer.device.deviceId, second)
+        assertContentEquals("delivered".encodeToByteArray(), opened)
+    }
+
+    @Test
+    fun epoch1_message2ArrivesBeforeMessage1_bobBootstrapFromSecond() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+
+        val m0 = alice.encryptMessage(bobPeer.device.deviceId, "m0".encodeToByteArray())
+        alice.encryptMessage(bobPeer.device.deviceId, "m1".encodeToByteArray())
+        val m2 = alice.encryptMessage(bobPeer.device.deviceId, "m2".encodeToByteArray())
+        assertNotNull(m2.outerHandshake)
+
+        val opened2 = bob.decryptMessage(alicePeer.device.deviceId, m2)
+        assertContentEquals("m2".encodeToByteArray(), opened2)
+
+        val opened0 = bob.decryptMessage(alicePeer.device.deviceId, m0)
+        assertContentEquals("m0".encodeToByteArray(), opened0)
+    }
+
+    @Test
+    fun epoch1_stopsAttachingHandshake_afterPeerReply() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+
+        val first = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
+        assertNotNull(first.outerHandshake)
+
+        bob.decryptMessage(alicePeer.device.deviceId, first)
+        val bobReply = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
+        alice.decryptMessage(bobPeer.device.deviceId, bobReply)
+
+        val followUp = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
+        assertNull(followUp.outerHandshake)
+
+        val opened = bob.decryptMessage(alicePeer.device.deviceId, followUp)
+        assertContentEquals(byteArrayOf(3), opened)
+    }
+
+    @Test
+    fun epoch1_bobDecrypt_establishesCanonicalResponderSession() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOneTimePreKeyStore(crypto))
+
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+
+        val canonical = bobStore.loadCanonical(alicePeer.device.deviceId, sessionEpoch = 1)
+        assertNotNull(canonical)
+        assertTrue(canonical.canonical)
+        assertEquals(SessionRole.RESPONDER, canonical.meta.role)
+        assertEquals(1, bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1).size)
+    }
+
+    @Test
+    fun epoch1_tamperedBootstrapMessage_leavesNoPersistedSession() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOneTimePreKeyStore(crypto))
+
+        val frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
+        val tampered = frame.copy(
+            ratchet = frame.ratchet.copy(body = frame.ratchet.body.copyOf().also { if (it.isNotEmpty()) it[0] = (it[0] + 1).toByte() }),
+        )
+
+        assertFailsWith<Exception> {
+            bob.decryptMessage(alicePeer.device.deviceId, tampered)
+        }
+        assertEquals(0, bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1).size)
+        assertNull(bobStore.loadCanonical(alicePeer.device.deviceId, sessionEpoch = 1))
+    }
+
+    @Test
+    fun epoch1_bobEncrypt_reusesResponderSessionWithoutDuplicateInitiator() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOneTimePreKeyStore(crypto))
+
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+        bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
+
+        val sessions = bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1)
+        assertEquals(1, sessions.size)
+        assertEquals(SessionRole.RESPONDER, sessions.single().meta.role)
+        assertTrue(sessions.single().canonical)
     }
 }

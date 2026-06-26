@@ -24,6 +24,9 @@ class DefaultCryptoSessionStore(
         ).executeAsList().map { it.toRecord(peerDeviceId) }
 
     override suspend fun save(record: CryptoSessionRecord) {
+        if (record.canonical && record.meta.status == SessionStatus.ACTIVE) {
+            demoteOtherCanonicalSessions(record.peerDeviceId, record.sessionEpoch, exceptRole = record.meta.role)
+        }
         val ratchet = record.ratchetState
         val meta = record.meta
         queries.insertOrReplaceCryptoSession(
@@ -52,6 +55,7 @@ class DefaultCryptoSessionStore(
             created_at_epoch_seconds = meta.createdAtEpochSeconds,
             updated_at_epoch_seconds = meta.updatedAtEpochSeconds,
         )
+        CryptoSessionCanonicalInvariant.ensure(record.peerDeviceId, record.sessionEpoch, this)
     }
 
     override suspend fun setCanonical(
@@ -60,7 +64,27 @@ class DefaultCryptoSessionStore(
         role: SessionRole,
         canonical: Boolean
     ) {
+        if (canonical) {
+            demoteOtherCanonicalSessions(peerDeviceId, sessionEpoch, exceptRole = role)
+        }
         queries.setCanonicalByPeerEpochAndRole(canonical, peerDeviceId.id, sessionEpoch.toLong(), role)
+    }
+
+    private suspend fun demoteOtherCanonicalSessions(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        exceptRole: SessionRole,
+    ) {
+        for (session in loadSessions(peerDeviceId, sessionEpoch)) {
+            if (session.meta.role != exceptRole && session.canonical) {
+                queries.setCanonicalByPeerEpochAndRole(
+                    canonical = false,
+                    peer_device_id = peerDeviceId.id,
+                    session_epoch = sessionEpoch.toLong(),
+                    role = session.meta.role,
+                )
+            }
+        }
     }
 
     override suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int? =

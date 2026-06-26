@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
@@ -74,6 +75,51 @@ class DefaultCryptoSessionStoreJvmTest {
         assertEquals(SessionRole.RESPONDER, store.loadCanonical(peer, sessionEpoch = 1)!!.meta.role)
         assertFalse(store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.canonical)
         assertTrue(store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.RESPONDER }.canonical)
+    }
+
+    @Test
+    fun save_loneNonCanonicalSession_promotedToCanonical() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        seedPeerDevice(db, FixtureAccountId, FixtureRemotePeerId)
+
+        val store = DefaultCryptoSessionStore(db)
+        val peer = FixtureRemotePeerId
+        val loneResponder = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.RESPONDER,
+            canonical = false,
+        )
+
+        store.save(loneResponder)
+
+        val canonical = store.loadCanonical(peer, sessionEpoch = 1)
+        assertNotNull(canonical)
+        assertTrue(canonical.canonical)
+        assertEquals(SessionRole.RESPONDER, canonical.meta.role)
+    }
+
+    @Test
+    fun save_dualCanonicalActiveSessions_keepsSingleCanonical() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        seedPeerDevice(db, FixtureAccountId, FixtureRemotePeerId)
+
+        val store = DefaultCryptoSessionStore(db)
+        val peer = FixtureRemotePeerId
+        val initiator = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.INITIATOR, canonical = true)
+        val responder = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.RESPONDER, canonical = true)
+
+        store.save(initiator)
+        store.save(responder)
+
+        val canonicalCount = store.loadSessions(peer, sessionEpoch = 1).count { it.canonical }
+        assertEquals(1, canonicalCount)
+        assertEquals(SessionRole.RESPONDER, store.loadCanonical(peer, sessionEpoch = 1)!!.meta.role)
     }
 
     @Test

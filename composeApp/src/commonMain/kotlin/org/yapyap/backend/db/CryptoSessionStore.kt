@@ -44,3 +44,36 @@ interface CryptoSessionStore {
 
     suspend fun markSuperseded(peerDeviceId: PeerId, sessionEpoch: Int)
 }
+
+internal object CryptoSessionCanonicalInvariant {
+
+    suspend fun ensure(peerDeviceId: PeerId, sessionEpoch: Int, store: CryptoSessionStore) {
+        val sessions = store.loadSessions(peerDeviceId, sessionEpoch)
+        val active = sessions.filter { it.meta.status == SessionStatus.ACTIVE }
+        if (active.isEmpty()) {
+            return
+        }
+
+        val canonicalActive = active.filter { it.canonical }
+        when {
+            canonicalActive.size == 1 -> return
+            canonicalActive.size > 1 -> {
+                val keepRole = preferredRole(canonicalActive)
+                for (session in canonicalActive) {
+                    if (session.meta.role != keepRole) {
+                        store.setCanonical(peerDeviceId, sessionEpoch, session.meta.role, canonical = false)
+                    }
+                }
+            }
+            else -> {
+                val promoteRole = preferredRole(active)
+                store.setCanonical(peerDeviceId, sessionEpoch, promoteRole, canonical = true)
+            }
+        }
+    }
+
+    private fun preferredRole(sessions: List<CryptoSessionRecord>): SessionRole {
+        return sessions.firstOrNull { it.meta.role == SessionRole.INITIATOR }?.meta?.role
+            ?: sessions.first().meta.role
+    }
+}

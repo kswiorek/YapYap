@@ -81,86 +81,125 @@ class DefaultCryptoSessionManager(
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
     ): ByteArray = peerLocks.withPeerLock(remoteDeviceId) {
-        val loadedSession = sessionStore.loadCanonical(remoteDeviceId, frame.sessionEpoch)
-        val messageSession = if (shouldBootstrapFromInboundHandshake(loadedSession)) {
-            try {
-                bootstrapFromFrame(remoteDeviceId, frame)
-            } catch (e: CryptoSessionException.HandshakeRequired) {
-                null
-            }
-        } else {
-            null
-        }
-        if (messageSession != null) {
-            val plaintext = messageSession.session.decrypt(frame.ratchet)
-            val inner = RatchetInnerPlaintext.decode(plaintext)
+        val canonicalRecord = sessionStore.loadCanonical(remoteDeviceId, frame.sessionEpoch)
 
-            if (remoteDeviceId.id > identityResolver.getLocalDeviceId().id) {
-                // loadedSession is rogue if exists
-                if (loadedSession != null) {
-                    sessionStore.setCanonical(remoteDeviceId, frame.sessionEpoch, SessionRole.INITIATOR, false)
-                }
-                persist(remoteDeviceId, frame.sessionEpoch, messageSession.session, messageSession.meta, canonical = true)
-
-            }
-            else {
-                // messageSession is rogue if loadedSession exists,
-                val messageSessionCanonical = loadedSession == null
-                persist(remoteDeviceId, frame.sessionEpoch, messageSession.session, messageSession.meta, canonical = messageSessionCanonical)
-            }
-            maybeUpgradeToEpoch2(remoteDeviceId, inner)
-            return@withPeerLock inner.bytes
-        }
-        else {
-            val records = sessionStore.loadSessions(remoteDeviceId, frame.sessionEpoch)
-            val matchesInboundDh = records.find { it.ratchetState.remoteDhPublicKey.contentEquals(frame.ratchet.dhPublicKey) }
-            if (matchesInboundDh != null) {
-                val loadedSession = LoadedSession(
-                    session = DoubleRatchetSession.fromState(crypto, matchesInboundDh.ratchetState),
-                    meta = matchesInboundDh.meta,
-                )
-                val plaintext = loadedSession.session.decrypt(frame.ratchet)
-                val inner = RatchetInnerPlaintext.decode(plaintext)
-                persist(remoteDeviceId, frame.sessionEpoch, loadedSession.session, loadedSession.meta, canonical = matchesInboundDh.canonical)
-                maybeUpgradeToEpoch2(remoteDeviceId, inner)
-                return@withPeerLock inner.bytes
-            }
-            else {
-                val candidateRecords = records.sortedBy { it.meta.status }
-                for (candidateRecord in candidateRecords) {
-                    val candidate = LoadedSession(
-                        session = DoubleRatchetSession.fromState(crypto, candidateRecord.ratchetState),
-                        meta = candidateRecord.meta,
-                    )
-                    try {
-                        val plaintext = candidate.session.decrypt(frame.ratchet)
-                        val inner = RatchetInnerPlaintext.decode(plaintext)
-                        persist(remoteDeviceId, frame.sessionEpoch, candidate.session, candidate.meta, canonical = candidateRecord.canonical)
-                        maybeUpgradeToEpoch2(remoteDeviceId, inner)
-                        return@withPeerLock inner.bytes
-                    } catch (_: Exception) {
-
-                    }
-                }
-                throw CryptoSessionException.NoSession(remoteDeviceId, frame.sessionEpoch)
-            }
-
+        if (shouldBootstrapFromInboundHandshake(canonicalRecord)) {
+            decryptFromInboundHandshake(remoteDeviceId, frame, canonicalRecord)?.let { return@withPeerLock it }
         }
 
+        decryptWithExistingSession(remoteDeviceId, frame)
     }
 
     /**
-     * Bootstrap from [SessionWireFrame.outerHandshake] on first contact, or during simultaneous
-     * initiation when the canonical initiator has sent but not yet received on that session.
+     * Simultaneous-init tie-break: the peer with the lower device id is the canonical responder;
+     * the higher id keeps the canonical initiator session when both sides sent first.
      */
-    private fun shouldBootstrapFromInboundHandshake(loadedSession: CryptoSessionRecord?): Boolean {
-        if (loadedSession == null) {
+    private suspend fun inboundResponderSessionIsCanonical(peerDeviceId: PeerId): Boolean =
+        peerDeviceId.id > identityResolver.getLocalDeviceId().id
+
+    /**
+     * Bootstrap from [SessionWireFrame.outerHandshake] on first contact, or during simultaneous
+     * initiation when the local initiator has sent but not yet received on that epoch.
+     */
+    private fun shouldBootstrapFromInboundHandshake(canonicalRecord: CryptoSessionRecord?): Boolean {
+        if (canonicalRecord == null) {
             return true
         }
-        if (loadedSession.meta.role != SessionRole.INITIATOR) {
+        if (canonicalRecord.meta.role != SessionRole.INITIATOR) {
             return false
         }
-        return loadedSession.ratchetState.recvMessageNumber == 0
+        return canonicalRecord.ratchetState.recvMessageNumber == 0
+    }
+
+    private suspend fun decryptFromInboundHandshake(
+        remoteDeviceId: PeerId,
+        frame: SessionWireFrame,
+        canonicalRecord: CryptoSessionRecord?,
+    ): ByteArray? {
+        val bootstrapped = try {
+            bootstrapFromFrame(remoteDeviceId, frame)
+        } catch (_: CryptoSessionException.HandshakeRequired) {
+            return null
+        }
+
+        val inner = decryptRatchet(bootstrapped.session, frame.ratchet)
+
+        val responderIsCanonical = inboundResponderSessionIsCanonical(remoteDeviceId)
+        if (responderIsCanonical && canonicalRecord != null) {
+            sessionStore.setCanonical(remoteDeviceId, frame.sessionEpoch, SessionRole.INITIATOR, canonical = false)
+        }
+        persist(
+            remoteDeviceId,
+            frame.sessionEpoch,
+            bootstrapped.session,
+            bootstrapped.meta,
+            canonical = responderIsCanonical || canonicalRecord == null,
+        )
+        if (frame.sessionEpoch == 2) {
+            clearEpoch1OpkOffer(remoteDeviceId)
+        }
+        maybeUpgradeToEpoch2(remoteDeviceId, inner)
+        return inner.bytes
+    }
+
+    private suspend fun clearEpoch1OpkOffer(peerDeviceId: PeerId) {
+        val epoch1 = sessionStore.loadCanonical(peerDeviceId, sessionEpoch = 1) ?: return
+        if (epoch1.meta.offeredOpkId == null) {
+            return
+        }
+        val now = timeProvider.nowEpochSeconds()
+        val updatedMeta = epoch1.meta.copy(
+            offeredOpkId = null,
+            updatedAtEpochSeconds = now,
+        )
+        persist(
+            peerDeviceId,
+            sessionEpoch = 1,
+            DoubleRatchetSession.fromState(crypto, epoch1.ratchetState),
+            updatedMeta,
+            canonical = epoch1.canonical,
+        )
+    }
+
+    private suspend fun decryptWithExistingSession(
+        remoteDeviceId: PeerId,
+        frame: SessionWireFrame,
+    ): ByteArray {
+        val records = sessionStore.loadSessions(remoteDeviceId, frame.sessionEpoch)
+        records.find { it.ratchetState.remoteDhPublicKey.contentEquals(frame.ratchet.dhPublicKey) }
+            ?.let { return decryptAndPersist(remoteDeviceId, frame, it) }
+
+        for (record in records.sortedBy { it.meta.status }) {
+            try {
+                return decryptAndPersist(remoteDeviceId, frame, record)
+            } catch (_: Exception) {
+                // try next candidate session for this epoch
+            }
+        }
+        throw CryptoSessionException.NoSession(remoteDeviceId, frame.sessionEpoch)
+    }
+
+    private suspend fun decryptAndPersist(
+        remoteDeviceId: PeerId,
+        frame: SessionWireFrame,
+        record: CryptoSessionRecord,
+    ): ByteArray {
+        val loaded = LoadedSession(
+            session = DoubleRatchetSession.fromState(crypto, record.ratchetState),
+            meta = record.meta,
+        )
+        val inner = decryptRatchet(loaded.session, frame.ratchet)
+        persist(remoteDeviceId, frame.sessionEpoch, loaded.session, loaded.meta, canonical = record.canonical)
+        maybeUpgradeToEpoch2(remoteDeviceId, inner)
+        return inner.bytes
+    }
+
+    private suspend fun decryptRatchet(
+        session: DoubleRatchetSession,
+        ratchet: RatchetCiphertext,
+    ): RatchetInnerPlaintext {
+        val plaintext = session.decrypt(ratchet)
+        return RatchetInnerPlaintext.decode(plaintext)
     }
 
     private suspend fun maybeUpgradeToEpoch2(remoteDeviceId: PeerId, inner: RatchetInnerPlaintext) {
@@ -231,7 +270,6 @@ class DefaultCryptoSessionManager(
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
         )
-        persist(peerDeviceId, sessionEpoch = 1, session, meta, canonical = false)
         return LoadedSession(session, meta)
     }
 
@@ -270,12 +308,6 @@ class DefaultCryptoSessionManager(
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
         )
-        persist(peerDeviceId, sessionEpoch = 2, session, meta, canonical = false)
-        val updatedEpoch1 = epoch1.meta.copy(
-            offeredOpkId = null,
-            updatedAtEpochSeconds = now,
-        )
-        persist(peerDeviceId, sessionEpoch = 1, DoubleRatchetSession.fromState(crypto, epoch1.ratchetState), updatedEpoch1)
         return LoadedSession(session, meta)
     }
 
@@ -356,8 +388,8 @@ class DefaultCryptoSessionManager(
         if (loaded.meta.role != SessionRole.INITIATOR) {
             return false
         }
-        val sendMessageNumber = loaded.session.snapshot().sendMessageNumber
-        return sendMessageNumber == 0 && (epoch == 1 || epoch == 2)
+        val recvMessageNumber = loaded.session.snapshot().recvMessageNumber
+        return recvMessageNumber == 0 && (epoch == 1 || epoch == 2)
     }
 
     private fun buildOutboundWire(

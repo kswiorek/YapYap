@@ -1,5 +1,6 @@
 package org.yapyap.backend.crypto
 
+import org.yapyap.backend.db.CryptoSessionCanonicalInvariant
 import org.yapyap.backend.db.CryptoSessionRecord
 import org.yapyap.backend.db.CryptoSessionStore
 import org.yapyap.backend.db.SessionRole
@@ -25,8 +26,12 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             .map { copyRecord(it) }
 
     override suspend fun save(record: CryptoSessionRecord) {
+        if (record.canonical && record.meta.status == SessionStatus.ACTIVE) {
+            demoteOtherCanonicalSessions(record.peerDeviceId, record.sessionEpoch, exceptRole = record.meta.role)
+        }
         val key = SessionKey(record.peerDeviceId.id, record.sessionEpoch, record.meta.role)
         records[key] = copyRecord(record)
+        CryptoSessionCanonicalInvariant.ensure(record.peerDeviceId, record.sessionEpoch, this)
     }
 
     override suspend fun setCanonical(
@@ -35,9 +40,28 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         role: SessionRole,
         canonical: Boolean,
     ) {
+        if (canonical) {
+            demoteOtherCanonicalSessions(peerDeviceId, sessionEpoch, exceptRole = role)
+        }
         val key = SessionKey(peerDeviceId.id, sessionEpoch, role)
         val existing = records[key] ?: return
         records[key] = existing.copy(canonical = canonical)
+    }
+
+    private fun demoteOtherCanonicalSessions(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        exceptRole: SessionRole,
+    ) {
+        for ((key, session) in records) {
+            if (session.peerDeviceId == peerDeviceId &&
+                session.sessionEpoch == sessionEpoch &&
+                session.meta.role != exceptRole &&
+                session.canonical
+            ) {
+                records[key] = session.copy(canonical = false)
+            }
+        }
     }
 
     override suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int? =

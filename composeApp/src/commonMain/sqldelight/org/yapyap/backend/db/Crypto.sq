@@ -33,6 +33,9 @@ CREATE TABLE crypto_sessions (
 
 CREATE INDEX crypto_sessions_peer_device_idx ON crypto_sessions(peer_device_id);
 CREATE UNIQUE INDEX crypto_sessions_peer_epoch_idx ON crypto_sessions(peer_device_id, session_epoch, role);
+CREATE UNIQUE INDEX crypto_sessions_one_canonical_per_epoch
+ON crypto_sessions(peer_device_id, session_epoch)
+WHERE canonical = 1;
 
 insertOrReplaceCryptoSession:
 INSERT OR REPLACE INTO crypto_sessions (
