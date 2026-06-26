@@ -74,10 +74,10 @@ class CryptoProviderDefaultsTest {
         override suspend fun hkdf(ikm: ByteArray, salt: ByteArray?, info: ByteArray, outputLength: Int): ByteArray =
             error("not stubbed: hkdf")
 
-        override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray =
+        override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray, associatedData: ByteArray?): ByteArray =
             error("not stubbed: encryptAead")
 
-        override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray =
+        override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray, associatedData: ByteArray?): ByteArray =
             error("not stubbed: decryptAead")
 
         override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {

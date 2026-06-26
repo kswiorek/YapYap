@@ -16,6 +16,7 @@ import org.yapyap.backend.crypto.e2ee.X3dhLocalInitiatorKeys
 import org.yapyap.backend.crypto.e2ee.X3dhMode
 import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.crypto.e2ee.X3dhWireInfo
+import kotlin.test.assertNotEquals
 
 class SessionWireCodecTest {
 
@@ -219,12 +220,14 @@ class DefaultCryptoSessionManagerTest {
             upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
         )
 
+        val epoch1Frame = alice.encryptMessage(
+            bobPeer.device.deviceId,
+            byteArrayOf(1),
+        )
+
         bob.decryptMessage(
             alicePeer.device.deviceId,
-            alice.encryptMessage(
-                bobPeer.device.deviceId,
-                byteArrayOf(1),
-            ),
+            epoch1Frame,
         )
         alice.decryptMessage(
             bobPeer.device.deviceId,
@@ -241,6 +244,7 @@ class DefaultCryptoSessionManagerTest {
         assertEquals(2, epoch2Frame.sessionEpoch)
         assertNotNull(epoch2Frame.outerHandshake)
         assertEquals(X3dhMode.FOUR_DH, epoch2Frame.outerHandshake.mode)
+        assertNotEquals(epoch2Frame.outerHandshake.ephemeralPublicKey, epoch1Frame.outerHandshake!!.ephemeralPublicKey)
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
         assertContentEquals(byteArrayOf(3), opened)

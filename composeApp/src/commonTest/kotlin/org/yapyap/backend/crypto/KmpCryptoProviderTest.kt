@@ -173,29 +173,49 @@ class KmpCryptoProviderTest {
         )
         val plaintext = "secret payload".encodeToByteArray()
 
-        val ciphertext = crypto.encryptAead(key, plaintext)
+        val ciphertext = crypto.encryptAead(key, plaintext,)
         assertFalse(ciphertext.contentEquals(plaintext))
         assertTrue(ciphertext.size > plaintext.size)
 
-        val opened = crypto.decryptAead(key, ciphertext)
+        val opened = crypto.decryptAead(key, ciphertext,)
         assertContentEquals(plaintext, opened)
     }
 
     @Test
     fun decryptAead_failsWhenCiphertextTampered() = runTest {
         val key = crypto.randomBytes(KmpCryptoProvider.AEAD_KEY_SIZE_BYTES)
-        val ciphertext = crypto.encryptAead(key, byteArrayOf(42)).copyOf()
+        val ciphertext = crypto.encryptAead(key, byteArrayOf(42),).copyOf()
         ciphertext[ciphertext.lastIndex] = (ciphertext.last().toInt() xor 0xff).toByte()
 
         assertFailsWith<Exception> {
-            crypto.decryptAead(key, ciphertext)
+            crypto.decryptAead(key, ciphertext,)
         }
     }
 
     @Test
     fun encryptAead_rejectsInvalidKeySize() = runTest {
         assertFailsWith<IllegalArgumentException> {
-            crypto.encryptAead(byteArrayOf(1), byteArrayOf(2))
+            crypto.encryptAead(byteArrayOf(1), byteArrayOf(2),)
+        }
+    }
+
+    @Test
+    fun encryptAead_roundTrip_withAssociatedData() = runTest {
+        val key = ByteArray(32) { it.toByte() }
+        val plaintext = "secret".encodeToByteArray()
+        val aad = byteArrayOf(1, 2, 3)
+
+        val ciphertext = crypto.encryptAead(key, plaintext, aad)
+        assertContentEquals(plaintext, crypto.decryptAead(key, ciphertext, aad))
+    }
+
+    @Test
+    fun decryptAead_failsWhenAssociatedDataDiffers() = runTest {
+        val key = ByteArray(32) { it.toByte() }
+        val ciphertext = crypto.encryptAead(key, byteArrayOf(42), byteArrayOf(1))
+
+        assertFailsWith<Exception> {
+            crypto.decryptAead(key, ciphertext, byteArrayOf(2))
         }
     }
 

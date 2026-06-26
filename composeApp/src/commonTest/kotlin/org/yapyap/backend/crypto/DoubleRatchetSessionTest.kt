@@ -110,6 +110,88 @@ class DoubleRatchetSessionTest {
         }
     }
 
+    @Test
+    fun decrypt_rejectsTamperedMessageNumber() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt(byteArrayOf(1))
+        val tampered = frame.copy(messageNumber = frame.messageNumber + 1)
+
+        assertFailsWith<Exception> {
+            bob.decrypt(tampered)
+        }
+    }
+
+    @Test
+    fun decrypt_rejectsTamperedDhPublicKey() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt(byteArrayOf(1))
+        val tamperedDh = frame.dhPublicKey.copyOf().also {
+            it[0] = (it[0].toInt() xor 0xff).toByte()
+        }
+        val tampered = frame.copy(dhPublicKey = tamperedDh)
+
+        assertFailsWith<Exception> {
+            bob.decrypt(tampered)
+        }
+    }
+
+    @Test
+    fun decrypt_rejectsTamperedPreviousChainLength() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt(byteArrayOf(1))
+        val tampered = frame.copy(previousChainLength = frame.previousChainLength + 1)
+
+        assertFailsWith<Exception> {
+            bob.decrypt(tampered)
+        }
+    }
+
+    @Test
+    fun decrypt_rejectsTamperedBody() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt(byteArrayOf(1))
+        val tamperedBody = frame.body.copyOf().also {
+            it[it.lastIndex] = (it.last().toInt() xor 0xff).toByte()
+        }
+        val tampered = frame.copy(body = tamperedBody)
+
+        assertFailsWith<Exception> {
+            bob.decrypt(tampered)
+        }
+    }
+
+    @Test
+    fun decrypt_outOfOrder_rejectsTamperedHeaderOnSkippedMessage() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val m0 = alice.encrypt("m0".encodeToByteArray())
+        alice.encrypt("m1".encodeToByteArray()) // advance send chain
+
+        // Process a later message first so m0 is stored as a skipped key.
+        val m2 = alice.encrypt("m2".encodeToByteArray())
+        bob.decrypt(m2)
+
+        val tamperedM0 = m0.copy(messageNumber = m0.messageNumber + 1)
+
+        assertFailsWith<Exception> {
+            bob.decrypt(tamperedM0)
+        }
+    }
+
     private suspend fun testBootstraps(): Pair<RatchetBootstrap, RatchetBootstrap> {
         val aliceIk = crypto.generateEncryptionKeyPair()
         val bobIk = crypto.generateEncryptionKeyPair()

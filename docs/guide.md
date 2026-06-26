@@ -45,14 +45,17 @@
 
 ### Crypto + identity + persistence status
 - Implemented:
-  - `KmpCryptoProvider` with Ed25519 detached signatures, X25519 keypair generation, and SHA-256 hashing.
+  - `KmpCryptoProvider` with Ed25519 detached signatures, X25519 keypair generation, ChaCha20-Poly1305 AEAD (with AAD), and SHA-256 hashing.
   - `DefaultIdentityKeyService` for local identity key generation/load and peer key resolution.
   - `DefaultSignatureProvider` and `SignedWebRtcSignalProtection` for signed WebRTC signaling envelopes.
+  - 1-on-1 E2EE: X3DH handshake, Double Ratchet, `DefaultCryptoSessionManager`, `SignedAndEncryptedMessageProtection` (see [`e2ee.md`](e2ee.md)).
   - SQLDelight-backed `DefaultIdentityPublicKeyRepository` storing per-device signing/encryption key metadata.
+  - SQLDelight-backed `DefaultCryptoSessionStore` for ratchet session persistence.
   - JVM key stores:
     - `JvmMasterKeyProvider` (OS keyring-backed DB master key retrieval/creation),
     - `JvmPrivateKeyStore` for local private key persistence.
   - Encrypted DB initialization and reopen path validated by sprint integration test (`Sprint0IntegrationTest`).
-- Not yet implemented:
-  - payload encryption/decryption pipeline (scheme value exists, concrete envelope encryption does not),
-  - ratcheting session crypto and key/session rotation lifecycle.
+- Not yet implemented / in progress:
+  - SPK rotation and handshake edge cases during key rollover.
+  - Epoch lifecycle management (`SUPERSEDED` sessions, handshake-until-acked).
+  - Simultaneous-init policy and remaining P0/P1 items documented in [`e2ee.md`](e2ee.md).

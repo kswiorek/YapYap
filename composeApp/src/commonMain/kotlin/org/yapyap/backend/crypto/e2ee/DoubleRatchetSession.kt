@@ -17,17 +17,18 @@ class DoubleRatchetSession private constructor(
         state.sendChainKey = nextChainKey
         val messageNumber = state.sendMessageNumber
         state.sendMessageNumber = messageNumber + 1
-        val body = crypto.encryptAead(messageKey, plaintext)
-        return RatchetCiphertext(
+        val ciphertext = RatchetCiphertext(
             dhPublicKey = state.localDhPublicKey.copyOf(),
             messageNumber = messageNumber,
             previousChainLength = state.previousSendChainLength,
-            body = body,
+            body = ByteArray(0),
         )
+        val body = crypto.encryptAead(messageKey, plaintext, ciphertext.headerAssociatedData())
+        return ciphertext.copy(body = body)
     }
 
     suspend fun decrypt(frame: RatchetCiphertext): ByteArray {
-        trySkippedMessageKey(frame)?.let { return crypto.decryptAead(it, frame.body) }
+        trySkippedMessageKey(frame)?.let { return crypto.decryptAead(it, frame.body, frame.headerAssociatedData()) }
 
         if (state.remoteDhPublicKey == null || !state.remoteDhPublicKey.contentEquals(frame.dhPublicKey)) {
             skipMessageKeys(frame.previousChainLength)
@@ -52,7 +53,7 @@ class DoubleRatchetSession private constructor(
         val (nextChainKey, messageKey) = kdfChainKey(recvChainKey)
         state.recvChainKey = nextChainKey
         state.recvMessageNumber = state.recvMessageNumber + 1
-        return crypto.decryptAead(messageKey, frame.body)
+        return crypto.decryptAead(messageKey, frame.body, frame.headerAssociatedData())
     }
 
     fun snapshot(): RatchetSessionState = state.toImmutable()
@@ -194,6 +195,17 @@ data class RatchetCiphertext(
         writeInt(bytes, offset, bodySize)
         offset += 4
         body.copyInto(bytes, offset)
+        return bytes
+    }
+
+    fun headerAssociatedData(): ByteArray {
+        val dhSize = dhPublicKey.size
+        val bytes = ByteArray(4 + dhSize + 4 + 4)
+        var offset = 0
+        writeInt(bytes, offset, dhSize); offset += 4
+        dhPublicKey.copyInto(bytes, offset); offset += dhSize
+        writeInt(bytes, offset, messageNumber); offset += 4
+        writeInt(bytes, offset, previousChainLength)
         return bytes
     }
 

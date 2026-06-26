@@ -68,9 +68,9 @@ internal class StubCryptoProvider(
     override suspend fun hkdf(ikm: ByteArray, salt: ByteArray?, info: ByteArray, outputLength: Int): ByteArray =
         ByteArray(outputLength) { 6 }
 
-    override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray = plaintext
+    override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray, associatedData: ByteArray?): ByteArray = plaintext
 
-    override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray = ciphertext
+    override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray, associatedData: ByteArray?): ByteArray = ciphertext
     override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray = error("not used")
 
     override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray = error("not used")

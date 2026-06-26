@@ -71,11 +71,17 @@ class KmpCryptoProvider(
         ).deriveSecretToByteArray(ikm)
     }
 
-    override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray =
-        aeadKey(key).cipher().encrypt(plaintext)
+    override suspend fun encryptAead(key: ByteArray, plaintext: ByteArray, associatedData: ByteArray?): ByteArray =
+        aeadKey(key).cipher().encrypt(
+            plaintext = plaintext,
+            associatedData = associatedData,
+        )
 
-    override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray =
-        aeadKey(key).cipher().decrypt(ciphertext)
+    override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray, associatedData: ByteArray?): ByteArray =
+        aeadKey(key).cipher().decrypt(
+            ciphertext = ciphertext,
+            associatedData = associatedData,
+        )
 
     override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
         val privateEdDsaKey =  edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.DER, privateKey)

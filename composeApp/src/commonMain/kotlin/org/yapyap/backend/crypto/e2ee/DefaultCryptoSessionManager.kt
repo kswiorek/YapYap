@@ -3,7 +3,6 @@ package org.yapyap.backend.crypto.e2ee
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.backend.crypto.CryptoProvider
-import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.db.CryptoSessionMeta
@@ -214,20 +213,13 @@ class DefaultCryptoSessionManager(
         }
         val epoch1 = sessionStore.load(peerDeviceId, sessionEpoch = 1)
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
-        val ephemeralPrivate = epoch1.meta.initiatorEphemeralPrivateKey
-            ?: throw CryptoSessionException.MissingInitiatorEphemeral(peerDeviceId)
-        val ephemeralPublic = epoch1.meta.initiatorEphemeralPublicKey
-            ?: throw CryptoSessionException.MissingInitiatorEphemeral(peerDeviceId)
         val remote = identityResolver.resolvePeerX3dhRemoteKeys(
             peerDeviceId,
             signedPreKeyId = epoch1.meta.handshakeSpkId,
         )
         val localIkPrivate = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION)
         val localIkPublic = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey
-        val ephemeral = EncryptionKeyPair(
-            publicKey = ephemeralPublic,
-            privateKey = ephemeralPrivate,
-        )
+        val ephemeral = crypto.generateEncryptionKeyPair()
         val result = x3dh.initiatorCompute4Dh(
             local = X3dhLocalInitiatorKeys(
                 identityEncryptionPrivateKey = localIkPrivate,
@@ -245,8 +237,8 @@ class DefaultCryptoSessionManager(
             x3dhMode = X3dhMode.FOUR_DH,
             handshakeSpkId = remote.signedPreKeyId,
             handshakeOpkId = offer.opkId,
-            initiatorEphemeralPrivateKey = ephemeralPrivate,
-            initiatorEphemeralPublicKey = ephemeralPublic,
+            initiatorEphemeralPrivateKey = ephemeral.privateKey,
+            initiatorEphemeralPublicKey = ephemeral.publicKey,
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
         )

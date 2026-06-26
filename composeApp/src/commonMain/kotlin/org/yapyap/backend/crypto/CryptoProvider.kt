@@ -34,10 +34,10 @@ interface CryptoProvider {
     suspend fun hkdf(ikm: ByteArray, salt: ByteArray?, info: ByteArray, outputLength: Int): ByteArray
 
     /** ChaCha20-Poly1305; returned bytes are `IV || ciphertext || tag` (library-managed IV). */
-    suspend fun encryptAead(key: ByteArray, plaintext: ByteArray): ByteArray
+    suspend fun encryptAead(key: ByteArray, plaintext: ByteArray, associatedData: ByteArray? = null): ByteArray
 
     /** Inverse of [encryptAead]; expects the same `IV || ciphertext || tag` layout. */
-    suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray): ByteArray
+    suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray, associatedData: ByteArray? = null): ByteArray
 
     suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray
 
