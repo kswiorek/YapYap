@@ -35,7 +35,7 @@ class DefaultCryptoSessionManager(
         bytes: ByteArray,
     ): SessionWireFrame = peerLocks.withPeerLock(remoteDeviceId) {
         val epoch = sessionStore.latestEncryptEpoch(remoteDeviceId) ?: 1
-        var loaded = loadSession(remoteDeviceId, epoch)
+        var loaded = loadCanonicalSession(remoteDeviceId, epoch)
         var outerHandshake: X3dhWireInfo? = null
 
         if (loaded == null) {
@@ -81,20 +81,92 @@ class DefaultCryptoSessionManager(
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
     ): ByteArray = peerLocks.withPeerLock(remoteDeviceId) {
-        var loaded = loadSession(remoteDeviceId, frame.sessionEpoch)
-        if (loaded == null) {
-            loaded = bootstrapFromFrame(remoteDeviceId, frame)
+        val loadedSession = sessionStore.loadCanonical(remoteDeviceId, frame.sessionEpoch)
+        val messageSession = if (shouldBootstrapFromInboundHandshake(loadedSession)) {
+            try {
+                bootstrapFromFrame(remoteDeviceId, frame)
+            } catch (e: CryptoSessionException.HandshakeRequired) {
+                null
+            }
+        } else {
+            null
+        }
+        if (messageSession != null) {
+            val plaintext = messageSession.session.decrypt(frame.ratchet)
+            val inner = RatchetInnerPlaintext.decode(plaintext)
+
+            if (remoteDeviceId.id > identityResolver.getLocalDeviceId().id) {
+                // loadedSession is rogue if exists
+                if (loadedSession != null) {
+                    sessionStore.setCanonical(remoteDeviceId, frame.sessionEpoch, SessionRole.INITIATOR, false)
+                }
+                persist(remoteDeviceId, frame.sessionEpoch, messageSession.session, messageSession.meta, canonical = true)
+
+            }
+            else {
+                // messageSession is rogue if loadedSession exists,
+                val messageSessionCanonical = loadedSession == null
+                persist(remoteDeviceId, frame.sessionEpoch, messageSession.session, messageSession.meta, canonical = messageSessionCanonical)
+            }
+            maybeUpgradeToEpoch2(remoteDeviceId, inner)
+            return@withPeerLock inner.bytes
+        }
+        else {
+            val records = sessionStore.loadSessions(remoteDeviceId, frame.sessionEpoch)
+            val matchesInboundDh = records.find { it.ratchetState.remoteDhPublicKey.contentEquals(frame.ratchet.dhPublicKey) }
+            if (matchesInboundDh != null) {
+                val loadedSession = LoadedSession(
+                    session = DoubleRatchetSession.fromState(crypto, matchesInboundDh.ratchetState),
+                    meta = matchesInboundDh.meta,
+                )
+                val plaintext = loadedSession.session.decrypt(frame.ratchet)
+                val inner = RatchetInnerPlaintext.decode(plaintext)
+                persist(remoteDeviceId, frame.sessionEpoch, loadedSession.session, loadedSession.meta, canonical = matchesInboundDh.canonical)
+                maybeUpgradeToEpoch2(remoteDeviceId, inner)
+                return@withPeerLock inner.bytes
+            }
+            else {
+                val candidateRecords = records.sortedBy { it.meta.status }
+                for (candidateRecord in candidateRecords) {
+                    val candidate = LoadedSession(
+                        session = DoubleRatchetSession.fromState(crypto, candidateRecord.ratchetState),
+                        meta = candidateRecord.meta,
+                    )
+                    try {
+                        val plaintext = candidate.session.decrypt(frame.ratchet)
+                        val inner = RatchetInnerPlaintext.decode(plaintext)
+                        persist(remoteDeviceId, frame.sessionEpoch, candidate.session, candidate.meta, canonical = candidateRecord.canonical)
+                        maybeUpgradeToEpoch2(remoteDeviceId, inner)
+                        return@withPeerLock inner.bytes
+                    } catch (_: Exception) {
+
+                    }
+                }
+                throw CryptoSessionException.NoSession(remoteDeviceId, frame.sessionEpoch)
+            }
+
         }
 
-        val plaintext = loaded.session.decrypt(frame.ratchet)
-        val inner = RatchetInnerPlaintext.decode(plaintext)
+    }
 
+    /**
+     * Bootstrap from [SessionWireFrame.outerHandshake] on first contact, or during simultaneous
+     * initiation when the canonical initiator has sent but not yet received on that session.
+     */
+    private fun shouldBootstrapFromInboundHandshake(loadedSession: CryptoSessionRecord?): Boolean {
+        if (loadedSession == null) {
+            return true
+        }
+        if (loadedSession.meta.role != SessionRole.INITIATOR) {
+            return false
+        }
+        return loadedSession.ratchetState.recvMessageNumber == 0
+    }
+
+    private suspend fun maybeUpgradeToEpoch2(remoteDeviceId: PeerId, inner: RatchetInnerPlaintext) {
         if (inner is RatchetInnerPlaintext.WithControl && inner.control is InnerSessionControl.OpkOffer) {
             createEpoch2AsInitiator(remoteDeviceId, inner.control)
         }
-
-        persist(remoteDeviceId, frame.sessionEpoch, loaded.session, loaded.meta)
-        inner.bytes
     }
 
     private suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId): LoadedSession {
@@ -159,13 +231,13 @@ class DefaultCryptoSessionManager(
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
         )
-        persist(peerDeviceId, sessionEpoch = 1, session, meta)
+        persist(peerDeviceId, sessionEpoch = 1, session, meta, canonical = false)
         return LoadedSession(session, meta)
     }
 
     private suspend fun bootstrapEpoch2Responder(peerDeviceId: PeerId, wire: X3dhWireInfo): LoadedSession {
         require(wire.mode == X3dhMode.FOUR_DH) { "expected FOUR_DH for epoch 2 bootstrap" }
-        val epoch1 = sessionStore.load(peerDeviceId, sessionEpoch = 1)
+        val epoch1 = sessionStore.loadCanonical(peerDeviceId, sessionEpoch = 1)
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
         val offeredOpkId = epoch1.meta.offeredOpkId
             ?: throw CryptoSessionException.MissingOfferedOpk(peerDeviceId)
@@ -198,7 +270,7 @@ class DefaultCryptoSessionManager(
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
         )
-        persist(peerDeviceId, sessionEpoch = 2, session, meta)
+        persist(peerDeviceId, sessionEpoch = 2, session, meta, canonical = false)
         val updatedEpoch1 = epoch1.meta.copy(
             offeredOpkId = null,
             updatedAtEpochSeconds = now,
@@ -208,10 +280,10 @@ class DefaultCryptoSessionManager(
     }
 
     private suspend fun createEpoch2AsInitiator(peerDeviceId: PeerId, offer: InnerSessionControl.OpkOffer) {
-        if (sessionStore.load(peerDeviceId, sessionEpoch = 2) != null) {
+        if (sessionStore.loadCanonical(peerDeviceId, sessionEpoch = 2) != null) {
             return
         }
-        val epoch1 = sessionStore.load(peerDeviceId, sessionEpoch = 1)
+        val epoch1 = sessionStore.loadCanonical(peerDeviceId, sessionEpoch = 1)
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
         val remote = identityResolver.resolvePeerX3dhRemoteKeys(
             peerDeviceId,
@@ -266,7 +338,7 @@ class DefaultCryptoSessionManager(
         if (meta.offeredOpkId != null || meta.role != SessionRole.RESPONDER) {
             return RatchetInnerPlaintext.Payload(inner)
         }
-        val snapshot = sessionStore.load(peerDeviceId, sessionEpoch = 1)?.ratchetState
+        val snapshot = sessionStore.loadCanonical(peerDeviceId, sessionEpoch = 1)?.ratchetState
         if (snapshot != null && snapshot.sendMessageNumber > 0) {
             return RatchetInnerPlaintext.Payload(inner)
         }
@@ -306,8 +378,8 @@ class DefaultCryptoSessionManager(
         )
     }
 
-    private suspend fun loadSession(peerDeviceId: PeerId, sessionEpoch: Int): LoadedSession? {
-        val record = sessionStore.load(peerDeviceId, sessionEpoch) ?: return null
+    private suspend fun loadCanonicalSession(peerDeviceId: PeerId, sessionEpoch: Int): LoadedSession? {
+        val record = sessionStore.loadCanonical(peerDeviceId, sessionEpoch) ?: return null
         return LoadedSession(
             session = DoubleRatchetSession.fromState(crypto, record.ratchetState),
             meta = record.meta,
@@ -319,6 +391,7 @@ class DefaultCryptoSessionManager(
         sessionEpoch: Int,
         session: DoubleRatchetSession,
         meta: CryptoSessionMeta,
+        canonical: Boolean = true,
     ) {
         val now = timeProvider.nowEpochSeconds()
         sessionStore.save(
@@ -327,6 +400,7 @@ class DefaultCryptoSessionManager(
                 sessionEpoch = sessionEpoch,
                 ratchetState = session.snapshot(),
                 meta = meta.copy(updatedAtEpochSeconds = now),
+                canonical = canonical,
             ),
         )
     }

@@ -9,21 +9,27 @@ class DefaultCryptoSessionStore(
 
     private val queries get() = database.cryptoQueries
 
-    override suspend fun load(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
+    override suspend fun loadCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
         queries
-            .selectCryptoSessionByPeerAndEpoch(
+            .selectCanonicalCryptoSessionByPeerAndEpoch(
                 peer_device_id = peerDeviceId.id,
                 session_epoch = sessionEpoch.toLong(),
             )
-            .executeAsOneOrNull()
-            ?.toRecord(peerDeviceId)
+            .executeAsOneOrNull()?.toRecord(peerDeviceId)
+
+    override suspend fun loadSessions(peerDeviceId: PeerId, sessionEpoch: Int): List<CryptoSessionRecord> =
+        queries.selectCryptoSessionByPeerAndEpoch(
+            peer_device_id = peerDeviceId.id,
+            session_epoch = sessionEpoch.toLong(),
+        ).executeAsList().map { it.toRecord(peerDeviceId) }
 
     override suspend fun save(record: CryptoSessionRecord) {
         val ratchet = record.ratchetState
         val meta = record.meta
         queries.insertOrReplaceCryptoSession(
-            session_id = sessionId(record.peerDeviceId, record.sessionEpoch),
+            session_id = sessionId(record.peerDeviceId, record.sessionEpoch, record.meta.role),
             peer_device_id = record.peerDeviceId.id,
+            canonical = record.canonical,
             session_epoch = record.sessionEpoch.toLong(),
             root_key = ratchet.rootKey,
             send_chain_key = ratchet.sendChainKey,
@@ -46,6 +52,15 @@ class DefaultCryptoSessionStore(
             created_at_epoch_seconds = meta.createdAtEpochSeconds,
             updated_at_epoch_seconds = meta.updatedAtEpochSeconds,
         )
+    }
+
+    override suspend fun setCanonical(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        canonical: Boolean
+    ) {
+        queries.setCanonicalByPeerEpochAndRole(canonical, peerDeviceId.id, sessionEpoch.toLong(), role)
     }
 
     override suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int? =
@@ -98,9 +113,10 @@ class DefaultCryptoSessionStore(
                 createdAtEpochSeconds = created_at_epoch_seconds,
                 updatedAtEpochSeconds = updated_at_epoch_seconds,
             ),
+            canonical = canonical,
         )
     }
 
-    private fun sessionId(peerDeviceId: PeerId, sessionEpoch: Int): String =
-        "${peerDeviceId.id}#$sessionEpoch"
+    private fun sessionId(peerDeviceId: PeerId, sessionEpoch: Int, sessionRole: SessionRole): String =
+        "${peerDeviceId.id}#$sessionEpoch#${sessionRole.name}"
 }

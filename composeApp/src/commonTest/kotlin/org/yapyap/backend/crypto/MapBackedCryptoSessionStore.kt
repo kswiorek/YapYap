@@ -2,35 +2,61 @@ package org.yapyap.backend.crypto
 
 import org.yapyap.backend.db.CryptoSessionRecord
 import org.yapyap.backend.db.CryptoSessionStore
+import org.yapyap.backend.db.SessionRole
 import org.yapyap.backend.db.SessionStatus
 import org.yapyap.backend.protocol.PeerId
 
 /** In-memory [CryptoSessionStore] for unit tests. */
 internal class MapBackedCryptoSessionStore : CryptoSessionStore {
-    private val records = mutableMapOf<PeerEpoch, CryptoSessionRecord>()
+    private val records = mutableMapOf<SessionKey, CryptoSessionRecord>()
 
-    override suspend fun load(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
-        records[PeerEpoch(peerDeviceId.id, sessionEpoch)]?.let { copyRecord(it) }
+    override suspend fun loadCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
+        records.values
+            .firstOrNull {
+                it.peerDeviceId == peerDeviceId &&
+                    it.sessionEpoch == sessionEpoch &&
+                    it.canonical
+            }
+            ?.let { copyRecord(it) }
+
+    override suspend fun loadSessions(peerDeviceId: PeerId, sessionEpoch: Int): List<CryptoSessionRecord> =
+        records.values
+            .filter { it.peerDeviceId == peerDeviceId && it.sessionEpoch == sessionEpoch }
+            .map { copyRecord(it) }
 
     override suspend fun save(record: CryptoSessionRecord) {
-        records[PeerEpoch(record.peerDeviceId.id, record.sessionEpoch)] = copyRecord(record)
+        val key = SessionKey(record.peerDeviceId.id, record.sessionEpoch, record.meta.role)
+        records[key] = copyRecord(record)
+    }
+
+    override suspend fun setCanonical(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        canonical: Boolean,
+    ) {
+        val key = SessionKey(peerDeviceId.id, sessionEpoch, role)
+        val existing = records[key] ?: return
+        records[key] = existing.copy(canonical = canonical)
     }
 
     override suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int? =
-        records.keys
-            .filter { it.peerId == peerDeviceId.id }
-            .maxOfOrNull { it.epoch }
+        records.values
+            .filter { it.peerDeviceId == peerDeviceId }
+            .maxOfOrNull { it.sessionEpoch }
 
     override suspend fun listByPeer(peerDeviceId: PeerId): List<CryptoSessionRecord> =
         records.values
             .filter { it.peerDeviceId == peerDeviceId }
             .map { copyRecord(it) }
-            .sortedBy { it.sessionEpoch }
+            .sortedWith(compareBy({ it.sessionEpoch }, { it.meta.role.name }))
 
     override suspend fun markSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
-        val key = PeerEpoch(peerDeviceId.id, sessionEpoch)
-        val existing = records[key] ?: return
-        records[key] = existing.copy(meta = existing.meta.copy(status = SessionStatus.SUPERSEDED))
+        for ((key, record) in records) {
+            if (record.peerDeviceId == peerDeviceId && record.sessionEpoch == sessionEpoch) {
+                records[key] = record.copy(meta = record.meta.copy(status = SessionStatus.SUPERSEDED))
+            }
+        }
     }
 
     private fun copyRecord(record: CryptoSessionRecord): CryptoSessionRecord =
@@ -51,5 +77,5 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             ),
         )
 
-    private data class PeerEpoch(val peerId: String, val epoch: Int)
+    private data class SessionKey(val peerId: String, val epoch: Int, val role: SessionRole)
 }

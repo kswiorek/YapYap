@@ -1,10 +1,12 @@
 import org.yapyap.backend.db.SessionRole;
 import org.yapyap.backend.db.SessionStatus;
 import org.yapyap.backend.crypto.e2ee.X3dhMode;
+import kotlin.Boolean;
 
 CREATE TABLE crypto_sessions (
     session_id TEXT NOT NULL PRIMARY KEY,
     peer_device_id TEXT NOT NULL,
+    canonical INTEGER AS Boolean NOT NULL,
     session_epoch INTEGER NOT NULL,
     root_key BLOB NOT NULL,
     send_chain_key BLOB,
@@ -30,12 +32,13 @@ CREATE TABLE crypto_sessions (
 );
 
 CREATE INDEX crypto_sessions_peer_device_idx ON crypto_sessions(peer_device_id);
-CREATE UNIQUE INDEX crypto_sessions_peer_epoch_idx ON crypto_sessions(peer_device_id, session_epoch);
+CREATE UNIQUE INDEX crypto_sessions_peer_epoch_idx ON crypto_sessions(peer_device_id, session_epoch, role);
 
 insertOrReplaceCryptoSession:
 INSERT OR REPLACE INTO crypto_sessions (
     session_id,
     peer_device_id,
+    canonical,
     session_epoch,
     root_key,
     send_chain_key,
@@ -57,13 +60,23 @@ INSERT OR REPLACE INTO crypto_sessions (
     status,
     created_at_epoch_seconds,
     updated_at_epoch_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectCanonicalCryptoSessionByPeerAndEpoch:
+SELECT *
+FROM crypto_sessions
+WHERE peer_device_id = ? AND session_epoch = ? AND canonical = 1
+LIMIT 1;
 
 selectCryptoSessionByPeerAndEpoch:
 SELECT *
 FROM crypto_sessions
-WHERE peer_device_id = ? AND session_epoch = ?
-LIMIT 1;
+WHERE peer_device_id = ? AND session_epoch = ?;
+
+setCanonicalByPeerEpochAndRole:
+UPDATE crypto_sessions
+SET canonical = ?
+WHERE peer_device_id = ? AND session_epoch = ? AND role = ?;
 
 selectCryptoSessionsByPeer:
 SELECT *

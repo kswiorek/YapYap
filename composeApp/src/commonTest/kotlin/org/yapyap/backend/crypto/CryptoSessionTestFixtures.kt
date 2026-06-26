@@ -35,9 +35,7 @@ internal class TestIdentityResolver(
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("not used in crypto session tests")
 
-    override suspend fun getLocalDeviceId(): PeerId {
-        error("not used in crypto session tests")
-    }
+    override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? =
         peers[deviceId]?.device

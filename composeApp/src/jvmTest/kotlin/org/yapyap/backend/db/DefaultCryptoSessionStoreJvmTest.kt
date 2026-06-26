@@ -4,7 +4,9 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.yapyap.backend.crypto.e2ee.RatchetSessionState
 import org.yapyap.backend.crypto.e2ee.RatchetSkippedKeyId
@@ -36,17 +38,42 @@ class DefaultCryptoSessionStoreJvmTest {
         store.save(epoch1)
         store.save(epoch2)
 
-        assertNull(store.load(peer, sessionEpoch = 3))
-        assertRecordEquals(epoch1, store.load(peer, sessionEpoch = 1)!!)
-        assertRecordEquals(epoch2, store.load(peer, sessionEpoch = 2)!!)
+        assertNull(store.loadCanonical(peer, sessionEpoch = 3))
+        assertRecordEquals(epoch1, store.loadCanonical(peer, sessionEpoch = 1)!!)
+        assertRecordEquals(epoch2, store.loadCanonical(peer, sessionEpoch = 2)!!)
         assertEquals(2, store.latestEncryptEpoch(peer))
         assertEquals(2, store.listByPeer(peer).size)
         assertRecordEquals(epoch1, store.listByPeer(peer)[0])
         assertRecordEquals(epoch2, store.listByPeer(peer)[1])
 
         store.markSuperseded(peer, sessionEpoch = 1)
-        assertEquals(SessionStatus.SUPERSEDED, store.load(peer, sessionEpoch = 1)!!.meta.status)
-        assertEquals(SessionStatus.ACTIVE, store.load(peer, sessionEpoch = 2)!!.meta.status)
+        assertEquals(SessionStatus.SUPERSEDED, store.loadCanonical(peer, sessionEpoch = 1)!!.meta.status)
+        assertEquals(SessionStatus.ACTIVE, store.loadCanonical(peer, sessionEpoch = 2)!!.meta.status)
+    }
+
+    @Test
+    fun save_dualRoleSessions_loadCanonical_setCanonical() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        seedPeerDevice(db, FixtureAccountId, FixtureRemotePeerId)
+
+        val store = DefaultCryptoSessionStore(db)
+        val peer = FixtureRemotePeerId
+        val initiator = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.INITIATOR, canonical = true)
+        val responder = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.RESPONDER, canonical = false)
+
+        store.save(initiator)
+        store.save(responder)
+
+        assertEquals(2, store.loadSessions(peer, sessionEpoch = 1).size)
+        assertEquals(SessionRole.INITIATOR, store.loadCanonical(peer, sessionEpoch = 1)!!.meta.role)
+
+        store.setCanonical(peer, sessionEpoch = 1, SessionRole.INITIATOR, canonical = false)
+        store.setCanonical(peer, sessionEpoch = 1, SessionRole.RESPONDER, canonical = true)
+        assertEquals(SessionRole.RESPONDER, store.loadCanonical(peer, sessionEpoch = 1)!!.meta.role)
+        assertFalse(store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.canonical)
+        assertTrue(store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.RESPONDER }.canonical)
     }
 
     @Test
@@ -97,16 +124,20 @@ class DefaultCryptoSessionStoreJvmTest {
         assertEquals(expectedMeta.status, actualMeta.status)
         assertEquals(expectedMeta.createdAtEpochSeconds, actualMeta.createdAtEpochSeconds)
         assertEquals(expectedMeta.updatedAtEpochSeconds, actualMeta.updatedAtEpochSeconds)
+        assertEquals(expected.canonical, actual.canonical)
     }
 
     private fun sampleRecord(
         peerDeviceId: PeerId,
         sessionEpoch: Int,
         status: SessionStatus,
+        role: SessionRole = if (sessionEpoch == 1) SessionRole.INITIATOR else SessionRole.RESPONDER,
+        canonical: Boolean = true,
     ): CryptoSessionRecord =
         CryptoSessionRecord(
             peerDeviceId = peerDeviceId,
             sessionEpoch = sessionEpoch,
+            canonical = canonical,
             ratchetState = RatchetSessionState(
                 rootKey = byteArrayOf(0x10, 0x11),
                 sendChainKey = byteArrayOf(0x20),
@@ -122,7 +153,7 @@ class DefaultCryptoSessionStoreJvmTest {
                 ),
             ),
             meta = CryptoSessionMeta(
-                role = if (sessionEpoch == 1) SessionRole.INITIATOR else SessionRole.RESPONDER,
+                role = role,
                 x3dhMode = if (sessionEpoch == 1) X3dhMode.THREE_DH else X3dhMode.FOUR_DH,
                 handshakeSpkId = "spk-fixture",
                 handshakeOpkId = if (sessionEpoch == 2) "opk-fixture" else null,

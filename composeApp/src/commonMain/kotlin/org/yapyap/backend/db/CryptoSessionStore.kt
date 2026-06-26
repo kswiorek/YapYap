@@ -9,6 +9,7 @@ data class CryptoSessionRecord(
     val sessionEpoch: Int,
     val ratchetState: RatchetSessionState,
     val meta: CryptoSessionMeta,
+    val canonical: Boolean,
 )
 
 data class CryptoSessionMeta(
@@ -28,9 +29,13 @@ enum class SessionRole { INITIATOR, RESPONDER }
 enum class SessionStatus { ACTIVE, SUPERSEDED }
 
 interface CryptoSessionStore {
-    suspend fun load(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord?
+    suspend fun loadCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord?
+
+    suspend fun loadSessions(peerDeviceId: PeerId, sessionEpoch: Int): List<CryptoSessionRecord>
 
     suspend fun save(record: CryptoSessionRecord)
+
+    suspend fun setCanonical(peerDeviceId: PeerId, sessionEpoch: Int, role: SessionRole, canonical: Boolean)
 
     /** Highest epoch to use for new outbound encrypt (e.g. 2 if epoch-2 row exists). */
     suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int?

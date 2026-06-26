@@ -16,6 +16,8 @@ import org.yapyap.backend.crypto.e2ee.X3dhLocalInitiatorKeys
 import org.yapyap.backend.crypto.e2ee.X3dhMode
 import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.crypto.e2ee.X3dhWireInfo
+import org.yapyap.backend.db.SessionRole
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 
 class SessionWireCodecTest {
@@ -172,6 +174,68 @@ class DefaultCryptoSessionManagerTest {
     }
 
     @Test
+    fun epoch1_simultaneousInit_bothDecryptAndContinue() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val bobStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, aliceStore, InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOneTimePreKeyStore(crypto))
+
+        val aliceIsLower = alicePeer.device.deviceId.id < bobPeer.device.deviceId.id
+        val lowerPeer = if (aliceIsLower) alicePeer else bobPeer
+        val higherPeer = if (aliceIsLower) bobPeer else alicePeer
+        val lower = if (aliceIsLower) alice else bob
+        val higher = if (aliceIsLower) bob else alice
+        val lowerStore = if (aliceIsLower) aliceStore else bobStore
+        val higherStore = if (aliceIsLower) bobStore else aliceStore
+
+        val fromAlice = "from alice".encodeToByteArray()
+        val fromBob = "from bob".encodeToByteArray()
+        val aliceFrame = alice.encryptMessage(bobPeer.device.deviceId, fromAlice)
+        val bobFrame = bob.encryptMessage(alicePeer.device.deviceId, fromBob)
+        assertNotNull(aliceFrame.outerHandshake)
+        assertNotNull(bobFrame.outerHandshake)
+
+        assertContentEquals(fromAlice, bob.decryptMessage(alicePeer.device.deviceId, aliceFrame))
+        assertContentEquals(fromBob, alice.decryptMessage(bobPeer.device.deviceId, bobFrame))
+
+        assertEquals(
+            SessionRole.RESPONDER,
+            lowerStore.loadCanonical(higherPeer.device.deviceId, sessionEpoch = 1)!!.meta.role,
+        )
+        assertEquals(
+            SessionRole.INITIATOR,
+            higherStore.loadCanonical(lowerPeer.device.deviceId, sessionEpoch = 1)!!.meta.role,
+        )
+        assertFalse(
+            lowerStore.loadSessions(higherPeer.device.deviceId, sessionEpoch = 1)
+                .single { it.meta.role == SessionRole.INITIATOR }
+                .canonical,
+        )
+        assertFalse(
+            higherStore.loadSessions(lowerPeer.device.deviceId, sessionEpoch = 1)
+                .single { it.meta.role == SessionRole.RESPONDER }
+                .canonical,
+        )
+
+        assertContentEquals(
+            byteArrayOf(10),
+            lower.decryptMessage(
+                higherPeer.device.deviceId,
+                higher.encryptMessage(lowerPeer.device.deviceId, byteArrayOf(10)),
+            ),
+        )
+        assertContentEquals(
+            byteArrayOf(11),
+            higher.decryptMessage(
+                lowerPeer.device.deviceId,
+                lower.encryptMessage(higherPeer.device.deviceId, byteArrayOf(11)),
+            ),
+        )
+    }
+
+    @Test
     fun epoch2_opkOffer_createsSecondSessionOnAlice() = runTest {
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
@@ -201,7 +265,7 @@ class DefaultCryptoSessionManagerTest {
         )
         alice.decryptMessage(bobPeer.device.deviceId, bobReply)
 
-        assertNotNull(aliceStore.load(bobPeer.device.deviceId, sessionEpoch = 2))
+        assertNotNull(aliceStore.loadCanonical(bobPeer.device.deviceId, sessionEpoch = 2))
     }
 
     @Test
@@ -248,6 +312,6 @@ class DefaultCryptoSessionManagerTest {
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
         assertContentEquals(byteArrayOf(3), opened)
-        assertNotNull(bobStore.load(alicePeer.device.deviceId, sessionEpoch = 2))
+        assertNotNull(bobStore.loadCanonical(alicePeer.device.deviceId, sessionEpoch = 2))
     }
 }
