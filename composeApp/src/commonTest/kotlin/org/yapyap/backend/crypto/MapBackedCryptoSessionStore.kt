@@ -119,10 +119,19 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         )
     }
 
-    override suspend fun markEpochSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
+    override suspend fun markEpochSuperseded(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        updatedAtEpochSeconds: Long,
+    ) {
         for ((key, record) in records) {
             if (record.peerDeviceId == peerDeviceId && record.sessionEpoch == sessionEpoch) {
-                records[key] = record.copy(meta = record.meta.copy(status = SessionStatus.SUPERSEDED))
+                records[key] = record.copy(
+                    meta = record.meta.copy(
+                        status = SessionStatus.SUPERSEDED,
+                        updatedAtEpochSeconds = updatedAtEpochSeconds,
+                    ),
+                )
             }
         }
     }

@@ -148,9 +148,14 @@ class DefaultCryptoSessionStore(
         )
     }
 
-    override suspend fun markEpochSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
+    override suspend fun markEpochSuperseded(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        updatedAtEpochSeconds: Long,
+    ) {
         queries.markCryptoSessionSuperseded(
             status = SessionStatus.SUPERSEDED,
+            updated_at_epoch_seconds = updatedAtEpochSeconds,
             peer_device_id = peerDeviceId.id,
             session_epoch = sessionEpoch.toLong(),
         )

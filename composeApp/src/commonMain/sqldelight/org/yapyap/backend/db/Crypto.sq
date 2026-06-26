@@ -103,7 +103,7 @@ WHERE peer_device_id = ? AND session_epoch = ? AND role = ? AND session_generati
 
 markCryptoSessionSuperseded:
 UPDATE crypto_sessions
-SET status = ?
+SET status = ?, updated_at_epoch_seconds = ?
 WHERE peer_device_id = ? AND session_epoch = ?;
 
 deleteCryptoSessionByPeerEpochRoleAndGeneration:

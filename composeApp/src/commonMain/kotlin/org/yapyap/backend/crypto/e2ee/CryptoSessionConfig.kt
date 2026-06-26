@@ -1,7 +1,7 @@
 package org.yapyap.backend.crypto.e2ee
 
 data class CryptoSessionConfig(
-    /** Keep superseded rows for late decrypt, then delete after this period of inactivity. */
+    /** Keep superseded rows for late decrypt, then delete this long after supersede (`updatedAtEpochSeconds`). */
     val supersededRetentionSeconds: Long = 2 * 24 * 60 * 60,
     /** Mark a canonical ACTIVE session superseded after this idle period (future job). */
     val canonicalIdleSupersedeSeconds: Long = 14 * 24 * 60 * 60,

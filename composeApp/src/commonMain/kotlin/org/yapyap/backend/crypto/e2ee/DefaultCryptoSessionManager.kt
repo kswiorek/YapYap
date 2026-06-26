@@ -73,7 +73,11 @@ class DefaultCryptoSessionManager(
             }
             val generation = nextSessionGeneration(remoteDeviceId, epoch, SessionRole.INITIATOR)
             if (generation > 1) {
-                sessionStore.markEpochSuperseded(remoteDeviceId, sessionEpoch = 2)
+                sessionStore.markEpochSuperseded(
+                    remoteDeviceId,
+                    sessionEpoch = 2,
+                    updatedAtEpochSeconds = timeProvider.nowEpochSeconds(),
+                )
             }
             loaded = bootstrapEpoch1Initiator(remoteDeviceId, generation)
             outerHandshake = buildOutboundWire(
@@ -197,7 +201,11 @@ class DefaultCryptoSessionManager(
             timeProvider.nowEpochSeconds(),
         )
         if (frame.sessionEpoch == 1) {
-            sessionStore.markEpochSuperseded(remoteDeviceId, sessionEpoch = 2)
+            sessionStore.markEpochSuperseded(
+                remoteDeviceId,
+                sessionEpoch = 2,
+                updatedAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            )
         }
     }
 
@@ -257,10 +265,23 @@ class DefaultCryptoSessionManager(
             )
         }
         if (frame.sessionEpoch == 2) {
-            clearEpoch1OpkOffer(remoteDeviceId)
+            onEpoch2Confirmed(remoteDeviceId)
         }
         maybeUpgradeToEpoch2(remoteDeviceId, inner)
         return inner.bytes
+    }
+
+    private suspend fun onEpoch2Confirmed(peerDeviceId: PeerId) {
+        clearEpoch1OpkOffer(peerDeviceId)
+        val hasActiveEpoch1 = sessionStore.loadSessions(peerDeviceId, sessionEpoch = 1)
+            .any { it.meta.status == SessionStatus.ACTIVE }
+        if (hasActiveEpoch1) {
+            sessionStore.markEpochSuperseded(
+                peerDeviceId,
+                sessionEpoch = 1,
+                updatedAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            )
+        }
     }
 
     private suspend fun clearEpoch1OpkOffer(peerDeviceId: PeerId) {
@@ -312,6 +333,9 @@ class DefaultCryptoSessionManager(
         )
         val inner = decryptRatchet(loaded.session, frame.ratchet)
         persist(remoteDeviceId, frame.sessionEpoch, loaded.session, loaded.meta, canonical = record.canonical)
+        if (frame.sessionEpoch == 2) {
+            onEpoch2Confirmed(remoteDeviceId)
+        }
         maybeUpgradeToEpoch2(remoteDeviceId, inner)
         return inner.bytes
     }
@@ -409,6 +433,9 @@ class DefaultCryptoSessionManager(
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
         val offeredOpkId = epoch1.meta.offeredOpkId
             ?: throw CryptoSessionException.MissingOfferedOpk(peerDeviceId)
+        require(wire.signedPreKeyId == epoch1.meta.handshakeSpkId) {
+            "signedPreKeyId mismatch with epoch-1 session: wire=${wire.signedPreKeyId}, epoch1=${epoch1.meta.handshakeSpkId}"
+        }
         val opkId = wire.oneTimePreKeyId ?: offeredOpkId
         val opk = oneTimePreKeyStore.consume(opkId)
             ?: throw CryptoSessionException.OpkConsumeFailed(opkId)

@@ -47,12 +47,11 @@ class DefaultCryptoSessionStoreJvmTest {
         assertRecordEquals(epoch1, store.listByPeer(peer)[0])
         assertRecordEquals(epoch2, store.listByPeer(peer)[1])
 
-        store.markEpochSuperseded(peer, sessionEpoch = 1)
+        store.markEpochSuperseded(peer, sessionEpoch = 1, updatedAtEpochSeconds = 3_000L)
         assertNull(store.loadActiveCanonical(peer, sessionEpoch = 1))
-        assertEquals(
-            SessionStatus.SUPERSEDED,
-            store.loadSessions(peer, sessionEpoch = 1).single().meta.status,
-        )
+        val superseded = store.loadSessions(peer, sessionEpoch = 1).single()
+        assertEquals(SessionStatus.SUPERSEDED, superseded.meta.status)
+        assertEquals(3_000L, superseded.meta.updatedAtEpochSeconds)
         assertEquals(SessionStatus.ACTIVE, store.loadActiveCanonical(peer, sessionEpoch = 2)!!.meta.status)
     }
 

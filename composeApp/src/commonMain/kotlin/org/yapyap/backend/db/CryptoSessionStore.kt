@@ -61,7 +61,11 @@ interface CryptoSessionStore {
     )
 
     /** Marks every session row for the peer epoch superseded (e.g. epoch 1 after epoch 2 upgrade). */
-    suspend fun markEpochSuperseded(peerDeviceId: PeerId, sessionEpoch: Int)
+    suspend fun markEpochSuperseded(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        updatedAtEpochSeconds: Long,
+    )
 
     suspend fun deleteSession(
         peerDeviceId: PeerId,

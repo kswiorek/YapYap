@@ -61,8 +61,12 @@ This is **not** a byte-for-byte Signal Protocol implementation. It is a serverle
 
 ### Roles
 
-- **Initiator** — sends the first message in an epoch; attaches `outerHandshake` on the first send (`sendMessageNumber == 0`).
+- **Initiator** — sends the first message in an epoch; attaches `outerHandshake` on each send until the peer has replied (`recvMessageNumber == 0` on the initiator session).
 - **Responder** — bootstraps from `outerHandshake` on first inbound message for that epoch.
+
+### Session generation
+
+Within each `sessionEpoch`, a **`sessionGeneration`** counter distinguishes successive cryptographic sessions with the same peer (e.g. after idle supersede). Each generation is stored as a separate `crypto_sessions` row so superseded ratchet state is retained for late decrypt until pruned.
 
 ### Epoch-2 upgrade flow
 
@@ -125,6 +129,17 @@ Tampering with any header field causes AEAD verification failure rather than sil
 
 **Tests:** `DefaultCryptoSessionManagerTest.epoch2_aliceEncryptsBobDecrypts_afterOpkOffer` asserts epoch-2 ephemeral ≠ epoch-1 ephemeral.
 
+### Session lifecycle (supersede & maintenance)
+
+- **`ACTIVE` / `SUPERSEDED`** — `markSuperseded` is used after simultaneous-init tie-break, peer reset (`sessionGeneration` bump), and idle canonical supersede (`maintainPeerSessions`).
+- **Canonical invariant** — at most one `ACTIVE` canonical row per `(peer, sessionEpoch)`; partial unique index in `Crypto.sq`.
+- **`sessionGeneration`** — on wire (`SessionWireFrame` + `X3dhWireInfo`) and in `CryptoSessionMeta`; new bootstrap bumps generation instead of overwriting superseded rows.
+- **Retention** — superseded rows kept for `supersededRetentionSeconds` from supersede time (`updatedAtEpochSeconds` refreshed on `markSuperseded` / `markEpochSuperseded`), then deleted; idle canonical rows superseded after `canonicalIdleSupersedeSeconds`.
+- **Epoch-1 reset** — starting a new epoch-1 generation calls `markEpochSuperseded(peer, epoch = 2)`.
+- **Epoch-2 confirmation** — `onEpoch2Confirmed` marks all epoch-1 rows `SUPERSEDED` when epoch 2 is successfully decrypted: on responder bootstrap (first inbound epoch-2 frame) and on initiator decrypt of the peer's first epoch-2 reply. Superseded epoch-1 rows remain decryptable until retention prune.
+
+**Tests:** `DefaultCryptoSessionManagerTest` — simultaneous init, handshake re-attach, idle supersede, `sessionGeneration` round-trip, superseded late decrypt, per-generation prune, epoch-2 confirmation supersede.
+
 ### Other solid foundations
 
 - X3DH DH term ordering (DH1–DH4) per standard construction
@@ -141,25 +156,23 @@ Tampering with any header field causes AEAD verification failure rather than sil
 
 Prioritized items to address for a solid base (excluding SPK rotation, tracked separately).
 
+Status legend: **✅ Fixed** · **🟡 Partially fixed** · **⬜ Open**
+
 ### P0 — Critical (offline / Tor delivery)
 
-#### 1. Simultaneous session initiation
+#### 1. Simultaneous session initiation — ✅ Fixed
 
 **Problem:** If Alice and Bob each send a first message before either receives the other's, both create **initiator** epoch-1 sessions. When each later receives the other's first message, `bootstrapFromFrame` is skipped (session already exists) but the local session has the **wrong role**. Decrypt fails.
 
 **Common scenario:** Both users message each other while offline; both queues deliver "first messages" with `outerHandshake`.
 
-**Fix directions:**
+**Implemented:** Lexicographic device-id tie-break — lower ID becomes canonical **responder**; higher ID keeps canonical **initiator**. Rogue duplicate rows marked `SUPERSEDED` when `supersedeRogueSessionsAfterSimultaneousInit` is enabled (`CryptoSessionConfig`).
 
-- Lexicographic device-id tie-break (lower ID yields to higher as responder), or
-- On inbound `outerHandshake`, if local session is initiator with `sendMessageNumber == 0` and no confirmed peer traffic, discard and re-bootstrap as responder, or
-- Separate send/receive session state (Signal-style).
+**Test:** `DefaultCryptoSessionManagerTest.epoch1_simultaneousInit_bothDecryptAndContinue`.
 
-**Test to add:** both peers `encryptMessage` before either `decryptMessage`; expect deterministic recovery or explicit failure mode.
+#### 2. Handshake only attached when `sendMessageNumber == 0` — ✅ Fixed
 
-#### 2. Handshake only attached when `sendMessageNumber == 0`
-
-**Problem:** `shouldAttachOutboundWire` returns true only when the initiator's `sendMessageNumber == 0`. After the first `encryptMessage` call:
+**Problem:** `shouldAttachOutboundWire` returned true only when the initiator's `sendMessageNumber == 0`. After the first `encryptMessage` call:
 
 - A **new** outbound message (new packet) does not include `outerHandshake`.
 - If the first message was lost and the app sends again, the peer cannot bootstrap.
@@ -167,42 +180,49 @@ Prioritized items to address for a solid base (excluding SPK rotation, tracked s
 
 **Note:** Outbox **retry of the same envelope** is safe — the payload is frozen at enqueue time and still contains the handshake.
 
-**Fix direction:** Track `handshakeAcknowledged` / `peerSessionEstablished` in `CryptoSessionMeta`. Keep attaching `outerHandshake` until the peer has successfully bootstrapped, or until an explicit session-confirm control message is received.
+**Implemented:** `shouldAttachOutboundWire` attaches `outerHandshake` while the initiator has **`recvMessageNumber == 0`** (peer has not yet replied on that session), for epoch 1 and 2.
 
-**Tests to add:**
+**Tests:** `epoch1_firstMessageLost_secondMessageStillCarriesHandshake`, `epoch1_message2ArrivesBeforeMessage1_bobBootstrapFromSecond`, `epoch1_stopsAttachingHandshake_afterPeerReply`.
 
-- First message lost, second `encryptMessage` call — handshake still deliverable.
-- Message 2 arrives before message 1 — graceful buffer or NACK.
-
-#### 3. Wire metadata validation
+#### 3. Wire metadata validation — ✅ Fixed
 
 **Problem:** `bootstrapFromFrame` does not cross-validate:
 
 - `frame.sessionEpoch == wire.sessionEpoch`
 - `wire.mode` consistency with `frame.sessionEpoch`
-- Optional consistency checks on `signedPreKeyId` against session meta
+- `signedPreKeyId` consistency against existing session meta on epoch-2 upgrade
 
-**Fix direction:** Validate in `bootstrapFromFrame` before X3DH computation.
+**Implemented:**
 
-**Test to add:** `wire.sessionEpoch != frame.sessionEpoch` → reject at bootstrap.
+- `frame.sessionEpoch == wire.sessionEpoch` — validated in `bootstrapFromFrame`.
+- `frame.sessionGeneration == wire.sessionGeneration` — validated in `bootstrapFromFrame`.
+- `wire.mode` vs epoch — enforced in `bootstrapEpoch1Responder` (`THREE_DH`) and `bootstrapEpoch2Responder` (`FOUR_DH`).
+- **Epoch-2 SPK pin** — `bootstrapEpoch2Responder` requires `wire.signedPreKeyId == epoch1.meta.handshakeSpkId` before OPK consume (initiator already pins the same id via `createEpoch2AsInitiator`).
+
+**Tests:** `epoch1_bootstrap_rejectsMismatchedWireSessionEpoch`, `epoch2_bootstrap_rejectsMismatchedSignedPreKeyId`.
+
+**Deferred:** SPK rotation policy when `wire.signedPreKeyId` refers to a retired SPK on epoch-1 bootstrap or generation reset (see [Deferred: SPK rotation](#deferred-spk-rotation)).
 
 ---
 
 ### P1 — High (protocol lifecycle)
 
-#### 4. Dual-epoch overlap not managed
+#### 4. Dual-epoch overlap not managed — ✅ Fixed
 
 When epoch 2 is created on the initiator, `latestEncryptEpoch` immediately returns `2`. The initiator stops sending epoch-1 frames; the responder may still receive late epoch-1 messages (decrypt still works via `frame.sessionEpoch`).
 
-**Missing:**
+**Implemented:**
 
-- `markSuperseded` exists but is never called.
-- `meta.status` (`ACTIVE` / `SUPERSEDED`) is not checked on encrypt or decrypt.
-- No policy for retiring epoch 1 after epoch 2 is confirmed.
+- `markSuperseded` / `markEpochSuperseded` wired in manager and `maintainPeerSessions`.
+- `loadActiveCanonical` returns only `ACTIVE` canonical rows; encrypt bootstraps a new session when canonical is superseded.
+- `sessionGeneration` prevents overwriting superseded rows; late decrypt by generation.
+- Peer maintenance: idle canonical supersede + superseded retention prune.
+- Epoch-1 generation reset supersedes all epoch-2 rows for that peer.
+- **Epoch-2 confirmation supersede** — `onEpoch2Confirmed` calls `markEpochSuperseded(peer, epoch = 1)` once epoch 2 decrypt succeeds on that device (responder bootstrap or initiator first epoch-2 reply). Epoch 1 stays `ACTIVE` until then so late epoch-1 delivery still works during the upgrade window; after supersede, rows are retained for `supersededRetentionSeconds` (measured from supersede time) and remain decryptable until pruned.
 
-**Fix direction:** Define epoch lifecycle explicitly: when to mark superseded, when to stop decrypting epoch 1, timeout for in-flight epoch-1 messages.
+**Tests:** `epoch2_aliceEncryptsBobDecrypts_afterOpkOffer` (responder), `epoch2_confirmed_marksEpoch1SupersededOnInitiatorAfterPeerReply` (initiator), `epoch2_supersedeEpoch1_retentionMeasuredFromSupersedeTime`.
 
-#### 5. OPK pool lifecycle
+#### 5. OPK pool lifecycle — ⬜ Open
 
 When Bob sends `OpkOffer`, `oneTimePreKeyStore.allocate()` creates an OPK. If Alice never upgrades (or the offer is lost), the OPK is never consumed and remains in the DB.
 
@@ -212,13 +232,13 @@ When Bob sends `OpkOffer`, `oneTimePreKeyStore.allocate()` creates an OPK. If Al
 - TTL / garbage-collect unused offers.
 - Replenish pool when low.
 
-#### 6. OpkOffer binding
+#### 6. OpkOffer binding — ⬜ Open
 
 Alice trusts `offer.opkPublicKey` from the decrypted control block without additional binding to the epoch-1 session. Cryptographically, 4-DH fails if wrong, but cross-session confusion is possible.
 
 **Fix direction (optional):** Bind offer to epoch-1 session (e.g. hash of root key or handshake transcript) in the control message.
 
-#### 7. Sensitive key material in persistence
+#### 7. Sensitive key material in persistence — ⬜ Open
 
 `crypto_sessions` stores:
 
@@ -236,19 +256,19 @@ SQLCipher protects at rest, but for release hardening consider:
 
 ### P2 — Medium (robustness)
 
-#### 8. Ratchet replay at session layer
+#### 8. Ratchet replay at session layer — ⬜ Open
 
 Router dedup is per `packetId`. An old ratchet frame replayed inside a **new** envelope (new packet ID) is usually rejected by ratchet state / AEAD, but error semantics are generic exceptions.
 
 **Fix direction:** Treat decrypt failures on duplicate `messageNumber` as terminal for that message; consider explicit session-level seen counters.
 
-#### 9. Decrypt partial state mutation
+#### 9. Decrypt partial state mutation — ⬜ Open
 
 `DoubleRatchetSession.decrypt` may advance DH ratchet state before AEAD verification. A failure mid-decrypt could leave in-memory state inconsistent if not persisted carefully.
 
 **Fix direction:** Snapshot-before-decrypt with rollback, or ensure no partial persist on failure (audit all paths).
 
-#### 10. Protocol versioning
+#### 10. Protocol versioning — ⬜ Open
 
 `SESSION_WIRE_VERSION` exists on `SessionWireFrame`, but there is no version for:
 
@@ -258,17 +278,19 @@ Router dedup is per `packetId`. An old ratchet frame replayed inside a **new** e
 
 **Fix direction:** Add `cryptoProtocolVersion` (or bump `SESSION_WIRE_VERSION`) when changing KDF labels, AAD binding, or inner plaintext format.
 
-#### 11. Decode bounds
+#### 11. Decode bounds — ⬜ Open
 
 `RatchetCiphertext.decode` and `SessionWireFrame.decode` have no practical upper bounds on `dhPublicKey` size, body size, or string lengths. Hostile frames could cause large allocations.
 
 **Fix direction:** Enforce sane maxima at decode time.
 
-#### 12. Identity / session reset
+#### 12. Identity / session reset — 🟡 Partially fixed
 
 Re-provisioning a peer (new identity keys, new device record) does not invalidate existing `crypto_sessions` rows.
 
-**Fix direction:** Wipe or bump session generation on identity change (separate from SPK rotation).
+**Implemented:** `sessionGeneration` bump on idle supersede / inbound peer reset (crypto session lifecycle, not identity rotation).
+
+**Still open:** Wipe or bump sessions when peer **identity keys** or device record change (separate from SPK rotation).
 
 ---
 
@@ -285,7 +307,8 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | Field | Notes |
 |-------|-------|
 | `sessionEpoch` | `1` or `2` |
-| `outerHandshake` | Optional; present on initiator's first send per epoch |
+| `sessionGeneration` | Monotonic per epoch; distinguishes successive bootstraps |
+| `outerHandshake` | Optional; present on initiator sends until peer replies |
 | `ratchet` | `RatchetCiphertext` |
 
 ### `X3dhWireInfo` (inside `outerHandshake`)
@@ -295,6 +318,7 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | `ephemeralPublicKey` | No (required for X3DH) |
 | `signedPreKeyId` | No |
 | `sessionEpoch` | No |
+| `sessionGeneration` | No |
 | `mode` | No (`THREE_DH` / `FOUR_DH`) |
 | `oneTimePreKeyId` | No (epoch 2 only) |
 
@@ -325,20 +349,24 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 |------------|----------|
 | `X3dhHandshakeTest` | 3-DH / 4-DH shared secret agreement, SPK/OPK ID mismatch rejection |
 | `DoubleRatchetSessionTest` | Round-trip, bidirectional, out-of-order, snapshot restore, skip gap limit, header/body tamper rejection |
-| `DefaultCryptoSessionManagerTest` | Epoch-1 bootstrap, bidirectional, out-of-order, epoch-2 OPK upgrade, fresh epoch-2 ephemeral |
+| `DefaultCryptoSessionManagerTest` | Epoch-1 bootstrap, wire epoch/SPK mismatch rejection, bidirectional, out-of-order, simultaneous init, handshake re-attach, epoch-2 OPK upgrade + confirmation supersede, session supersede/maintenance, `sessionGeneration` |
 | `KmpCryptoProviderTest` | AEAD round-trip, AAD round-trip, tamper rejection |
 
 ### Integration tests (recommended backlog)
 
-| Scenario | Priority |
-|----------|----------|
-| Both peers send first message before any decrypt | P0 |
-| First message lost, second `encryptMessage` | P0 |
-| Message 2 arrives before message 1 | P0 |
-| `wire.sessionEpoch != frame.sessionEpoch` | P0 |
-| Epoch-2 send before peer processed OpkOffer | P1 |
-| Replay old ratchet frame in new envelope | P2 |
-| Unused OpkOffer after timeout | P1 |
+| Scenario | Priority | Status |
+|----------|----------|--------|
+| Both peers send first message before any decrypt | P0 | ✅ `epoch1_simultaneousInit_bothDecryptAndContinue` |
+| First message lost, second `encryptMessage` | P0 | ✅ `epoch1_firstMessageLost_secondMessageStillCarriesHandshake` |
+| Message 2 arrives before message 1 | P0 | ✅ `epoch1_message2ArrivesBeforeMessage1_bobBootstrapFromSecond` |
+| `wire.sessionEpoch != frame.sessionEpoch` | P0 | ✅ `epoch1_bootstrap_rejectsMismatchedWireSessionEpoch` |
+| Epoch-2 `signedPreKeyId != epoch-1 handshakeSpkId` | P0 | ✅ `epoch2_bootstrap_rejectsMismatchedSignedPreKeyId` |
+| Idle supersede → new generation handshake round-trip | P1 | ✅ `idleSupersede_newGenerationHandshakeRoundTrip` |
+| Superseded session still decrypts late message | P1 | ✅ `supersededSession_stillDecryptsLateGen1Message` |
+| Prune respects retention per generation | P1 | ✅ `peerMaintenance_pruneRespectsRetention_perGeneration` |
+| Epoch-2 send before peer processed OpkOffer | P1 | ⬜ |
+| Replay old ratchet frame in new envelope | P2 | ⬜ |
+| Unused OpkOffer after timeout | P1 | ⬜ |
 
 ---
 
@@ -357,3 +385,7 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | Date | Notes |
 |------|-------|
 | 2026-06-26 | Initial E2EE architecture, design choices, gaps, and test matrix documented after Sprint 1 implementation review. |
+| 2026-06-26 | Marked backlog status: P0.1–P0.2 fixed; P0.3, P1.4, P1.12 partial; session lifecycle + `sessionGeneration` documented. |
+| 2026-06-26 | P0.3 wire epoch mismatch reject test; P1.4 epoch-2 confirmation supersede policy + tests. |
+| 2026-06-26 | P1.4 completed: `markEpochSuperseded` refreshes `updatedAt`; retention measured from supersede time. |
+| 2026-06-26 | P0.3 completed: epoch-2 responder rejects `signedPreKeyId` not pinned to epoch-1 session. |
