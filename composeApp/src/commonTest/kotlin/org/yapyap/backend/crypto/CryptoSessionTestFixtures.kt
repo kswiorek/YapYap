@@ -1,5 +1,7 @@
 package org.yapyap.backend.crypto
 
+import kotlinx.coroutines.CoroutineScope
+import org.yapyap.backend.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.backend.crypto.e2ee.SessionUpgradePolicy
 import org.yapyap.backend.crypto.e2ee.X3dhHandshake
@@ -7,6 +9,8 @@ import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.backend.db.CryptoSessionStore
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.EpochSecondsProvider
+import org.yapyap.backend.time.SystemEpochSecondsProvider
 
 internal data class TestPeerIdentity(
     val device: DeviceIdentityRecord,
@@ -137,6 +141,9 @@ internal fun managerForPeer(
     sessionStore: CryptoSessionStore,
     oneTimePreKeyStore: InMemoryOneTimePreKeyStore,
     upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
+    sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
+    maintenanceScope: CoroutineScope? = null,
+    timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
 ): DefaultCryptoSessionManager =
     DefaultCryptoSessionManager(
         crypto = crypto,
@@ -147,5 +154,8 @@ internal fun managerForPeer(
             peers = mapOf(peer.device.deviceId to peer),
         ),
         oneTimePreKeyStore = oneTimePreKeyStore,
+        timeProvider = timeProvider,
         upgradePolicy = upgradePolicy,
+        sessionConfig = sessionConfig,
+        maintenanceScope = maintenanceScope ?: CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
     )

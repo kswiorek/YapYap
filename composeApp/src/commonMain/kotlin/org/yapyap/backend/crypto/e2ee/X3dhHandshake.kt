@@ -42,6 +42,7 @@ data class X3dhWireInfo(
     val ephemeralPublicKey: ByteArray,
     val signedPreKeyId: String,
     val sessionEpoch: Int,
+    val sessionGeneration: Int = 1,
     val mode: X3dhMode,
     val oneTimePreKeyId: String? = null,
 )

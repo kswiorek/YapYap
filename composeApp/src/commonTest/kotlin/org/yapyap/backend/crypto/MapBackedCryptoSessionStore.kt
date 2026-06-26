@@ -11,25 +11,32 @@ import org.yapyap.backend.protocol.PeerId
 internal class MapBackedCryptoSessionStore : CryptoSessionStore {
     private val records = mutableMapOf<SessionKey, CryptoSessionRecord>()
 
-    override suspend fun loadCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
+    override suspend fun loadActiveCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
         records.values
             .firstOrNull {
                 it.peerDeviceId == peerDeviceId &&
                     it.sessionEpoch == sessionEpoch &&
-                    it.canonical
+                    it.canonical &&
+                    it.meta.status == SessionStatus.ACTIVE
             }
             ?.let { copyRecord(it) }
 
     override suspend fun loadSessions(peerDeviceId: PeerId, sessionEpoch: Int): List<CryptoSessionRecord> =
         records.values
             .filter { it.peerDeviceId == peerDeviceId && it.sessionEpoch == sessionEpoch }
+            .sortedWith(compareBy({ it.meta.sessionGeneration }, { it.meta.role.name }))
             .map { copyRecord(it) }
 
     override suspend fun save(record: CryptoSessionRecord) {
         if (record.canonical && record.meta.status == SessionStatus.ACTIVE) {
-            demoteOtherCanonicalSessions(record.peerDeviceId, record.sessionEpoch, exceptRole = record.meta.role)
+            demoteOtherCanonicalSessions(
+                record.peerDeviceId,
+                record.sessionEpoch,
+                exceptRole = record.meta.role,
+                exceptGeneration = record.meta.sessionGeneration,
+            )
         }
-        val key = SessionKey(record.peerDeviceId.id, record.sessionEpoch, record.meta.role)
+        val key = sessionKey(record)
         records[key] = copyRecord(record)
         CryptoSessionCanonicalInvariant.ensure(record.peerDeviceId, record.sessionEpoch, this)
     }
@@ -38,12 +45,18 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         peerDeviceId: PeerId,
         sessionEpoch: Int,
         role: SessionRole,
+        sessionGeneration: Int,
         canonical: Boolean,
     ) {
         if (canonical) {
-            demoteOtherCanonicalSessions(peerDeviceId, sessionEpoch, exceptRole = role)
+            demoteOtherCanonicalSessions(
+                peerDeviceId,
+                sessionEpoch,
+                exceptRole = role,
+                exceptGeneration = sessionGeneration,
+            )
         }
-        val key = SessionKey(peerDeviceId.id, sessionEpoch, role)
+        val key = SessionKey(peerDeviceId.id, sessionEpoch, role, sessionGeneration)
         val existing = records[key] ?: return
         records[key] = existing.copy(canonical = canonical)
     }
@@ -52,11 +65,12 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         peerDeviceId: PeerId,
         sessionEpoch: Int,
         exceptRole: SessionRole,
+        exceptGeneration: Int,
     ) {
         for ((key, session) in records) {
             if (session.peerDeviceId == peerDeviceId &&
                 session.sessionEpoch == sessionEpoch &&
-                session.meta.role != exceptRole &&
+                (session.meta.role != exceptRole || session.meta.sessionGeneration != exceptGeneration) &&
                 session.canonical
             ) {
                 records[key] = session.copy(canonical = false)
@@ -69,19 +83,66 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             .filter { it.peerDeviceId == peerDeviceId }
             .maxOfOrNull { it.sessionEpoch }
 
+    override suspend fun latestGeneration(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+    ): Int? =
+        records.values
+            .filter {
+                it.peerDeviceId == peerDeviceId &&
+                    it.sessionEpoch == sessionEpoch &&
+                    it.meta.role == role
+            }
+            .maxOfOrNull { it.meta.sessionGeneration }
+
     override suspend fun listByPeer(peerDeviceId: PeerId): List<CryptoSessionRecord> =
         records.values
             .filter { it.peerDeviceId == peerDeviceId }
             .map { copyRecord(it) }
-            .sortedWith(compareBy({ it.sessionEpoch }, { it.meta.role.name }))
+            .sortedWith(compareBy({ it.sessionEpoch }, { it.meta.sessionGeneration }, { it.meta.role.name }))
 
-    override suspend fun markSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
+    override suspend fun markSuperseded(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+        updatedAtEpochSeconds: Long,
+    ) {
+        val key = SessionKey(peerDeviceId.id, sessionEpoch, role, sessionGeneration)
+        val record = records[key] ?: return
+        records[key] = record.copy(
+            meta = record.meta.copy(
+                status = SessionStatus.SUPERSEDED,
+                updatedAtEpochSeconds = updatedAtEpochSeconds,
+            ),
+        )
+    }
+
+    override suspend fun markEpochSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
         for ((key, record) in records) {
             if (record.peerDeviceId == peerDeviceId && record.sessionEpoch == sessionEpoch) {
                 records[key] = record.copy(meta = record.meta.copy(status = SessionStatus.SUPERSEDED))
             }
         }
     }
+
+    override suspend fun deleteSession(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+    ) {
+        records.remove(SessionKey(peerDeviceId.id, sessionEpoch, role, sessionGeneration))
+    }
+
+    private fun sessionKey(record: CryptoSessionRecord): SessionKey =
+        SessionKey(
+            peerId = record.peerDeviceId.id,
+            epoch = record.sessionEpoch,
+            role = record.meta.role,
+            generation = record.meta.sessionGeneration,
+        )
 
     private fun copyRecord(record: CryptoSessionRecord): CryptoSessionRecord =
         record.copy(
@@ -101,5 +162,10 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             ),
         )
 
-    private data class SessionKey(val peerId: String, val epoch: Int, val role: SessionRole)
+    private data class SessionKey(
+        val peerId: String,
+        val epoch: Int,
+        val role: SessionRole,
+        val generation: Int,
+    )
 }

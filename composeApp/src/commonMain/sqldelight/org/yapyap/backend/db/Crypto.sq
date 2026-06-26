@@ -8,6 +8,7 @@ CREATE TABLE crypto_sessions (
     peer_device_id TEXT NOT NULL,
     canonical INTEGER AS Boolean NOT NULL,
     session_epoch INTEGER NOT NULL,
+    session_generation INTEGER NOT NULL DEFAULT 1,
     root_key BLOB NOT NULL,
     send_chain_key BLOB,
     recv_chain_key BLOB,
@@ -32,7 +33,8 @@ CREATE TABLE crypto_sessions (
 );
 
 CREATE INDEX crypto_sessions_peer_device_idx ON crypto_sessions(peer_device_id);
-CREATE UNIQUE INDEX crypto_sessions_peer_epoch_idx ON crypto_sessions(peer_device_id, session_epoch, role);
+CREATE UNIQUE INDEX crypto_sessions_peer_epoch_role_gen_idx
+ON crypto_sessions(peer_device_id, session_epoch, role, session_generation);
 CREATE UNIQUE INDEX crypto_sessions_one_canonical_per_epoch
 ON crypto_sessions(peer_device_id, session_epoch)
 WHERE canonical = 1;
@@ -43,6 +45,7 @@ INSERT OR REPLACE INTO crypto_sessions (
     peer_device_id,
     canonical,
     session_epoch,
+    session_generation,
     root_key,
     send_chain_key,
     recv_chain_key,
@@ -63,36 +66,46 @@ INSERT OR REPLACE INTO crypto_sessions (
     status,
     created_at_epoch_seconds,
     updated_at_epoch_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
-selectCanonicalCryptoSessionByPeerAndEpoch:
+selectActiveCanonicalCryptoSessionByPeerAndEpoch:
 SELECT *
 FROM crypto_sessions
-WHERE peer_device_id = ? AND session_epoch = ? AND canonical = 1
+WHERE peer_device_id = ? AND session_epoch = ? AND canonical = 1 AND status = 'ACTIVE'
 LIMIT 1;
 
 selectCryptoSessionByPeerAndEpoch:
 SELECT *
 FROM crypto_sessions
-WHERE peer_device_id = ? AND session_epoch = ?;
+WHERE peer_device_id = ? AND session_epoch = ?
+ORDER BY session_generation, role;
 
-setCanonicalByPeerEpochAndRole:
+setCanonicalByPeerEpochRoleAndGeneration:
 UPDATE crypto_sessions
 SET canonical = ?
-WHERE peer_device_id = ? AND session_epoch = ? AND role = ?;
+WHERE peer_device_id = ? AND session_epoch = ? AND role = ? AND session_generation = ?;
 
 selectCryptoSessionsByPeer:
 SELECT *
 FROM crypto_sessions
 WHERE peer_device_id = ?
-ORDER BY session_epoch;
+ORDER BY session_epoch, session_generation, role;
 
 selectMaxSessionEpochByPeer:
 SELECT MAX(session_epoch) AS max_epoch
 FROM crypto_sessions
 WHERE peer_device_id = ?;
 
+markCryptoSessionSupersededByRoleAndGeneration:
+UPDATE crypto_sessions
+SET status = ?, updated_at_epoch_seconds = ?
+WHERE peer_device_id = ? AND session_epoch = ? AND role = ? AND session_generation = ?;
+
 markCryptoSessionSuperseded:
 UPDATE crypto_sessions
 SET status = ?
 WHERE peer_device_id = ? AND session_epoch = ?;
+
+deleteCryptoSessionByPeerEpochRoleAndGeneration:
+DELETE FROM crypto_sessions
+WHERE peer_device_id = ? AND session_epoch = ? AND role = ? AND session_generation = ?;

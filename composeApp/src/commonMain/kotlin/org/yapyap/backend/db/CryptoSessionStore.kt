@@ -21,6 +21,7 @@ data class CryptoSessionMeta(
     val initiatorEphemeralPublicKey: ByteArray? = null,
     val offeredOpkId: String? = null,
     val status: SessionStatus = SessionStatus.ACTIVE,
+    val sessionGeneration: Int = 1,
     val createdAtEpochSeconds: Long,
     val updatedAtEpochSeconds: Long,
 )
@@ -29,20 +30,45 @@ enum class SessionRole { INITIATOR, RESPONDER }
 enum class SessionStatus { ACTIVE, SUPERSEDED }
 
 interface CryptoSessionStore {
-    suspend fun loadCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord?
+    /** Canonical [SessionStatus.ACTIVE] session for encrypt and session orchestration. */
+    suspend fun loadActiveCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord?
 
     suspend fun loadSessions(peerDeviceId: PeerId, sessionEpoch: Int): List<CryptoSessionRecord>
 
     suspend fun save(record: CryptoSessionRecord)
 
-    suspend fun setCanonical(peerDeviceId: PeerId, sessionEpoch: Int, role: SessionRole, canonical: Boolean)
+    suspend fun setCanonical(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+        canonical: Boolean,
+    )
 
     /** Highest epoch to use for new outbound encrypt (e.g. 2 if epoch-2 row exists). */
     suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int?
 
+    suspend fun latestGeneration(peerDeviceId: PeerId, sessionEpoch: Int, role: SessionRole): Int?
+
     suspend fun listByPeer(peerDeviceId: PeerId): List<CryptoSessionRecord>
 
-    suspend fun markSuperseded(peerDeviceId: PeerId, sessionEpoch: Int)
+    suspend fun markSuperseded(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+        updatedAtEpochSeconds: Long,
+    )
+
+    /** Marks every session row for the peer epoch superseded (e.g. epoch 1 after epoch 2 upgrade). */
+    suspend fun markEpochSuperseded(peerDeviceId: PeerId, sessionEpoch: Int)
+
+    suspend fun deleteSession(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+    )
 }
 
 internal object CryptoSessionCanonicalInvariant {
@@ -61,13 +87,26 @@ internal object CryptoSessionCanonicalInvariant {
                 val keepRole = preferredRole(canonicalActive)
                 for (session in canonicalActive) {
                     if (session.meta.role != keepRole) {
-                        store.setCanonical(peerDeviceId, sessionEpoch, session.meta.role, canonical = false)
+                        store.setCanonical(
+                            peerDeviceId,
+                            sessionEpoch,
+                            session.meta.role,
+                            session.meta.sessionGeneration,
+                            canonical = false,
+                        )
                     }
                 }
             }
             else -> {
                 val promoteRole = preferredRole(active)
-                store.setCanonical(peerDeviceId, sessionEpoch, promoteRole, canonical = true)
+                val promoteSession = active.first { it.meta.role == promoteRole }
+                store.setCanonical(
+                    peerDeviceId,
+                    sessionEpoch,
+                    promoteRole,
+                    promoteSession.meta.sessionGeneration,
+                    canonical = true,
+                )
             }
         }
     }

@@ -12,6 +12,7 @@ private const val CONTROL_TAG_OPK_OFFER: Byte = 1
 
 data class SessionWireFrame(
     val sessionEpoch: Int,
+    val sessionGeneration: Int = 1,
     val outerHandshake: X3dhWireInfo?,   // epoch-1 initiator first message only
     val ratchet: RatchetCiphertext,
 ) {
@@ -19,12 +20,13 @@ data class SessionWireFrame(
         val ratchetBytes = this.ratchet.encode()
         val outerBytes = this.outerHandshake?.let { encodeX3dhWireInfo(it) }
         val outerSectionSize = if (outerBytes == null) 1 else 1 + 4 + outerBytes.size
-        val size = 4 + 1 + 4 + outerSectionSize + 4 + ratchetBytes.size
+        val size = 4 + 1 + 4 + 4 + outerSectionSize + 4 + ratchetBytes.size
         val bytes = ByteArray(size)
         var offset = 0
         offset = SessionWireCodec.writeMagic(bytes, offset)
         bytes[offset++] = SESSION_WIRE_VERSION
         offset = SessionWireCodec.writeInt(bytes, offset, this.sessionEpoch)
+        offset = SessionWireCodec.writeInt(bytes, offset, this.sessionGeneration)
         if (outerBytes == null) {
             bytes[offset++] = 0
         } else {
@@ -40,12 +42,13 @@ data class SessionWireFrame(
         val idBytes = wire.signedPreKeyId.encodeToByteArray()
         val opkIdBytes = wire.oneTimePreKeyId?.encodeToByteArray()
         val opkTailSize = if (opkIdBytes != null) 4 + opkIdBytes.size else 0
-        val size = (4 + wire.ephemeralPublicKey.size) + (4 + idBytes.size) + 4 + 1 + 1 + opkTailSize
+        val size = (4 + wire.ephemeralPublicKey.size) + (4 + idBytes.size) + 4 + 4 + 1 + 1 + opkTailSize
         val bytes = ByteArray(size)
         var offset = 0
         offset = SessionWireCodec.writeByteArray(bytes, offset, wire.ephemeralPublicKey)
         offset = SessionWireCodec.writeByteArray(bytes, offset, idBytes)
         offset = SessionWireCodec.writeInt(bytes, offset, wire.sessionEpoch)
+        offset = SessionWireCodec.writeInt(bytes, offset, wire.sessionGeneration)
         bytes[offset++] = wire.mode.wireValue
         if (opkIdBytes == null) {
             bytes[offset++] = 0
@@ -66,6 +69,8 @@ data class SessionWireFrame(
             require(version == SESSION_WIRE_VERSION) { "unsupported session wire version: $version" }
             val sessionEpoch = SessionWireCodec.readInt(bytes, offset)
             offset += 4
+            val sessionGeneration = SessionWireCodec.readInt(bytes, offset)
+            offset += 4
             val hasOuter = bytes[offset++].toInt() != 0
             val outerHandshake = if (hasOuter) {
                 val (wire, next) = SessionWireCodec.readByteArrayAt(bytes, offset)
@@ -79,6 +84,7 @@ data class SessionWireFrame(
             require(offset == bytes.size) { "trailing bytes in session wire frame" }
             return SessionWireFrame(
                 sessionEpoch = sessionEpoch,
+                sessionGeneration = sessionGeneration,
                 outerHandshake = outerHandshake,
                 ratchet = RatchetCiphertext.decode(ratchetBytes),
             )
@@ -91,6 +97,8 @@ data class SessionWireFrame(
             val (signedPreKeyIdBytes, next2) = SessionWireCodec.readByteArrayAt(bytes, offset)
             offset = next2
             val sessionEpoch = SessionWireCodec.readInt(bytes, offset)
+            offset += 4
+            val sessionGeneration = SessionWireCodec.readInt(bytes, offset)
             offset += 4
             val mode = X3dhMode.fromWireValue(bytes[offset++])
             val hasOpk = bytes[offset++].toInt() != 0
@@ -106,6 +114,7 @@ data class SessionWireFrame(
                 ephemeralPublicKey = ephemeralPublicKey,
                 signedPreKeyId = signedPreKeyIdBytes.decodeToString(),
                 sessionEpoch = sessionEpoch,
+                sessionGeneration = sessionGeneration,
                 mode = mode,
                 oneTimePreKeyId = oneTimePreKeyId,
             )

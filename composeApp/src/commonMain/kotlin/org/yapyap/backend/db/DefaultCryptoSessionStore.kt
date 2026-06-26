@@ -9,9 +9,9 @@ class DefaultCryptoSessionStore(
 
     private val queries get() = database.cryptoQueries
 
-    override suspend fun loadCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
+    override suspend fun loadActiveCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord? =
         queries
-            .selectCanonicalCryptoSessionByPeerAndEpoch(
+            .selectActiveCanonicalCryptoSessionByPeerAndEpoch(
                 peer_device_id = peerDeviceId.id,
                 session_epoch = sessionEpoch.toLong(),
             )
@@ -25,15 +25,21 @@ class DefaultCryptoSessionStore(
 
     override suspend fun save(record: CryptoSessionRecord) {
         if (record.canonical && record.meta.status == SessionStatus.ACTIVE) {
-            demoteOtherCanonicalSessions(record.peerDeviceId, record.sessionEpoch, exceptRole = record.meta.role)
+            demoteOtherCanonicalSessions(
+                record.peerDeviceId,
+                record.sessionEpoch,
+                exceptRole = record.meta.role,
+                exceptGeneration = record.meta.sessionGeneration,
+            )
         }
         val ratchet = record.ratchetState
         val meta = record.meta
         queries.insertOrReplaceCryptoSession(
-            session_id = sessionId(record.peerDeviceId, record.sessionEpoch, record.meta.role),
+            session_id = sessionId(record.peerDeviceId, record.sessionEpoch, record.meta.role, meta.sessionGeneration),
             peer_device_id = record.peerDeviceId.id,
             canonical = record.canonical,
             session_epoch = record.sessionEpoch.toLong(),
+            session_generation = meta.sessionGeneration.toLong(),
             root_key = ratchet.rootKey,
             send_chain_key = ratchet.sendChainKey,
             recv_chain_key = ratchet.recvChainKey,
@@ -62,26 +68,42 @@ class DefaultCryptoSessionStore(
         peerDeviceId: PeerId,
         sessionEpoch: Int,
         role: SessionRole,
-        canonical: Boolean
+        sessionGeneration: Int,
+        canonical: Boolean,
     ) {
         if (canonical) {
-            demoteOtherCanonicalSessions(peerDeviceId, sessionEpoch, exceptRole = role)
+            demoteOtherCanonicalSessions(
+                peerDeviceId,
+                sessionEpoch,
+                exceptRole = role,
+                exceptGeneration = sessionGeneration,
+            )
         }
-        queries.setCanonicalByPeerEpochAndRole(canonical, peerDeviceId.id, sessionEpoch.toLong(), role)
+        queries.setCanonicalByPeerEpochRoleAndGeneration(
+            canonical = canonical,
+            peer_device_id = peerDeviceId.id,
+            session_epoch = sessionEpoch.toLong(),
+            role = role,
+            session_generation = sessionGeneration.toLong(),
+        )
     }
 
     private suspend fun demoteOtherCanonicalSessions(
         peerDeviceId: PeerId,
         sessionEpoch: Int,
         exceptRole: SessionRole,
+        exceptGeneration: Int,
     ) {
         for (session in loadSessions(peerDeviceId, sessionEpoch)) {
-            if (session.meta.role != exceptRole && session.canonical) {
-                queries.setCanonicalByPeerEpochAndRole(
+            if ((session.meta.role != exceptRole || session.meta.sessionGeneration != exceptGeneration) &&
+                session.canonical
+            ) {
+                queries.setCanonicalByPeerEpochRoleAndGeneration(
                     canonical = false,
                     peer_device_id = peerDeviceId.id,
                     session_epoch = sessionEpoch.toLong(),
                     role = session.meta.role,
+                    session_generation = session.meta.sessionGeneration.toLong(),
                 )
             }
         }
@@ -94,17 +116,57 @@ class DefaultCryptoSessionStore(
             ?.max_epoch
             ?.toInt()
 
+    override suspend fun latestGeneration(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+    ): Int? =
+        loadSessions(peerDeviceId, sessionEpoch)
+            .filter { it.meta.role == role }
+            .maxOfOrNull { it.meta.sessionGeneration }
+
     override suspend fun listByPeer(peerDeviceId: PeerId): List<CryptoSessionRecord> =
         queries
             .selectCryptoSessionsByPeer(peer_device_id = peerDeviceId.id)
             .executeAsList()
             .map { it.toRecord(peerDeviceId) }
 
-    override suspend fun markSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
+    override suspend fun markSuperseded(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+        updatedAtEpochSeconds: Long,
+    ) {
+        queries.markCryptoSessionSupersededByRoleAndGeneration(
+            status = SessionStatus.SUPERSEDED,
+            updated_at_epoch_seconds = updatedAtEpochSeconds,
+            peer_device_id = peerDeviceId.id,
+            session_epoch = sessionEpoch.toLong(),
+            role = role,
+            session_generation = sessionGeneration.toLong(),
+        )
+    }
+
+    override suspend fun markEpochSuperseded(peerDeviceId: PeerId, sessionEpoch: Int) {
         queries.markCryptoSessionSuperseded(
             status = SessionStatus.SUPERSEDED,
             peer_device_id = peerDeviceId.id,
             session_epoch = sessionEpoch.toLong(),
+        )
+    }
+
+    override suspend fun deleteSession(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        role: SessionRole,
+        sessionGeneration: Int,
+    ) {
+        queries.deleteCryptoSessionByPeerEpochRoleAndGeneration(
+            peer_device_id = peerDeviceId.id,
+            session_epoch = sessionEpoch.toLong(),
+            role = role,
+            session_generation = sessionGeneration.toLong(),
         )
     }
 
@@ -134,6 +196,7 @@ class DefaultCryptoSessionStore(
                 initiatorEphemeralPublicKey = initiator_ephemeral_public_key?.copyOf(),
                 offeredOpkId = offered_opk_id,
                 status = status,
+                sessionGeneration = session_generation.toInt(),
                 createdAtEpochSeconds = created_at_epoch_seconds,
                 updatedAtEpochSeconds = updated_at_epoch_seconds,
             ),
@@ -141,6 +204,10 @@ class DefaultCryptoSessionStore(
         )
     }
 
-    private fun sessionId(peerDeviceId: PeerId, sessionEpoch: Int, sessionRole: SessionRole): String =
-        "${peerDeviceId.id}#$sessionEpoch#${sessionRole.name}"
+    private fun sessionId(
+        peerDeviceId: PeerId,
+        sessionEpoch: Int,
+        sessionRole: SessionRole,
+        sessionGeneration: Int,
+    ): String = "${peerDeviceId.id}#$sessionEpoch#${sessionRole.name}#g$sessionGeneration"
 }
