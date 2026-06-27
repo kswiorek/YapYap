@@ -1,6 +1,7 @@
 import kotlin.Boolean;
 import org.yapyap.backend.db.AccountStatus;
 import org.yapyap.backend.db.DeviceType;
+import org.yapyap.backend.db.OpkStatus;
 
 CREATE TABLE accounts (
     account_id TEXT NOT NULL PRIMARY KEY,
@@ -48,7 +49,9 @@ CREATE TABLE one_time_prekeys (
     opk_id TEXT NOT NULL PRIMARY KEY,
     device_id TEXT NOT NULL,
     public_key BLOB NOT NULL,
-    is_consumed INTEGER AS Boolean NOT NULL DEFAULT 0,
+    status TEXT AS OpkStatus NOT NULL DEFAULT 'ALLOCATED',
+    created_at_epoch_seconds INTEGER NOT NULL,
+    offered_at_epoch_seconds INTEGER,
     FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 
@@ -130,18 +133,37 @@ INSERT OR REPLACE INTO one_time_prekeys (
     opk_id,
     device_id,
     public_key,
-    is_consumed
-) VALUES (?, ?, ?, ?);
+    status,
+    created_at_epoch_seconds,
+    offered_at_epoch_seconds
+) VALUES (?, ?, ?, ?, ?, ?);
 
 selectOneTimePreKeyById:
 SELECT *
 FROM one_time_prekeys
 WHERE opk_id = ?;
 
+markOneTimePreKeyOffered:
+UPDATE one_time_prekeys
+SET status = ?, offered_at_epoch_seconds = ?
+WHERE opk_id = ? AND device_id = ? AND status = 'ALLOCATED';
+
 markOneTimePreKeyConsumed:
 UPDATE one_time_prekeys
-SET is_consumed = 1
-WHERE opk_id = ?;
+SET status = 'CONSUMED'
+WHERE opk_id = ? AND device_id = ? AND status = 'OFFERED';
+
+selectExpiredOfferedOneTimePreKeys:
+SELECT opk_id
+FROM one_time_prekeys
+WHERE device_id = ?
+  AND status = 'OFFERED'
+  AND offered_at_epoch_seconds IS NOT NULL
+  AND offered_at_epoch_seconds < ?;
+
+deleteOneTimePreKeyById:
+DELETE FROM one_time_prekeys
+WHERE opk_id = ? AND device_id = ?;
 
 selectDeviceById:
 SELECT *
@@ -200,3 +222,5 @@ CREATE INDEX devices_account_idx ON devices(account_id);
 CREATE INDEX signed_prekeys_device_idx ON signed_prekeys(device_id);
 CREATE INDEX signed_prekeys_device_active_idx ON signed_prekeys(device_id, is_active);
 CREATE INDEX one_time_prekeys_device_idx ON one_time_prekeys(device_id);
+CREATE INDEX one_time_prekeys_device_status_offered_idx
+ON one_time_prekeys(device_id, status, offered_at_epoch_seconds);

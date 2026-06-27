@@ -43,6 +43,9 @@ class DatabaseFactory(
                     x3dh_modeAdapter = EnumColumnAdapter<X3dhMode>(),
                     statusAdapter = EnumColumnAdapter(),
                 ),
+                one_time_prekeysAdapter = One_time_prekeys.Adapter(
+                    statusAdapter = EnumColumnAdapter(),
+                ),
             ),
             driver = driver,
         )

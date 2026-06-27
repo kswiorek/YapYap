@@ -145,6 +145,24 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         records.remove(SessionKey(peerDeviceId.id, sessionEpoch, role, sessionGeneration))
     }
 
+    override suspend fun listPeerDeviceIds(): List<PeerId> =
+        records.values.map { it.peerDeviceId }.distinct()
+
+    override suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAtEpochSeconds: Long) {
+        if (opkIds.isEmpty()) return
+        val targetIds = opkIds.toSet()
+        for ((key, record) in records) {
+            val offeredOpkId = record.meta.offeredOpkId ?: continue
+            if (offeredOpkId !in targetIds) continue
+            records[key] = record.copy(
+                meta = record.meta.copy(
+                    offeredOpkId = null,
+                    updatedAtEpochSeconds = updatedAtEpochSeconds,
+                ),
+            )
+        }
+    }
+
     private fun sessionKey(record: CryptoSessionRecord): SessionKey =
         SessionKey(
             peerId = record.peerDeviceId.id,

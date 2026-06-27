@@ -175,6 +175,20 @@ class DefaultCryptoSessionStore(
         )
     }
 
+    override suspend fun listPeerDeviceIds(): List<PeerId> =
+        queries.selectDistinctPeerDeviceIds()
+            .executeAsList()
+            .map(::PeerId)
+
+    override suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAtEpochSeconds: Long) {
+        for (opkId in opkIds) {
+            queries.clearOfferedOpkId(
+                updated_at_epoch_seconds = updatedAtEpochSeconds,
+                offered_opk_id = opkId,
+            )
+        }
+    }
+
     private fun Crypto_sessions.toRecord(peerDeviceId: PeerId): CryptoSessionRecord {
         val skipped = RatchetSkippedKeysCodec.decode(skipped_message_keys)
         return CryptoSessionRecord(

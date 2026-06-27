@@ -1,8 +1,9 @@
 package org.yapyap.backend.crypto
 
-import kotlinx.coroutines.CoroutineScope
 import org.yapyap.backend.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.backend.crypto.e2ee.DefaultCryptoHousekeeping
 import org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager
+import org.yapyap.backend.crypto.e2ee.OneTimePreKeyStore
 import org.yapyap.backend.crypto.e2ee.SessionUpgradePolicy
 import org.yapyap.backend.crypto.e2ee.X3dhHandshake
 import org.yapyap.backend.crypto.e2ee.X3dhRemotePeerKeys
@@ -142,7 +143,6 @@ internal fun managerForPeer(
     oneTimePreKeyStore: InMemoryOneTimePreKeyStore,
     upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    maintenanceScope: CoroutineScope? = null,
     timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
 ): DefaultCryptoSessionManager =
     DefaultCryptoSessionManager(
@@ -157,5 +157,17 @@ internal fun managerForPeer(
         timeProvider = timeProvider,
         upgradePolicy = upgradePolicy,
         sessionConfig = sessionConfig,
-        maintenanceScope = maintenanceScope ?: CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
+    )
+
+internal fun cryptoHousekeepingFor(
+    sessionStore: CryptoSessionStore,
+    oneTimePreKeyStore: OneTimePreKeyStore,
+    sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
+    timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+): DefaultCryptoHousekeeping =
+    DefaultCryptoHousekeeping(
+        sessionStore = sessionStore,
+        oneTimePreKeyStore = oneTimePreKeyStore,
+        sessionConfig = sessionConfig,
+        timeProvider = timeProvider,
     )

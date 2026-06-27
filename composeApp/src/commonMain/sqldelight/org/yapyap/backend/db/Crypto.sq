@@ -109,3 +109,12 @@ WHERE peer_device_id = ? AND session_epoch = ?;
 deleteCryptoSessionByPeerEpochRoleAndGeneration:
 DELETE FROM crypto_sessions
 WHERE peer_device_id = ? AND session_epoch = ? AND role = ? AND session_generation = ?;
+
+selectDistinctPeerDeviceIds:
+SELECT DISTINCT peer_device_id
+FROM crypto_sessions;
+
+clearOfferedOpkId:
+UPDATE crypto_sessions
+SET offered_opk_id = NULL, updated_at_epoch_seconds = ?
+WHERE offered_opk_id = ?;

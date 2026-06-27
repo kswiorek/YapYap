@@ -152,6 +152,7 @@ class DefaultIdentityOrchestrationTest {
         val store = InMemoryOneTimePreKeyStore(crypto)
 
         val opk = store.allocate()
+        store.markOffered(opk.keyId)
         val consumed = store.consume(opk.keyId)
         assertNotNull(consumed)
         assertContentEquals(opk.publicKey, consumed.publicKey)

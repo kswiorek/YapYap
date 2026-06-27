@@ -1,9 +1,5 @@
 package org.yapyap.backend.crypto.e2ee
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.backend.crypto.CryptoProvider
@@ -32,7 +28,6 @@ class DefaultCryptoSessionManager(
     private val upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
     private val logger: AppLogger = NoopAppLogger,
-    private val maintenanceScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : CryptoSessionManager {
 
     private val peerLocks = PeerLockRegistry()
@@ -40,23 +35,15 @@ class DefaultCryptoSessionManager(
     override suspend fun encryptMessage(
         remoteDeviceId: PeerId,
         bytes: ByteArray,
-    ): SessionWireFrame {
-        val frame = peerLocks.withPeerLock(remoteDeviceId) {
-            encryptMessageUnderLock(remoteDeviceId, bytes)
-        }
-        schedulePeerMaintenance(remoteDeviceId)
-        return frame
+    ): SessionWireFrame = peerLocks.withPeerLock(remoteDeviceId) {
+        encryptMessageUnderLock(remoteDeviceId, bytes)
     }
 
     override suspend fun decryptMessage(
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
-    ): ByteArray {
-        val bytes = peerLocks.withPeerLock(remoteDeviceId) {
-            decryptMessageUnderLock(remoteDeviceId, frame)
-        }
-        schedulePeerMaintenance(remoteDeviceId)
-        return bytes
+    ): ByteArray = peerLocks.withPeerLock(remoteDeviceId) {
+        decryptMessageUnderLock(remoteDeviceId, frame)
     }
 
     private suspend fun encryptMessageUnderLock(
@@ -126,29 +113,6 @@ class DefaultCryptoSessionManager(
         }
 
         return decryptWithExistingSession(remoteDeviceId, frame)
-    }
-
-    private fun schedulePeerMaintenance(peerDeviceId: PeerId) {
-        maintenanceScope.launch {
-            try {
-                peerLocks.withPeerLock(peerDeviceId) {
-                    maintainPeerSessions(
-                        sessionStore = sessionStore,
-                        sessionConfig = sessionConfig,
-                        peerDeviceId = peerDeviceId,
-                        nowEpochSeconds = timeProvider.nowEpochSeconds(),
-                    )
-                }
-            } catch (error: Exception) {
-                logger.error(
-                    component = LogComponent.CRYPTO,
-                    event = LogEvent.CRYPTO_MAINTENANCE_FAILED,
-                    message = "Peer crypto session maintenance failed",
-                    throwable = error,
-                    fields = mapOf("peerDeviceId" to peerDeviceId),
-                )
-            }
-        }
     }
 
     /**
@@ -533,6 +497,7 @@ class DefaultCryptoSessionManager(
             return RatchetInnerPlaintext.Payload(inner)
         }
         val opk = oneTimePreKeyStore.allocate()
+        oneTimePreKeyStore.markOffered(opk.keyId)
         return RatchetInnerPlaintext.WithControl(
             inner,
             InnerSessionControl.OpkOffer(
@@ -619,44 +584,6 @@ class DefaultCryptoSessionManager(
         }
     }
 
-}
-
-internal suspend fun maintainPeerSessions(
-    sessionStore: CryptoSessionStore,
-    sessionConfig: CryptoSessionConfig,
-    peerDeviceId: PeerId,
-    nowEpochSeconds: Long,
-) {
-    val sessions = sessionStore.listByPeer(peerDeviceId)
-    val idleCutoff = nowEpochSeconds - sessionConfig.canonicalIdleSupersedeSeconds
-    for (record in sessions) {
-        if (record.canonical &&
-            record.meta.status == SessionStatus.ACTIVE &&
-            record.meta.updatedAtEpochSeconds < idleCutoff
-        ) {
-            sessionStore.markSuperseded(
-                peerDeviceId,
-                record.sessionEpoch,
-                record.meta.role,
-                record.meta.sessionGeneration,
-                nowEpochSeconds,
-            )
-        }
-    }
-
-    val pruneCutoff = nowEpochSeconds - sessionConfig.supersededRetentionSeconds
-    for (record in sessions) {
-        if (record.meta.status == SessionStatus.SUPERSEDED &&
-            record.meta.updatedAtEpochSeconds < pruneCutoff
-        ) {
-            sessionStore.deleteSession(
-                peerDeviceId,
-                record.sessionEpoch,
-                record.meta.role,
-                record.meta.sessionGeneration,
-            )
-        }
-    }
 }
 
 sealed class CryptoSessionException(message: String) : Exception(message) {

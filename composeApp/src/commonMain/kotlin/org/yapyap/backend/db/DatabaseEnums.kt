@@ -47,3 +47,9 @@ enum class FileChunkStatus {
     REQUESTED,
     WRITTEN,
 }
+
+enum class OpkStatus {
+    ALLOCATED,
+    OFFERED,
+    CONSUMED,
+}

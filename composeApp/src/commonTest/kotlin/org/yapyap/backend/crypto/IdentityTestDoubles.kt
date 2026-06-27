@@ -4,8 +4,11 @@ import org.yapyap.backend.crypto.e2ee.OneTimePreKeyStore
 import org.yapyap.backend.db.AccountStatus
 import org.yapyap.backend.db.DeviceType
 import org.yapyap.backend.db.IdentityPublicKeyRepository
+import org.yapyap.backend.db.OpkStatus
 import org.yapyap.backend.protocol.PeerId
 import org.yapyap.backend.protocol.TorEndpoint
+import org.yapyap.backend.time.EpochSecondsProvider
+import org.yapyap.backend.time.SystemEpochSecondsProvider
 
 /**
  * Builds a [DeviceIdentityRecord] with a valid encryption-key attestation and signed prekey,
@@ -235,9 +238,15 @@ internal class InMemoryIdentityPublicKeyRepository(
 /** In-memory [org.yapyap.backend.crypto.e2ee.OneTimePreKeyStore] for unit tests. */
 internal class InMemoryOneTimePreKeyStore(
     private val crypto: CryptoProvider,
+    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
 ) : OneTimePreKeyStore {
-    private val keys = mutableMapOf<String, LocalOneTimePreKey>()
-    private val consumed = mutableSetOf<String>()
+    private data class OpkEntry(
+        val opk: LocalOneTimePreKey,
+        var status: OpkStatus,
+        var offeredAtEpochSeconds: Long? = null,
+    )
+
+    private val keys = mutableMapOf<String, OpkEntry>()
     private var counter = 0
 
     override suspend fun allocate(): LocalOneTimePreKey {
@@ -248,14 +257,35 @@ internal class InMemoryOneTimePreKeyStore(
             publicKey = keyPair.publicKey,
             privateKey = keyPair.privateKey,
         )
-        keys[opkId] = opk
+        keys[opkId] = OpkEntry(opk = opk, status = OpkStatus.ALLOCATED)
         return opk
     }
 
-    override suspend fun consume(opkId: String): LocalOneTimePreKey? {
-        if (opkId in consumed) return null
-        val opk = keys[opkId] ?: return null
-        consumed.add(opkId)
-        return opk
+    override suspend fun markOffered(opkId: String) {
+        val entry = keys[opkId] ?: error("Unknown OPK id=$opkId")
+        require(entry.status == OpkStatus.ALLOCATED) { "OPK $opkId is not ALLOCATED" }
+        entry.status = OpkStatus.OFFERED
+        entry.offeredAtEpochSeconds = timeProvider.nowEpochSeconds()
     }
+
+    override suspend fun consume(opkId: String): LocalOneTimePreKey? {
+        val entry = keys[opkId] ?: return null
+        if (entry.status != OpkStatus.OFFERED) return null
+        entry.status = OpkStatus.CONSUMED
+        return entry.opk
+    }
+
+    override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> {
+        val expired = keys.filterValues {
+            it.status == OpkStatus.OFFERED &&
+                it.offeredAtEpochSeconds != null &&
+                it.offeredAtEpochSeconds!! < cutoffEpochSeconds
+        }.keys.toList()
+        for (opkId in expired) {
+            keys.remove(opkId)
+        }
+        return expired
+    }
+
+    fun status(opkId: String): OpkStatus? = keys[opkId]?.status
 }

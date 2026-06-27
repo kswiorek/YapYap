@@ -5,15 +5,13 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.advanceUntilIdle
 import org.yapyap.backend.crypto.e2ee.DoubleRatchetSession
 import org.yapyap.backend.crypto.e2ee.InnerSessionControl
 import org.yapyap.backend.crypto.e2ee.RatchetCiphertext
 import org.yapyap.backend.crypto.e2ee.RatchetInnerPlaintext
 import org.yapyap.backend.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.backend.crypto.e2ee.maintainPeerSessions
+import org.yapyap.backend.db.OpkStatus
 import org.yapyap.backend.crypto.e2ee.SessionUpgradePolicy
 import org.yapyap.backend.crypto.e2ee.SessionWireFrame
 import org.yapyap.backend.crypto.e2ee.X3dhHandshake
@@ -683,7 +681,6 @@ class DefaultCryptoSessionManagerTest {
             sessionStore = aliceStore,
             oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
             sessionConfig = config,
-            maintenanceScope = CoroutineScope(coroutineContext),
         )
 
         alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
@@ -694,12 +691,11 @@ class DefaultCryptoSessionManagerTest {
             ),
         )
 
-        maintainPeerSessions(
+        cryptoHousekeepingFor(
             sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
             sessionConfig = config,
-            peerDeviceId = bobPeer.device.deviceId,
-            nowEpochSeconds = 100_000L,
-        )
+        ).run(nowEpochSeconds = 100_000L)
 
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
         assertEquals(
@@ -708,7 +704,6 @@ class DefaultCryptoSessionManagerTest {
         )
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun peerMaintenance_prunesStaleSupersededRow() = runTest {
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
@@ -725,7 +720,6 @@ class DefaultCryptoSessionManagerTest {
             sessionStore = aliceStore,
             oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
             sessionConfig = config,
-            maintenanceScope = CoroutineScope(coroutineContext),
         )
 
         alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
@@ -742,8 +736,11 @@ class DefaultCryptoSessionManagerTest {
         )
         assertEquals(2, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 1).size)
 
-        alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
-        advanceUntilIdle()
+        cryptoHousekeepingFor(
+            sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            sessionConfig = config,
+        ).run(nowEpochSeconds = 100_000L)
 
         assertEquals(1, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 1).size)
         assertEquals(SessionRole.INITIATOR, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.role)
@@ -925,6 +922,59 @@ class DefaultCryptoSessionManagerTest {
         assertNull(remaining.singleOrNull { it.meta.sessionGeneration == 1 })
         assertNotNull(remaining.singleOrNull { it.meta.sessionGeneration == 2 })
         assertNotNull(remaining.singleOrNull { it.meta.sessionGeneration == 3 })
+    }
+
+    @Test
+    fun housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta() = runTest {
+        val testTime = FixedEpochSecondsProvider(200_000L)
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val bobOpkStore = InMemoryOneTimePreKeyStore(crypto, timeProvider = testTime)
+        val config = CryptoSessionConfig(
+            offeredOpkRetentionSeconds = 60,
+            canonicalIdleSupersedeSeconds = 60 * 60 * 24,
+            supersededRetentionSeconds = 60 * 60,
+        )
+        val alice = managerForPeer(
+            crypto = crypto,
+            local = alicePeer,
+            peer = bobPeer,
+            sessionStore = MapBackedCryptoSessionStore(),
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+        )
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = bobOpkStore,
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+            sessionConfig = config,
+            timeProvider = testTime,
+        )
+
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+        bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
+
+        val opkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
+        assertEquals(OpkStatus.OFFERED, bobOpkStore.status(opkId))
+
+        cryptoHousekeepingFor(
+            sessionStore = bobStore,
+            oneTimePreKeyStore = bobOpkStore,
+            sessionConfig = config,
+            timeProvider = testTime,
+        ).run(nowEpochSeconds = 200_061L)
+
+        assertEquals(null, bobOpkStore.status(opkId))
+        assertEquals(
+            null,
+            bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId,
+        )
     }
 
     private fun sampleRatchetState(): RatchetSessionState =

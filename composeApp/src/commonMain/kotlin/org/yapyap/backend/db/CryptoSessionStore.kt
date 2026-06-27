@@ -73,6 +73,10 @@ interface CryptoSessionStore {
         role: SessionRole,
         sessionGeneration: Int,
     )
+
+    suspend fun listPeerDeviceIds(): List<PeerId>
+
+    suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAtEpochSeconds: Long)
 }
 
 internal object CryptoSessionCanonicalInvariant {
