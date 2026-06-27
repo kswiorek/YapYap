@@ -94,7 +94,7 @@ ORDER BY session_epoch, session_generation, role;
 selectMaxSessionEpochByPeer:
 SELECT MAX(session_epoch) AS max_epoch
 FROM crypto_sessions
-WHERE peer_device_id = ?;
+WHERE peer_device_id = ? AND status = 'ACTIVE';
 
 markCryptoSessionSupersededByRoleAndGeneration:
 UPDATE crypto_sessions

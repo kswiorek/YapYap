@@ -73,10 +73,23 @@ internal suspend fun maintainPeerSessions(
         }
     }
 
-    val pruneCutoff = nowEpochSeconds - sessionConfig.supersededRetentionSeconds
+    val pendingEpoch2Cutoff = nowEpochSeconds - sessionConfig.pendingEpoch2RetentionSeconds
+    val supersededPruneCutoff = nowEpochSeconds - sessionConfig.supersededRetentionSeconds
     for (record in sessions) {
+        if (record.sessionEpoch == 2 &&
+            record.meta.status == SessionStatus.PENDING &&
+            record.meta.updatedAtEpochSeconds < pendingEpoch2Cutoff
+        ) {
+            sessionStore.deleteSession(
+                peerDeviceId,
+                record.sessionEpoch,
+                record.meta.role,
+                record.meta.sessionGeneration,
+            )
+            continue
+        }
         if (record.meta.status == SessionStatus.SUPERSEDED &&
-            record.meta.updatedAtEpochSeconds < pruneCutoff
+            record.meta.updatedAtEpochSeconds < supersededPruneCutoff
         ) {
             sessionStore.deleteSession(
                 peerDeviceId,

@@ -140,7 +140,7 @@ internal fun managerForPeer(
     local: TestPeerIdentity,
     peer: TestPeerIdentity,
     sessionStore: CryptoSessionStore,
-    oneTimePreKeyStore: InMemoryOneTimePreKeyStore,
+    oneTimePreKeyStore: OneTimePreKeyStore,
     upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
     timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,

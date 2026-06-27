@@ -56,6 +56,22 @@ class DefaultCryptoSessionStoreJvmTest {
     }
 
     @Test
+    fun latestEncryptEpoch_ignoresPendingEpoch2() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        seedPeerDevice(db, FixtureAccountId, FixtureRemotePeerId)
+
+        val store = DefaultCryptoSessionStore(db)
+        val peer = FixtureRemotePeerId
+        store.save(sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE))
+        store.save(sampleRecord(peer, sessionEpoch = 2, status = SessionStatus.PENDING))
+
+        assertEquals(1, store.latestEncryptEpoch(peer))
+        assertNull(store.loadActiveCanonical(peer, sessionEpoch = 2))
+    }
+
+    @Test
     fun save_dualRoleSessions_loadActiveCanonical_setCanonical() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
@@ -156,7 +172,7 @@ class DefaultCryptoSessionStoreJvmTest {
     fun ratchetSkippedKeysCodec_roundTrip() {
         val skipped = mapOf(
             RatchetSkippedKeyId(byteArrayOf(0x01, 0x02), messageNumber = 3) to byteArrayOf(0xAA.toByte()),
-            RatchetSkippedKeyId(byteArrayOf(0x03, 0x04, 0x05), messageNumber = 7) to byteArrayOf(0xBB.toByte(), 0xCC.toByte()),
+            RatchetSkippedKeyId.supersededChain(byteArrayOf(0x03, 0x04, 0x05)) to ByteArray(0),
         )
         val encoded = RatchetSkippedKeysCodec.encode(skipped)
         val decoded = RatchetSkippedKeysCodec.decode(encoded)

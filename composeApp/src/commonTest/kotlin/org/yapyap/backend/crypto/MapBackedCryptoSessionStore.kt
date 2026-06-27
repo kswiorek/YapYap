@@ -28,7 +28,9 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             .map { copyRecord(it) }
 
     override suspend fun save(record: CryptoSessionRecord) {
-        if (record.canonical && record.meta.status == SessionStatus.ACTIVE) {
+        if (record.canonical &&
+            (record.meta.status == SessionStatus.ACTIVE || record.meta.status == SessionStatus.PENDING)
+        ) {
             demoteOtherCanonicalSessions(
                 record.peerDeviceId,
                 record.sessionEpoch,
@@ -80,7 +82,7 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
 
     override suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int? =
         records.values
-            .filter { it.peerDeviceId == peerDeviceId }
+            .filter { it.peerDeviceId == peerDeviceId && it.meta.status == SessionStatus.ACTIVE }
             .maxOfOrNull { it.sessionEpoch }
 
     override suspend fun latestGeneration(

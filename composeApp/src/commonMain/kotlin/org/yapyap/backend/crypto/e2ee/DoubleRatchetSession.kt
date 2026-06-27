@@ -30,22 +30,18 @@ class DoubleRatchetSession private constructor(
     suspend fun decrypt(frame: RatchetCiphertext): ByteArray {
         trySkippedMessageKey(frame)?.let { return crypto.decryptAead(it, frame.body, frame.headerAssociatedData()) }
 
-        if (state.remoteDhPublicKey == null || !state.remoteDhPublicKey.contentEquals(frame.dhPublicKey)) {
-            skipMessageKeys(frame.previousChainLength)
-            val remoteDhPublicKey = frame.dhPublicKey.copyOf()
-            state.remoteDhPublicKey = remoteDhPublicKey
-            val recvDh = crypto.deriveSharedSecret(state.localDhPrivateKey, remoteDhPublicKey)
-            val (rootAfterRecv, recvChainKey) = kdfRootKey(state.rootKey, recvDh)
-            state.rootKey = rootAfterRecv
-            state.recvChainKey = recvChainKey
-            state.recvMessageNumber = 0
-            generateLocalDhKeyPair()
-            val sendDh = crypto.deriveSharedSecret(state.localDhPrivateKey, remoteDhPublicKey)
-            val (rootAfterSend, sendChainKey) = kdfRootKey(state.rootKey, sendDh)
-            state.rootKey = rootAfterSend
-            state.sendChainKey = sendChainKey
-            state.previousSendChainLength = state.sendMessageNumber
-            state.sendMessageNumber = 0
+        val remoteDh = state.remoteDhPublicKey
+        when {
+            remoteDh != null && remoteDh.contentEquals(frame.dhPublicKey) -> Unit
+            remoteDh != null && isSupersededDhChain(frame.dhPublicKey) -> {
+                throw CryptoSessionException.SupersededDhChain(frame.messageNumber)
+            }
+            else -> {
+                if (remoteDh != null) {
+                    markDhChainSuperseded(remoteDh)
+                }
+                performDhRatchetStep(frame)
+            }
         }
 
         skipMessageKeys(frame.messageNumber)
@@ -150,6 +146,24 @@ class DoubleRatchetSession private constructor(
         return derived.copyOfRange(0, KEY_SIZE) to derived.copyOfRange(KEY_SIZE, KEY_SIZE * 2)
     }
 
+    private suspend fun performDhRatchetStep(frame: RatchetCiphertext) {
+        skipMessageKeys(frame.previousChainLength)
+        val remoteDhPublicKey = frame.dhPublicKey.copyOf()
+        state.remoteDhPublicKey = remoteDhPublicKey
+        val recvDh = crypto.deriveSharedSecret(state.localDhPrivateKey, remoteDhPublicKey)
+        val (rootAfterRecv, recvChainKey) = kdfRootKey(state.rootKey, recvDh)
+        state.rootKey = rootAfterRecv
+        state.recvChainKey = recvChainKey
+        state.recvMessageNumber = 0
+        generateLocalDhKeyPair()
+        val sendDh = crypto.deriveSharedSecret(state.localDhPrivateKey, remoteDhPublicKey)
+        val (rootAfterSend, sendChainKey) = kdfRootKey(state.rootKey, sendDh)
+        state.rootKey = rootAfterSend
+        state.sendChainKey = sendChainKey
+        state.previousSendChainLength = state.sendMessageNumber
+        state.sendMessageNumber = 0
+    }
+
     private suspend fun skipMessageKeys(until: Int) {
         if (until <= state.recvMessageNumber) return
         require(state.recvMessageNumber + MAX_SKIP >= until) {
@@ -167,9 +181,33 @@ class DoubleRatchetSession private constructor(
     }
 
     private fun trySkippedMessageKey(frame: RatchetCiphertext): ByteArray? {
-        val remoteDh = state.remoteDhPublicKey ?: return null
-        if (!remoteDh.contentEquals(frame.dhPublicKey)) return null
-        return state.skippedMessageKeys.remove(RatchetSkippedKeyId(remoteDh, frame.messageNumber))
+        if (frame.messageNumber < 0) {
+            return null
+        }
+        val messageKey = state.skippedMessageKeys
+            .remove(RatchetSkippedKeyId(frame.dhPublicKey, frame.messageNumber))
+            ?: return null
+        maybeRemoveSupersededDhMarker(frame.dhPublicKey)
+        return messageKey
+    }
+
+    private fun isSupersededDhChain(dhPublicKey: ByteArray): Boolean =
+        state.skippedMessageKeys.containsKey(RatchetSkippedKeyId.supersededChain(dhPublicKey))
+
+    private fun markDhChainSuperseded(dhPublicKey: ByteArray) {
+        val marker = RatchetSkippedKeyId.supersededChain(dhPublicKey)
+        if (!state.skippedMessageKeys.containsKey(marker)) {
+            state.skippedMessageKeys[marker] = ByteArray(0)
+        }
+    }
+
+    private fun maybeRemoveSupersededDhMarker(dhPublicKey: ByteArray) {
+        val hasMessageKeys = state.skippedMessageKeys.keys.any { key ->
+            key.dhPublicKey.contentEquals(dhPublicKey) && !key.isSupersededDhMarker
+        }
+        if (!hasMessageKeys) {
+            state.skippedMessageKeys.remove(RatchetSkippedKeyId.supersededChain(dhPublicKey))
+        }
     }
 }
 
@@ -251,6 +289,9 @@ data class RatchetSkippedKeyId(
     val dhPublicKey: ByteArray,
     val messageNumber: Int,
 ) {
+    val isSupersededDhMarker: Boolean
+        get() = messageNumber == SUPERSEDED_DH_CHAIN
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is RatchetSkippedKeyId) return false
@@ -261,6 +302,18 @@ data class RatchetSkippedKeyId(
         var result = messageNumber
         result = 31 * result + dhPublicKey.contentHashCode()
         return result
+    }
+
+    companion object {
+        /**
+         * Tombstone stored in [RatchetSessionState.skippedMessageKeys] (empty value) marking a
+         * receive DH chain superseded by a ratchet step. Prevents re-ratchet on stale headers
+         * while real skipped message keys for the same DH may still decrypt late traffic.
+         */
+        const val SUPERSEDED_DH_CHAIN: Int = -1
+
+        fun supersededChain(dhPublicKey: ByteArray): RatchetSkippedKeyId =
+            RatchetSkippedKeyId(dhPublicKey.copyOf(), SUPERSEDED_DH_CHAIN)
     }
 }
 

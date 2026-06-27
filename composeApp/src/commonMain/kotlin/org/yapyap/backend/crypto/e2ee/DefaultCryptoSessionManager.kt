@@ -3,6 +3,7 @@ package org.yapyap.backend.crypto.e2ee
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.backend.crypto.CryptoProvider
+import org.yapyap.backend.crypto.EncryptionKeyPair
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityResolver
 import org.yapyap.backend.crypto.LocalOneTimePreKey
@@ -107,12 +108,13 @@ class DefaultCryptoSessionManager(
         frame: SessionWireFrame,
     ): ByteArray {
         val canonicalRecord = sessionStore.loadActiveCanonical(remoteDeviceId, frame.sessionEpoch)
+        val hadPendingEpoch2 = loadPendingEpoch2Initiator(remoteDeviceId) != null
 
         if (shouldBootstrapFromInboundHandshake(frame, canonicalRecord)) {
-            decryptFromInboundHandshake(remoteDeviceId, frame, canonicalRecord)?.let { return it }
+            decryptFromInboundHandshake(remoteDeviceId, frame, canonicalRecord, hadPendingEpoch2)?.let { return it }
         }
 
-        return decryptWithExistingSession(remoteDeviceId, frame)
+        return decryptWithExistingSession(remoteDeviceId, frame, hadPendingEpoch2)
     }
 
     /**
@@ -177,12 +179,25 @@ class DefaultCryptoSessionManager(
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
         canonicalRecord: CryptoSessionRecord?,
+        hadPendingEpoch2: Boolean,
     ): ByteArray? {
         handleInboundGenerationReset(remoteDeviceId, frame, canonicalRecord)
 
         val bootstrapped = try {
             bootstrapFromFrame(remoteDeviceId, frame)
-        } catch (_: CryptoSessionException.HandshakeRequired) {
+        } catch (error: Exception) {
+            if (!isEpoch2OpkBootstrapFailure(frame, error)) {
+                throw error
+            }
+            logger.debug(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_OPENED,
+                message = "Deferred epoch-2 bootstrap; continuing on epoch-1",
+                fields = mapOf(
+                    "peerDeviceId" to remoteDeviceId,
+                    "reason" to (error.message ?: error::class.simpleName.orEmpty()),
+                ),
+            )
             return null
         }
 
@@ -243,6 +258,7 @@ class DefaultCryptoSessionManager(
             ),
             inner = inner,
         )
+        maybePromoteEpoch2ForEncrypt(remoteDeviceId, frame, hadPendingEpoch2)
         return inner.bytes
     }
 
@@ -281,15 +297,16 @@ class DefaultCryptoSessionManager(
     private suspend fun decryptWithExistingSession(
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
+        hadPendingEpoch2: Boolean,
     ): ByteArray {
         val records = sessionStore.loadSessions(remoteDeviceId, frame.sessionEpoch)
             .filter { it.meta.sessionGeneration == frame.sessionGeneration }
         records.find { it.ratchetState.remoteDhPublicKey.contentEquals(frame.ratchet.dhPublicKey) }
-            ?.let { return decryptAndPersist(remoteDeviceId, frame, it) }
+            ?.let { return decryptAndPersist(remoteDeviceId, frame, it, hadPendingEpoch2) }
 
         for (record in records.sortedBy { it.meta.status }) {
             try {
-                return decryptAndPersist(remoteDeviceId, frame, record)
+                return decryptAndPersist(remoteDeviceId, frame, record, hadPendingEpoch2)
             } catch (_: Exception) {
                 // try next candidate session for this epoch
             }
@@ -301,6 +318,7 @@ class DefaultCryptoSessionManager(
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
         record: CryptoSessionRecord,
+        hadPendingEpoch2: Boolean,
     ): ByteArray {
         val loaded = LoadedSession(
             session = DoubleRatchetSession.fromState(crypto, record.ratchetState),
@@ -317,6 +335,7 @@ class DefaultCryptoSessionManager(
             record = record.copy(ratchetState = loaded.session.snapshot()),
             inner = inner,
         )
+        maybePromoteEpoch2ForEncrypt(remoteDeviceId, frame, hadPendingEpoch2)
         return inner.bytes
     }
 
@@ -393,12 +412,12 @@ class DefaultCryptoSessionManager(
             ephemeral = ephemeral,
         )
         val session = DoubleRatchetSession.createInitiator(crypto, result.ratchetBootstrap)
+        zeroizeInitiatorEphemeralMaterial(ephemeral, result)
         val now = timeProvider.nowEpochSeconds()
         val meta = CryptoSessionMeta(
             role = SessionRole.INITIATOR,
             x3dhMode = X3dhMode.THREE_DH,
             handshakeSpkId = remote.signedPreKeyId,
-            initiatorEphemeralPrivateKey = result.ephemeralKeyPair.privateKey,
             initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey,
             sessionGeneration = sessionGeneration,
             createdAtEpochSeconds = now,
@@ -499,6 +518,9 @@ class DefaultCryptoSessionManager(
         if (sessionStore.loadActiveCanonical(peerDeviceId, sessionEpoch = 2) != null) {
             return
         }
+        if (loadPendingEpoch2Initiator(peerDeviceId) != null) {
+            return
+        }
         val epoch1 = sessionStore.loadActiveCanonical(peerDeviceId, sessionEpoch = 1)
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
         val remote = identityResolver.resolvePeerX3dhRemoteKeys(
@@ -519,14 +541,15 @@ class DefaultCryptoSessionManager(
             oneTimePreKeyId = offer.opkId,
         )
         val session = DoubleRatchetSession.createInitiator(crypto, result.ratchetBootstrap)
+        zeroizeInitiatorEphemeralMaterial(ephemeral, result)
         val now = timeProvider.nowEpochSeconds()
         val meta = CryptoSessionMeta(
             role = SessionRole.INITIATOR,
             x3dhMode = X3dhMode.FOUR_DH,
             handshakeSpkId = remote.signedPreKeyId,
             handshakeOpkId = offer.opkId,
-            initiatorEphemeralPrivateKey = ephemeral.privateKey,
-            initiatorEphemeralPublicKey = ephemeral.publicKey,
+            initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey,
+            status = SessionStatus.PENDING,
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
         )
@@ -555,27 +578,41 @@ class DefaultCryptoSessionManager(
             return RatchetInnerPlaintext.Payload(inner)
         }
 
-        val offered = resolveOfferedOpk(loaded.meta)
-        val initiatorEphemeral = loaded.meta.initiatorEphemeralPublicKey ?: return RatchetInnerPlaintext.Payload(inner)
-        val sessionBinding = OpkOfferBinding.compute(
-            crypto = crypto,
-            localDeviceId = identityResolver.getLocalDeviceId(),
-            peerDeviceId = peerDeviceId,
-            sessionEpoch = 1,
-            sessionGeneration = loaded.meta.sessionGeneration,
-            handshakeSpkId = loaded.meta.handshakeSpkId,
-            initiatorEphemeralPublicKey = initiatorEphemeral,
-        )
-        return RatchetInnerPlaintext.WithControl(
-            inner,
-            InnerSessionControl.OpkOffer(
+        return try {
+            val offered = resolveOfferedOpk(loaded.meta)
+            val initiatorEphemeral = loaded.meta.initiatorEphemeralPublicKey
+                ?: return RatchetInnerPlaintext.Payload(inner)
+            val sessionBinding = OpkOfferBinding.compute(
+                crypto = crypto,
+                localDeviceId = identityResolver.getLocalDeviceId(),
+                peerDeviceId = peerDeviceId,
                 sessionEpoch = 1,
                 sessionGeneration = loaded.meta.sessionGeneration,
-                opkId = offered.keyId,
-                opkPublicKey = offered.publicKey,
-                sessionBinding = sessionBinding,
-            ),
-        )
+                handshakeSpkId = loaded.meta.handshakeSpkId,
+                initiatorEphemeralPublicKey = initiatorEphemeral,
+            )
+            RatchetInnerPlaintext.WithControl(
+                inner,
+                InnerSessionControl.OpkOffer(
+                    sessionEpoch = 1,
+                    sessionGeneration = loaded.meta.sessionGeneration,
+                    opkId = offered.keyId,
+                    opkPublicKey = offered.publicKey,
+                    sessionBinding = sessionBinding,
+                ),
+            )
+        } catch (error: Exception) {
+            logger.debug(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_OPENED,
+                message = "Skipped OPK offer; continuing on epoch-1 3-DH",
+                fields = mapOf(
+                    "peerDeviceId" to peerDeviceId,
+                    "reason" to (error.message ?: error::class.simpleName.orEmpty()),
+                ),
+            )
+            RatchetInnerPlaintext.Payload(inner)
+        }
     }
 
     private suspend fun resolveOfferedOpk(meta: CryptoSessionMeta): LocalOneTimePreKey {
@@ -585,6 +622,58 @@ class DefaultCryptoSessionManager(
         val opk = oneTimePreKeyStore.allocate()
         oneTimePreKeyStore.markOffered(opk.keyId)
         return opk
+    }
+
+    private suspend fun loadPendingEpoch2Initiator(peerDeviceId: PeerId): CryptoSessionRecord? =
+        sessionStore.loadSessions(peerDeviceId, sessionEpoch = 2)
+            .firstOrNull {
+                it.canonical &&
+                    it.meta.status == SessionStatus.PENDING &&
+                    it.meta.role == SessionRole.INITIATOR
+            }
+
+    private suspend fun maybePromoteEpoch2ForEncrypt(
+        peerDeviceId: PeerId,
+        frame: SessionWireFrame,
+        hadPendingEpoch2BeforeDecrypt: Boolean,
+    ) {
+        if (frame.sessionEpoch != 1 || !hadPendingEpoch2BeforeDecrypt) {
+            return
+        }
+        promotePendingEpoch2ForEncrypt(peerDeviceId)
+    }
+
+    private suspend fun promotePendingEpoch2ForEncrypt(peerDeviceId: PeerId) {
+        val pending = loadPendingEpoch2Initiator(peerDeviceId) ?: return
+        val now = timeProvider.nowEpochSeconds()
+        sessionStore.save(
+            pending.copy(
+                meta = pending.meta.copy(
+                    status = SessionStatus.ACTIVE,
+                    updatedAtEpochSeconds = now,
+                ),
+            ),
+        )
+        logger.debug(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.ENVELOPE_OPENED,
+            message = "Promoted pending epoch-2 session for outbound encrypt",
+            fields = mapOf("peerDeviceId" to peerDeviceId),
+        )
+    }
+
+    private fun isEpoch2OpkBootstrapFailure(frame: SessionWireFrame, error: Exception): Boolean {
+        if (frame.sessionEpoch != 2) {
+            return false
+        }
+        return when (error) {
+            is CryptoSessionException.HandshakeRequired,
+            is CryptoSessionException.MissingOfferedOpk,
+            is CryptoSessionException.OpkConsumeFailed,
+            -> true
+            is IllegalArgumentException -> error.message?.contains("signedPreKeyId mismatch") == true
+            else -> false
+        }
     }
 
     private fun shouldAttachOutboundWire(loaded: LoadedSession, epoch: Int): Boolean {
@@ -652,6 +741,14 @@ class DefaultCryptoSessionManager(
         var meta: CryptoSessionMeta,
     )
 
+    private fun zeroizeInitiatorEphemeralMaterial(
+        ephemeral: EncryptionKeyPair,
+        result: X3dhInitiatorResult,
+    ) {
+        ephemeral.privateKey.fill(0)
+        result.ephemeralKeyPair.privateKey.fill(0)
+    }
+
     private class PeerLockRegistry {
         private val registryMutex = Mutex()
         private val locks = mutableMapOf<String, Mutex>()
@@ -664,21 +761,4 @@ class DefaultCryptoSessionManager(
         }
     }
 
-}
-
-sealed class CryptoSessionException(message: String) : Exception(message) {
-    class NoSession(peerDeviceId: PeerId, sessionEpoch: Int) :
-        CryptoSessionException("No crypto session for peer=$peerDeviceId epoch=$sessionEpoch")
-
-    class HandshakeRequired(peerDeviceId: PeerId) :
-        CryptoSessionException("Handshake required for peer=$peerDeviceId")
-
-    class MissingInitiatorEphemeral(peerDeviceId: PeerId) :
-        CryptoSessionException("Missing initiator ephemeral key for peer=$peerDeviceId")
-
-    class MissingOfferedOpk(peerDeviceId: PeerId) :
-        CryptoSessionException("Missing offered OPK for peer=$peerDeviceId")
-
-    class OpkConsumeFailed(opkId: String) :
-        CryptoSessionException("Failed to consume one-time prekey id=$opkId")
 }

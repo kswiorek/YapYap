@@ -27,7 +27,7 @@ data class CryptoSessionMeta(
 )
 
 enum class SessionRole { INITIATOR, RESPONDER }
-enum class SessionStatus { ACTIVE, SUPERSEDED }
+enum class SessionStatus { ACTIVE, PENDING, SUPERSEDED }
 
 interface CryptoSessionStore {
     /** Canonical [SessionStatus.ACTIVE] session for encrypt and session orchestration. */
@@ -45,7 +45,7 @@ interface CryptoSessionStore {
         canonical: Boolean,
     )
 
-    /** Highest epoch to use for new outbound encrypt (e.g. 2 if epoch-2 row exists). */
+    /** Highest [SessionStatus.ACTIVE] epoch to use for new outbound encrypt. */
     suspend fun latestEncryptEpoch(peerDeviceId: PeerId): Int?
 
     suspend fun latestGeneration(peerDeviceId: PeerId, sessionEpoch: Int, role: SessionRole): Int?

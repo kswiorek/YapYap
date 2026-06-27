@@ -15,6 +15,7 @@ Primary implementation locations:
 | Double Ratchet | `org.yapyap.backend.crypto.e2ee.DoubleRatchetSession` |
 | Session orchestration | `org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager` |
 | OPK store | `org.yapyap.backend.db.DefaultOneTimePreKeyStore` |
+| OPK offer binding | `org.yapyap.backend.crypto.e2ee.OpkOfferBinding` |
 | Crypto housekeeping | `org.yapyap.backend.crypto.e2ee.DefaultCryptoHousekeeping` |
 | Wire codec | `org.yapyap.backend.crypto.e2ee.SessionWireFrame`, `RatchetCiphertext` |
 | Envelope integration | `org.yapyap.backend.protection.SignedAndEncryptedMessageProtection` |
@@ -74,10 +75,12 @@ Within each `sessionEpoch`, a **`sessionGeneration`** counter distinguishes succ
 
 1. Alice (initiator) sends epoch-1 message with 3-DH `outerHandshake`.
 2. Bob (responder) decrypts, bootstraps epoch 1.
-3. Bob's first reply may include `InnerSessionControl.OpkOffer` (when `SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY` is enabled).
-4. Alice decrypts the offer and calls `createEpoch2AsInitiator` with a **fresh ephemeral** key pair.
-5. Alice's next outbound messages use `sessionEpoch = 2` and a new 4-DH `outerHandshake`.
-6. Bob bootstraps epoch 2 on first inbound epoch-2 frame, consuming the offered OPK.
+3. Bob's outbound epoch-1 messages include `InnerSessionControl.OpkOffer` (when `SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY` is enabled) — same OPK re-offered until epoch 2 is confirmed, not only on the first reply.
+4. Alice decrypts the offer on the **canonical active** epoch-1 initiator session, verifies `sessionBinding`, and creates a **pending** epoch-2 initiator session (`SessionStatus.PENDING`) with a fresh ephemeral key pair.
+5. Alice keeps encrypting epoch-1 until she decrypts a **subsequent** epoch-1 message from Bob (promotes pending → `ACTIVE`); then outbound uses `sessionEpoch = 2` with a new 4-DH `outerHandshake`.
+6. Bob bootstraps epoch 2 on first inbound epoch-2 frame, consuming the offered OPK. If OPK bootstrap fails (missing offer, consume failure, SPK mismatch), decrypt fails for that frame only and epoch-1 continues; Bob keeps re-offering until upgrade succeeds.
+
+**Fail-soft OPK policy:** Bob skips `OpkOffer` attachment when OPK allocation/mark fails; Alice ignores invalid offers. Both sides can stay on 3-DH indefinitely.
 
 ---
 
@@ -133,7 +136,7 @@ Tampering with any header field causes AEAD verification failure rather than sil
 
 ### Session lifecycle (supersede & maintenance)
 
-- **`ACTIVE` / `SUPERSEDED`** — `markSuperseded` is used after simultaneous-init tie-break, peer reset (`sessionGeneration` bump), and idle canonical supersede (`DefaultCryptoHousekeeping`).
+- **`ACTIVE` / `PENDING` / `SUPERSEDED`** — epoch-2 initiator rows start `PENDING` until promoted after the next inbound epoch-1 message; `latestEncryptEpoch` counts only `ACTIVE` rows. Abandoned `PENDING` epoch-2 rows are **deleted** by `DefaultCryptoHousekeeping` after `pendingEpoch2RetentionSeconds` (default 2 days, aligned with offer TTL). `markSuperseded` is used after simultaneous-init tie-break, peer reset (`sessionGeneration` bump), and idle canonical supersede.
 - **Canonical invariant** — at most one `ACTIVE` canonical row per `(peer, sessionEpoch)`; partial unique index in `Crypto.sq`.
 - **`sessionGeneration`** — on wire (`SessionWireFrame` + `X3dhWireInfo`) and in `CryptoSessionMeta`; new bootstrap bumps generation instead of overwriting superseded rows.
 - **Retention** — superseded rows kept for `supersededRetentionSeconds` from supersede time (`updatedAtEpochSeconds` refreshed on `markSuperseded` / `markEpochSuperseded`), then deleted; idle canonical rows superseded after `canonicalIdleSupersedeSeconds`.
@@ -146,10 +149,11 @@ Tampering with any header field causes AEAD verification failure rather than sil
 
 - X3DH DH term ordering (DH1–DH4) per standard construction
 - Signed prekey signature verification in `IdentityResolver.resolvePeerX3dhRemoteKeys`
-- Double Ratchet with out-of-order support (`skipMessageKeys`, `MAX_SKIP = 256`)
+- Double Ratchet with out-of-order support (`skipMessageKeys`, `MAX_SKIP = 256`); skipped keys keyed by `(remoteDh, messageNumber)`; superseded DH chains tombstoned via `RatchetSkippedKeyId.SUPERSEDED_DH_CHAIN` in the same `skipped_message_keys` blob (no extra DB columns)
 - Session state persistence (`crypto_sessions` table)
 - Per-peer mutex in `DefaultCryptoSessionManager`
 - OPK lifecycle (`OpkStatus`, offer TTL prune) in `DefaultOneTimePreKeyStore` + `DefaultCryptoHousekeeping`
+- `OpkOffer` session binding (`OpkOfferBinding`) + canonical-only epoch-2 upgrade
 - Envelope-level Ed25519 signing over the encrypted payload
 
 ---
@@ -211,7 +215,7 @@ Status legend: **✅ Fixed** · **🟡 Partially fixed** · **⬜ Open**
 
 #### 4. Dual-epoch overlap not managed — ✅ Fixed
 
-When epoch 2 is created on the initiator, `latestEncryptEpoch` immediately returns `2`. The initiator stops sending epoch-1 frames; the responder may still receive late epoch-1 messages (decrypt still works via `frame.sessionEpoch`).
+Epoch-2 upgrade is deferred: the initiator keeps sending epoch-1 until pending epoch-2 is promoted (after the next inbound epoch-1 message post-offer). `latestEncryptEpoch` returns `2` only when epoch-2 is `ACTIVE`.
 
 **Implemented:**
 
@@ -222,7 +226,7 @@ When epoch 2 is created on the initiator, `latestEncryptEpoch` immediately retur
 - Epoch-1 generation reset supersedes all epoch-2 rows for that peer.
 - **Epoch-2 confirmation supersede** — `onEpoch2Confirmed` calls `markEpochSuperseded(peer, epoch = 1)` once epoch 2 decrypt succeeds on that device (responder bootstrap or initiator first epoch-2 reply). Epoch 1 stays `ACTIVE` until then so late epoch-1 delivery still works during the upgrade window; after supersede, rows are retained for `supersededRetentionSeconds` (measured from supersede time) and remain decryptable until pruned.
 
-**Tests:** `epoch2_aliceEncryptsBobDecrypts_afterOpkOffer` (responder), `epoch2_confirmed_marksEpoch1SupersededOnInitiatorAfterPeerReply` (initiator), `epoch2_supersedeEpoch1_retentionMeasuredFromSupersedeTime`.
+**Tests:** `epoch2_aliceEncryptsBobDecrypts_afterOpkOffer` (responder), `epoch2_confirmed_marksEpoch1SupersededOnInitiatorAfterPeerReply` (initiator), `epoch2_supersedeEpoch1_retentionMeasuredFromSupersedeTime`, `epoch2_encryptDeferredUntilNextInboundAfterOffer`, `epoch2_earlyEpoch2SendBeforePromote_recoversOnEpoch1`, `epoch2_bootstrapFailsSoft_missingOfferedOpk_staysOnEpoch1`, `epoch2_skipsOpkOfferWhenOpkUnavailable`.
 
 #### 5. OPK pool lifecycle — ✅ Fixed (offer TTL); pool provisioning deferred
 
@@ -239,25 +243,34 @@ When Bob sends `OpkOffer`, `oneTimePreKeyStore.allocate()` creates an OPK. If Al
 
 **Tests:** `DefaultOneTimePreKeyStoreJvmTest`, `DefaultCryptoSessionManagerTest.housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta`.
 
-#### 6. OpkOffer binding — ⬜ Open
+#### 6. OpkOffer binding — ✅ Fixed
 
-Alice trusts `offer.opkPublicKey` from the decrypted control block without additional binding to the epoch-1 session. Cryptographically, 4-DH fails if wrong, but cross-session confusion is possible.
+Alice previously trusted `offer.opkPublicKey` from the decrypted control block without binding to the epoch-1 session. Cryptographically, 4-DH fails if wrong, but cross-session confusion was possible (e.g. late offer from a superseded generation).
 
-**Fix direction (optional):** Bind offer to epoch-1 session (e.g. hash of root key or handshake transcript) in the control message.
+**Implemented:**
 
-#### 7. Sensitive key material in persistence — ⬜ Open
+- Extended `OpkOffer` with `sessionEpoch`, `sessionGeneration`, and `sessionBinding` (32-byte HKDF over handshake transcript: `handshakeSpkId` + initiator ephemeral public key + ordered peer ids + epoch/generation). Uses handshake material rather than ratchet root key, which diverges between initiator and responder after the first reply.
+- Responder bootstrap stores `initiatorEphemeralPublicKey` from wire for binding on the Bob side.
+- `maybeUpgradeToEpoch2` accepts offers only when decrypting on **canonical `ACTIVE` epoch-1 initiator** session with matching generation and valid `sessionBinding`; invalid offers are ignored (plaintext still delivered).
+- Bob **re-offers the same OPK** on every epoch-1 outbound message until epoch-2 is confirmed (`loadOffered` + `offeredOpkId` reuse), supporting out-of-order delivery and delayed upgrade.
+
+**Tests:** `DefaultCryptoSessionManagerTest` — `opkOfferBinding_matchesAcrossPeers`, `epoch2_reoffersSameOpkOnSubsequentMessages`, `epoch2_ignoresOfferDecryptedOnSupersededGeneration`, `epoch2_rejectsOfferWithInvalidBinding`; `innerPlaintext_withOpkOffer_roundTrip`.
+
+#### 7. Sensitive key material in persistence — 🟡 Partially fixed (persistence); RAM wipe deferred
 
 `crypto_sessions` stores:
 
-- `initiator_ephemeral_private_key`
-- `skipped_message_keys` (derived message keys)
-- Full ratchet chain state
+- `initiator_ephemeral_private_key` — **no longer written** for initiator sessions after X3DH bootstrap (epoch 1 and pending epoch 2); in-memory copies are zeroed. Public ephemeral is retained for handshake re-attach and `OpkOffer` binding.
+- `skipped_message_keys` — bounded in practice: per-step skip capped by `MAX_SKIP = 256`; superseded DH chains tombstoned and drained; idle session supersede + retention prune drops whole rows when unused.
+- Full ratchet chain state (still at rest under SQLCipher; RAM wipe tracked separately below).
 
-SQLCipher protects at rest, but for release hardening consider:
+SQLCipher protects at rest. Persistence hardening:
 
-- Zeroing ephemeral private keys after epoch-2 bootstrap completes.
-- Bounding persisted `skipped_message_keys` size.
-- RAM wipe behavior (Sprint 7 goal).
+- ~~Zeroing ephemeral private keys after epoch-2 bootstrap completes.~~ ✅ Initiator ephemeral private keys zeroed in RAM and omitted from persistence after 3-DH / 4-DH bootstrap.
+- ~~Bounding persisted `skipped_message_keys` size.~~ ✅ Superseded receive DH chains tombstoned in the existing skipped-keys map; late decrypt on old chains; orphan superseded headers fail closed; markers pruned when chain drained; session rows pruned by housekeeping when idle/superseded.
+- RAM wipe behavior (Sprint 7 goal) — ⬜ deferred.
+
+**Tests:** `initiatorEphemeralPrivateKey_notPersistedAfterBootstrap`; `DoubleRatchetSessionTest` — `decrypt_lateMessageOnSupersededDhChain_usesSkippedKey`, `decrypt_orphanOnSupersededDhChain_failsWithoutSkippedKey`, `snapshot_restore_preservesSupersededDhSkippedKeys`.
 
 ---
 
@@ -344,7 +357,7 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 |------|---------|
 | `Payload` | Application bytes |
 | `WithControl` | Application bytes + optional `InnerSessionControl` |
-| `OpkOffer` | `opkId` + `opkPublicKey` for epoch-2 upgrade |
+| `OpkOffer` | `sessionEpoch`, `sessionGeneration`, `opkId`, `opkPublicKey`, `sessionBinding` for epoch-2 upgrade |
 
 ---
 
@@ -356,7 +369,7 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 |------------|----------|
 | `X3dhHandshakeTest` | 3-DH / 4-DH shared secret agreement, SPK/OPK ID mismatch rejection |
 | `DoubleRatchetSessionTest` | Round-trip, bidirectional, out-of-order, snapshot restore, skip gap limit, header/body tamper rejection |
-| `DefaultCryptoSessionManagerTest` | Epoch-1 bootstrap, wire epoch/SPK mismatch rejection, bidirectional, out-of-order, simultaneous init, handshake re-attach, epoch-2 OPK upgrade + confirmation supersede, crypto housekeeping, `sessionGeneration` |
+| `DefaultCryptoSessionManagerTest` | Epoch-1 bootstrap, wire epoch/SPK mismatch rejection, bidirectional, out-of-order, simultaneous init, handshake re-attach, epoch-2 OPK upgrade + binding + re-offer, confirmation supersede, crypto housekeeping, `sessionGeneration` |
 | `DefaultOneTimePreKeyStoreJvmTest` | OPK allocate/offer/consume lifecycle, expired-offer prune + key deletion |
 | `KmpCryptoProviderTest` | AEAD round-trip, AAD round-trip, tamper rejection |
 
@@ -372,7 +385,10 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | Idle supersede → new generation handshake round-trip | P1 | ✅ `idleSupersede_newGenerationHandshakeRoundTrip` |
 | Superseded session still decrypts late message | P1 | ✅ `supersededSession_stillDecryptsLateGen1Message` |
 | Prune respects retention per generation | P1 | ✅ `peerMaintenance_pruneRespectsRetention_perGeneration` |
-| Epoch-2 send before peer processed OpkOffer | P1 | ⬜ |
+| Stale `OpkOffer` from superseded generation ignored | P1 | ✅ `epoch2_ignoresOfferDecryptedOnSupersededGeneration` |
+| Invalid `OpkOffer` session binding rejected | P1 | ✅ `epoch2_rejectsOfferWithInvalidBinding` |
+| Same OPK re-offered on subsequent epoch-1 messages | P1 | ✅ `epoch2_reoffersSameOpkOnSubsequentMessages` |
+| Epoch-2 send before peer processed OpkOffer | P1 | ✅ `epoch2_encryptDeferredUntilNextInboundAfterOffer`, `epoch2_earlyEpoch2SendBeforePromote_recoversOnEpoch1`, `epoch2_bootstrapFailsSoft_missingOfferedOpk_staysOnEpoch1` |
 | Replay old ratchet frame in new envelope | P2 | ⬜ |
 | Unused OpkOffer after timeout | P1 | ✅ `housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta`, `DefaultOneTimePreKeyStoreJvmTest` |
 
@@ -398,3 +414,7 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | 2026-06-26 | P1.4 completed: `markEpochSuperseded` refreshes `updatedAt`; retention measured from supersede time. |
 | 2026-06-26 | P0.3 completed: epoch-2 responder rejects `signedPreKeyId` not pinned to epoch-1 session. |
 | 2026-06-27 | P1.5 completed: `OpkStatus` lifecycle, offered-OPK TTL prune via `DefaultCryptoHousekeeping`; bulk pool provisioning deferred. |
+| 2026-06-27 | P1.6 completed: `OpkOffer` session binding, canonical-only upgrade, same-OPK re-offer until epoch-2 confirmed. |
+| 2026-06-27 | Fail-soft optional OPK upgrade: deferred epoch-2 encrypt (`PENDING` → promote), skip offer on OPK failure, soft epoch-2 bootstrap failure. |
+| 2026-06-27 | Housekeeping deletes stale `PENDING` epoch-2 sessions after `pendingEpoch2RetentionSeconds`. |
+| 2026-06-27 | P1.7 persistence hardening: initiator ephemeral private keys not persisted; skipped-keys superseded-DH tombstones + session housekeeping bounds exposure. RAM wipe still deferred. |

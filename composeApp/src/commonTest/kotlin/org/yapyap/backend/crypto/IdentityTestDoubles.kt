@@ -297,3 +297,17 @@ internal class InMemoryOneTimePreKeyStore(
 
     fun status(opkId: String): OpkStatus? = keys[opkId]?.status
 }
+
+/** [OneTimePreKeyStore] that fails allocation for fail-soft offer tests. */
+internal class FailingAllocateOneTimePreKeyStore : OneTimePreKeyStore {
+    override suspend fun allocate(): LocalOneTimePreKey =
+        throw IllegalStateException("OPK pool exhausted")
+
+    override suspend fun markOffered(opkId: String) = Unit
+
+    override suspend fun consume(opkId: String): LocalOneTimePreKey? = null
+
+    override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? = null
+
+    override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> = emptyList()
+}

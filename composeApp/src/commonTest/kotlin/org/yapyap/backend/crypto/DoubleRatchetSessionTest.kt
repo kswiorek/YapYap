@@ -3,7 +3,9 @@ package org.yapyap.backend.crypto
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.yapyap.backend.crypto.e2ee.CryptoSessionException
 import org.yapyap.backend.crypto.e2ee.DoubleRatchetSession
 import org.yapyap.backend.crypto.e2ee.RatchetBootstrap
 import org.yapyap.backend.crypto.e2ee.RatchetCiphertext
@@ -190,6 +192,73 @@ class DoubleRatchetSessionTest {
         assertFailsWith<Exception> {
             bob.decrypt(tamperedM0)
         }
+    }
+
+    @Test
+    fun decrypt_lateMessageOnSupersededDhChain_usesSkippedKey() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val m0 = alice.encrypt("m0".encodeToByteArray())
+        val m1 = alice.encrypt("m1".encodeToByteArray())
+        val m2 = alice.encrypt("m2".encodeToByteArray())
+        val oldDh = m0.dhPublicKey.copyOf()
+
+        bob.decrypt(m2)
+        val bobReply = bob.encrypt(byteArrayOf(99))
+        alice.decrypt(bobReply)
+        bob.decrypt(alice.encrypt("m3".encodeToByteArray()))
+
+        assertContentEquals("m0".encodeToByteArray(), bob.decrypt(m0))
+        assertContentEquals("m1".encodeToByteArray(), bob.decrypt(m1))
+        assertTrue(bob.snapshot().skippedMessageKeys.keys.none { it.dhPublicKey.contentEquals(oldDh) })
+    }
+
+    @Test
+    fun decrypt_orphanOnSupersededDhChain_failsWithoutSkippedKey() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val m0 = alice.encrypt(byteArrayOf(1))
+        alice.encrypt(byteArrayOf(2))
+        val m2 = alice.encrypt(byteArrayOf(3))
+
+        bob.decrypt(m2)
+        val bobReply = bob.encrypt(byteArrayOf(4))
+        alice.decrypt(bobReply)
+        bob.decrypt(alice.encrypt(byteArrayOf(5)))
+
+        val orphan = m0.copy(messageNumber = m0.messageNumber + 50)
+        assertFailsWith<CryptoSessionException.SupersededDhChain> {
+            bob.decrypt(orphan)
+        }
+    }
+
+    @Test
+    fun snapshot_restore_preservesSupersededDhSkippedKeys() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val m0 = alice.encrypt("m0".encodeToByteArray())
+        alice.encrypt("m1".encodeToByteArray())
+        val m2 = alice.encrypt("m2".encodeToByteArray())
+
+        bob.decrypt(m2)
+        val bobReply = bob.encrypt(byteArrayOf(7))
+        alice.decrypt(bobReply)
+        bob.decrypt(alice.encrypt("m3".encodeToByteArray()))
+
+        val snap = bob.snapshot()
+        assertTrue(
+            snap.skippedMessageKeys.keys.any {
+                it.isSupersededDhMarker && it.dhPublicKey.contentEquals(m0.dhPublicKey)
+            },
+        )
+        val restored = DoubleRatchetSession.fromState(crypto, snap)
+        assertContentEquals("m0".encodeToByteArray(), restored.decrypt(m0))
     }
 
     private suspend fun testBootstraps(): Pair<RatchetBootstrap, RatchetBootstrap> {

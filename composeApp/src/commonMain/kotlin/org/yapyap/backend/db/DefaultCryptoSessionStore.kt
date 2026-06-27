@@ -24,7 +24,9 @@ class DefaultCryptoSessionStore(
         ).executeAsList().map { it.toRecord(peerDeviceId) }
 
     override suspend fun save(record: CryptoSessionRecord) {
-        if (record.canonical && record.meta.status == SessionStatus.ACTIVE) {
+        if (record.canonical &&
+            (record.meta.status == SessionStatus.ACTIVE || record.meta.status == SessionStatus.PENDING)
+        ) {
             demoteOtherCanonicalSessions(
                 record.peerDeviceId,
                 record.sessionEpoch,

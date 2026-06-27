@@ -10,6 +10,8 @@ import org.yapyap.backend.crypto.e2ee.InnerSessionControl
 import org.yapyap.backend.crypto.e2ee.RatchetCiphertext
 import org.yapyap.backend.crypto.e2ee.RatchetInnerPlaintext
 import org.yapyap.backend.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.backend.crypto.e2ee.CryptoSessionException
+import org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.backend.crypto.e2ee.maintainPeerSessions
 import org.yapyap.backend.db.OpkStatus
 import org.yapyap.backend.crypto.e2ee.OpkOfferBinding
@@ -298,6 +300,33 @@ class DefaultCryptoSessionManagerTest {
     }
 
     @Test
+    fun initiatorEphemeralPrivateKey_notPersistedAfterBootstrap() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, aliceStore, InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = MapBackedCryptoSessionStore(),
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+
+        alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
+        val epoch1 = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
+        assertNull(epoch1.meta.initiatorEphemeralPrivateKey)
+        assertNotNull(epoch1.meta.initiatorEphemeralPublicKey)
+
+        establishEpoch1Initiator(alice, bob, alicePeer, bobPeer)
+        deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
+        val pendingEpoch2 = aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single()
+        assertNull(pendingEpoch2.meta.initiatorEphemeralPrivateKey)
+        assertNotNull(pendingEpoch2.meta.initiatorEphemeralPublicKey)
+    }
+
+    @Test
     fun epoch2_opkOffer_createsSecondSessionOnAlice() = runTest {
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
@@ -330,7 +359,10 @@ class DefaultCryptoSessionManagerTest {
         )
         alice.decryptMessage(bobPeer.device.deviceId, bobReply)
 
-        assertNotNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 2))
+        val pendingEpoch2 = aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).singleOrNull()
+        assertNotNull(pendingEpoch2)
+        assertEquals(SessionStatus.PENDING, pendingEpoch2.meta.status)
+        assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 2))
     }
 
     @Test
@@ -365,6 +397,7 @@ class DefaultCryptoSessionManagerTest {
                 byteArrayOf(2),
             ),
         )
+        promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
 
         val epoch2Frame = alice.encryptMessage(
             bobPeer.device.deviceId,
@@ -539,16 +572,16 @@ class DefaultCryptoSessionManagerTest {
             bobPeer.device.deviceId,
             bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2)),
         )
+        promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
 
         val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
         val mismatched = epoch2Frame.copy(
             outerHandshake = epoch2Frame.outerHandshake!!.copy(signedPreKeyId = "wrong-spk"),
         )
 
-        val error = assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<CryptoSessionException.NoSession> {
             bob.decryptMessage(alicePeer.device.deviceId, mismatched)
         }
-        assertTrue(error.message!!.contains("signedPreKeyId mismatch"))
         assertNull(bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 2))
         assertEquals(0, bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 2).size)
     }
@@ -578,6 +611,12 @@ class DefaultCryptoSessionManagerTest {
             bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2)),
         )
         assertEquals(SessionStatus.ACTIVE, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.status)
+        assertEquals(
+            SessionStatus.PENDING,
+            aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single().meta.status,
+        )
+
+        promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
 
         val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
         bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
@@ -705,6 +744,7 @@ class DefaultCryptoSessionManagerTest {
         val staleEpoch1 = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!
         bobStore.save(staleEpoch1.copy(meta = staleEpoch1.meta.copy(updatedAtEpochSeconds = 0L)))
 
+        promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
         bob.decryptMessage(
             alicePeer.device.deviceId,
             alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3)),
@@ -1089,6 +1129,66 @@ class DefaultCryptoSessionManagerTest {
     }
 
     @Test
+    fun housekeeping_prunesStalePendingEpoch2Session() = runTest {
+        val testTime = FixedEpochSecondsProvider(300_000L)
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val config = CryptoSessionConfig(
+            pendingEpoch2RetentionSeconds = 60,
+            canonicalIdleSupersedeSeconds = 60 * 60 * 24,
+            supersededRetentionSeconds = 60 * 60,
+        )
+        val alice = managerForPeer(
+            crypto = crypto,
+            local = alicePeer,
+            peer = bobPeer,
+            sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            timeProvider = testTime,
+        )
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = MapBackedCryptoSessionStore(),
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+            timeProvider = testTime,
+        )
+
+        establishEpoch1Initiator(alice, bob, alicePeer, bobPeer)
+        deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
+
+        val pending = aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single()
+        assertEquals(SessionStatus.PENDING, pending.meta.status)
+        aliceStore.save(
+            pending.copy(
+                meta = pending.meta.copy(
+                    createdAtEpochSeconds = 0L,
+                    updatedAtEpochSeconds = 0L,
+                ),
+            ),
+        )
+
+        cryptoHousekeepingFor(
+            sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            sessionConfig = config,
+            timeProvider = testTime,
+        ).run(nowEpochSeconds = 300_000L)
+
+        assertEquals(0, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).size)
+        assertNotNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
+
+        deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
+        assertEquals(
+            SessionStatus.PENDING,
+            aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single().meta.status,
+        )
+    }
+
+    @Test
     fun housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta() = runTest {
         val testTime = FixedEpochSecondsProvider(200_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
@@ -1138,6 +1238,154 @@ class DefaultCryptoSessionManagerTest {
         assertEquals(
             null,
             bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId,
+        )
+    }
+
+    @Test
+    fun epoch2_encryptDeferredUntilNextInboundAfterOffer() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, aliceStore, InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = MapBackedCryptoSessionStore(),
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+
+        establishEpoch1Initiator(alice, bob, alicePeer, bobPeer)
+        deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
+
+        val stillEpoch1 = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(10))
+        assertEquals(1, stillEpoch1.sessionEpoch)
+        assertEquals(
+            SessionStatus.PENDING,
+            aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single().meta.status,
+        )
+    }
+
+    @Test
+    fun epoch2_skipsOpkOfferWhenOpkUnavailable() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = FailingAllocateOneTimePreKeyStore(),
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+        val aliceStore = MapBackedCryptoSessionStore()
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, aliceStore, InMemoryOneTimePreKeyStore(crypto))
+
+        establishEpoch1Initiator(alice, bob, alicePeer, bobPeer)
+        val reply = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
+
+        assertNull(bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId)
+        assertContentEquals(byteArrayOf(2), alice.decryptMessage(bobPeer.device.deviceId, reply))
+        assertEquals(0, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).size)
+    }
+
+    @Test
+    fun epoch2_bootstrapFailsSoft_missingOfferedOpk_staysOnEpoch1() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val bobOpkStore = InMemoryOneTimePreKeyStore(crypto)
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = bobOpkStore,
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+
+        establishEpoch1Initiator(alice, bob, alicePeer, bobPeer)
+        deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
+        promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
+
+        val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
+        val epoch1 = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!
+        bobStore.save(epoch1.copy(meta = epoch1.meta.copy(offeredOpkId = null)))
+
+        assertFailsWith<CryptoSessionException.NoSession> {
+            bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
+        }
+        assertNotNull(bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1))
+        assertNull(bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 2))
+    }
+
+    @Test
+    fun epoch2_earlyEpoch2SendBeforePromote_recoversOnEpoch1() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val bobStore = MapBackedCryptoSessionStore()
+        val bobOpkStore = InMemoryOneTimePreKeyStore(crypto)
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, aliceStore, InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = bobOpkStore,
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+
+        establishEpoch1Initiator(alice, bob, alicePeer, bobPeer)
+        deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
+
+        val epoch1WhilePending = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(10))
+        assertEquals(1, epoch1WhilePending.sessionEpoch)
+        assertContentEquals(byteArrayOf(10), bob.decryptMessage(alicePeer.device.deviceId, epoch1WhilePending))
+
+        promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
+        val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(11))
+        assertEquals(2, epoch2Frame.sessionEpoch)
+        assertContentEquals(byteArrayOf(11), bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame))
+        assertNotNull(bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 2))
+    }
+
+    private suspend fun establishEpoch1Initiator(
+        alice: DefaultCryptoSessionManager,
+        bob: DefaultCryptoSessionManager,
+        alicePeer: TestPeerIdentity,
+        bobPeer: TestPeerIdentity,
+    ) {
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+    }
+
+    private suspend fun deliverFirstOpkOfferToAlice(
+        alice: DefaultCryptoSessionManager,
+        bob: DefaultCryptoSessionManager,
+        alicePeer: TestPeerIdentity,
+        bobPeer: TestPeerIdentity,
+    ) {
+        alice.decryptMessage(
+            bobPeer.device.deviceId,
+            bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2)),
+        )
+    }
+
+    private suspend fun promoteAliceEpoch2Encrypt(
+        alice: DefaultCryptoSessionManager,
+        bob: DefaultCryptoSessionManager,
+        alicePeer: TestPeerIdentity,
+        bobPeer: TestPeerIdentity,
+    ) {
+        alice.decryptMessage(
+            bobPeer.device.deviceId,
+            bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(50)),
         )
     }
 
