@@ -18,6 +18,9 @@ interface OneTimePreKeyStore {
      */
     suspend fun consume(opkId: String): LocalOneTimePreKey?
 
+    /** Load an offered OPK without consuming it. Returns null when unavailable. */
+    suspend fun loadOffered(opkId: String): LocalOneTimePreKey?
+
     /**
      * Delete OFFERED OPKs offered before [cutoffEpochSeconds].
      * Private key material is removed. Returns pruned opk ids.

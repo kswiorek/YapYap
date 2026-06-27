@@ -12,6 +12,7 @@ import org.yapyap.backend.crypto.e2ee.RatchetInnerPlaintext
 import org.yapyap.backend.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.backend.crypto.e2ee.maintainPeerSessions
 import org.yapyap.backend.db.OpkStatus
+import org.yapyap.backend.crypto.e2ee.OpkOfferBinding
 import org.yapyap.backend.crypto.e2ee.SessionUpgradePolicy
 import org.yapyap.backend.crypto.e2ee.SessionWireFrame
 import org.yapyap.backend.crypto.e2ee.X3dhHandshake
@@ -69,19 +70,52 @@ class SessionWireCodecTest {
 
     @Test
     fun innerPlaintext_withOpkOffer_roundTrip() {
+        val binding = ByteArray(OpkOfferBinding.BINDING_LENGTH) { 7 }
         val original = RatchetInnerPlaintext.WithControl(
             bytes = "hello".encodeToByteArray(),
             control = InnerSessionControl.OpkOffer(
+                sessionEpoch = 1,
+                sessionGeneration = 2,
                 opkId = "opk-1",
                 opkPublicKey = byteArrayOf(4, 5, 6),
+                sessionBinding = binding,
             ),
         )
         val decoded = RatchetInnerPlaintext.decode(original.encode())
         require(decoded is RatchetInnerPlaintext.WithControl)
         assertContentEquals(original.bytes, decoded.bytes)
         require(decoded.control is InnerSessionControl.OpkOffer)
+        assertEquals(1, decoded.control.sessionEpoch)
+        assertEquals(2, decoded.control.sessionGeneration)
         assertEquals("opk-1", decoded.control.opkId)
         assertContentEquals(byteArrayOf(4, 5, 6), decoded.control.opkPublicKey)
+        assertContentEquals(binding, decoded.control.sessionBinding)
+    }
+
+    @Test
+    fun opkOfferBinding_matchesAcrossPeers() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val initiatorEphemeral = byteArrayOf(0x41, 0x42)
+        val fromAlice = OpkOfferBinding.compute(
+            crypto = crypto,
+            localDeviceId = alicePeer.device.deviceId,
+            peerDeviceId = bobPeer.device.deviceId,
+            sessionEpoch = 1,
+            sessionGeneration = 3,
+            handshakeSpkId = "spk-alice",
+            initiatorEphemeralPublicKey = initiatorEphemeral,
+        )
+        val fromBob = OpkOfferBinding.compute(
+            crypto = crypto,
+            localDeviceId = bobPeer.device.deviceId,
+            peerDeviceId = alicePeer.device.deviceId,
+            sessionEpoch = 1,
+            sessionGeneration = 3,
+            handshakeSpkId = "spk-alice",
+            initiatorEphemeralPublicKey = initiatorEphemeral,
+        )
+        assertContentEquals(fromAlice, fromBob)
     }
 
     private suspend fun sampleRatchetCiphertext(): RatchetCiphertext {
@@ -349,6 +383,136 @@ class DefaultCryptoSessionManagerTest {
             SessionStatus.SUPERSEDED,
             bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1).single().meta.status,
         )
+    }
+
+    @Test
+    fun epoch2_reoffersSameOpkOnSubsequentMessages() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val bobStore = MapBackedCryptoSessionStore()
+        val bobOpkStore = InMemoryOneTimePreKeyStore(crypto)
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, MapBackedCryptoSessionStore(), InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = bobOpkStore,
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+        bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
+        val firstOfferedOpkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
+
+        bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(3))
+        val secondOfferedOpkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
+
+        assertEquals(firstOfferedOpkId, secondOfferedOpkId)
+        assertEquals(OpkStatus.OFFERED, bobOpkStore.status(firstOfferedOpkId))
+    }
+
+    @Test
+    fun epoch2_ignoresOfferDecryptedOnSupersededGeneration() = runTest {
+        val testTime = FixedEpochSecondsProvider(100_000L)
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val config = CryptoSessionConfig(
+            canonicalIdleSupersedeSeconds = 60,
+            supersededRetentionSeconds = 60 * 60,
+        )
+        val alice = managerForPeer(
+            crypto = crypto,
+            local = alicePeer,
+            peer = bobPeer,
+            sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            sessionConfig = config,
+            timeProvider = testTime,
+        )
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = MapBackedCryptoSessionStore(),
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+            sessionConfig = config,
+            timeProvider = testTime,
+        )
+
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+        val gen1OfferFrame = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
+
+        val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
+        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        cryptoHousekeepingFor(
+            sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            sessionConfig = config,
+            timeProvider = testTime,
+        ).run(nowEpochSeconds = 100_000L)
+        assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
+
+        alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
+        assertEquals(2, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration)
+
+        alice.decryptMessage(bobPeer.device.deviceId, gen1OfferFrame)
+
+        assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 2))
+    }
+
+    @Test
+    fun epoch2_rejectsOfferWithInvalidBinding() = runTest {
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val bobStore = MapBackedCryptoSessionStore()
+        val bobOpkStore = InMemoryOneTimePreKeyStore(crypto)
+        val alice = managerForPeer(crypto, alicePeer, bobPeer, aliceStore, InMemoryOneTimePreKeyStore(crypto))
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = bobOpkStore,
+            upgradePolicy = SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
+        )
+
+        bob.decryptMessage(
+            alicePeer.device.deviceId,
+            alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
+        )
+
+        val bobSession = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!
+        val ratchet = DoubleRatchetSession.fromState(crypto, bobSession.ratchetState)
+        val tamperedOffer = RatchetInnerPlaintext.WithControl(
+            bytes = byteArrayOf(9),
+            control = InnerSessionControl.OpkOffer(
+                sessionEpoch = 1,
+                sessionGeneration = 1,
+                opkId = "tampered-opk",
+                opkPublicKey = byteArrayOf(1, 2, 3),
+                sessionBinding = ByteArray(OpkOfferBinding.BINDING_LENGTH),
+            ),
+        )
+        val frame = SessionWireFrame(
+            sessionEpoch = 1,
+            sessionGeneration = 1,
+            outerHandshake = null,
+            ratchet = ratchet.encrypt(tamperedOffer.encode()),
+        )
+
+        alice.decryptMessage(bobPeer.device.deviceId, frame)
+
+        assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 2))
     }
 
     @Test

@@ -14,6 +14,8 @@ Primary implementation locations:
 | X3DH | `org.yapyap.backend.crypto.e2ee.X3dhHandshake` |
 | Double Ratchet | `org.yapyap.backend.crypto.e2ee.DoubleRatchetSession` |
 | Session orchestration | `org.yapyap.backend.crypto.e2ee.DefaultCryptoSessionManager` |
+| OPK store | `org.yapyap.backend.db.DefaultOneTimePreKeyStore` |
+| Crypto housekeeping | `org.yapyap.backend.crypto.e2ee.DefaultCryptoHousekeeping` |
 | Wire codec | `org.yapyap.backend.crypto.e2ee.SessionWireFrame`, `RatchetCiphertext` |
 | Envelope integration | `org.yapyap.backend.protection.SignedAndEncryptedMessageProtection` |
 | Persistence | `org.yapyap.backend.db.DefaultCryptoSessionStore` |
@@ -131,7 +133,7 @@ Tampering with any header field causes AEAD verification failure rather than sil
 
 ### Session lifecycle (supersede & maintenance)
 
-- **`ACTIVE` / `SUPERSEDED`** — `markSuperseded` is used after simultaneous-init tie-break, peer reset (`sessionGeneration` bump), and idle canonical supersede (`maintainPeerSessions`).
+- **`ACTIVE` / `SUPERSEDED`** — `markSuperseded` is used after simultaneous-init tie-break, peer reset (`sessionGeneration` bump), and idle canonical supersede (`DefaultCryptoHousekeeping`).
 - **Canonical invariant** — at most one `ACTIVE` canonical row per `(peer, sessionEpoch)`; partial unique index in `Crypto.sq`.
 - **`sessionGeneration`** — on wire (`SessionWireFrame` + `X3dhWireInfo`) and in `CryptoSessionMeta`; new bootstrap bumps generation instead of overwriting superseded rows.
 - **Retention** — superseded rows kept for `supersededRetentionSeconds` from supersede time (`updatedAtEpochSeconds` refreshed on `markSuperseded` / `markEpochSuperseded`), then deleted; idle canonical rows superseded after `canonicalIdleSupersedeSeconds`.
@@ -147,7 +149,7 @@ Tampering with any header field causes AEAD verification failure rather than sil
 - Double Ratchet with out-of-order support (`skipMessageKeys`, `MAX_SKIP = 256`)
 - Session state persistence (`crypto_sessions` table)
 - Per-peer mutex in `DefaultCryptoSessionManager`
-- OPK consume-once semantics in `DefaultOneTimePreKeyStore`
+- OPK lifecycle (`OpkStatus`, offer TTL prune) in `DefaultOneTimePreKeyStore` + `DefaultCryptoHousekeeping`
 - Envelope-level Ed25519 signing over the encrypted payload
 
 ---
@@ -213,24 +215,29 @@ When epoch 2 is created on the initiator, `latestEncryptEpoch` immediately retur
 
 **Implemented:**
 
-- `markSuperseded` / `markEpochSuperseded` wired in manager and `maintainPeerSessions`.
+- `markSuperseded` / `markEpochSuperseded` wired in manager; peer session prune via `DefaultCryptoHousekeeping`.
 - `loadActiveCanonical` returns only `ACTIVE` canonical rows; encrypt bootstraps a new session when canonical is superseded.
 - `sessionGeneration` prevents overwriting superseded rows; late decrypt by generation.
-- Peer maintenance: idle canonical supersede + superseded retention prune.
+- Peer maintenance: idle canonical supersede + superseded retention prune (via `DefaultCryptoHousekeeping`).
 - Epoch-1 generation reset supersedes all epoch-2 rows for that peer.
 - **Epoch-2 confirmation supersede** — `onEpoch2Confirmed` calls `markEpochSuperseded(peer, epoch = 1)` once epoch 2 decrypt succeeds on that device (responder bootstrap or initiator first epoch-2 reply). Epoch 1 stays `ACTIVE` until then so late epoch-1 delivery still works during the upgrade window; after supersede, rows are retained for `supersededRetentionSeconds` (measured from supersede time) and remain decryptable until pruned.
 
 **Tests:** `epoch2_aliceEncryptsBobDecrypts_afterOpkOffer` (responder), `epoch2_confirmed_marksEpoch1SupersededOnInitiatorAfterPeerReply` (initiator), `epoch2_supersedeEpoch1_retentionMeasuredFromSupersedeTime`.
 
-#### 5. OPK pool lifecycle — ⬜ Open
+#### 5. OPK pool lifecycle — ✅ Fixed (offer TTL); pool provisioning deferred
 
-When Bob sends `OpkOffer`, `oneTimePreKeyStore.allocate()` creates an OPK. If Alice never upgrades (or the offer is lost), the OPK is never consumed and remains in the DB.
+When Bob sends `OpkOffer`, `oneTimePreKeyStore.allocate()` creates an OPK. If Alice never upgrades (or the offer is lost), the OPK was previously never consumed and remained in the DB indefinitely.
 
-**Fix direction:**
+**Implemented:**
 
-- Mark OPKs as `offered` vs `available`.
-- TTL / garbage-collect unused offers.
-- Replenish pool when low.
+- `OpkStatus` on `one_time_prekeys`: `ALLOCATED` → `OFFERED` → `CONSUMED`.
+- `markOffered(opkId)` when attaching `OpkOffer`; `consume(opkId)` requires `OFFERED`.
+- `offered_at_epoch_seconds` + `pruneExpiredOffers` (default retention `offeredOpkRetentionSeconds` = 2 days, aligned with message lifetime).
+- `DefaultCryptoHousekeeping` prunes expired offers, clears dangling `offeredOpkId` on sessions, and runs peer session maintenance.
+
+**Deferred:** bulk pool provisioning and replenish-when-low (future sprint).
+
+**Tests:** `DefaultOneTimePreKeyStoreJvmTest`, `DefaultCryptoSessionManagerTest.housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta`.
 
 #### 6. OpkOffer binding — ⬜ Open
 
@@ -349,7 +356,8 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 |------------|----------|
 | `X3dhHandshakeTest` | 3-DH / 4-DH shared secret agreement, SPK/OPK ID mismatch rejection |
 | `DoubleRatchetSessionTest` | Round-trip, bidirectional, out-of-order, snapshot restore, skip gap limit, header/body tamper rejection |
-| `DefaultCryptoSessionManagerTest` | Epoch-1 bootstrap, wire epoch/SPK mismatch rejection, bidirectional, out-of-order, simultaneous init, handshake re-attach, epoch-2 OPK upgrade + confirmation supersede, session supersede/maintenance, `sessionGeneration` |
+| `DefaultCryptoSessionManagerTest` | Epoch-1 bootstrap, wire epoch/SPK mismatch rejection, bidirectional, out-of-order, simultaneous init, handshake re-attach, epoch-2 OPK upgrade + confirmation supersede, crypto housekeeping, `sessionGeneration` |
+| `DefaultOneTimePreKeyStoreJvmTest` | OPK allocate/offer/consume lifecycle, expired-offer prune + key deletion |
 | `KmpCryptoProviderTest` | AEAD round-trip, AAD round-trip, tamper rejection |
 
 ### Integration tests (recommended backlog)
@@ -366,7 +374,7 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | Prune respects retention per generation | P1 | ✅ `peerMaintenance_pruneRespectsRetention_perGeneration` |
 | Epoch-2 send before peer processed OpkOffer | P1 | ⬜ |
 | Replay old ratchet frame in new envelope | P2 | ⬜ |
-| Unused OpkOffer after timeout | P1 | ⬜ |
+| Unused OpkOffer after timeout | P1 | ✅ `housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta`, `DefaultOneTimePreKeyStoreJvmTest` |
 
 ---
 
@@ -389,3 +397,4 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | 2026-06-26 | P0.3 wire epoch mismatch reject test; P1.4 epoch-2 confirmation supersede policy + tests. |
 | 2026-06-26 | P1.4 completed: `markEpochSuperseded` refreshes `updatedAt`; retention measured from supersede time. |
 | 2026-06-26 | P0.3 completed: epoch-2 responder rejects `signedPreKeyId` not pinned to epoch-1 session. |
+| 2026-06-27 | P1.5 completed: `OpkStatus` lifecycle, offered-OPK TTL prune via `DefaultCryptoHousekeeping`; bulk pool provisioning deferred. |

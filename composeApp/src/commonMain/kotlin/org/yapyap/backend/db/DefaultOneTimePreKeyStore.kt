@@ -71,6 +71,18 @@ class DefaultOneTimePreKeyStore(
         )
     }
 
+    override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? {
+        val row = database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return null
+        if (row.device_id != localDeviceId.id) return null
+        if (row.status != OpkStatus.ALLOCATED && row.status != OpkStatus.OFFERED) return null
+        val privateKey = keyStore.getKey(opkPrivateKeyRef(opkId)) ?: return null
+        return LocalOneTimePreKey(
+            keyId = row.opk_id,
+            publicKey = row.public_key,
+            privateKey = privateKey,
+        )
+    }
+
     override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> {
         val expiredIds = database.identityQueries
             .selectExpiredOfferedOneTimePreKeys(

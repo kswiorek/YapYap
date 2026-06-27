@@ -185,16 +185,25 @@ sealed interface RatchetInnerPlaintext {
 }
 
 sealed interface InnerSessionControl {
-    data class OpkOffer(val opkId: String, val opkPublicKey: ByteArray) : InnerSessionControl
+    data class OpkOffer(
+        val sessionEpoch: Int,
+        val sessionGeneration: Int,
+        val opkId: String,
+        val opkPublicKey: ByteArray,
+        val sessionBinding: ByteArray,
+    ) : InnerSessionControl
 
     fun encode(): ByteArray =
         when (this) {
             is OpkOffer -> {
-                val idBytes = this.opkId.encodeToByteArray()
+                val idBytes = opkId.encodeToByteArray()
                 SessionWireCodec.concatBytes(
                     byteArrayOf(CONTROL_TAG_OPK_OFFER),
+                    SessionWireCodec.encodeInt(sessionEpoch),
+                    SessionWireCodec.encodeInt(sessionGeneration),
                     SessionWireCodec.encodeLengthPrefixed(idBytes),
-                    SessionWireCodec.encodeLengthPrefixed(this.opkPublicKey),
+                    SessionWireCodec.encodeLengthPrefixed(opkPublicKey),
+                    SessionWireCodec.encodeLengthPrefixed(sessionBinding),
                 )
             }
         }
@@ -205,14 +214,26 @@ sealed interface InnerSessionControl {
             return when (bytes[0]) {
                 CONTROL_TAG_OPK_OFFER -> {
                     var offset = 1
+                    val sessionEpoch = SessionWireCodec.readInt(bytes, offset)
+                    offset += 4
+                    val sessionGeneration = SessionWireCodec.readInt(bytes, offset)
+                    offset += 4
                     val (idBytes, next1) = SessionWireCodec.readLengthPrefixedAt(bytes, offset)
                     offset = next1
                     val (opkPublicKey, next2) = SessionWireCodec.readLengthPrefixedAt(bytes, offset)
                     offset = next2
+                    val (sessionBinding, next3) = SessionWireCodec.readLengthPrefixedAt(bytes, offset)
+                    offset = next3
                     require(offset == bytes.size) { "trailing bytes in opk offer control" }
+                    require(sessionBinding.size == OpkOfferBinding.BINDING_LENGTH) {
+                        "invalid opk offer session binding length"
+                    }
                     OpkOffer(
+                        sessionEpoch = sessionEpoch,
+                        sessionGeneration = sessionGeneration,
                         opkId = idBytes.decodeToString(),
                         opkPublicKey = opkPublicKey,
+                        sessionBinding = sessionBinding,
                     )
                 }
                 else -> error("unsupported inner session control tag: ${bytes[0]}")
@@ -238,6 +259,12 @@ object SessionWireCodec {
         val bytes = ByteArray(4 + value.size)
         writeInt(bytes, 0, value.size)
         value.copyInto(bytes, 4)
+        return bytes
+    }
+
+    fun encodeInt(value: Int): ByteArray {
+        val bytes = ByteArray(4)
+        writeInt(bytes, 0, value)
         return bytes
     }
 

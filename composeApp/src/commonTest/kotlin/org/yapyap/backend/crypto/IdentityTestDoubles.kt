@@ -275,6 +275,14 @@ internal class InMemoryOneTimePreKeyStore(
         return entry.opk
     }
 
+    override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? {
+        val entry = keys[opkId] ?: return null
+        return when (entry.status) {
+            OpkStatus.ALLOCATED, OpkStatus.OFFERED -> entry.opk
+            OpkStatus.CONSUMED -> null
+        }
+    }
+
     override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> {
         val expired = keys.filterValues {
             it.status == OpkStatus.OFFERED &&

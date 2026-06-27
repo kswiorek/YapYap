@@ -5,6 +5,7 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.IdentityKeyPurpose
 import org.yapyap.backend.crypto.IdentityResolver
+import org.yapyap.backend.crypto.LocalOneTimePreKey
 import org.yapyap.backend.db.CryptoSessionMeta
 import org.yapyap.backend.db.CryptoSessionRecord
 import org.yapyap.backend.db.CryptoSessionStore
@@ -83,12 +84,11 @@ class DefaultCryptoSessionManager(
             )
         }
 
-        val innerToEncrypt = maybeAttachOpkOffer(remoteDeviceId, epoch, loaded.meta, bytes)
+        val innerToEncrypt = maybeAttachOpkOffer(remoteDeviceId, epoch, loaded, bytes)
         if (innerToEncrypt is RatchetInnerPlaintext.WithControl &&
             innerToEncrypt.control is InnerSessionControl.OpkOffer
         ) {
-            val opkId = innerToEncrypt.control.opkId
-            loaded.meta = loaded.meta.copy(offeredOpkId = opkId)
+            loaded.meta = loaded.meta.copy(offeredOpkId = innerToEncrypt.control.opkId)
         }
 
         val ratchet = loaded.session.encrypt(innerToEncrypt.encode())
@@ -231,7 +231,18 @@ class DefaultCryptoSessionManager(
         if (frame.sessionEpoch == 2) {
             onEpoch2Confirmed(remoteDeviceId)
         }
-        maybeUpgradeToEpoch2(remoteDeviceId, inner)
+        maybeUpgradeToEpoch2(
+            remoteDeviceId = remoteDeviceId,
+            frame = frame,
+            record = CryptoSessionRecord(
+                peerDeviceId = remoteDeviceId,
+                sessionEpoch = frame.sessionEpoch,
+                ratchetState = bootstrapped.session.snapshot(),
+                meta = bootstrapped.meta,
+                canonical = responderIsCanonical || canonicalRecord == null,
+            ),
+            inner = inner,
+        )
         return inner.bytes
     }
 
@@ -300,7 +311,12 @@ class DefaultCryptoSessionManager(
         if (frame.sessionEpoch == 2) {
             onEpoch2Confirmed(remoteDeviceId)
         }
-        maybeUpgradeToEpoch2(remoteDeviceId, inner)
+        maybeUpgradeToEpoch2(
+            remoteDeviceId = remoteDeviceId,
+            frame = frame,
+            record = record.copy(ratchetState = loaded.session.snapshot()),
+            inner = inner,
+        )
         return inner.bytes
     }
 
@@ -312,10 +328,55 @@ class DefaultCryptoSessionManager(
         return RatchetInnerPlaintext.decode(plaintext)
     }
 
-    private suspend fun maybeUpgradeToEpoch2(remoteDeviceId: PeerId, inner: RatchetInnerPlaintext) {
-        if (inner is RatchetInnerPlaintext.WithControl && inner.control is InnerSessionControl.OpkOffer) {
-            createEpoch2AsInitiator(remoteDeviceId, inner.control)
+    private suspend fun maybeUpgradeToEpoch2(
+        remoteDeviceId: PeerId,
+        frame: SessionWireFrame,
+        record: CryptoSessionRecord,
+        inner: RatchetInnerPlaintext,
+    ) {
+        if (inner !is RatchetInnerPlaintext.WithControl || inner.control !is InnerSessionControl.OpkOffer) {
+            return
         }
+        if (record.meta.role != SessionRole.INITIATOR || frame.sessionEpoch != 1) {
+            return
+        }
+        if (!record.canonical || record.meta.status != SessionStatus.ACTIVE) {
+            return
+        }
+        val canonicalEpoch1 = sessionStore.loadActiveCanonical(remoteDeviceId, sessionEpoch = 1) ?: return
+        if (canonicalEpoch1.meta.sessionGeneration != record.meta.sessionGeneration) {
+            return
+        }
+        if (frame.sessionGeneration != record.meta.sessionGeneration) {
+            return
+        }
+
+        val offer = inner.control
+        if (offer.sessionEpoch != 1 || offer.sessionGeneration != record.meta.sessionGeneration) {
+            return
+        }
+        val initiatorEphemeral = record.meta.initiatorEphemeralPublicKey ?: return
+
+        val expectedBinding = OpkOfferBinding.compute(
+            crypto = crypto,
+            localDeviceId = identityResolver.getLocalDeviceId(),
+            peerDeviceId = remoteDeviceId,
+            sessionEpoch = 1,
+            sessionGeneration = record.meta.sessionGeneration,
+            handshakeSpkId = record.meta.handshakeSpkId,
+            initiatorEphemeralPublicKey = initiatorEphemeral,
+        )
+        if (!expectedBinding.contentEquals(offer.sessionBinding)) {
+            logger.debug(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_OPENED,
+                message = "Ignored OPK offer with invalid session binding",
+                fields = mapOf("peerDeviceId" to remoteDeviceId, "opkId" to offer.opkId),
+            )
+            return
+        }
+
+        createEpoch2AsInitiator(remoteDeviceId, offer)
     }
 
     private suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId, sessionGeneration: Int): LoadedSession {
@@ -384,6 +445,7 @@ class DefaultCryptoSessionManager(
             role = SessionRole.RESPONDER,
             x3dhMode = X3dhMode.THREE_DH,
             handshakeSpkId = localSpk.keyId,
+            initiatorEphemeralPublicKey = wire.ephemeralPublicKey,
             sessionGeneration = wire.sessionGeneration,
             createdAtEpochSeconds = now,
             updatedAtEpochSeconds = now,
@@ -480,7 +542,7 @@ class DefaultCryptoSessionManager(
     private suspend fun maybeAttachOpkOffer(
         peerDeviceId: PeerId,
         epoch: Int,
-        meta: CryptoSessionMeta,
+        loaded: LoadedSession,
         inner: ByteArray,
     ): RatchetInnerPlaintext {
         if (upgradePolicy != SessionUpgradePolicy.OFFER_OPK_ON_FIRST_EPOCH1_REPLY) {
@@ -489,22 +551,40 @@ class DefaultCryptoSessionManager(
         if (epoch != 1 || sessionStore.latestEncryptEpoch(peerDeviceId) == 2) {
             return RatchetInnerPlaintext.Payload(inner)
         }
-        if (meta.offeredOpkId != null || meta.role != SessionRole.RESPONDER) {
+        if (loaded.meta.role != SessionRole.RESPONDER) {
             return RatchetInnerPlaintext.Payload(inner)
         }
-        val snapshot = sessionStore.loadActiveCanonical(peerDeviceId, sessionEpoch = 1)?.ratchetState
-        if (snapshot != null && snapshot.sendMessageNumber > 0) {
-            return RatchetInnerPlaintext.Payload(inner)
-        }
-        val opk = oneTimePreKeyStore.allocate()
-        oneTimePreKeyStore.markOffered(opk.keyId)
+
+        val offered = resolveOfferedOpk(loaded.meta)
+        val initiatorEphemeral = loaded.meta.initiatorEphemeralPublicKey ?: return RatchetInnerPlaintext.Payload(inner)
+        val sessionBinding = OpkOfferBinding.compute(
+            crypto = crypto,
+            localDeviceId = identityResolver.getLocalDeviceId(),
+            peerDeviceId = peerDeviceId,
+            sessionEpoch = 1,
+            sessionGeneration = loaded.meta.sessionGeneration,
+            handshakeSpkId = loaded.meta.handshakeSpkId,
+            initiatorEphemeralPublicKey = initiatorEphemeral,
+        )
         return RatchetInnerPlaintext.WithControl(
             inner,
             InnerSessionControl.OpkOffer(
-                opkId = opk.keyId,
-                opkPublicKey = opk.publicKey,
+                sessionEpoch = 1,
+                sessionGeneration = loaded.meta.sessionGeneration,
+                opkId = offered.keyId,
+                opkPublicKey = offered.publicKey,
+                sessionBinding = sessionBinding,
             ),
         )
+    }
+
+    private suspend fun resolveOfferedOpk(meta: CryptoSessionMeta): LocalOneTimePreKey {
+        meta.offeredOpkId?.let { offeredOpkId ->
+            oneTimePreKeyStore.loadOffered(offeredOpkId)?.let { return it }
+        }
+        val opk = oneTimePreKeyStore.allocate()
+        oneTimePreKeyStore.markOffered(opk.keyId)
+        return opk
     }
 
     private fun shouldAttachOutboundWire(loaded: LoadedSession, epoch: Int): Boolean {
