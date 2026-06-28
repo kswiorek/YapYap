@@ -76,6 +76,58 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
+    fun resolver_recoversDeviceRecordFromKeystoreWhenDbRowMissing() = runTest {
+        val (repo, store, triple) = stack()
+        val (resolver, provisioning, logger) = triple
+
+        provisioning.createNewAccountIdentity(displayName = "Recovery User")
+        val device = provisioning.createNewDeviceIdentity()
+
+        repo.clearLocalDeviceRecord()
+
+        val recovered = resolver.getLocalDeviceIdentityRecord()
+        assertEquals(device.deviceId, recovered.deviceId)
+        assertContentEquals(device.signing.publicKey, recovered.signing.publicKey)
+        assertContentEquals(device.encryption.publicKey, recovered.encryption.publicKey)
+        assertContentEquals(device.keySignature, recovered.keySignature)
+        assertNotNull(resolver.resolvePeerIdentityRecord(device.deviceId))
+
+        assertTrue(
+            logger.entries.any {
+                it.component == LogComponent.CRYPTO &&
+                    it.event == LogEvent.IDENTITY_DEVICE_RECORD_MISSING
+            },
+        )
+        assertTrue(
+            logger.entries.any {
+                it.component == LogComponent.CRYPTO &&
+                    it.event == LogEvent.IDENTITY_DEVICE_RECORD_CREATED
+            },
+        )
+    }
+
+    @Test
+    fun resolver_recoversDeviceRecordFromPrivateKeysOnlyWhenPublicKeysMissing() = runTest {
+        val (repo, store, triple) = stack()
+        val (resolver, provisioning, _) = triple
+
+        provisioning.createNewAccountIdentity(displayName = "Private-only recovery")
+        val device = provisioning.createNewDeviceIdentity()
+
+        val signingKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
+        val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+        store.deleteKey(KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PUBLIC))
+        store.deleteKey(KeyReference(encryptionKeyId, IdentityKeyPurpose.ENCRYPTION, KeyType.PUBLIC))
+        repo.clearLocalDeviceRecord()
+
+        val recovered = resolver.getLocalDeviceIdentityRecord()
+        assertEquals(device.deviceId, recovered.deviceId)
+        assertContentEquals(device.signing.publicKey, recovered.signing.publicKey)
+        assertContentEquals(device.encryption.publicKey, recovered.encryption.publicKey)
+        assertContentEquals(device.keySignature, recovered.keySignature)
+    }
+
+    @Test
     fun resolver_getLocalAccount_throwsWhenAccountRowMissing() = runTest {
         val (_, store, triple) = stack()
         val (resolver, _, _) = triple

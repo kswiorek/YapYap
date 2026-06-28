@@ -104,6 +104,18 @@ X3DH public material (ephemeral key, signed prekey ID, epoch, mode) is sent in `
 
 The handshake wire format does not include the initiator identity encryption key (IK). Session establishment currently trusts `MessageEnvelope.source` / roster lookup via `IdentityResolver`. A future **signed encrypted DAG roster** will provide trustworthy device routing metadata.
 
+### Immutable device identity (no IK rotation)
+
+`device_id` is derived from the device **signing** public key (`peerIdFromPublicKey`). Signing and encryption identity keys are fixed at provision time and are **not rotated in place** on an existing device record.
+
+| Situation | Policy |
+|-----------|--------|
+| New keys for a user | **New device** — new `device_id`, new roster entry, fresh X3DH sessions |
+| Compromise / distrust | **Ban or retire** the old device; stop routing to it; `crypto_sessions` for that `peer_device_id` become irrelevant and are pruned via housekeeping / explicit wipe |
+| In-place IK/encryption key replacement on same `device_id` | **Unsupported** — indistinguishable from roster MITM without a heavy re-trust flow |
+
+Mid-device **SPK** rotation is a separate concern (see [Deferred: SPK rotation](#deferred-spk-rotation)). Session `sessionGeneration` bumps handle crypto-session lifecycle only, not identity rotation.
+
 ### Custom KDF labels
 
 X3DH and Double Ratchet use YapYap-specific HKDF `info` strings (`YapYapX3DH`, `YapYapDR_RK`, `YapYapDR_CK`). This is not libsignal-compatible but is acceptable for an internal protocol.
@@ -157,6 +169,7 @@ Tampering with any header field causes AEAD verification failure rather than sil
 - Envelope-level Ed25519 signing over the encrypted payload
 - Transactional ratchet decrypt — snapshot rollback on failure, deferred skipped-key removal, stale-`messageNumber` replay guard; inbound generation reset deferred until first decrypt succeeds
 - Wire decode bounds — `CryptoWireLimits` constants enforced in `SessionWireCodec`, session wire / ratchet / inner control decoders, skipped-keys persistence codec; outbound checks at encrypt and `MessageEnvelope` open
+- Immutable device identity — `device_id` tied to signing key; no in-place identity key rotation; revocation = ban device + provision new device
 
 ---
 
@@ -325,13 +338,15 @@ No runtime config threading — limits are protocol constants at the codec layer
 
 **Tests:** `CryptoWireLimitsTest` — oversized session wire blob, DH key length, ratchet body length; round-trip sanity.
 
-#### 12. Identity / session reset — 🟡 Partially fixed
+#### 12. Identity / session reset — ✅ Closed (by design)
 
-Re-provisioning a peer (new identity keys, new device record) does not invalidate existing `crypto_sessions` rows.
+**Original concern:** Re-provisioning a peer (new identity keys) might leave stale `crypto_sessions` rows keyed by the same `peer_device_id`.
 
-**Implemented:** `sessionGeneration` bump on idle supersede / inbound peer reset (crypto session lifecycle, not identity rotation).
+**Policy (not a protocol gap):** Identity keys do not change on an existing device. New signing keys imply a **new `device_id`**; old sessions for the retired id are unused and pruned by `DefaultCryptoHousekeeping` / explicit wipe on ban. In-place replacement of identity keys for the same `device_id` is unsupported.
 
-**Still open:** Wipe or bump sessions when peer **identity keys** or device record change (separate from SPK rotation).
+**Already implemented for crypto-session lifecycle (not identity):** `sessionGeneration` bump on idle supersede / inbound peer reset.
+
+**App-layer follow-up (when roster/revocation exists):** on device ban/retire, delete `crypto_sessions` for that `peer_device_id` and reject inbound envelopes from that `source` — routing/policy, not E2EE wire changes.
 
 ---
 
@@ -417,11 +432,12 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 
 ## Security assumptions
 
-1. **Roster trust** — Peer identity encryption keys and SPKs are obtained from a trusted local roster (future: signed encrypted DAG). Compromised roster ⇒ MITM until detected.
-2. **Envelope signatures** — Ed25519 on `MessageEnvelope` prevents tampering with signed fields including the crypto payload.
-3. **SQLCipher** — Session secrets at rest depend on DB encryption and OS keystore for the master key.
-4. **Tor / relay observers** — Can see routing metadata and cleartext X3DH wire fields inside the signed payload. Message content remains encrypted.
-5. **Small network** — Protocol optimized for ~10–20 peers, not hyperscale prekey distribution.
+1. **Roster trust** — Peer identity encryption keys and SPKs are obtained from a trusted local roster (future: signed encrypted DAG). Compromised roster ⇒ MITM until detected. Roster must not in-place replace identity keys for an existing `device_id`; new keys ⇒ new device record.
+2. **Device revocation** — A compromised device is banned/retired and replaced with a newly provisioned device (`device_id` changes). Sessions with the old id are not continued.
+3. **Envelope signatures** — Ed25519 on `MessageEnvelope` prevents tampering with signed fields including the crypto payload.
+4. **SQLCipher** — Session secrets at rest depend on DB encryption and OS keystore for the master key.
+5. **Tor / relay observers** — Can see routing metadata and cleartext X3DH wire fields inside the signed payload. Message content remains encrypted.
+6. **Small network** — Protocol optimized for ~10–20 peers, not hyperscale prekey distribution.
 
 ---
 
@@ -439,3 +455,6 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | 2026-06-27 | Fail-soft optional OPK upgrade: deferred epoch-2 encrypt (`PENDING` → promote), skip offer on OPK failure, soft epoch-2 bootstrap failure. |
 | 2026-06-27 | Housekeeping deletes stale `PENDING` epoch-2 sessions after `pendingEpoch2RetentionSeconds`. |
 | 2026-06-27 | P1.7 persistence hardening: initiator ephemeral private keys not persisted; skipped-keys superseded-DH tombstones + session housekeeping bounds exposure. RAM wipe still deferred. |
+| 2026-06-28 | P2.9 transactional ratchet decrypt (snapshot rollback, replay guard, deferred generation supersede). P2.8 partially fixed at ratchet layer. |
+| 2026-06-28 | P2.11 decode bounds via `CryptoWireLimits` at codec layer. |
+| 2026-06-28 | P2.12 closed by design: immutable device identity; revocation = ban + new device, not in-place IK rotation. |

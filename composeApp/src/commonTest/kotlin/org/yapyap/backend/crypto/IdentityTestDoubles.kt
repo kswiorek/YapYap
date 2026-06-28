@@ -118,6 +118,10 @@ internal class InMemoryIdentityPublicKeyRepository(
 
     override fun getLocalDeviceRecord(): DeviceIdentityRecord? = localDevice
 
+    fun clearLocalDeviceRecord() {
+        localDevice = null
+    }
+
     override fun insertPeerDevice(
         accountId: AccountId,
         deviceType: DeviceType,

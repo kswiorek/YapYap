@@ -77,6 +77,7 @@ kotlin {
                 implementation(libs.compose.uiToolingPreview)
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.android.driver)
+                implementation(libs.cryptography.provider.jdk.bc)
             }
         }
         val ktor_version: String by project
@@ -108,6 +109,7 @@ kotlin {
             implementation(libs.native.driver)
         }
         jvmMain.dependencies {
+            implementation(libs.cryptography.provider.jdk.bc)
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.webrtc.java)

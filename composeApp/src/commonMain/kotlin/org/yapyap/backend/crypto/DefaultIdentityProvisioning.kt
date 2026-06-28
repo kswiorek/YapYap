@@ -43,8 +43,16 @@ class DefaultIdentityProvisioning(
         val privateEncryptionKeyRef = KeyReference(keyId = encryptionKeyRecord.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
 
         keyStore.putKey(privateSigningKeyRef, signingKey.privateKey)
+        keyStore.putKey(
+            KeyReference(keyId = signingKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC),
+            signingKey.publicKey,
+        )
 
         keyStore.putKey(privateEncryptionKeyRef, encryptionKey.privateKey)
+        keyStore.putKey(
+            KeyReference(keyId = encryptionKeyRecord.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PUBLIC),
+            encryptionKey.publicKey,
+        )
 
         val keySignature = cryptoProvider.signDetached(
             signingKey.privateKey,

@@ -56,6 +56,20 @@ class KmpCryptoProviderTest {
     }
 
     @Test
+    fun privateSigningKeyToPublicKey_matchesGeneratedPublicKey() = runTest {
+        val keys = crypto.generateSigningKeyPair()
+        val derived = crypto.privateSigningKeyToPublicKey(keys.privateKey)
+        assertContentEquals(keys.publicKey, derived)
+    }
+
+    @Test
+    fun privateEncryptionKeyToPublicKey_matchesGeneratedPublicKey() = runTest {
+        val keys = crypto.generateEncryptionKeyPair()
+        val derived = crypto.privateEncryptionKeyToPublicKey(keys.privateKey)
+        assertContentEquals(keys.publicKey, derived)
+    }
+
+    @Test
     fun signDetached_roundTrip_verifyDetached() = runTest {
         val keys = crypto.generateSigningKeyPair()
         val message = "hello contract".encodeToByteArray()

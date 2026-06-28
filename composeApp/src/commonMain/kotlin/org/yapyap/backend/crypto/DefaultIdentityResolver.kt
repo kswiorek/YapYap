@@ -37,29 +37,41 @@ class DefaultIdentityResolver(
                 message = "Local device identity record missing, creating from local keys",
             )
 
+            val signingKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
             val privateSigningKey = privateKeyStore.getKey(
                 ref = KeyReference(
-                    keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
+                    keyId = signingKeyId,
                     purpose = IdentityKeyPurpose.SIGNING,
                     type = KeyType.PRIVATE,
                 )
-            ) ?: error("Missing local signing public key")
+            ) ?: error("Missing local signing private key")
 
-            val publicSigningKey = cryptoProvider.privateSigningKeyToPublicKey(privateSigningKey)
+            val publicSigningKey = privateKeyStore.getKey(
+                ref = KeyReference(
+                    keyId = signingKeyId,
+                    purpose = IdentityKeyPurpose.SIGNING,
+                    type = KeyType.PUBLIC,
+                )
+            ) ?: cryptoProvider.privateSigningKeyToPublicKey(privateSigningKey)
 
             val deviceId = cryptoProvider.peerIdFromPublicKey(publicSigningKey)
 
+            val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
             val privateEncryptionKey = privateKeyStore.getKey(
                 ref = KeyReference(
-                    keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase(),
-                    purpose = IdentityKeyPurpose.SIGNING,
+                    keyId = encryptionKeyId,
+                    purpose = IdentityKeyPurpose.ENCRYPTION,
                     type = KeyType.PRIVATE,
                 )
-            ) ?: error("Missing local signing public key")
+            ) ?: error("Missing local encryption private key")
 
-            val publicEncryptionKey = cryptoProvider.privateSigningKeyToPublicKey(privateEncryptionKey)
-
-            val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+            val publicEncryptionKey = privateKeyStore.getKey(
+                ref = KeyReference(
+                    keyId = encryptionKeyId,
+                    purpose = IdentityKeyPurpose.ENCRYPTION,
+                    type = KeyType.PUBLIC,
+                )
+            ) ?: cryptoProvider.privateEncryptionKeyToPublicKey(privateEncryptionKey)
             val keySignature = cryptoProvider.signDetached(
                 privateSigningKey,
                 publicEncryptionKey + encryptionKeyId.encodeToByteArray(),
@@ -68,7 +80,7 @@ class DefaultIdentityResolver(
             val identity = DeviceIdentityRecord(
                 deviceId,
                 IdentityPublicKeyRecord(
-                    keyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
+                    keyId = signingKeyId,
                     keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNING,
                     publicKey = publicSigningKey,
@@ -223,7 +235,7 @@ class DefaultIdentityResolver(
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 type = KeyType.PRIVATE,
             )
-        ) ?: error("Missing local signing public key")
+        ) ?: error("Missing local signed prekey private key for keyId=$signedPreKeyId")
 
         return stored
     }

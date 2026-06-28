@@ -16,6 +16,12 @@ import org.yapyap.backend.logging.LogEvent
 import org.yapyap.backend.logging.NoopAppLogger
 import org.yapyap.backend.protocol.SignalSecurityScheme
 
+/**
+ * Reference [CryptoProvider] backed by [dev.whyoleg.cryptography].
+ *
+ * On JVM and Android, depend on `cryptography-provider-jdk-bc` so Ed25519/X25519 public keys can be
+ * derived from private key material (stock JDK JCA does not support this).
+ */
 class KmpCryptoProvider(
     private val provider: CryptographyProvider = CryptographyProvider.Default,
     private val random: Random = CryptographyRandom.Default,
