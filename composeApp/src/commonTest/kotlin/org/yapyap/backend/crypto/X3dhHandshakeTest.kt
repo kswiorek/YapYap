@@ -72,6 +72,16 @@ class X3dhHandshakeTest {
     }
 
     @Test
+    fun initiatorBootstrap_usesEphemeralAsLocalRatchetKey() = runTest {
+        val fixture = fixtureKeys()
+        val ekA = crypto.generateEncryptionKeyPair()
+        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceLocal, fixture.bobRemote, ekA)
+        assertContentEquals(ekA.privateKey, initiator.ratchetBootstrap.localDhPrivateKey)
+        assertContentEquals(ekA.publicKey, initiator.ratchetBootstrap.localDhPublicKey)
+        assertContentEquals(initiator.wire.ephemeralPublicKey, initiator.ratchetBootstrap.localDhPublicKey)
+    }
+
+    @Test
     fun compute3Dh_ratchetRoundTrip() = runTest {
         val fixture = fixtureKeys()
         val ekA = crypto.generateEncryptionKeyPair()

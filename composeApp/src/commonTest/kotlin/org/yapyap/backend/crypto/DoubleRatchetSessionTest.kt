@@ -89,6 +89,17 @@ class DoubleRatchetSessionTest {
     }
 
     @Test
+    fun firstEncrypt_ratchetHeader_matchesX3dhEphemeral() = runTest {
+        val (aliceBootstrap, bobBootstrap, ephemeralPublicKey) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt("signal-aligned".encodeToByteArray())
+        assertContentEquals(ephemeralPublicKey, frame.dhPublicKey)
+        assertContentEquals("signal-aligned".encodeToByteArray(), bob.decrypt(frame))
+    }
+
+    @Test
     fun createInitiator_requiresRemoteDhPublicKey() = runTest {
         assertFailsWith<IllegalStateException> {
             DoubleRatchetSession.createInitiator(
@@ -324,7 +335,7 @@ class DoubleRatchetSessionTest {
         assertContentEquals("m0".encodeToByteArray(), restored.decrypt(m0))
     }
 
-    private suspend fun testBootstraps(): Pair<RatchetBootstrap, RatchetBootstrap> {
+    private suspend fun testBootstraps(): Triple<RatchetBootstrap, RatchetBootstrap, ByteArray> {
         val aliceIk = crypto.generateEncryptionKeyPair()
         val bobIk = crypto.generateEncryptionKeyPair()
         val bobSpk = crypto.generateEncryptionKeyPair()
@@ -352,6 +363,6 @@ class DoubleRatchetSessionTest {
             remoteIdentityEncryptionPublicKey = aliceIk.publicKey,
             wire = initiator.wire,
         )
-        return initiator.ratchetBootstrap to responder.ratchetBootstrap
+        return Triple(initiator.ratchetBootstrap, responder.ratchetBootstrap, initiator.wire.ephemeralPublicKey)
     }
 }

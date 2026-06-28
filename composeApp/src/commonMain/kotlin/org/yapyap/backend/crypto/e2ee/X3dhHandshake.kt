@@ -89,6 +89,8 @@ class X3dhHandshake(
             ratchetBootstrap = RatchetBootstrap(
                 sharedSecret = sharedSecret,
                 remoteDhPublicKey = remote.signedPreKeyPublicKey.copyOf(),
+                localDhPrivateKey = ephemeral.privateKey.copyOf(),
+                localDhPublicKey = ephemeral.publicKey.copyOf(),
             ),
             wire = X3dhWireInfo(
                 ephemeralPublicKey = ephemeral.publicKey.copyOf(),
@@ -125,6 +127,8 @@ class X3dhHandshake(
             ratchetBootstrap = RatchetBootstrap(
                 sharedSecret = sharedSecret,
                 remoteDhPublicKey = remote.signedPreKeyPublicKey.copyOf(),
+                localDhPrivateKey = ephemeral.privateKey.copyOf(),
+                localDhPublicKey = ephemeral.publicKey.copyOf(),
             ),
             wire = X3dhWireInfo(
                 ephemeralPublicKey = ephemeral.publicKey.copyOf(),

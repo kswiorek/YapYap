@@ -154,6 +154,7 @@ class DefaultCryptoSessionManagerTest {
         )
         assertEquals(1, frame.sessionEpoch)
         assertNotNull(frame.outerHandshake)
+        assertContentEquals(frame.outerHandshake.ephemeralPublicKey, frame.ratchet.dhPublicKey)
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, frame)
         assertContentEquals(plaintext, opened)

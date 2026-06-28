@@ -114,7 +114,14 @@ class DoubleRatchetSession private constructor(
                 skippedMessageKeys = mutableMapOf(),
             )
             val session = DoubleRatchetSession(crypto, state)
-            session.generateLocalDhKeyPair()
+            val localPrivate = bootstrap.localDhPrivateKey
+            val localPublic = bootstrap.localDhPublicKey
+            if (localPrivate != null && localPublic != null) {
+                state.localDhPrivateKey = localPrivate.copyOf()
+                state.localDhPublicKey = localPublic.copyOf()
+            } else {
+                session.generateLocalDhKeyPair()
+            }
             val dhOutput = crypto.deriveSharedSecret(state.localDhPrivateKey, remoteDhPublicKey)
             val (rootKey, sendChainKey) = session.kdfRootKey(state.rootKey, dhOutput)
             state.rootKey = rootKey

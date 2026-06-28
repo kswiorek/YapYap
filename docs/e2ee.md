@@ -120,6 +120,19 @@ Mid-device **SPK** rotation is a separate concern (see [Deferred: SPK rotation](
 
 X3DH and Double Ratchet use YapYap-specific HKDF `info` strings (`YapYapX3DH`, `YapYapDR_RK`, `YapYapDR_CK`). This is not libsignal-compatible but is acceptable for an internal protocol.
 
+### Signal-aligned ratchet bootstrap
+
+After X3DH, the initiator’s **first ratchet sending key** is the X3DH ephemeral (`EK_A`), not a separately generated key. The responder seeds the ratchet with its **signed prekey** (`SPK_B`) as local DH material. The first outbound `RatchetCiphertext.dhPublicKey` therefore matches `outerHandshake.ephemeralPublicKey` (Signal/libsignal convention).
+
+| Party | Root key | Initial local DH | Initial remote DH | First ratchet header |
+|-------|----------|------------------|-------------------|----------------------|
+| Initiator | X3DH `SK` | `EK_A` | `SPK_B` | `EK_A` public |
+| Responder | X3DH `SK` | `SPK_B` | `null` until first decrypt | peer’s `EK_A` from header |
+
+Epoch-2 upgrade still uses a **fresh** ephemeral for 4-DH (see [Fresh ephemeral on epoch-2 upgrade](#fresh-ephemeral-on-epoch-2-upgrade)).
+
+**Tests:** `X3dhHandshakeTest.initiatorBootstrap_usesEphemeralAsLocalRatchetKey`, `DoubleRatchetSessionTest.firstEncrypt_ratchetHeader_matchesX3dhEphemeral`, `DefaultCryptoSessionManagerTest.epoch1_aliceFirstMessage_bobDecrypts`.
+
 ### `SessionUpgradePolicy`
 
 `DefaultCryptoSessionManager` defaults to `SessionUpgradePolicy.NEVER` during early development. Production wiring should enable `OFFER_OPK_ON_FIRST_EPOCH1_REPLY` when the upgrade path is ready.
@@ -275,7 +288,7 @@ Alice previously trusted `offer.opkPublicKey` from the decrypted control block w
 
 `crypto_sessions` stores:
 
-- `initiator_ephemeral_private_key` — **no longer written** for initiator sessions after X3DH bootstrap (epoch 1 and pending epoch 2); in-memory copies are zeroed. Public ephemeral is retained for handshake re-attach and `OpkOffer` binding.
+- `initiator_ephemeral_private_key` — **not written** in session meta after X3DH bootstrap; external ephemeral buffers are zeroed once copied into ratchet `local_dh_private_key` (which holds `EK_A` until the first peer reply advances the ratchet). Public ephemeral is retained in meta for handshake re-attach and `OpkOffer` binding.
 - `skipped_message_keys` — bounded in practice: per-step skip capped by `MAX_SKIP = 256`; superseded DH chains tombstoned and drained; idle session supersede + retention prune drops whole rows when unused.
 - Full ratchet chain state (still at rest under SQLCipher; RAM wipe tracked separately below).
 
@@ -457,4 +470,4 @@ Signed prekey (SPK) rotation and handshake edge cases when `wire.signedPreKeyId`
 | 2026-06-27 | P1.7 persistence hardening: initiator ephemeral private keys not persisted; skipped-keys superseded-DH tombstones + session housekeeping bounds exposure. RAM wipe still deferred. |
 | 2026-06-28 | P2.9 transactional ratchet decrypt (snapshot rollback, replay guard, deferred generation supersede). P2.8 partially fixed at ratchet layer. |
 | 2026-06-28 | P2.11 decode bounds via `CryptoWireLimits` at codec layer. |
-| 2026-06-28 | P2.12 closed by design: immutable device identity; revocation = ban + new device, not in-place IK rotation. |
+| 2026-06-28 | Signal-aligned ratchet bootstrap: initiator reuses X3DH ephemeral as first sending DH key; first ratchet header matches `outerHandshake.ephemeralPublicKey`. |
