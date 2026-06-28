@@ -28,7 +28,30 @@ class DoubleRatchetSession private constructor(
     }
 
     suspend fun decrypt(frame: RatchetCiphertext): ByteArray {
-        trySkippedMessageKey(frame)?.let { return crypto.decryptAead(it, frame.body, frame.headerAssociatedData()) }
+        val checkpoint = state.toImmutable()
+        try {
+            return decryptPlaintext(frame)
+        } catch (error: Exception) {
+            restoreState(checkpoint)
+            throw error
+        }
+    }
+
+    private suspend fun decryptPlaintext(frame: RatchetCiphertext): ByteArray {
+        if (frame.messageNumber >= 0) {
+            val skippedKeyId = RatchetSkippedKeyId(frame.dhPublicKey, frame.messageNumber)
+            val skippedMessageKey = state.skippedMessageKeys[skippedKeyId]
+            if (skippedMessageKey != null) {
+                val plaintext = crypto.decryptAead(
+                    skippedMessageKey,
+                    frame.body,
+                    frame.headerAssociatedData(),
+                )
+                state.skippedMessageKeys.remove(skippedKeyId)
+                maybeRemoveSupersededDhMarker(frame.dhPublicKey)
+                return plaintext
+            }
+        }
 
         val remoteDh = state.remoteDhPublicKey
         when {
@@ -44,12 +67,29 @@ class DoubleRatchetSession private constructor(
             }
         }
 
+        rejectReplayIfStale(frame)
+
         skipMessageKeys(frame.messageNumber)
         val recvChainKey = state.recvChainKey ?: error("receive chain is not initialized")
         val (nextChainKey, messageKey) = kdfChainKey(recvChainKey)
         state.recvChainKey = nextChainKey
         state.recvMessageNumber = state.recvMessageNumber + 1
         return crypto.decryptAead(messageKey, frame.body, frame.headerAssociatedData())
+    }
+
+    private fun rejectReplayIfStale(frame: RatchetCiphertext) {
+        if (frame.messageNumber >= state.recvMessageNumber) {
+            return
+        }
+        val skippedKeyId = RatchetSkippedKeyId(frame.dhPublicKey, frame.messageNumber)
+        if (state.skippedMessageKeys.containsKey(skippedKeyId)) {
+            return
+        }
+        throw CryptoSessionException.Replay(frame.messageNumber)
+    }
+
+    private fun restoreState(checkpoint: RatchetSessionState) {
+        state = MutableRatchetState.fromImmutable(checkpoint)
     }
 
     fun snapshot(): RatchetSessionState = state.toImmutable()
@@ -180,17 +220,6 @@ class DoubleRatchetSession private constructor(
         state.recvChainKey = recvChainKey
     }
 
-    private fun trySkippedMessageKey(frame: RatchetCiphertext): ByteArray? {
-        if (frame.messageNumber < 0) {
-            return null
-        }
-        val messageKey = state.skippedMessageKeys
-            .remove(RatchetSkippedKeyId(frame.dhPublicKey, frame.messageNumber))
-            ?: return null
-        maybeRemoveSupersededDhMarker(frame.dhPublicKey)
-        return messageKey
-    }
-
     private fun isSupersededDhChain(dhPublicKey: ByteArray): Boolean =
         state.skippedMessageKeys.containsKey(RatchetSkippedKeyId.supersededChain(dhPublicKey))
 
@@ -218,6 +247,8 @@ data class RatchetCiphertext(
     val body: ByteArray,
 ) {
     fun encode(): ByteArray {
+        CryptoWireLimits.requireDhPublicKeySize(dhPublicKey.size)
+        CryptoWireLimits.requireRatchetBodySize(body.size)
         val dhSize = dhPublicKey.size
         val bodySize = body.size
         val bytes = ByteArray(4 + dhSize + 4 + 4 + 4 + bodySize)
@@ -251,7 +282,11 @@ data class RatchetCiphertext(
         fun decode(bytes: ByteArray): RatchetCiphertext {
             var offset = 0
             val dhSize = readInt(bytes, offset)
+            require(dhSize in 1..CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES) {
+                "DH public key size $dhSize exceeds max ${CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES}"
+            }
             offset += 4
+            require(offset + dhSize <= bytes.size) { "unexpected end of ratchet ciphertext" }
             val dhPublicKey = bytes.copyOfRange(offset, offset + dhSize)
             offset += dhSize
             val messageNumber = readInt(bytes, offset)
@@ -259,9 +294,12 @@ data class RatchetCiphertext(
             val previousChainLength = readInt(bytes, offset)
             offset += 4
             val bodySize = readInt(bytes, offset)
+            require(bodySize in 0..CryptoWireLimits.MAX_RATCHET_BODY_BYTES) {
+                "ratchet body size $bodySize exceeds max ${CryptoWireLimits.MAX_RATCHET_BODY_BYTES}"
+            }
             offset += 4
-            val body = bytes.copyOfRange(offset, offset + bodySize)
             require(offset + bodySize == bytes.size) { "trailing bytes in ratchet ciphertext" }
+            val body = bytes.copyOfRange(offset, offset + bodySize)
             return RatchetCiphertext(
                 dhPublicKey = dhPublicKey,
                 messageNumber = messageNumber,

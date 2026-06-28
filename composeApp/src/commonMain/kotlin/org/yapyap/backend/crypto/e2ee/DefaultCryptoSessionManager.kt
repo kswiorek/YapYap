@@ -52,6 +52,7 @@ class DefaultCryptoSessionManager(
         remoteDeviceId: PeerId,
         bytes: ByteArray,
     ): SessionWireFrame {
+        CryptoWireLimits.requireInnerPlaintextSize(bytes.size)
         val epoch = sessionStore.latestEncryptEpoch(remoteDeviceId) ?: 1
         var loaded = loadCanonicalSession(remoteDeviceId, epoch)
         var outerHandshake: X3dhWireInfo? = null
@@ -181,8 +182,6 @@ class DefaultCryptoSessionManager(
         canonicalRecord: CryptoSessionRecord?,
         hadPendingEpoch2: Boolean,
     ): ByteArray? {
-        handleInboundGenerationReset(remoteDeviceId, frame, canonicalRecord)
-
         val bootstrapped = try {
             bootstrapFromFrame(remoteDeviceId, frame)
         } catch (error: Exception) {
@@ -191,7 +190,7 @@ class DefaultCryptoSessionManager(
             }
             logger.debug(
                 component = LogComponent.CRYPTO,
-                event = LogEvent.ENVELOPE_OPENED,
+                event = LogEvent.EPOCH_2_BOOTSTRAP_FAIL,
                 message = "Deferred epoch-2 bootstrap; continuing on epoch-1",
                 fields = mapOf(
                     "peerDeviceId" to remoteDeviceId,
@@ -202,6 +201,8 @@ class DefaultCryptoSessionManager(
         }
 
         val inner = decryptRatchet(bootstrapped.session, frame.ratchet)
+
+        handleInboundGenerationReset(remoteDeviceId, frame, canonicalRecord)
 
         val responderIsCanonical = inboundResponderSessionIsCanonical(remoteDeviceId)
         if (responderIsCanonical && canonicalRecord != null &&

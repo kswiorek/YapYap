@@ -22,4 +22,7 @@ sealed class CryptoSessionException(message: String) : Exception(message) {
         CryptoSessionException(
             "No skipped message key for superseded DH chain (messageNumber=$messageNumber)",
         )
+
+    class Replay(messageNumber: Int) :
+        CryptoSessionException("Ratchet message replay (messageNumber=$messageNumber)")
 }

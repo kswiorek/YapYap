@@ -2,6 +2,7 @@ package org.yapyap.backend.crypto
 
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
@@ -234,6 +235,68 @@ class DoubleRatchetSessionTest {
         assertFailsWith<CryptoSessionException.SupersededDhChain> {
             bob.decrypt(orphan)
         }
+    }
+
+    @Test
+    fun decrypt_replayAlreadyDecryptedMessage_rejectsWithoutStateMutation() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt(byteArrayOf(1))
+        bob.decrypt(frame)
+
+        val before = bob.snapshot()
+        assertFailsWith<CryptoSessionException.Replay> {
+            bob.decrypt(frame)
+        }
+        assertEquals(before.recvMessageNumber, bob.snapshot().recvMessageNumber)
+        assertEquals(before.sendMessageNumber, bob.snapshot().sendMessageNumber)
+    }
+
+    @Test
+    fun decrypt_tamperedBodyOnSkippedMessage_preservesStateAndRetries() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val m0 = alice.encrypt("m0".encodeToByteArray())
+        alice.encrypt("m1".encodeToByteArray())
+        val m2 = alice.encrypt("m2".encodeToByteArray())
+        bob.decrypt(m2)
+
+        val before = bob.snapshot()
+        val tamperedBody = m0.body.copyOf().also {
+            it[it.lastIndex] = (it.last().toInt() xor 0xff).toByte()
+        }
+        val tampered = m0.copy(body = tamperedBody)
+
+        assertFailsWith<Exception> {
+            bob.decrypt(tampered)
+        }
+        assertEquals(before.recvMessageNumber, bob.snapshot().recvMessageNumber)
+        assertEquals(before.skippedMessageKeys.size, bob.snapshot().skippedMessageKeys.size)
+
+        assertContentEquals("m0".encodeToByteArray(), bob.decrypt(m0))
+    }
+
+    @Test
+    fun decrypt_tamperedBodyInOrder_preservesState() = runTest {
+        val (aliceBootstrap, bobBootstrap) = testBootstraps()
+        val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
+        val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
+
+        val frame = alice.encrypt(byteArrayOf(1))
+        val before = bob.snapshot()
+        val tamperedBody = frame.body.copyOf().also {
+            it[it.lastIndex] = (it.last().toInt() xor 0xff).toByte()
+        }
+
+        assertFailsWith<Exception> {
+            bob.decrypt(frame.copy(body = tamperedBody))
+        }
+        assertEquals(before.recvMessageNumber, bob.snapshot().recvMessageNumber)
+        assertEquals(before.sendMessageNumber, bob.snapshot().sendMessageNumber)
     }
 
     @Test

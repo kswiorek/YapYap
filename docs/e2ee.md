@@ -155,6 +155,8 @@ Tampering with any header field causes AEAD verification failure rather than sil
 - OPK lifecycle (`OpkStatus`, offer TTL prune) in `DefaultOneTimePreKeyStore` + `DefaultCryptoHousekeeping`
 - `OpkOffer` session binding (`OpkOfferBinding`) + canonical-only epoch-2 upgrade
 - Envelope-level Ed25519 signing over the encrypted payload
+- Transactional ratchet decrypt — snapshot rollback on failure, deferred skipped-key removal, stale-`messageNumber` replay guard; inbound generation reset deferred until first decrypt succeeds
+- Wire decode bounds — `CryptoWireLimits` constants enforced in `SessionWireCodec`, session wire / ratchet / inner control decoders, skipped-keys persistence codec; outbound checks at encrypt and `MessageEnvelope` open
 
 ---
 
@@ -276,17 +278,28 @@ SQLCipher protects at rest. Persistence hardening:
 
 ### P2 — Medium (robustness)
 
-#### 8. Ratchet replay at session layer — ⬜ Open
+#### 8. Ratchet replay at session layer — 🟡 Partially fixed
 
-Router dedup is per `packetId`. An old ratchet frame replayed inside a **new** envelope (new packet ID) is usually rejected by ratchet state / AEAD, but error semantics are generic exceptions.
+Router dedup is per `packetId`. An old ratchet frame replayed inside a **new** envelope (new packet ID) is rejected by ratchet state / AEAD without releasing plaintext.
 
-**Fix direction:** Treat decrypt failures on duplicate `messageNumber` as terminal for that message; consider explicit session-level seen counters.
+**Implemented (ratchet layer):** `DoubleRatchetSession` rejects stale `messageNumber` values (already processed, no matching skipped key) with `CryptoSessionException.Replay` before mutating receive state. This overlaps with gap #9 hardening.
 
-#### 9. Decrypt partial state mutation — ⬜ Open
+**Deferred:** Router / protection layer still maps decrypt failures to generic `PROTECTION_FAILED`; no separate session-level seen-counter store beyond ratchet `recvMessageNumber` and `skipped_message_keys`.
 
-`DoubleRatchetSession.decrypt` may advance DH ratchet state before AEAD verification. A failure mid-decrypt could leave in-memory state inconsistent if not persisted carefully.
+#### 9. Decrypt partial state mutation — ✅ Fixed
 
-**Fix direction:** Snapshot-before-decrypt with rollback, or ensure no partial persist on failure (audit all paths).
+`DoubleRatchetSession.decrypt` previously advanced DH ratchet state, skip counters, or consumed skipped keys before AEAD verification. A failure mid-decrypt could corrupt in-memory state; `DefaultCryptoSessionManager` could supersede the canonical session on inbound generation reset before the first decrypt succeeded.
+
+**Implemented:**
+
+- **Snapshot rollback** — `decrypt` checkpoints `RatchetSessionState`, runs `decryptPlaintext`, and restores on any failure.
+- **Deferred skipped-key removal** — skipped message keys are removed only after successful `decryptAead`.
+- **Early replay guard** — `rejectReplayIfStale` throws `CryptoSessionException.Replay` when `messageNumber < recvMessageNumber` with no matching skipped key (no counter advance).
+- **Manager transaction ordering** — `handleInboundGenerationReset` runs after successful `decryptRatchet` in `decryptFromInboundHandshake`, so a failed bootstrap+decrypt does not supersede the prior canonical row.
+
+Failed decrypt paths in `decryptAndPersist` / the multi-session fallback loop were already non-persisting (load → decrypt → persist on success only).
+
+**Tests:** `DoubleRatchetSessionTest` — `decrypt_replayAlreadyDecryptedMessage_rejectsWithoutStateMutation`, `decrypt_tamperedBodyOnSkippedMessage_preservesStateAndRetries`, `decrypt_tamperedBodyInOrder_preservesState`; `DefaultCryptoSessionManagerTest.inboundGenerationReset_deferredUntilDecryptSucceeds`.
 
 #### 10. Protocol versioning — ⬜ Open
 
@@ -298,11 +311,19 @@ Router dedup is per `packetId`. An old ratchet frame replayed inside a **new** e
 
 **Fix direction:** Add `cryptoProtocolVersion` (or bump `SESSION_WIRE_VERSION`) when changing KDF labels, AAD binding, or inner plaintext format.
 
-#### 11. Decode bounds — ⬜ Open
+#### 11. Decode bounds — ✅ Fixed
 
-`RatchetCiphertext.decode` and `SessionWireFrame.decode` have no practical upper bounds on `dhPublicKey` size, body size, or string lengths. Hostile frames could cause large allocations.
+`RatchetCiphertext.decode` and `SessionWireFrame.decode` had no practical upper bounds on `dhPublicKey` size, body size, or string lengths. Hostile frames could cause large allocations (partially mitigated by Tor `maxPayloadBytes`).
 
-**Fix direction:** Enforce sane maxima at decode time.
+**Implemented:**
+
+- **`CryptoWireLimits`** — compile-time constants in `CryptoSessionTypes.kt` (default `maxSessionWireFrameBytes` = 4 MiB, aligned with Tor; semantic caps for DH/ephemeral keys in DER form, ratchet body, inner plaintext, string ids, OPK/control blocks, skipped-keys blob).
+- **Decode enforcement** — `SessionWireCodec.readByteArrayAt` / `readLengthPrefixedAt` validate length before allocation; `SessionWireFrame`, `RatchetCiphertext`, `RatchetInnerPlaintext`, `InnerSessionControl`, and `RatchetSkippedKeysCodec` apply field-appropriate limits.
+- **Outbound checks** — `DefaultCryptoSessionManager.encryptMessage` rejects oversized inner plaintext; `SignedAndEncryptedMessageProtection` rejects oversized signed payload before decode; encoders validate component sizes before building wire bytes.
+
+No runtime config threading — limits are protocol constants at the codec layer.
+
+**Tests:** `CryptoWireLimitsTest` — oversized session wire blob, DH key length, ratchet body length; round-trip sanity.
 
 #### 12. Identity / session reset — 🟡 Partially fixed
 

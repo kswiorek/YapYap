@@ -1072,6 +1072,75 @@ class DefaultCryptoSessionManagerTest {
     }
 
     @Test
+    fun inboundGenerationReset_deferredUntilDecryptSucceeds() = runTest {
+        val testTime = FixedEpochSecondsProvider(100_000L)
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "bob")
+        val aliceStore = MapBackedCryptoSessionStore()
+        val bobStore = MapBackedCryptoSessionStore()
+        val config = CryptoSessionConfig(
+            canonicalIdleSupersedeSeconds = 60,
+            supersededRetentionSeconds = 60 * 60,
+        )
+        val alice = managerForPeer(
+            crypto = crypto,
+            local = alicePeer,
+            peer = bobPeer,
+            sessionStore = aliceStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            sessionConfig = config,
+            timeProvider = testTime,
+        )
+        val bob = managerForPeer(
+            crypto = crypto,
+            local = bobPeer,
+            peer = alicePeer,
+            sessionStore = bobStore,
+            oneTimePreKeyStore = InMemoryOneTimePreKeyStore(crypto),
+            sessionConfig = config,
+            timeProvider = testTime,
+        )
+
+        val first = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
+        bob.decryptMessage(alicePeer.device.deviceId, first)
+
+        val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
+        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        maintainPeerSessions(
+            sessionStore = aliceStore,
+            sessionConfig = config,
+            peerDeviceId = bobPeer.device.deviceId,
+            nowEpochSeconds = 100_000L,
+        )
+
+        val reset = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
+        assertEquals(2, reset.sessionGeneration)
+        val tamperedBody = reset.ratchet.body.copyOf().also {
+            it[it.lastIndex] = (it.last().toInt() xor 0xff).toByte()
+        }
+        val tampered = reset.copy(ratchet = reset.ratchet.copy(body = tamperedBody))
+
+        assertFailsWith<Exception> {
+            bob.decryptMessage(alicePeer.device.deviceId, tampered)
+        }
+
+        val bobCanonical = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)
+        assertNotNull(bobCanonical)
+        assertEquals(1, bobCanonical.meta.sessionGeneration)
+        assertEquals(SessionStatus.ACTIVE, bobCanonical.meta.status)
+
+        val opened = bob.decryptMessage(alicePeer.device.deviceId, reset)
+        assertContentEquals(byteArrayOf(2), opened)
+        assertEquals(
+            SessionStatus.SUPERSEDED,
+            bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1)
+                .single { it.meta.sessionGeneration == 1 }
+                .meta.status,
+        )
+        assertEquals(2, bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration)
+    }
+
+    @Test
     fun peerMaintenance_pruneRespectsRetention_perGeneration() = runTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()

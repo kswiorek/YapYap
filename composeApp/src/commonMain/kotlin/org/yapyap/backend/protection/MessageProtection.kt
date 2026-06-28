@@ -3,6 +3,7 @@ package org.yapyap.backend.protection
 import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.SignatureProvider
 import org.yapyap.backend.crypto.e2ee.CryptoSessionManager
+import org.yapyap.backend.crypto.e2ee.CryptoWireLimits
 import org.yapyap.backend.crypto.e2ee.SessionWireFrame
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
@@ -129,6 +130,7 @@ class SignedAndEncryptedMessageProtection(
             remoteDeviceId = context.targetDeviceId,
             bytes = input.encode(),
         )
+        val wirePayload = encryptedInput.encode()
 
         val unsigned = MessageEnvelope(
             messageId = messageEnvelopeId(input),
@@ -138,7 +140,7 @@ class SignedAndEncryptedMessageProtection(
             nonce = cryptoProvider.generateNonce(SignalSecurityScheme.ENCRYPTED_AND_SIGNED),
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = null,
-            payload = encryptedInput.encode(),
+            payload = wirePayload,
         )
 
         val signature = signatureProvider.sign(unsigned.encodeForSigning())
@@ -160,6 +162,7 @@ class SignedAndEncryptedMessageProtection(
             "Message signature verification failed for source=${envelope.source}"
         }
 
+        CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
         val encryptedInput = SessionWireFrame.decode(envelope.payload)
         val decryptedInput = cryptoSessionManager.decryptMessage(
             remoteDeviceId = envelope.source,
