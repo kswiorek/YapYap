@@ -2,6 +2,9 @@ package org.yapyap.backend.protection
 
 import org.yapyap.backend.crypto.CryptoProvider
 import org.yapyap.backend.crypto.SignatureProvider
+import org.yapyap.backend.crypto.e2ee.CryptoSessionManager
+import org.yapyap.backend.crypto.e2ee.CryptoWireLimits
+import org.yapyap.backend.crypto.e2ee.SessionWireFrame
 import org.yapyap.backend.logging.AppLogger
 import org.yapyap.backend.logging.LogComponent
 import org.yapyap.backend.logging.LogEvent
@@ -44,7 +47,7 @@ class PlaintextWebRtcSignalProtection(
             nonce = cryptoProvider.generateNonce(SignalSecurityScheme.PLAINTEXT_TEST_ONLY),
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            protectedPayload = input.payload,
+            payload = input.payload,
         )
     }
 
@@ -63,7 +66,7 @@ class PlaintextWebRtcSignalProtection(
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
-            payload = envelope.protectedPayload,
+            payload = envelope.payload,
         )
     }
 
@@ -92,7 +95,7 @@ class SignedWebRtcSignalProtection(
             nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = null,
-            protectedPayload = input.payload,
+            payload = input.payload,
         )
         val signature = signatureProvider.sign(unsigned.encodeForSigning())
         return unsigned.copy(signature = signature)
@@ -123,7 +126,7 @@ class SignedWebRtcSignalProtection(
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
-            payload = envelope.protectedPayload,
+            payload = envelope.payload,
         )
     }
 
@@ -132,4 +135,83 @@ class SignedWebRtcSignalProtection(
     override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 
     override fun envelopeLabel(): String = "WebRTC signal envelope"
+}
+
+class SignedAndEncryptedWebRtcSignalProtection(
+    private val signatureProvider: SignatureProvider,
+    private val cryptoSessionManager: CryptoSessionManager,
+    private val cryptoProvider: CryptoProvider,
+    private val logger: AppLogger = NoopAppLogger,
+) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
+    override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
+        require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
+            "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
+        }
+
+        val encryptedInput = cryptoSessionManager.encryptMessage(
+            remoteDeviceId = context.targetDeviceId,
+            bytes = input.payload,
+        )
+        val wirePayload = encryptedInput.encode()
+
+        val unsigned = WebRtcSignalEnvelope(
+            sessionId = input.sessionId,
+            kind = input.kind,
+            source = context.sourceDeviceId,
+            target = context.targetDeviceId,
+            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
+            securityScheme = SignalSecurityScheme.SIGNED,
+            signature = null,
+            payload = wirePayload,
+        )
+
+        val signature = signatureProvider.sign(unsigned.encodeForSigning())
+        return unsigned.copy(signature = signature)
+    }
+
+    override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
+        require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
+            "Expected ENCRYPTED_AND_SIGNED security scheme but got ${envelope.securityScheme}"
+        }
+        val signature = envelope.signature ?: error("ENCRYPTED_AND_SIGNED message envelope must contain signature")
+        require(
+            signatureProvider.verify(
+                deviceId = envelope.source,
+                message = envelope.encodeForSigning(),
+                signature = signature,
+            ),
+        ) {
+            "Message signature verification failed for source=${envelope.source}"
+        }
+
+        CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
+        val encryptedInput = SessionWireFrame.decode(envelope.payload)
+        val decryptedInput = cryptoSessionManager.decryptMessage(
+            remoteDeviceId = envelope.source,
+            frame = encryptedInput,
+        )
+
+        val signalPayload = WebRtcSignal(
+            sessionId = envelope.sessionId,
+            kind = envelope.kind,
+            source = envelope.source,
+            target = envelope.target,
+            payload = decryptedInput,
+        )
+
+        logger.debug(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.ENVELOPE_OPENED,
+            message = "Verified signed and encrypted message envelope",
+            fields = mapOf("sessionId" to envelope.sessionId, "source" to envelope.source, "kind" to envelope.kind.name),
+        )
+        return signalPayload
+    }
+
+    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+
+    override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
+
+    override fun envelopeLabel(): String = "Message envelope"
 }

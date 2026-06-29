@@ -92,7 +92,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            protectedPayload = input.payload,
+            payload = input.payload,
         )
 
     override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
@@ -101,7 +101,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
-            payload = envelope.protectedPayload,
+            payload = envelope.payload,
         )
 
     override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =

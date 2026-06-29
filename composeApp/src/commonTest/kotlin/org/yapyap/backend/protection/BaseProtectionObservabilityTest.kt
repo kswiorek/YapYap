@@ -120,7 +120,7 @@ class BaseProtectionObservabilityTest {
                 nonce = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
-                protectedPayload = input.payload,
+                payload = input.payload,
             )
         }
 
@@ -131,13 +131,13 @@ class BaseProtectionObservabilityTest {
                 kind = envelope.kind,
                 source = envelope.source,
                 target = envelope.target,
-                payload = envelope.protectedPayload,
+                payload = envelope.payload,
             )
         }
 
         override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
             envelope.observableHeaderValues() +
-                (WebRtcSignalEnvelope.Companion.Fields.PROTECTED_PAYLOAD to envelope.protectedPayload)
+                (WebRtcSignalEnvelope.Companion.Fields.PROTECTED_PAYLOAD to envelope.payload)
 
         override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 

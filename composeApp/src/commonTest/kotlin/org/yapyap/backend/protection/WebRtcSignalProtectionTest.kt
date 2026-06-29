@@ -58,7 +58,7 @@ class WebRtcSignalProtectionTest {
             nonce = nonce24(),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64),
-            protectedPayload = input.payload,
+            payload = input.payload,
         )
         assertFailsWith<IllegalArgumentException> {
             protection.open(envelope)

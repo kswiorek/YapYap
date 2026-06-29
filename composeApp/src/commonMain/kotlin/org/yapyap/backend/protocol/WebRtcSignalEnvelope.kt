@@ -11,7 +11,7 @@ data class WebRtcSignalEnvelope(
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
     val signature: ByteArray?,
-    val protectedPayload: ByteArray,
+    val payload: ByteArray,
 ) {
     init {
         require(sessionId.isNotBlank()) { "sessionId must not be blank" }
@@ -22,7 +22,7 @@ data class WebRtcSignalEnvelope(
     fun encodeForSigning(): ByteArray = copy(signature = null).encode()
 
     fun encode(): ByteArray {
-        val writer = ByteWriter(256 + protectedPayload.size + nonce.size + (signature?.size ?: 0))
+        val writer = ByteWriter(256 + payload.size + nonce.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
@@ -33,7 +33,7 @@ data class WebRtcSignalEnvelope(
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
         writer.writeNullableByteArray(signature)
-        writer.writeByteArray(protectedPayload)
+        writer.writeByteArray(payload)
         return writer.toByteArray()
     }
 
@@ -92,7 +92,7 @@ data class WebRtcSignalEnvelope(
                 nonce = nonce,
                 securityScheme = securityScheme,
                 signature = signature,
-                protectedPayload = protectedPayload,
+                payload = protectedPayload,
             )
         }
     }
