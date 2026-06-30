@@ -27,7 +27,7 @@ import org.yapyap.routing.router.RouterTransport
 import org.yapyap.time.FixedEpochSecondsProvider
 import org.yapyap.transport.RecordingTorTransport
 import org.yapyap.transport.RecordingWebRtcTransport
-import org.yapyap.transport.tor.transport.TorIncomingEnvelope
+import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import org.yapyap.transport.webrtc.types.WebRtcSessionState
 import kotlin.time.Duration.Companion.milliseconds

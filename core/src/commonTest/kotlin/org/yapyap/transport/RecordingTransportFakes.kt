@@ -7,13 +7,8 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.tor.backend.TorBackend
-import org.yapyap.transport.tor.backend.TorIncomingFrame
-import org.yapyap.transport.tor.transport.TorIncomingEnvelope
 import org.yapyap.transport.tor.transport.TorTransport
-import org.yapyap.transport.webrtc.backend.WebRtcAvChannelEvent
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
-import org.yapyap.transport.webrtc.backend.WebRtcDataFrame
-import org.yapyap.transport.webrtc.backend.WebRtcSessionEvent
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.AvSessionOptions
@@ -21,6 +16,11 @@ import org.yapyap.transport.webrtc.types.WebRtcAvSessionState
 import org.yapyap.transport.webrtc.types.WebRtcIncomingAvSessionRequest
 import org.yapyap.transport.webrtc.types.WebRtcSessionState
 import org.yapyap.transport.webrtc.types.WebRtcSignal
+import org.yapyap.transport.tor.TorIncomingEnvelope
+import org.yapyap.transport.tor.TorIncomingFrame
+import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
 
 /** Recording fake — no real Tor mesh. */
 class RecordingTorTransport(

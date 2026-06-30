@@ -2,11 +2,7 @@ package org.yapyap.transport.tor.backend
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.TorEndpoint
-
-data class TorIncomingFrame(
-    val source: TorEndpoint,
-    val payload: ByteArray,
-)
+import org.yapyap.transport.tor.TorIncomingFrame
 
 interface TorBackend {
     val incomingFrames: Flow<TorIncomingFrame>

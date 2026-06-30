@@ -15,6 +15,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
 
 class DefaultTorTransport(

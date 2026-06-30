@@ -34,12 +34,12 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.SystemEpochSecondsProvider
-import org.yapyap.transport.tor.transport.TorIncomingEnvelope
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.routing.outbox.OutboxRetryLoop
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
+import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase

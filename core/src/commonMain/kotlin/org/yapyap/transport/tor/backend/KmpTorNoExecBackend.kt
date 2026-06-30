@@ -47,6 +47,8 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.transport.tor.TorException
+import org.yapyap.transport.tor.TorIncomingFrame
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration.Companion.milliseconds
@@ -186,11 +188,11 @@ class KmpTorNoExecBackend(
 
         val deadline = TimeSource.Monotonic.markNow() + config.socksRetryTimeoutMillis.milliseconds
         while (true) {
-            val socket = runCatching {
+            val socket = run {
                 aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
                     socketTimeout = 180_000
                 }
-            }.getOrElse { throw it }
+            }
 
             try {
                 val input = socket.openReadChannel()
@@ -212,7 +214,7 @@ class KmpTorNoExecBackend(
                         throwable = error,
                         fields = mapOf("targetHost" to target.onionAddress, "targetPort" to target.port, "code" to error.code),
                     )
-                    throw IllegalArgumentException("SOCKS connect failed with code ${error.code}", error)
+                    throw TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
                 }
                 delay(config.socksRetryDelayMillis.milliseconds)
             } finally {
@@ -241,24 +243,19 @@ class KmpTorNoExecBackend(
     }
 
     private suspend fun waitUntilReady(runtime: TorRuntime) {
-        var latestRuntimeReady = false
         val completed = withTimeoutOrNull(config.startupTimeoutMillis.milliseconds) {
             while (true) {
                 socksPort = runtime.listeners().socks.lastOrNull()?.port?.value ?: socksPort
-                latestRuntimeReady = runtime.isReady()
-                val ready = socksPort != null && latestRuntimeReady
+                val ready = socksPort != null && runtime.isReady()
 
                 if (ready) return@withTimeoutOrNull
 
-                check(torRuntime != null) { "Tor runtime exited before becoming ready" }
+                if (torRuntime == null) {throw TorException.TorRuntimeError("Tor runtime exitted before ready")}
                 delay(150.milliseconds)
             }
         }
         if (completed == null) {
-            throw IllegalStateException(
-                "Timed out waiting for Tor readiness after ${config.startupTimeoutMillis}ms " +
-                    "(runtimeReady=$latestRuntimeReady, socksPort=$socksPort)"
-            )
+            throw TorException.SocksConnectionTimeout()
         }
     }
 
@@ -282,7 +279,7 @@ class KmpTorNoExecBackend(
                             message = "Inbound Tor transport frame parse error",
                             throwable = error,
                         )
-                        return@launch
+                        throw TorException.TransportFrameError(error.message ?: "Unknown error")
                     }
                     inboundFlow.emit(frame)
                 } finally {

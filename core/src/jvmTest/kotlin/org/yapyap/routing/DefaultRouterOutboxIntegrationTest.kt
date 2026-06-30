@@ -32,7 +32,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.time.FixedEpochSecondsProvider
 import org.yapyap.transport.RecordingTorTransport
-import org.yapyap.transport.tor.transport.TorIncomingEnvelope
+import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.time.Duration.Companion.milliseconds
 
 class DefaultRouterOutboxIntegrationTest {

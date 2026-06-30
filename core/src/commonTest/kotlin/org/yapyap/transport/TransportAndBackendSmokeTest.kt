@@ -10,9 +10,9 @@ import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.transport.tor.transport.TorIncomingEnvelope
-import org.yapyap.transport.webrtc.backend.WebRtcDataFrame
-import org.yapyap.transport.webrtc.backend.WebRtcDataType
+import org.yapyap.transport.tor.TorIncomingEnvelope
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcDataType
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
 
