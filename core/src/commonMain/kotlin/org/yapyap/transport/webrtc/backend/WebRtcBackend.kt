@@ -2,37 +2,10 @@ package org.yapyap.transport.webrtc.backend
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.PeerId
+import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
 import org.yapyap.transport.webrtc.types.WebRtcSignal
-
-enum class WebRtcDataType {
-    ENVELOPE_BINARY,
-    AV_DATA,
-}
-
-data class WebRtcDataFrame(
-    val sessionId: String,
-    val source: PeerId,
-    val target: PeerId,
-    val dataType: WebRtcDataType,
-    val payload: ByteArray,
-)
-
-sealed interface WebRtcSessionEvent {
-    val sessionId: String
-    val peer: PeerId
-    data class Connecting(override val sessionId: String, override val peer: PeerId) : WebRtcSessionEvent
-    data class Connected(override val sessionId: String, override val peer: PeerId) : WebRtcSessionEvent
-    data class Closed(override val sessionId: String, override val peer: PeerId) : WebRtcSessionEvent
-    data class Failed(override val sessionId: String, override val peer: PeerId, val reason: String) : WebRtcSessionEvent
-}
-sealed interface WebRtcAvChannelEvent {
-    val sessionId: String
-    val peer: PeerId
-    data class Adding(override val sessionId: String, override val peer: PeerId) : WebRtcAvChannelEvent
-    data class Active(override val sessionId: String, override val peer: PeerId) : WebRtcAvChannelEvent
-    data class Removed(override val sessionId: String, override val peer: PeerId) : WebRtcAvChannelEvent
-    data class Failed(override val sessionId: String, override val peer: PeerId, val reason: String) : WebRtcAvChannelEvent
-}
 
 interface WebRtcBackend {
     val outgoingSignals: Flow<WebRtcSignal>

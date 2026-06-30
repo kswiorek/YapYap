@@ -32,12 +32,12 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
-import org.yapyap.transport.webrtc.backend.WebRtcAvChannelEvent
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
-import org.yapyap.transport.webrtc.backend.WebRtcDataFrame
-import org.yapyap.transport.webrtc.backend.WebRtcDataType
-import org.yapyap.transport.webrtc.backend.WebRtcSessionEvent
+import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcDataType
+import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
 
