@@ -1,4 +1,4 @@
-package org.yapyap.transport.webrtc
+package org.yapyap.transport.webrtc.backend
 
 import dev.onvoid.webrtc.CreateSessionDescriptionObserver
 import dev.onvoid.webrtc.PeerConnectionFactory
@@ -32,8 +32,6 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
-import org.yapyap.transport.webrtc.backend.WebRtcBackend
-import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcDataType

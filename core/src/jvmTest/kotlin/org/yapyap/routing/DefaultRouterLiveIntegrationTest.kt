@@ -33,7 +33,7 @@ import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
-import org.yapyap.transport.webrtc.JvmWebRtcBackend
+import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import kotlin.time.Duration.Companion.milliseconds
 
 /**

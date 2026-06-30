@@ -20,6 +20,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.protocol.PeerId
+import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.time.Duration.Companion.milliseconds
@@ -125,7 +126,7 @@ class WebRtcInMemorySignalingIntegrationTest {
                     return@withTimeout
                 } catch (e: IllegalStateException) {
                     last = e
-                    delay(100L)
+                    delay(100L.milliseconds)
                 }
             }
             throw AssertionError("Timed out waiting for data channel to open", last)
