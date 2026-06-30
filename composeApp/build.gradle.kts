@@ -11,7 +11,6 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
-    id("app.cash.sqldelight") version "2.3.2"
 }
 
 fun hasAndroidSdkConfigured(): Boolean {
@@ -37,19 +36,6 @@ if (enableAndroid) {
     apply(plugin = "com.android.application")
 }
 
-val webrtcNativeClassifier: String? = run {
-    val osName = System.getProperty("os.name").lowercase()
-    val arch = System.getProperty("os.arch").lowercase()
-    when {
-        osName.contains("win") -> if (arch.contains("64")) "windows-x86_64" else null
-        osName.contains("mac") || osName.contains("darwin") ->
-            if (arch.contains("aarch64") || arch.contains("arm64")) "macos-aarch64" else "macos-x86_64"
-        osName.contains("linux") ->
-            if (arch.contains("aarch64") || arch.contains("arm64")) "linux-aarch64" else "linux-x86_64"
-        else -> null
-    }
-}
-
 kotlin {
     if (enableAndroid) {
         androidTarget {
@@ -58,31 +44,22 @@ kotlin {
             }
         }
     }
-    
+
     listOf(
         iosArm64(),
-        iosSimulatorArm64()
+        iosSimulatorArm64(),
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
         }
     }
-    
+
     jvm()
-    
+
     sourceSets {
-        if (enableAndroid) {
-            androidMain.dependencies {
-                implementation(libs.compose.uiToolingPreview)
-                implementation(libs.androidx.activity.compose)
-                implementation(libs.android.driver)
-                implementation(libs.cryptography.provider.jdk.bc)
-            }
-        }
-        val ktor_version: String by project
-        val vKmpTorResource: String by project
         commonMain.dependencies {
+            implementation(project(":core"))
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
@@ -91,38 +68,19 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
-            implementation(libs.kotlinx.coroutinesCore)
-            implementation(libs.runtime)
-            implementation("io.matthewnelson.kmp-tor:resource-exec-tor:${vKmpTorResource}")
-            implementation("io.matthewnelson.kmp-tor:resource-noexec-tor:${vKmpTorResource}")
-            implementation("io.ktor:ktor-network:${ktor_version}")
-            implementation("io.ktor:ktor-io:${ktor_version}")
-            implementation(libs.coroutines.extensions)
-            implementation(libs.cryptography.core)
-            implementation(libs.cryptography.provider.optimal)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-            implementation(libs.kotlinx.coroutinesTest)
         }
-        iosMain.dependencies {
-            implementation(libs.native.driver)
+        if (enableAndroid) {
+            androidMain.dependencies {
+                implementation(libs.compose.uiToolingPreview)
+                implementation(libs.androidx.activity.compose)
+            }
         }
         jvmMain.dependencies {
-            implementation(libs.cryptography.provider.jdk.bc)
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
-            implementation(libs.webrtc.java)
-            if (webrtcNativeClassifier != null) {
-                runtimeOnly("dev.onvoid.webrtc:webrtc-java:0.14.0:$webrtcNativeClassifier")
-            }
-            implementation(libs.sqlite.driver)
-            implementation(libs.sqlite.jdbc)
-            implementation(libs.java.keyring)
-        }
-        jvmTest.dependencies {
-            implementation(libs.kotlin.test)
-            implementation(libs.kotlinx.coroutinesTest)
         }
     }
 }
@@ -168,36 +126,6 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "org.yapyap"
             packageVersion = "1.0.0"
-        }
-    }
-}
-
-sqldelight {
-    databases {
-        create("YapYapDatabase") {
-            // This is the package where the generated Kotlin code will live
-            packageName.set("org.yapyap.backend.db")
-
-            // Optional: If you want to use schema versioning later
-            // schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
-        }
-    }
-}
-
-/**
- * Opt-in slow / environment-sensitive JVM integration tests (real Tor, real WebRTC stack), e.g.:
- * `./gradlew :composeApp:jvmTest -PintegrationTests=true --rerun-tasks`
- */
-val integrationTestsEnabled =
-    (findProperty("integrationTests") as? String)?.equals("true", ignoreCase = true) == true
-
-tasks.named<Test>("jvmTest") {
-    filter {
-        if (!integrationTestsEnabled) {
-            excludeTestsMatching("*TorRealBackendTransportIntegrationTest")
-            excludeTestsMatching("*WebRtcInMemorySignalingIntegrationTest")
-            excludeTestsMatching("*DefaultRouterLiveIntegrationTest")
-            excludeTestsMatching("*DefaultKeyStoreJavaKeyringIntegrationTest")
         }
     }
 }
