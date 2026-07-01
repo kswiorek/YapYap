@@ -149,9 +149,13 @@ class X3dhHandshake(
         remoteIdentityEncryptionPublicKey: ByteArray,
         wire: X3dhWireInfo,
     ): X3dhResponderResult {
-        require(wire.mode == X3dhMode.THREE_DH) { "expected THREE_DH wire mode but got ${wire.mode}" }
-        require(wire.signedPreKeyId == local.signedPreKeyId) {
-            "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${local.signedPreKeyId}"
+        if (wire.mode != X3dhMode.THREE_DH) {
+            throw CryptoSessionException.HandshakeMismatch("expected THREE_DH wire mode but got ${wire.mode}")
+        }
+        if (wire.signedPreKeyId != local.signedPreKeyId) {
+            throw CryptoSessionException.HandshakeMismatch(
+                "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${local.signedPreKeyId}",
+            )
         }
         val sharedSecret = computeSharedSecretResponder(
             identityEncryptionPrivateKey = local.identityEncryptionPrivateKey,
@@ -177,12 +181,18 @@ class X3dhHandshake(
         remoteIdentityEncryptionPublicKey: ByteArray,
         wire: X3dhWireInfo,
     ): X3dhResponderResult {
-        require(wire.mode == X3dhMode.FOUR_DH) { "expected FOUR_DH wire mode but got ${wire.mode}" }
-        require(wire.signedPreKeyId == local.signedPreKeyId) {
-            "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${local.signedPreKeyId}"
+        if (wire.mode != X3dhMode.FOUR_DH) {
+            throw CryptoSessionException.HandshakeMismatch("expected FOUR_DH wire mode but got ${wire.mode}")
         }
-        require(wire.oneTimePreKeyId == oneTimePreKeyId) {
-            "one-time prekey id mismatch: wire=${wire.oneTimePreKeyId}, local=$oneTimePreKeyId"
+        if (wire.signedPreKeyId != local.signedPreKeyId) {
+            throw CryptoSessionException.HandshakeMismatch(
+                "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${local.signedPreKeyId}",
+            )
+        }
+        if (wire.oneTimePreKeyId != oneTimePreKeyId) {
+            throw CryptoSessionException.HandshakeMismatch(
+                "one-time prekey id mismatch: wire=${wire.oneTimePreKeyId}, local=$oneTimePreKeyId",
+            )
         }
         val sharedSecret = computeSharedSecretResponder(
             identityEncryptionPrivateKey = local.identityEncryptionPrivateKey,

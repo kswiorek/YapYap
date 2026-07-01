@@ -777,7 +777,7 @@ class DefaultCryptoSessionManagerTest {
             outerHandshake = frame.outerHandshake!!.copy(sessionEpoch = 2),
         )
 
-        val error = assertFailsWith<IllegalArgumentException> {
+        val error = assertFailsWith<CryptoSessionException.HandshakeMismatch> {
             bob.decryptMessage(alicePeer.device.deviceId, mismatched)
         }
         assertTrue(error.message!!.contains("sessionEpoch mismatch"))

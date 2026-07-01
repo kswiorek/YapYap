@@ -123,7 +123,7 @@ class SystemProtectionTest {
         }
         val tamperedEnvelope = envelope.copy(signature = corruptSignature)
 
-        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
+        val ex = assertFailsWith<ProtectionException.AuthenticationFailed> {
             protection.open(tamperedEnvelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))

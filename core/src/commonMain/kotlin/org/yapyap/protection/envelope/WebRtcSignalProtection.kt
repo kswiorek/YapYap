@@ -9,6 +9,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
@@ -107,7 +108,8 @@ class SignedWebRtcSignalProtection(
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signature = envelope.signature
+            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
         val signatureValid = signatureProvider.verify(
             deviceId = envelope.source,
             message = envelope.encodeForSigning(),
@@ -115,7 +117,7 @@ class SignedWebRtcSignalProtection(
         )
 
         if (!signatureValid) {
-            throw ProtectionException.SignatureVerificationFailed()
+            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
         logger.debug(
@@ -177,7 +179,8 @@ class SignedAndEncryptedWebRtcSignalProtection(
         require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
             "Expected ENCRYPTED_AND_SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signature = envelope.signature
+            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
         val signatureValid = signatureProvider.verify(
             deviceId = envelope.source,
             message = envelope.encodeForSigning(),
@@ -185,7 +188,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
         )
 
         if (!signatureValid) {
-            throw ProtectionException.SignatureVerificationFailed()
+            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
         CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
@@ -199,7 +202,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
                 message = "Failed to decode SessionWireFrame from encrypted WebRTC signal envelope",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
 
         val decryptedInput = try {
@@ -214,7 +217,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
                 message = "Failed to decrypt WebRTC signal",
                 throwable = e,
             )
-            throw e
+            throw ProtectionException.mapDecryptFailure(e)
         }
 
         val signalPayload = WebRtcSignal(

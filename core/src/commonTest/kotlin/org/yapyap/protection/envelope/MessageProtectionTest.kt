@@ -1,7 +1,6 @@
 package org.yapyap.protection.envelope
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
@@ -136,7 +135,7 @@ class MessageProtectionTest {
         }
         val tamperedEnvelope = envelope.copy(signature = corruptSignature)
 
-        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
+        val ex = assertFailsWith<ProtectionException.AuthenticationFailed> {
             protection.open(tamperedEnvelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))
@@ -184,7 +183,7 @@ class MessageProtectionTest {
         }
         val tamperedEnvelope = envelope.copy(signature = corruptSignature)
 
-        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
+        val ex = assertFailsWith<ProtectionException.AuthenticationFailed> {
             pair.receiver.open(tamperedEnvelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))
@@ -273,7 +272,7 @@ class MessageProtectionTest {
             ),
         )
 
-        assertFailsWith<CryptoException.IncompleteRecord> {
+        assertFailsWith<ProtectionException.IdentityNotReady> {
             receiverProtection.open(envelope)
         }
     }

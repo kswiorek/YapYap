@@ -108,7 +108,7 @@ class DoubleRatchetSessionTest {
         bob.decrypt(first)
 
         val forged = first.copy(messageNumber = first.messageNumber + 300)
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<CryptoSessionException.MessageSkipExceeded> {
             bob.decrypt(forged)
         }
     }

@@ -124,7 +124,7 @@ class X3dhHandshakeTest {
             crypto.generateEncryptionKeyPair(),
         )
         val badWire = initiator.wire.copy(signedPreKeyId = "wrong-spk")
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<CryptoSessionException.HandshakeMismatch> {
             x3dh.responderCompute3Dh(
                 local = fixture.bobLocal,
                 remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
@@ -144,7 +144,7 @@ class X3dhHandshakeTest {
             oneTimePreKeyPublicKey = opk.publicKey,
             oneTimePreKeyId = "opk-1",
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<CryptoSessionException.HandshakeMismatch> {
             x3dh.responderCompute4Dh(
                 local = fixture.bobLocal,
                 oneTimePreKeyPrivateKey = opk.privateKey,

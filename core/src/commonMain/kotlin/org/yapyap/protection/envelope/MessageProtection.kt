@@ -9,6 +9,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
@@ -54,7 +55,7 @@ class PlaintextMessageProtection(
                 message = "Failed to decode plaintext message envelope",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
         logger.debug(
             component = LogComponent.CRYPTO,
@@ -99,15 +100,16 @@ class SignedMessageProtection(
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signature = envelope.signature
+            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
         val signatureValid = signatureProvider.verify(
             deviceId = envelope.source,
             message = envelope.encodeForSigning(),
             signature = signature,
         )
 
-        if (!signatureValid){
-            throw ProtectionException.SignatureVerificationFailed()
+        if (!signatureValid) {
+            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
         val messagePayload = try {
@@ -119,7 +121,7 @@ class SignedMessageProtection(
                 message = "Failed to decode signed message envelope",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
 
         logger.debug(
@@ -174,15 +176,16 @@ class SignedAndEncryptedMessageProtection(
         require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
             "Expected ENCRYPTED_AND_SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signature = envelope.signature
+            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
         val signatureValid = signatureProvider.verify(
             deviceId = envelope.source,
             message = envelope.encodeForSigning(),
             signature = signature,
         )
 
-        if (!signatureValid){
-            throw ProtectionException.SignatureVerificationFailed()
+        if (!signatureValid) {
+            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
         CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
@@ -196,7 +199,7 @@ class SignedAndEncryptedMessageProtection(
                 message = "Failed to decode SessionWireFrame from encrypted message envelope",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
 
         val decryptedInput = try {
@@ -211,7 +214,7 @@ class SignedAndEncryptedMessageProtection(
                 message = "Failed to decrypt message",
                 throwable = e,
             )
-            throw e
+            throw ProtectionException.mapDecryptFailure(e)
         }
 
         val messagePayload = try {
@@ -223,7 +226,7 @@ class SignedAndEncryptedMessageProtection(
                 message = "Failed to decode MessagePayload from decrypted message",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
 
         logger.debug(

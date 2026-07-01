@@ -213,8 +213,8 @@ class DoubleRatchetSession private constructor(
 
     private suspend fun skipMessageKeys(until: Int) {
         if (until <= state.recvMessageNumber) return
-        require(state.recvMessageNumber + MAX_SKIP >= until) {
-            "too many skipped messages: current=${state.recvMessageNumber}, until=$until"
+        if (state.recvMessageNumber + MAX_SKIP < until) {
+            throw CryptoSessionException.MessageSkipExceeded(state.recvMessageNumber, until)
         }
         var recvChainKey = state.recvChainKey ?: error("receive chain is not initialized")
         while (state.recvMessageNumber < until) {

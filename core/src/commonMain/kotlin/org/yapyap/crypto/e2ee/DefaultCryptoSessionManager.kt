@@ -427,21 +427,29 @@ class DefaultCryptoSessionManager(
 
     private suspend fun bootstrapFromFrame(peerDeviceId: PeerId, frame: SessionWireFrame): LoadedSession {
         val wire = frame.outerHandshake ?: throw CryptoSessionException.HandshakeRequired(peerDeviceId)
-        require(frame.sessionEpoch == wire.sessionEpoch) {
-            "sessionEpoch mismatch: frame=${frame.sessionEpoch}, wire=${wire.sessionEpoch}"
+        if (frame.sessionEpoch != wire.sessionEpoch) {
+            throw CryptoSessionException.HandshakeMismatch(
+                "sessionEpoch mismatch: frame=${frame.sessionEpoch}, wire=${wire.sessionEpoch}",
+            )
         }
-        require(frame.sessionGeneration == wire.sessionGeneration) {
-            "sessionGeneration mismatch: frame=${frame.sessionGeneration}, wire=${wire.sessionGeneration}"
+        if (frame.sessionGeneration != wire.sessionGeneration) {
+            throw CryptoSessionException.HandshakeMismatch(
+                "sessionGeneration mismatch: frame=${frame.sessionGeneration}, wire=${wire.sessionGeneration}",
+            )
         }
         return when (frame.sessionEpoch) {
             1 -> bootstrapEpoch1Responder(peerDeviceId, wire)
             2 -> bootstrapEpoch2Responder(peerDeviceId, wire)
-            else -> error("unsupported session epoch: ${frame.sessionEpoch}")
+            else -> throw CryptoSessionException.HandshakeMismatch(
+                "unsupported session epoch: ${frame.sessionEpoch}",
+            )
         }
     }
 
     private suspend fun bootstrapEpoch1Responder(peerDeviceId: PeerId, wire: X3dhWireInfo): LoadedSession {
-        require(wire.mode == X3dhMode.THREE_DH) { "expected THREE_DH for epoch 1 bootstrap" }
+        if (wire.mode != X3dhMode.THREE_DH) {
+            throw CryptoSessionException.HandshakeMismatch("expected THREE_DH for epoch 1 bootstrap")
+        }
         val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
         val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId).encryption.publicKey
         val result = x3dh.responderCompute3Dh(
@@ -470,13 +478,17 @@ class DefaultCryptoSessionManager(
     }
 
     private suspend fun bootstrapEpoch2Responder(peerDeviceId: PeerId, wire: X3dhWireInfo): LoadedSession {
-        require(wire.mode == X3dhMode.FOUR_DH) { "expected FOUR_DH for epoch 2 bootstrap" }
+        if (wire.mode != X3dhMode.FOUR_DH) {
+            throw CryptoSessionException.HandshakeMismatch("expected FOUR_DH for epoch 2 bootstrap")
+        }
         val epoch1 = sessionStore.loadActiveCanonical(peerDeviceId, sessionEpoch = 1)
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
         val offeredOpkId = epoch1.meta.offeredOpkId
             ?: throw CryptoSessionException.MissingOfferedOpk(peerDeviceId)
-        require(wire.signedPreKeyId == epoch1.meta.handshakeSpkId) {
-            "signedPreKeyId mismatch with epoch-1 session: wire=${wire.signedPreKeyId}, epoch1=${epoch1.meta.handshakeSpkId}"
+        if (wire.signedPreKeyId != epoch1.meta.handshakeSpkId) {
+            throw CryptoSessionException.HandshakeMismatch(
+                "signedPreKeyId mismatch with epoch-1 session: wire=${wire.signedPreKeyId}, epoch1=${epoch1.meta.handshakeSpkId}",
+            )
         }
         val opkId = wire.oneTimePreKeyId ?: offeredOpkId
         val opk = opkRepository.consume(opkId)
@@ -664,10 +676,10 @@ class DefaultCryptoSessionManager(
         }
         return when (error) {
             is CryptoSessionException.HandshakeRequired,
+            is CryptoSessionException.HandshakeMismatch,
             is CryptoSessionException.MissingOfferedOpk,
             is CryptoSessionException.OpkConsumeFailed,
             -> true
-            is IllegalArgumentException -> error.message?.contains("signedPreKeyId mismatch") == true
             else -> false
         }
     }

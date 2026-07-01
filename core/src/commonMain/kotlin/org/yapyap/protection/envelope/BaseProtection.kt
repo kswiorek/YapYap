@@ -1,11 +1,23 @@
 package org.yapyap.protection.envelope
 
+import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.FieldSensitivity
+import kotlin.coroutines.cancellation.CancellationException
 
 abstract class BaseProtection<I, E> {
     suspend fun protect(input: I, context: EnvelopeProtectContext): E {
-        val envelope = doProtect(input, context)
+        val envelope = try {
+            doProtect(input, context)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ProtectionException) {
+            throw e
+        } catch (e: IllegalArgumentException) {
+            throw e
+        } catch (e: Exception) {
+            throw ProtectionException.map(e)
+        }
         assertObservabilityContract(
             observableHeaderValues = observableHeaderValues(envelope),
             policy = observabilityPolicy(),
@@ -20,7 +32,17 @@ abstract class BaseProtection<I, E> {
             policy = observabilityPolicy(),
             envelopeLabel = envelopeLabel(),
         )
-        return doOpen(envelope)
+        return try {
+            doOpen(envelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ProtectionException) {
+            throw e
+        } catch (e: IllegalArgumentException) {
+            throw e
+        } catch (e: Exception) {
+            throw ProtectionException.map(e)
+        }
     }
 
     protected abstract suspend fun doProtect(input: I, context: EnvelopeProtectContext): E

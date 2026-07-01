@@ -6,6 +6,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
@@ -51,7 +52,7 @@ class PlaintextSystemProtection(
                 message = "Failed to decode plaintext system envelope",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
         logger.debug(
             component = LogComponent.CRYPTO,
@@ -96,7 +97,8 @@ class SignedSystemProtection(
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signature = envelope.signature
+            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
         val signatureValid = signatureProvider.verify(
             deviceId = envelope.source,
             message = envelope.encodeForSigning(),
@@ -104,7 +106,7 @@ class SignedSystemProtection(
         )
 
         if (!signatureValid) {
-            throw ProtectionException.SignatureVerificationFailed()
+            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
         val systemPayload = try {
@@ -116,7 +118,7 @@ class SignedSystemProtection(
                 message = "Failed to decode signed system envelope",
                 throwable = e,
             )
-            throw ProtectionException.DecodeError()
+            throw ProtectionException.InvalidEnvelope(e)
         }
         logger.debug(
             component = LogComponent.CRYPTO,
