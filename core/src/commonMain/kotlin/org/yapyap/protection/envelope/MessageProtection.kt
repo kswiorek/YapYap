@@ -9,6 +9,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -29,7 +30,7 @@ class PlaintextMessageProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextMessageProtection but got ${context.securityScheme}"
         }
         return MessageEnvelope(
-            messageId = messageEnvelopeId(input),
+            messageId = input.messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -44,7 +45,17 @@ class PlaintextMessageProtection(
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
-        val messagePayload = envelope.decodePayload()
+        val messagePayload = try {
+            envelope.decodePayload()
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode plaintext message envelope",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
@@ -71,7 +82,7 @@ class SignedMessageProtection(
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
         val unsigned = MessageEnvelope(
-            messageId = messageEnvelopeId(input),
+            messageId = input.messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -88,17 +99,28 @@ class SignedMessageProtection(
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("SIGNED message envelope must contain signature")
-        require(
-            signatureProvider.verify(
-                deviceId = envelope.source,
-                message = envelope.encodeForSigning(),
-                signature = signature,
-            ),
-        ) {
-            "Message signature verification failed for source=${envelope.source}"
+        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signatureValid = signatureProvider.verify(
+            deviceId = envelope.source,
+            message = envelope.encodeForSigning(),
+            signature = signature,
+        )
+
+        if (!signatureValid){
+            throw ProtectionException.SignatureVerificationFailed()
         }
-        val messagePayload = envelope.decodePayload()
+
+        val messagePayload = try {
+            envelope.decodePayload()
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode signed message envelope",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
 
         logger.debug(
             component = LogComponent.CRYPTO,
@@ -134,7 +156,7 @@ class SignedAndEncryptedMessageProtection(
         val wirePayload = encryptedInput.encode()
 
         val unsigned = MessageEnvelope(
-            messageId = messageEnvelopeId(input),
+            messageId = input.messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -152,24 +174,57 @@ class SignedAndEncryptedMessageProtection(
         require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
             "Expected ENCRYPTED_AND_SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("ENCRYPTED_AND_SIGNED message envelope must contain signature")
-        require(
-            signatureProvider.verify(
-                deviceId = envelope.source,
-                message = envelope.encodeForSigning(),
-                signature = signature,
-            ),
-        ) {
-            "Message signature verification failed for source=${envelope.source}"
+        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signatureValid = signatureProvider.verify(
+            deviceId = envelope.source,
+            message = envelope.encodeForSigning(),
+            signature = signature,
+        )
+
+        if (!signatureValid){
+            throw ProtectionException.SignatureVerificationFailed()
         }
 
         CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
-        val encryptedInput = SessionWireFrame.decode(envelope.payload)
-        val decryptedInput = cryptoSessionManager.decryptMessage(
-            remoteDeviceId = envelope.source,
-            frame = encryptedInput,
-        )
-        val messagePayload = MessagePayload.decode(decryptedInput)
+
+        val encryptedInput = try {
+            SessionWireFrame.decode(envelope.payload)
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode SessionWireFrame from encrypted message envelope",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
+
+        val decryptedInput = try {
+            cryptoSessionManager.decryptMessage(
+                remoteDeviceId = envelope.source,
+                frame = encryptedInput,
+            )
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.DECRYPTION_FAILED,
+                message = "Failed to decrypt message",
+                throwable = e,
+            )
+            throw e
+        }
+
+        val messagePayload = try {
+            MessagePayload.decode(decryptedInput)
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode MessagePayload from decrypted message",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
 
         logger.debug(
             component = LogComponent.CRYPTO,
@@ -186,9 +241,3 @@ class SignedAndEncryptedMessageProtection(
 
     override fun envelopeLabel(): String = "Message envelope"
 }
-
-private fun messageEnvelopeId(payload: MessagePayload): String =
-    when (payload) {
-        is MessagePayload.Text -> payload.messageId
-        is MessagePayload.GlobalEvent -> payload.messageId
-    }

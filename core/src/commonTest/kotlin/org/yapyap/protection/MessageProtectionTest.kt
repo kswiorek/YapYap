@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DefaultIdentityResolver
@@ -142,7 +143,7 @@ class MessageProtectionTest {
         }
         val tamperedEnvelope = envelope.copy(signature = corruptSignature)
 
-        val ex = assertFailsWith<IllegalArgumentException> {
+        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
             protection.open(tamperedEnvelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))
@@ -190,7 +191,7 @@ class MessageProtectionTest {
         }
         val tamperedEnvelope = envelope.copy(signature = corruptSignature)
 
-        val ex = assertFailsWith<IllegalArgumentException> {
+        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
             pair.receiver.open(tamperedEnvelope)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))
@@ -279,9 +280,8 @@ class MessageProtectionTest {
             ),
         )
 
-        val ex = assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<CryptoException.MissingPeerRecord> {
             receiverProtection.open(envelope)
         }
-        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
     }
 }

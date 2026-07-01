@@ -6,6 +6,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.SystemEnvelope
@@ -41,7 +42,17 @@ class PlaintextSystemProtection(
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
-        val systemPayload = SystemPayload.decode(envelope.payload)
+        val systemPayload = try {
+            SystemPayload.decode(envelope.payload)
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode plaintext system envelope",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
@@ -85,17 +96,28 @@ class SignedSystemProtection(
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("SIGNED system envelope must contain signature")
-        require(
-            signatureProvider.verify(
-                deviceId = envelope.source,
-                message = envelope.encodeForSigning(),
-                signature = signature,
-            ),
-        ) {
-            "System envelope signature verification failed for source=${envelope.source}"
+        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signatureValid = signatureProvider.verify(
+            deviceId = envelope.source,
+            message = envelope.encodeForSigning(),
+            signature = signature,
+        )
+
+        if (!signatureValid) {
+            throw ProtectionException.SignatureVerificationFailed()
         }
-        val systemPayload = SystemPayload.decode(envelope.payload)
+
+        val systemPayload = try {
+            SystemPayload.decode(envelope.payload)
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode signed system envelope",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,

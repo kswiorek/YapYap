@@ -133,7 +133,7 @@ class WebRtcSignalProtectionTest {
         }
         val tampered = envelope.copy(signature = corruptSignature)
 
-        val ex = assertFailsWith<IllegalArgumentException> {
+        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
             protection.open(tampered)
         }
         assertTrue(ex.message!!.contains("signature", ignoreCase = true))

@@ -1,5 +1,6 @@
 package org.yapyap.crypto.signature
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -31,13 +32,15 @@ class DefaultSignatureProvider(
     override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean {
         val publicKey = identityResolver.resolvePeerIdentityRecord(deviceId)?.signing?.publicKey
         if (publicKey == null) {
-            logger.warn(
+            val e = CryptoException.MissingPeerRecord(deviceId.id)
+            logger.error(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.KEY_LOOKUP_MISS,
                 message = "Missing peer signing key for signature verification",
                 fields = mapOf("deviceId" to deviceId),
+                throwable = e,
             )
-            return false
+            throw e
         }
 
         val verified = cryptoProvider.verifyDetached(publicKey, message, signature)

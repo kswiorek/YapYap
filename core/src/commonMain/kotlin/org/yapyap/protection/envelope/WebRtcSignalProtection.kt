@@ -9,6 +9,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.EnvelopeObservability
@@ -106,16 +107,17 @@ class SignedWebRtcSignalProtection(
         require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
             "Expected SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("SIGNED signal envelope must contain signature")
-        require(
-            signatureProvider.verify(
-                deviceId = envelope.source,
-                message = envelope.encodeForSigning(),
-                signature = signature,
-            ),
-        ) {
-            "WebRTC signal signature verification failed for source=${envelope.source}"
+        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signatureValid = signatureProvider.verify(
+            deviceId = envelope.source,
+            message = envelope.encodeForSigning(),
+            signature = signature,
+        )
+
+        if (!signatureValid) {
+            throw ProtectionException.SignatureVerificationFailed()
         }
+
         logger.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
@@ -175,23 +177,45 @@ class SignedAndEncryptedWebRtcSignalProtection(
         require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
             "Expected ENCRYPTED_AND_SIGNED security scheme but got ${envelope.securityScheme}"
         }
-        val signature = envelope.signature ?: error("ENCRYPTED_AND_SIGNED message envelope must contain signature")
-        require(
-            signatureProvider.verify(
-                deviceId = envelope.source,
-                message = envelope.encodeForSigning(),
-                signature = signature,
-            ),
-        ) {
-            "Signal signature verification failed for source=${envelope.source}"
+        val signature = envelope.signature ?: throw ProtectionException.SignatureMissing()
+        val signatureValid = signatureProvider.verify(
+            deviceId = envelope.source,
+            message = envelope.encodeForSigning(),
+            signature = signature,
+        )
+
+        if (!signatureValid) {
+            throw ProtectionException.SignatureVerificationFailed()
         }
 
         CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
-        val encryptedInput = SessionWireFrame.decode(envelope.payload)
-        val decryptedInput = cryptoSessionManager.decryptMessage(
-            remoteDeviceId = envelope.source,
-            frame = encryptedInput,
-        )
+
+        val encryptedInput = try {
+            SessionWireFrame.decode(envelope.payload)
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                message = "Failed to decode SessionWireFrame from encrypted WebRTC signal envelope",
+                throwable = e,
+            )
+            throw ProtectionException.DecodeError()
+        }
+
+        val decryptedInput = try {
+            cryptoSessionManager.decryptMessage(
+                remoteDeviceId = envelope.source,
+                frame = encryptedInput,
+            )
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.DECRYPTION_FAILED,
+                message = "Failed to decrypt WebRTC signal",
+                throwable = e,
+            )
+            throw e
+        }
 
         val signalPayload = WebRtcSignal(
             sessionId = envelope.sessionId,
@@ -214,5 +238,5 @@ class SignedAndEncryptedWebRtcSignalProtection(
 
     override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 
-    override fun envelopeLabel(): String = "Message envelope"
+    override fun envelopeLabel(): String = "WebRTC signal envelope"
 }

@@ -16,6 +16,7 @@ import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import kotlin.test.assertFailsWith
 
 /**
  * Tests [org.yapyap.crypto.signature.DefaultSignatureProvider] against [org.yapyap.crypto.signature.SignatureProvider]: signs with the local signing key
@@ -130,7 +131,7 @@ class DefaultSignatureProviderTest {
     }
 
     @Test
-    fun verifyDetached_falseWhenPeerUnknown() = runTest {
+    fun verifyDetached_throwsWhenPeerUnknown() = runTest {
         val signingKeys = crypto.generateSigningKeyPair()
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
@@ -161,7 +162,7 @@ class DefaultSignatureProviderTest {
         val message = "m".encodeToByteArray()
         val sig = signatureProvider.sign(message)
 
-        assertFalse(signatureProvider.verify(otherPeerId, message, sig))
+        assertFailsWith<CryptoException.MissingPeerRecord>{signatureProvider.verify(otherPeerId, message, sig)}
     }
 
     /**

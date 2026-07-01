@@ -10,7 +10,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.PeerId
 
 class DefaultPacketDeduplicator(
-    private val database: YapYapDatabase,
+    database: YapYapDatabase,
     private val logger: AppLogger = NoopAppLogger,
 ) : PacketDeduplicator {
     private val queries = database.dedupQueries
