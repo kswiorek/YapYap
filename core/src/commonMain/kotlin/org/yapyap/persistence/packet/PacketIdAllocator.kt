@@ -1,7 +1,7 @@
 package org.yapyap.persistence.packet
 
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.packet.PacketId
 
 interface PacketIdAllocator {
     /**

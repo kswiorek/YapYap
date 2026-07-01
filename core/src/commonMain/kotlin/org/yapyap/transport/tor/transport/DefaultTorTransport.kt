@@ -1,20 +1,15 @@
 package org.yapyap.transport.tor.transport
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
 

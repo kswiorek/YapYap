@@ -1,42 +1,26 @@
 package org.yapyap.protection
 
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.crypto.InMemoryOpkRepository
-
+import org.yapyap.crypto.CryptoException
+import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
+import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
+import org.yapyap.crypto.e2ee.buildTestPeerIdentity
+import org.yapyap.crypto.e2ee.managerForPeer
+import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.crypto.primitives.KmpCryptoProvider
-import org.yapyap.crypto.MapBackedCryptoSessionStore
 import org.yapyap.crypto.primitives.SigningKeyPair
-import org.yapyap.crypto.buildTestPeerIdentity
-import org.yapyap.crypto.managerForPeer
+import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.db.MessageLifecycleState
-import org.yapyap.protocol.envelopes.FileChunk
-import org.yapyap.protocol.envelopes.FileControlPayload
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.FileType
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
-import org.yapyap.protocol.envelopes.FileTransferClass
-import org.yapyap.protocol.envelopes.FileTransportPreference
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.packet.PacketType
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.crypto.identity.SignedPreKeyRecord
-import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
+import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.packet.PacketId
+import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
 
@@ -223,7 +207,8 @@ internal class FakeIdentityResolverForProtection(
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = error("not used")
 
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? = peerRecords[deviceId]
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+        peerRecords[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")
 

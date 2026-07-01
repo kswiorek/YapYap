@@ -1,8 +1,8 @@
 package org.yapyap.persistence.packet
 
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.PeerId
 
 interface PacketOutbox {
     fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean = false)

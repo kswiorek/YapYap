@@ -2,20 +2,16 @@ package org.yapyap.crypto.primitives
 
 import dev.whyoleg.cryptography.BinarySize.Companion.bytes
 import dev.whyoleg.cryptography.CryptographyProvider
-import dev.whyoleg.cryptography.algorithms.ChaCha20Poly1305
-import dev.whyoleg.cryptography.algorithms.EdDSA
-import dev.whyoleg.cryptography.algorithms.HKDF
-import dev.whyoleg.cryptography.algorithms.SHA256
-import dev.whyoleg.cryptography.algorithms.XDH
+import dev.whyoleg.cryptography.algorithms.*
 import dev.whyoleg.cryptography.random.CryptographyRandom
 import org.kotlincrypto.error.SignatureException
 import org.yapyap.crypto.identity.IdentityKeyPurpose
-import kotlin.random.Random
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.SignalSecurityScheme
+import kotlin.random.Random
 
 /**
  * Reference [CryptoProvider] backed by [dev.whyoleg.cryptography].
@@ -52,11 +48,11 @@ class KmpCryptoProvider(
         require(privateKey.isNotEmpty()) { "privateKey must not be empty" }
         require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
         val privateXdhKey = xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(
-            format = XDH.PrivateKey.Format.DER,
+            format = XDH.PrivateKey.Format.RAW,
             bytes = privateKey,
         )
         val publicXdhKey = xdh.publicKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(
-            format = XDH.PublicKey.Format.DER,
+            format = XDH.PublicKey.Format.RAW,
             bytes = publicKey,
         )
         return privateXdhKey.sharedSecretGenerator().generateSharedSecretToByteArray(publicXdhKey)
@@ -91,15 +87,15 @@ class KmpCryptoProvider(
         )
 
     override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
-        val privateEdDsaKey =  edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.DER, privateKey)
+        val privateEdDsaKey =  edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.RAW, privateKey)
 
-        return  privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.DER)
+        return  privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.RAW)
     }
 
     override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray {
-        val privateXdhKey =  xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(XDH.PrivateKey.Format.DER, privateKey)
+        val privateXdhKey =  xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(XDH.PrivateKey.Format.RAW, privateKey)
 
-        return  privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.DER)
+        return  privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.RAW)
     }
 
     private suspend fun aeadKey(key: ByteArray): ChaCha20Poly1305.Key {

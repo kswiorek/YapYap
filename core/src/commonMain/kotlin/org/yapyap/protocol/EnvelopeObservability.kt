@@ -1,10 +1,6 @@
 package org.yapyap.protocol
 
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.envelopes.*
 
 enum class FieldSensitivity {
     ROUTING_VISIBLE,

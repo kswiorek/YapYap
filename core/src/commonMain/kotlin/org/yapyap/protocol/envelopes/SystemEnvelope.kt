@@ -2,10 +2,10 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
-import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.packet.PacketId
+import org.yapyap.protocol.packet.PacketType
 
 data class SystemEnvelope(
     val correlationId: String,

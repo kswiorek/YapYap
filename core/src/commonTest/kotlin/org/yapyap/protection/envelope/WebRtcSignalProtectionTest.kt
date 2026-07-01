@@ -1,0 +1,136 @@
+package org.yapyap.protection.envelope
+
+import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.protection.*
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import kotlin.test.*
+
+class WebRtcSignalProtectionTest {
+
+    private val crypto = KmpCryptoProvider()
+
+    @Test
+    fun plaintext_protectThenOpen_roundTrip() = runTest {
+        val protection = PlaintextWebRtcSignalProtection(crypto)
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+        )
+        val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
+        val envelope = protection.protect(input, ctx)
+        val opened = protection.open(envelope)
+        assertEquals(input.sessionId, opened.sessionId)
+        assertEquals(input.kind, opened.kind)
+        assertContentEquals(input.payload, opened.payload)
+    }
+
+    @Test
+    fun plaintext_protect_throwsWhenSecuritySchemeNotPlaintext() = runTest {
+        val protection = PlaintextWebRtcSignalProtection(crypto)
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+        )
+        val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
+        assertFailsWith<IllegalArgumentException> {
+            protection.protect(input, ctx)
+        }
+    }
+
+    @Test
+    fun plaintext_open_throwsWhenEnvelopeNotPlaintext() = runTest {
+        val protection = PlaintextWebRtcSignalProtection(crypto)
+        val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
+        val envelope = WebRtcSignalEnvelope(
+            sessionId = input.sessionId,
+            kind = input.kind,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+            createdAtEpochSeconds = 1L,
+            nonce = nonce24(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+            signature = ByteArray(64),
+            payload = input.payload,
+        )
+        assertFailsWith<IllegalArgumentException> {
+            protection.open(envelope)
+        }
+    }
+
+    @Test
+    fun signed_protectThenOpen_roundTrip() = runTest {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(
+            localSigningPrivateKey = signingKeys.privateKey,
+            peerRecords = mapOf(sourcePeer to record),
+        )
+        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val protection = SignedWebRtcSignalProtection(signatureProvider, crypto)
+
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        val input = sampleWebRtcSignal(sourcePeer, targetPeer)
+        val envelope = protection.protect(input, ctx)
+        val opened = protection.open(envelope)
+        assertEquals(input.sessionId, opened.sessionId)
+        assertContentEquals(input.payload, opened.payload)
+    }
+
+    @Test
+    fun signed_protect_throwsWhenContextSchemeNotSigned() = runTest {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(signingKeys.privateKey, mapOf(sourcePeer to record))
+        val protection = SignedWebRtcSignalProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        assertFailsWith<IllegalArgumentException> {
+            protection.protect(sampleWebRtcSignal(sourcePeer, targetPeer), ctx)
+        }
+    }
+
+    @Test
+    fun signed_open_throwsWhenSignatureInvalid() = runTest {
+        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
+        val encryptionKeys = crypto.generateEncryptionKeyPair()
+        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
+        val resolver = FakeIdentityResolverForProtection(
+            localSigningPrivateKey = signingKeys.privateKey,
+            peerRecords = mapOf(sourcePeer to record),
+        )
+        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val protection = SignedWebRtcSignalProtection(signatureProvider, crypto)
+
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.SIGNED,
+            source = sourcePeer,
+            target = targetPeer,
+        )
+        val input = sampleWebRtcSignal(sourcePeer, targetPeer)
+        val envelope = protection.protect(input, ctx)
+        val corruptSignature = envelope.signature!!.copyOf().also {
+            it[0] = (it[0].toInt() xor 0xff).toByte()
+        }
+        val tampered = envelope.copy(signature = corruptSignature)
+
+        val ex = assertFailsWith<ProtectionException.SignatureVerificationFailed> {
+            protection.open(tampered)
+        }
+        assertTrue(ex.message!!.contains("signature", ignoreCase = true))
+    }
+}

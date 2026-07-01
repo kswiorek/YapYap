@@ -1,6 +1,7 @@
 package org.yapyap.crypto.e2ee
 
 import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.protocol.PeerId
 
 private const val SESSION_WIRE_MAGIC_0 = 'Y'.code.toByte()
 private const val SESSION_WIRE_MAGIC_1 = 'S'.code.toByte()
@@ -473,3 +474,28 @@ object SessionWireCodec {
             (bytes[offset + 3].toInt() and 0xff)
     }
 }
+
+data class CryptoSessionRecord(
+    val peerDeviceId: PeerId,
+    val sessionEpoch: Int,
+    val ratchetState: RatchetSessionState,
+    val meta: CryptoSessionMeta,
+    val canonical: Boolean,
+)
+
+data class CryptoSessionMeta(
+    val role: SessionRole,
+    val x3dhMode: X3dhMode,
+    val handshakeSpkId: String,
+    val handshakeOpkId: String? = null,
+    val initiatorEphemeralPrivateKey: ByteArray? = null,
+    val initiatorEphemeralPublicKey: ByteArray? = null,
+    val offeredOpkId: String? = null,
+    val status: SessionStatus = SessionStatus.ACTIVE,
+    val sessionGeneration: Int = 1,
+    val createdAtEpochSeconds: Long,
+    val updatedAtEpochSeconds: Long,
+)
+
+enum class SessionRole { INITIATOR, RESPONDER }
+enum class SessionStatus { ACTIVE, PENDING, SUPERSEDED }

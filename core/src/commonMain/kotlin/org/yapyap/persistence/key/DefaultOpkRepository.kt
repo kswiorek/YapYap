@@ -1,8 +1,8 @@
 package org.yapyap.persistence.key
 
-import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.LocalOneTimePreKey
+import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.PeerId

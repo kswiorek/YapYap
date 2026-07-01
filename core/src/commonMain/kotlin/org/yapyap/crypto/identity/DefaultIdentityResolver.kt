@@ -1,12 +1,13 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyStore
 import org.yapyap.persistence.key.KeyType
@@ -20,6 +21,102 @@ class DefaultIdentityResolver(
     private val config: IdentityKeyServiceConfig,
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityResolver {
+
+    private data class LocalSigningKeyMaterial(
+        val keyId: String,
+        val privateKey: ByteArray,
+        val publicKey: ByteArray,
+    )
+
+    private suspend fun resolveLocalSigningKeyMaterial(
+        keyPrefix: String,
+        onMissingPrivateKey: () -> CryptoException,
+    ): LocalSigningKeyMaterial {
+        val signingKeyId = keyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
+        val privateSigningKey = privateKeyStore.getKey(
+            ref = KeyReference(
+                keyId = signingKeyId,
+                purpose = IdentityKeyPurpose.SIGNING,
+                type = KeyType.PRIVATE,
+            ),
+        ) ?: throw onMissingPrivateKey()
+
+        val publicSigningKey = privateKeyStore.getKey(
+            ref = KeyReference(
+                keyId = signingKeyId,
+                purpose = IdentityKeyPurpose.SIGNING,
+                type = KeyType.PUBLIC,
+            ),
+        ) ?: cryptoProvider.privateSigningKeyToPublicKey(privateSigningKey)
+
+        return LocalSigningKeyMaterial(
+            keyId = signingKeyId,
+            privateKey = privateSigningKey,
+            publicKey = publicSigningKey,
+        )
+    }
+
+    private suspend fun buildLocalDeviceIdentityRecordFromKeys(): DeviceIdentityRecord {
+        val signingKeys = resolveLocalSigningKeyMaterial(config.defaultDeviceLocalKeyPrefix) {
+            CryptoException.MissingDeviceRecord("local device")
+        }
+        val deviceId = cryptoProvider.peerIdFromPublicKey(signingKeys.publicKey)
+
+        val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+        val privateEncryptionKey = privateKeyStore.getKey(
+            ref = KeyReference(
+                keyId = encryptionKeyId,
+                purpose = IdentityKeyPurpose.ENCRYPTION,
+                type = KeyType.PRIVATE,
+            ),
+        ) ?: throw CryptoException.MissingDeviceRecord("local device")
+
+        val publicEncryptionKey = privateKeyStore.getKey(
+            ref = KeyReference(
+                keyId = encryptionKeyId,
+                purpose = IdentityKeyPurpose.ENCRYPTION,
+                type = KeyType.PUBLIC,
+            ),
+        ) ?: cryptoProvider.privateEncryptionKeyToPublicKey(privateEncryptionKey)
+
+        val keySignature = cryptoProvider.signDetached(
+            signingKeys.privateKey,
+            publicEncryptionKey + encryptionKeyId.encodeToByteArray(),
+        )
+
+        return DeviceIdentityRecord(
+            deviceId,
+            IdentityPublicKeyRecord(
+                keyId = signingKeys.keyId,
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.SIGNING,
+                publicKey = signingKeys.publicKey,
+            ),
+            IdentityPublicKeyRecord(
+                keyId = encryptionKeyId,
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.ENCRYPTION,
+                publicKey = publicEncryptionKey,
+            ),
+            keySignature = keySignature,
+        )
+    }
+
+    private suspend fun buildLocalAccountIdentityRecordFromKeys(): AccountIdentityRecord {
+        val signingKeys = resolveLocalSigningKeyMaterial(config.defaultAccountLocalKeyPrefix) {
+            CryptoException.MissingAccountRecord("local account")
+        }
+        val accountId = cryptoProvider.accountIdFromPublicKey(signingKeys.publicKey)
+        return AccountIdentityRecord(
+            accountId,
+            IdentityPublicKeyRecord(
+                keyId = signingKeys.keyId,
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.SIGNING,
+                publicKey = signingKeys.publicKey,
+            ),
+        )
+    }
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord {
 
@@ -41,62 +138,7 @@ class DefaultIdentityResolver(
                 message = "Local device identity record missing, creating from local keys",
             )
 
-            val signingKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
-            val privateSigningKey = privateKeyStore.getKey(
-                ref = KeyReference(
-                    keyId = signingKeyId,
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    type = KeyType.PRIVATE,
-                )
-            ) ?: error("Missing local signing private key")
-
-            val publicSigningKey = privateKeyStore.getKey(
-                ref = KeyReference(
-                    keyId = signingKeyId,
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    type = KeyType.PUBLIC,
-                )
-            ) ?: cryptoProvider.privateSigningKeyToPublicKey(privateSigningKey)
-
-            val deviceId = cryptoProvider.peerIdFromPublicKey(publicSigningKey)
-
-            val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
-            val privateEncryptionKey = privateKeyStore.getKey(
-                ref = KeyReference(
-                    keyId = encryptionKeyId,
-                    purpose = IdentityKeyPurpose.ENCRYPTION,
-                    type = KeyType.PRIVATE,
-                )
-            ) ?: error("Missing local encryption private key")
-
-            val publicEncryptionKey = privateKeyStore.getKey(
-                ref = KeyReference(
-                    keyId = encryptionKeyId,
-                    purpose = IdentityKeyPurpose.ENCRYPTION,
-                    type = KeyType.PUBLIC,
-                )
-            ) ?: cryptoProvider.privateEncryptionKeyToPublicKey(privateEncryptionKey)
-            val keySignature = cryptoProvider.signDetached(
-                privateSigningKey,
-                publicEncryptionKey + encryptionKeyId.encodeToByteArray(),
-            )
-
-            val identity = DeviceIdentityRecord(
-                deviceId,
-                IdentityPublicKeyRecord(
-                    keyId = signingKeyId,
-                    keyVersion = 0,
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    publicKey = publicSigningKey,
-                ),
-                IdentityPublicKeyRecord(
-                    keyId = encryptionKeyId,
-                    keyVersion = 0,
-                    purpose = IdentityKeyPurpose.ENCRYPTION,
-                    publicKey = publicEncryptionKey,
-                ),
-                keySignature = keySignature
-            )
+            val identity = buildLocalDeviceIdentityRecordFromKeys()
             val accountRecord = getLocalAccountIdentityRecord()
             publicKeyRepository.insertLocalDevice(
                 accountRecord.accountId,
@@ -106,36 +148,39 @@ class DefaultIdentityResolver(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
                 message = "Created and persisted local device identity record",
-                fields = mapOf("deviceId" to deviceId, "accountId" to accountRecord.accountId),
+                fields = mapOf("deviceId" to identity.deviceId, "accountId" to accountRecord.accountId),
             )
             return identity
         }
     }
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord {
-        val publicSigningKey = privateKeyStore.getKey(
-            ref = KeyReference(
-                keyId = config.defaultAccountLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase(),
-                purpose = IdentityKeyPurpose.SIGNING,
-                type = KeyType.PUBLIC,
-            )
-        ) ?: error("Missing local signing private key")
-
-        val accountId = cryptoProvider.accountIdFromPublicKey(publicSigningKey)
-
-        val accountRecord = publicKeyRepository.getAccountPublicKey(accountId)
+        val identity = buildLocalAccountIdentityRecordFromKeys()
+        val accountRecord = publicKeyRepository.getAccountPublicKey(identity.accountId)
 
         if (accountRecord != null) {
             logger.info(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
                 message = "Resolved local account identity record",
-                fields = mapOf("accountId" to accountId),
+                fields = mapOf("accountId" to identity.accountId),
             )
             return accountRecord
         }
 
-        error("Missing local account identity record for accountId=$accountId")
+        logger.warn(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
+            message = "Local account identity record missing, creating from local keys",
+        )
+        publicKeyRepository.insertLocalAccount(identity.accountId.id, identity)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            message = "Created and persisted local account identity record",
+            fields = mapOf("accountId" to identity.accountId),
+        )
+        return identity
     }
 
 
@@ -143,11 +188,11 @@ class DefaultIdentityResolver(
         val keyId = config.defaultDeviceLocalKeyPrefix + purpose.name.lowercase()
         return privateKeyStore.getKey(
             ref = KeyReference(
-                keyId = config.defaultDeviceLocalKeyPrefix + purpose.name.lowercase(),
+                keyId = keyId,
                 purpose = purpose,
                 type = KeyType.PRIVATE,
             )
-        ) ?: error("Missing local private key for keyId=$keyId, purpose=$purpose")
+        ) ?: throw CryptoException.MissingKey(keyId, purpose, KeyType.PRIVATE)
     }
 
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
@@ -158,25 +203,70 @@ class DefaultIdentityResolver(
                 purpose = purpose,
                 type = KeyType.PRIVATE,
             )
-        ) ?: error("Missing local private key for keyId=$keyId, purpose=$purpose")
+        ) ?: throw CryptoException.MissingKey(keyId, purpose, KeyType.PRIVATE)
     }
 
     override suspend fun getLocalDeviceId(): PeerId {
-        val record = publicKeyRepository.getLocalDeviceRecord()
-        return record?.deviceId ?: error("Missing local device identity record")
+        return publicKeyRepository.getLocalDeviceRecord()?.deviceId
+            ?: buildLocalDeviceIdentityRecordFromKeys().deviceId
     }
 
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord? {
-        val device = publicKeyRepository.getDeviceRecord(deviceId) ?: return null
-        if (device.keySignature == null) return null
-        if (!cryptoProvider.verifyDetached(device.signing.publicKey, (device.encryption.publicKey + device.encryption.keyId.encodeToByteArray()), device.keySignature)) return null
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord {
+        val device = publicKeyRepository.getDeviceRecord(deviceId)
+        if (device == null) {
+            val e = CryptoException.MissingDeviceRecord(deviceId.id)
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Missing peer record",
+                fields = mapOf("deviceId" to deviceId),
+                throwable = e,
+            )
+            throw e
+        }
+        if (device.keySignature == null) {
+            val e = CryptoException.IncompleteRecord("Missing keySignature for device ${deviceId.id}, cannot verify device identity.")
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Incomplete peer record",
+                fields = mapOf("deviceId" to deviceId),
+                throwable = e,
+            )
+            throw e
+        }
+
+        val verifyMessage = device.encryption.publicKey + device.encryption.keyId.encodeToByteArray()
+        if (!cryptoProvider.verifyDetached(device.signing.publicKey, verifyMessage, device.keySignature)) {
+            val e = CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Incomplete peer record, keySignature verification failed",
+                fields = mapOf("deviceId" to deviceId),
+                throwable = e,
+            )
+            throw e
+        }
+
         return device
     }
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
-        return publicKeyRepository.resolveDeviceKey(deviceId, IdentityKeyPurpose.ENCRYPTION)?.let {
-            publicKeyRepository.resolveTorEndpointForDevice(deviceId)
-        } ?: error("Missing encryption key for deviceId=$deviceId, cannot resolve Tor endpoint")
+        val torEndpoint = publicKeyRepository.resolveTorEndpointForDevice(deviceId)
+
+        if (torEndpoint == null) {
+            val e = CryptoException.MissingDeviceRecord(deviceId.id)
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Tor endpoint for device ${deviceId.id} not found",
+                fields = mapOf("deviceId" to deviceId),
+                throwable = e,
+            )
+            throw e
+        }
+        return torEndpoint
     }
 
     override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> {
@@ -192,22 +282,46 @@ class DefaultIdentityResolver(
         signedPreKeyId: String?,
     ): X3dhRemotePeerKeys {
         val device = resolvePeerIdentityRecord(deviceId)
-            ?: error("Missing peer identity record for deviceId=$deviceId")
         val signedPreKey = when {
             signedPreKeyId != null -> {
                 val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
-                    ?: error("Signed prekey not found: $signedPreKeyId")
+                    ?: throw  CryptoException.MissingKey(signedPreKeyId, IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+                        logger.error(
+                            component = LogComponent.CRYPTO,
+                            event = LogEvent.KEY_LOOKUP_MISS,
+                            message = "Key lookup failed for signed prekey $signedPreKeyId for device $deviceId, cannot verify device identity.",
+                            fields = mapOf("deviceId" to deviceId),
+                            throwable = it,
+                        )
+                    }
                 require(stored.deviceId == deviceId) {
                     "Signed prekey $signedPreKeyId does not belong to deviceId=$deviceId"
                 }
                 stored
             }
             else -> device.signedPreKey
-                ?: error("Missing signed prekey on roster for deviceId=$deviceId")
+                ?: throw CryptoException.MissingKey(device.signedPreKey?.keyId ?: "", IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+                    logger.error(
+                        component = LogComponent.CRYPTO,
+                        event = LogEvent.KEY_LOOKUP_MISS,
+                        message = "Key lookup failed for signed prekey for device $deviceId, cannot verify device identity.",
+                        fields = mapOf("deviceId" to deviceId),
+                        throwable = it,
+                    )
+                }
         }
-        require(cryptoProvider.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
-            "failed to verify signed prekey signature"
+        if (!cryptoProvider.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
+            val e = CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Incomplete peer record, signedPreKey verification failed",
+                fields = mapOf("deviceId" to deviceId),
+                throwable = e,
+            )
+            throw e
         }
+
         return X3dhRemotePeerKeys(
             identityEncryptionPublicKey = device.encryption.publicKey,
             signedPreKeyPublicKey = signedPreKey.publicKey,
@@ -219,19 +333,32 @@ class DefaultIdentityResolver(
         val device = getLocalDeviceIdentityRecord()
         val activeId = publicKeyRepository.getActiveSignedPreKeyForDevice(device.deviceId)?.keyId
             ?: device.signedPreKey?.keyId
-            ?: error("Local device ${device.deviceId} has no signed prekey published")
+            ?: throw CryptoException.MissingKey(device.signedPreKey?.keyId ?: "", IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+                logger.error(
+                    component = LogComponent.CRYPTO,
+                    event = LogEvent.KEY_LOOKUP_MISS,
+                    message = "Key lookup failed for signed prekey for device ${device.deviceId}, cannot verify device identity.",
+                    fields = mapOf("deviceId" to device.deviceId),
+                    throwable = it,
+                )
+            }
         return resolveLocalSignedPreKey(activeId)
     }
 
     override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord {
-        val device = getLocalDeviceIdentityRecord()
+        val device = getLocalDeviceId()
         val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
-            ?: error("Signed prekey not found: $signedPreKeyId")
-        require(stored.deviceId == device.deviceId) {
-            "Signed prekey $signedPreKeyId does not belong to local device ${device.deviceId}"
-        }
-        require(cryptoProvider.verifyDetached(device.signing.publicKey, stored.publicKey, stored.signature)) {
-            "failed to verify local signed prekey signature"
+            ?: throw CryptoException.MissingKey(signedPreKeyId, IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+                logger.error(
+                    component = LogComponent.CRYPTO,
+                    event = LogEvent.KEY_LOOKUP_MISS,
+                    message = "Key lookup failed for signed prekey $signedPreKeyId for device ${device}, cannot verify device identity.",
+                    fields = mapOf("deviceId" to device),
+                    throwable = it,
+                )
+            }
+        require(stored.deviceId == device) {
+            "Signed prekey $signedPreKeyId does not belong to local device ${device}"
         }
         privateKeyStore.getKey(
             ref = KeyReference(
@@ -239,7 +366,15 @@ class DefaultIdentityResolver(
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 type = KeyType.PRIVATE,
             )
-        ) ?: error("Missing local signed prekey private key for keyId=$signedPreKeyId")
+        ) ?: throw CryptoException.MissingKey(signedPreKeyId, IdentityKeyPurpose.ENCRYPTION, KeyType.PRIVATE).also {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.KEY_LOOKUP_MISS,
+                message = "Key lookup failed for signed prekey $signedPreKeyId for device ${device}, cannot verify device identity.",
+                fields = mapOf("deviceId" to device),
+                throwable = it,
+            )
+        }
 
         return stored
     }

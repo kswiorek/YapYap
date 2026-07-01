@@ -1,9 +1,9 @@
 package org.yapyap.protection.envelope
 
-import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.e2ee.CryptoSessionManager
 import org.yapyap.crypto.e2ee.CryptoWireLimits
 import org.yapyap.crypto.e2ee.SessionWireFrame
+import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
@@ -11,10 +11,10 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protocol.EnvelopeObservability
+import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.EnvelopeObservability
 
 interface MessageProtection {
     suspend fun open(envelope: MessageEnvelope): MessagePayload

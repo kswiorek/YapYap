@@ -6,9 +6,9 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.Outbox
 import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.PeerId
 
 class DefaultPacketOutbox(
     private val database: YapYapDatabase,

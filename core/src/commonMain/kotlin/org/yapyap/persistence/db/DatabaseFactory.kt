@@ -7,12 +7,7 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
-import org.yapyap.persistence.Accounts
-import org.yapyap.persistence.Crypto_sessions
-import org.yapyap.persistence.Dedup
-import org.yapyap.persistence.Devices
-import org.yapyap.persistence.One_time_prekeys
-import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.*
 
 interface DriverFactory {
     fun createDriver(): SqlDriver

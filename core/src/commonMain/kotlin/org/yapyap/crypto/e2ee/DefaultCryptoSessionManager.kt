@@ -2,20 +2,16 @@ package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.identity.LocalOneTimePreKey
-import org.yapyap.persistence.crypto.CryptoSessionMeta
-import org.yapyap.persistence.crypto.CryptoSessionRecord
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.crypto.SessionRole
-import org.yapyap.persistence.crypto.SessionStatus
+import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.time.EpochSecondsProvider
@@ -447,8 +443,7 @@ class DefaultCryptoSessionManager(
     private suspend fun bootstrapEpoch1Responder(peerDeviceId: PeerId, wire: X3dhWireInfo): LoadedSession {
         require(wire.mode == X3dhMode.THREE_DH) { "expected THREE_DH for epoch 1 bootstrap" }
         val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
-        val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId)?.encryption?.publicKey
-            ?: error("Missing peer identity encryption key for peer=$peerDeviceId")
+        val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId).encryption.publicKey
         val result = x3dh.responderCompute3Dh(
             local = X3dhLocalResponderKeys(
                 identityEncryptionPrivateKey = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION),
@@ -487,8 +482,7 @@ class DefaultCryptoSessionManager(
         val opk = opkRepository.consume(opkId)
             ?: throw CryptoSessionException.OpkConsumeFailed(opkId)
         val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
-        val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId)?.encryption?.publicKey
-            ?: error("Missing peer identity encryption key for peer=$peerDeviceId")
+        val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId).encryption.publicKey
         val result = x3dh.responderCompute4Dh(
             local = X3dhLocalResponderKeys(
                 identityEncryptionPrivateKey = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION),

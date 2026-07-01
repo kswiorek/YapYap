@@ -1,6 +1,6 @@
 package org.yapyap.persistence.crypto
 
-import org.yapyap.crypto.e2ee.RatchetSessionState
+import org.yapyap.crypto.e2ee.*
 import org.yapyap.persistence.Crypto_sessions
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId

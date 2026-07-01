@@ -8,10 +8,10 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.EnvelopeObservability
 
 interface SystemProtection {
     suspend fun open(envelope: SystemEnvelope): SystemPayload

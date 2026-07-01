@@ -1,37 +1,21 @@
 package org.yapyap.persistence
 
-import kotlin.random.Random
-import kotlin.test.AfterTest
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
-import kotlin.test.assertNull
-import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DefaultIdentityProvisioning
-import org.yapyap.crypto.identity.DefaultIdentityResolver
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyServiceConfig
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.crypto.InMemoryKeyStore
+import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.KmpCryptoProvider
-import org.yapyap.persistence.db.AccountStatus
-import org.yapyap.persistence.db.DatabaseConnection
-import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketIdAllocator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
-import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.packet.PacketId
 import org.yapyap.time.FixedEpochSecondsProvider
+import kotlin.random.Random
+import kotlin.test.*
 
 class PersistenceContractsJvmTest {
 
@@ -144,12 +128,13 @@ class PersistenceContractsJvmTest {
         assertContentEquals(byteArrayOf(0x21), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.SIGNING)!!.publicKey)
         assertContentEquals(byteArrayOf(0x31), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.ENCRYPTION)!!.publicKey)
 
-        val torBefore = repo.resolveTorEndpointForDevice(deviceA)
+        val torBefore = requireNotNull(repo.resolveTorEndpointForDevice(deviceA))
         assertTrue(torBefore.onionAddress.endsWith(".onion"))
 
         repo.upsertPeerTorEndpoint(deviceA, FixtureTorEndpoint)
-        assertEquals(FixtureTorEndpoint.onionAddress, repo.resolveTorEndpointForDevice(deviceA).onionAddress)
-        assertEquals(FixtureTorEndpoint.port, repo.resolveTorEndpointForDevice(deviceA).port)
+        val torAfter = requireNotNull(repo.resolveTorEndpointForDevice(deviceA))
+        assertEquals(FixtureTorEndpoint.onionAddress, torAfter.onionAddress)
+        assertEquals(FixtureTorEndpoint.port, torAfter.port)
 
         val devB = DeviceIdentityRecord(
             deviceId = deviceB,

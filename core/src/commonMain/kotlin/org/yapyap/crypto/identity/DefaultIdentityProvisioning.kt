@@ -1,12 +1,12 @@
 package org.yapyap.crypto.identity
 
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.persistence.db.AccountStatus
-import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.persistence.db.AccountStatus
+import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyStore
 import org.yapyap.persistence.key.KeyType

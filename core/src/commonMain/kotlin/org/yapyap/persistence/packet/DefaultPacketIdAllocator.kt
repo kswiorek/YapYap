@@ -1,13 +1,13 @@
 package org.yapyap.persistence.packet
 
-import kotlin.random.Random
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.packet.PacketId
+import kotlin.random.Random
 
 class DefaultPacketIdAllocator(
     private val database: YapYapDatabase,
@@ -49,10 +49,10 @@ class DefaultPacketIdAllocator(
         logger.error(
             component = LogComponent.DATABASE,
             event = LogEvent.PACKET_ID_ALLOCATION_FAILED,
-            message = "Failed to allocate unique packet ID",
+            message = "Failed to allocate unique packet ID after $maxAttempts",
             fields = mapOf("maxAttempts" to maxAttempts, "deviceId" to localDeviceId),
         )
-        error("Failed to allocate unique PacketId after $maxAttempts")
+        error("Failed to allocate unique packet ID after $maxAttempts attempts")
     }
 
     private fun tryReserve(sourceDeviceId: PeerId, packetId: PacketId, receivedAtEpochSeconds: Long): Boolean {

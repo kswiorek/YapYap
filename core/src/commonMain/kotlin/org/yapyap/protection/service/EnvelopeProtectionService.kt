@@ -1,16 +1,8 @@
 package org.yapyap.protection.service
 
-import org.yapyap.protocol.envelopes.FileChunk
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.envelopes.*
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 
 interface EnvelopeProtectionService {

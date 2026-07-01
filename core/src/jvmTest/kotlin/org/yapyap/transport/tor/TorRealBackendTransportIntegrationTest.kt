@@ -1,8 +1,20 @@
 package org.yapyap.transport.tor
 
 import io.matthewnelson.kmp.file.File
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.packet.PacketId
+import org.yapyap.protocol.packet.PacketType
+import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
+import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.tor.transport.DefaultTorTransport
 import java.nio.file.Files
-import java.util.UUID
+import java.util.*
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteRecursively
@@ -10,18 +22,6 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.packet.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
-import org.yapyap.transport.tor.backend.TorBackendConfig
-import org.yapyap.transport.tor.transport.DefaultTorTransport
 import kotlin.time.Duration.Companion.milliseconds
 
 /**

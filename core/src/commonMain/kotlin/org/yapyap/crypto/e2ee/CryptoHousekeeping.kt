@@ -1,11 +1,10 @@
 package org.yapyap.crypto.e2ee
 
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.crypto.SessionStatus
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.time.EpochSecondsProvider

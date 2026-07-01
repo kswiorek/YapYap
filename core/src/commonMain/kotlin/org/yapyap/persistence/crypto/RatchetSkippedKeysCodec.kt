@@ -3,7 +3,6 @@ package org.yapyap.persistence.crypto
 import org.yapyap.crypto.e2ee.CryptoWireLimits
 import org.yapyap.crypto.e2ee.RatchetSkippedKeyId
 import org.yapyap.crypto.e2ee.SessionWireCodec
-import kotlin.collections.iterator
 
 internal object RatchetSkippedKeysCodec {
 

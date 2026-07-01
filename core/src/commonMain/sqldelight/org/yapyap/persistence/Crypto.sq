@@ -1,5 +1,5 @@
-import org.yapyap.persistence.crypto.SessionRole;
-import org.yapyap.persistence.crypto.SessionStatus;
+import org.yapyap.crypto.e2ee.SessionRole;
+import org.yapyap.crypto.e2ee.SessionStatus;
 import org.yapyap.crypto.e2ee.X3dhMode;
 import kotlin.Boolean;
 

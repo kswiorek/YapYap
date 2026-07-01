@@ -5,9 +5,9 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.protocol.packet.PacketId
-import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.packet.PacketId
 
 class DefaultPacketDeduplicator(
     database: YapYapDatabase,

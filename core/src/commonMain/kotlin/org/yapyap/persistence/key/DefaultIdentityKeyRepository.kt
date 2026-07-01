@@ -1,12 +1,6 @@
 package org.yapyap.persistence.key
 
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.crypto.identity.SignedPreKeyRecord
-import org.yapyap.crypto.identity.IdentityKeyServiceConfig
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.*
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -30,7 +24,7 @@ class DefaultIdentityKeyRepository(
         return if (account == null) {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
                 message = "Account identity record not found",
                 fields = mapOf("accountId" to accountId, "found" to false),
             )
@@ -177,6 +171,7 @@ class DefaultIdentityKeyRepository(
         queries.putAccount(
             account_id = identity.accountId.id,
             account_pub_key = identity.key.publicKey,
+            is_local_account = true,
             pub_key_version = identity.key.keyVersion,
             pub_key_id = identity.key.keyId,
             is_admin = false,
@@ -226,9 +221,9 @@ class DefaultIdentityKeyRepository(
         }
     }
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
+    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? {
         val device = database.identityQueries.selectDeviceById(deviceId.id).executeAsOneOrNull()
-            ?: error("Device identity record not found for deviceId: $deviceId")
+            ?: return null
         return TorEndpoint(
             onionAddress = device.onion_address,
             port = device.onion_port.toInt(),
@@ -246,6 +241,7 @@ class DefaultIdentityKeyRepository(
         queries.putAccount(
             account_id = identity.accountId.id,
             account_pub_key = identity.key.publicKey,
+            is_local_account = false,
             pub_key_version = identity.key.keyVersion,
             pub_key_id = identity.key.keyId,
             is_admin = admin,

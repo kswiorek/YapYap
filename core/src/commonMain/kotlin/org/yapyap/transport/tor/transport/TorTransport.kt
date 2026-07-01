@@ -1,8 +1,8 @@
 package org.yapyap.transport.tor.transport
 
 import kotlinx.coroutines.flow.Flow
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 
 interface TorTransport {
