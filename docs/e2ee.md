@@ -181,7 +181,7 @@ Tampering with any header field causes AEAD verification failure rather than sil
 - `OpkOffer` session binding (`OpkOfferBinding`) + canonical-only epoch-2 upgrade
 - Envelope-level Ed25519 signing over the encrypted payload
 - Transactional ratchet decrypt — snapshot rollback on failure, deferred skipped-key removal, stale-`messageNumber` replay guard; inbound generation reset deferred until first decrypt succeeds
-- Wire decode bounds — `CryptoWireLimits` constants enforced in `SessionWireCodec`, session wire / ratchet / inner control decoders, skipped-keys persistence codec; outbound checks at encrypt and `MessageEnvelope` open
+- Wire decode bounds — `CryptoWireLimits` constants enforced in `ByteReader`/`ByteWriter` (max-size length-prefixed fields), session wire / ratchet / inner control decoders, skipped-keys persistence codec; outbound checks at encrypt and `MessageEnvelope` open
 - Immutable device identity — `device_id` tied to signing key; no in-place identity key rotation; revocation = ban device + provision new device
 
 ---
@@ -344,7 +344,7 @@ Failed decrypt paths in `decryptAndPersist` / the multi-session fallback loop we
 **Implemented:**
 
 - **`CryptoWireLimits`** — compile-time constants in `CryptoSessionTypes.kt` (default `maxSessionWireFrameBytes` = 4 MiB, aligned with Tor; semantic caps for DH/ephemeral keys in DER form, ratchet body, inner plaintext, string ids, OPK/control blocks, skipped-keys blob).
-- **Decode enforcement** — `SessionWireCodec.readByteArrayAt` / `readLengthPrefixedAt` validate length before allocation; `SessionWireFrame`, `RatchetCiphertext`, `RatchetInnerPlaintext`, `InnerSessionControl`, and `RatchetSkippedKeysCodec` apply field-appropriate limits.
+- **Decode enforcement** — `ByteReader.readByteArray(maxSize)` validates length before allocation; `SessionWireFrame`, `RatchetCiphertext`, `RatchetInnerPlaintext`, `InnerSessionControl`, and `RatchetSkippedKeysCodec` apply field-appropriate limits.
 - **Outbound checks** — `DefaultCryptoSessionManager.encryptMessage` rejects oversized inner plaintext; `SignedAndEncryptedMessageProtection` rejects oversized signed payload before decode; encoders validate component sizes before building wire bytes.
 
 No runtime config threading — limits are protocol constants at the codec layer.

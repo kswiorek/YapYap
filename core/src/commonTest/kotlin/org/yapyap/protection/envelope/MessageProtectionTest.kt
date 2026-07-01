@@ -273,7 +273,7 @@ class MessageProtectionTest {
             ),
         )
 
-        assertFailsWith<CryptoException.MissingDeviceRecord> {
+        assertFailsWith<CryptoException.IncompleteRecord> {
             receiverProtection.open(envelope)
         }
     }

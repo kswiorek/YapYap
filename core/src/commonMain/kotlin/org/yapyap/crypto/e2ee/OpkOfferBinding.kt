@@ -1,6 +1,7 @@
 package org.yapyap.crypto.e2ee
 
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 
 object OpkOfferBinding {
@@ -18,21 +19,21 @@ object OpkOfferBinding {
         initiatorEphemeralPublicKey: ByteArray,
     ): ByteArray {
         val (firstPeer, secondPeer) = orderedPeerIds(localDeviceId, peerDeviceId)
-        val ikm = SessionWireCodec.concatBytes(
-            handshakeSpkId.encodeToByteArray(),
-            byteArrayOf(0),
-            initiatorEphemeralPublicKey,
-        )
-        val info = SessionWireCodec.concatBytes(
-            KDF_INFO,
-            firstPeer.encodeToByteArray(),
-            byteArrayOf(0),
-            secondPeer.encodeToByteArray(),
-            byteArrayOf(0),
-            sessionEpoch.toString().encodeToByteArray(),
-            byteArrayOf(0),
-            sessionGeneration.toString().encodeToByteArray(),
-        )
+        val ikm = ByteWriter(256).apply {
+            writeBytes(handshakeSpkId.encodeToByteArray())
+            writeByte(0)
+            writeBytes(initiatorEphemeralPublicKey)
+        }.toByteArray()
+        val info = ByteWriter(256).apply {
+            writeBytes(KDF_INFO)
+            writeBytes(firstPeer.encodeToByteArray())
+            writeByte(0)
+            writeBytes(secondPeer.encodeToByteArray())
+            writeByte(0)
+            writeBytes(sessionEpoch.toString().encodeToByteArray())
+            writeByte(0)
+            writeBytes(sessionGeneration.toString().encodeToByteArray())
+        }.toByteArray()
         return crypto.hkdf(
             ikm = ikm,
             salt = null,

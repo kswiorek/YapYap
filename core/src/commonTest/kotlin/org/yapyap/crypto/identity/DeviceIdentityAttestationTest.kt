@@ -1,6 +1,7 @@
 package org.yapyap.crypto.identity
 
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
@@ -75,8 +76,8 @@ class DeviceIdentityAttestationTest {
         )
         repo.insertPeerDevice(accountId, DeviceType.DESKTOP, tamperedKeySignature, peerTor)
 
-        assertNull(resolver.resolvePeerIdentityRecord(tamperedKeyPeerId))
-        assertFailsWith<IllegalStateException> {
+        assertFailsWith<CryptoException.IncompleteRecord>{resolver.resolvePeerIdentityRecord(tamperedKeyPeerId)}
+        assertFailsWith<CryptoException.IncompleteRecord> {
             resolver.resolvePeerX3dhRemoteKeys(tamperedKeyPeerId)
         }
 
@@ -93,7 +94,7 @@ class DeviceIdentityAttestationTest {
         repo.insertPeerDevice(accountId, DeviceType.DESKTOP, tamperedSpkDevice, peerTor)
 
         assertNotNull(resolver.resolvePeerIdentityRecord(tamperedSpkPeerId))
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<CryptoException.IncompleteRecord> {
             resolver.resolvePeerX3dhRemoteKeys(tamperedSpkPeerId)
         }
 

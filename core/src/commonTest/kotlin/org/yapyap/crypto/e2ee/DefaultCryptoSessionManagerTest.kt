@@ -8,7 +8,7 @@ import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.time.FixedEpochSecondsProvider
 import kotlin.test.*
 
-class SessionWireCodecTest {
+class SessionWireTypesTest {
 
     private val crypto = KmpCryptoProvider()
 

@@ -55,9 +55,10 @@ class ByteReader(private val bytes: ByteArray) {
         return PeerId(readString())
     }
 
-    fun readByteArray(): ByteArray {
+    fun readByteArray(maxSize: Int = Int.MAX_VALUE): ByteArray {
         val len = readInt()
         require(len >= 0) { "Byte array length must be >= 0" }
+        require(len <= maxSize) { "byte array size $len exceeds max $maxSize" }
         return readBytes(len)
     }
 
@@ -65,6 +66,15 @@ class ByteReader(private val bytes: ByteArray) {
         val len = readInt()
         if (len < 0) return null
         return readBytes(len)
+    }
+
+    fun readMagic(expected: ByteArray) {
+        require(expected.size == 4) { "magic must be 4 bytes" }
+        repeat(4) { index ->
+            val actual = readUnsignedByte()
+            val expectedByte = expected[index].toInt() and 0xff
+            require(actual == expectedByte) { "invalid magic" }
+        }
     }
 
     fun requireFullyRead() {
@@ -127,7 +137,8 @@ class ByteWriter(initialCapacity: Int) {
         writeString(value)
     }
 
-    fun writeByteArray(value: ByteArray) {
+    fun writeByteArray(value: ByteArray, maxSize: Int = Int.MAX_VALUE) {
+        require(value.size in 0..maxSize) { "byte array size ${value.size} exceeds max $maxSize" }
         writeInt(value.size)
         writeBytes(value)
     }
@@ -138,6 +149,11 @@ class ByteWriter(initialCapacity: Int) {
             return
         }
         writeByteArray(value)
+    }
+
+    fun writeMagic(value: ByteArray) {
+        require(value.size == 4) { "magic must be 4 bytes" }
+        writeBytes(value)
     }
 
     fun toByteArray(): ByteArray = buffer.copyOf(size)

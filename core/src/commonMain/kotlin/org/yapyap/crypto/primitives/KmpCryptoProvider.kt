@@ -117,8 +117,8 @@ class KmpCryptoProvider(
             fields = mapOf("keyPurpose" to IdentityKeyPurpose.SIGNING.name),
         )
         return SigningKeyPair(
-            publicKey = keyPair.publicKey.encodeToByteArray(EdDSA.PublicKey.Format.DER),
-            privateKey = keyPair.privateKey.encodeToByteArray(EdDSA.PrivateKey.Format.DER),
+            publicKey = keyPair.publicKey.encodeToByteArray(EdDSA.PublicKey.Format.RAW),
+            privateKey = keyPair.privateKey.encodeToByteArray(EdDSA.PrivateKey.Format.RAW),
         )
     }
 
@@ -131,14 +131,14 @@ class KmpCryptoProvider(
             fields = mapOf("keyPurpose" to IdentityKeyPurpose.ENCRYPTION.name),
         )
         return EncryptionKeyPair(
-            publicKey = keyPair.publicKey.encodeToByteArray(XDH.PublicKey.Format.DER),
-            privateKey = keyPair.privateKey.encodeToByteArray(XDH.PrivateKey.Format.DER),
+            publicKey = keyPair.publicKey.encodeToByteArray(XDH.PublicKey.Format.RAW),
+            privateKey = keyPair.privateKey.encodeToByteArray(XDH.PrivateKey.Format.RAW),
         )
     }
 
     override suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray {
         val privateKey = edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
-            format = EdDSA.PrivateKey.Format.DER,
+            format = EdDSA.PrivateKey.Format.RAW,
             bytes = privateSigningKey,
         )
         return privateKey.signatureGenerator().generateSignature(message)
@@ -146,7 +146,7 @@ class KmpCryptoProvider(
 
     override suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean {
         val publicKey = edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
-            format = EdDSA.PublicKey.Format.DER,
+            format = EdDSA.PublicKey.Format.RAW,
             bytes = publicSigningKey,
         )
         return try {

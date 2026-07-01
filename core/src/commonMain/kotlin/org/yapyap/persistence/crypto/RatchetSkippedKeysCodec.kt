@@ -2,25 +2,23 @@ package org.yapyap.persistence.crypto
 
 import org.yapyap.crypto.e2ee.CryptoWireLimits
 import org.yapyap.crypto.e2ee.RatchetSkippedKeyId
-import org.yapyap.crypto.e2ee.SessionWireCodec
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
 
 internal object RatchetSkippedKeysCodec {
 
     fun encode(skipped: Map<RatchetSkippedKeyId, ByteArray>): ByteArray {
-        var size = 4
-        for ((keyId, messageKey) in skipped) {
-            size += 4 + keyId.dhPublicKey.size + 4 + 4 + messageKey.size
-        }
-        CryptoWireLimits.requireSkippedKeysBlobSize(size)
-        val bytes = ByteArray(size)
-        var offset = SessionWireCodec.writeInt(bytes, 0, skipped.size)
+        val writer = ByteWriter(4 + skipped.size * 32)
+        writer.writeInt(skipped.size)
         for ((keyId, messageKey) in skipped) {
             CryptoWireLimits.requireDhPublicKeySize(keyId.dhPublicKey.size)
             CryptoWireLimits.requireSkippedMessageKeySize(messageKey.size)
-            offset = SessionWireCodec.writeByteArray(bytes, offset, keyId.dhPublicKey)
-            offset = SessionWireCodec.writeInt(bytes, offset, keyId.messageNumber)
-            offset = SessionWireCodec.writeByteArray(bytes, offset, messageKey)
+            writer.writeByteArray(keyId.dhPublicKey, CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES)
+            writer.writeInt(keyId.messageNumber)
+            writer.writeByteArray(messageKey, CryptoWireLimits.MAX_MESSAGE_KEY_BYTES)
         }
+        val bytes = writer.toByteArray()
+        CryptoWireLimits.requireSkippedKeysBlobSize(bytes.size)
         return bytes
     }
 
@@ -29,31 +27,19 @@ internal object RatchetSkippedKeysCodec {
             return emptyMap()
         }
         CryptoWireLimits.requireSkippedKeysBlobSize(bytes.size)
-        var offset = 0
-        val count = SessionWireCodec.readInt(bytes, offset)
+        val reader = ByteReader(bytes)
+        val count = reader.readInt()
         require(count in 0..CryptoWireLimits.MAX_SKIPPED_KEYS_COUNT) {
             "skipped key count $count exceeds max ${CryptoWireLimits.MAX_SKIPPED_KEYS_COUNT}"
         }
-        offset += 4
         val result = LinkedHashMap<RatchetSkippedKeyId, ByteArray>(count)
         repeat(count) {
-            val (dhPublicKey, nextOffset) = SessionWireCodec.readByteArrayAt(
-                bytes,
-                offset,
-                CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES,
-            )
-            offset = nextOffset
-            val messageNumber = SessionWireCodec.readInt(bytes, offset)
-            offset += 4
-            val (messageKey, endOffset) = SessionWireCodec.readByteArrayAt(
-                bytes,
-                offset,
-                CryptoWireLimits.MAX_MESSAGE_KEY_BYTES,
-            )
-            offset = endOffset
+            val dhPublicKey = reader.readByteArray(CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES)
+            val messageNumber = reader.readInt()
+            val messageKey = reader.readByteArray(CryptoWireLimits.MAX_MESSAGE_KEY_BYTES)
             result[RatchetSkippedKeyId(dhPublicKey, messageNumber)] = messageKey
         }
-        require(offset == bytes.size) { "trailing bytes in skipped message keys blob" }
+        reader.requireFullyRead()
         return result
     }
 }

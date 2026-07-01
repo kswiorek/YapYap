@@ -86,6 +86,27 @@ class ByteReaderWriterTest {
     }
 
     @Test
+    fun byteArray_maxSize_rejectedOnDecode() {
+        val w = ByteWriter(8)
+        w.writeInt(3)
+        w.writeBytes(byteArrayOf(1, 2, 3))
+        val r = ByteReader(w.toByteArray())
+        assertFailsWith<IllegalArgumentException> {
+            r.readByteArray(maxSize = 2)
+        }
+    }
+
+    @Test
+    fun magic_roundTrip() {
+        val magic = byteArrayOf(0x59, 0x53, 0x57, 0x31)
+        val w = ByteWriter(8)
+        w.writeMagic(magic)
+        val r = ByteReader(w.toByteArray())
+        r.readMagic(magic)
+        r.requireFullyRead()
+    }
+
+    @Test
     fun readBytes_negativeSize_rejected() {
         assertFailsWith<IllegalArgumentException> {
             ByteReader(byteArrayOf()).readBytes(-1)
