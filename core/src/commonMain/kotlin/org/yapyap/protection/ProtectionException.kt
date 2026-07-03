@@ -97,6 +97,8 @@ sealed class ProtectionException(
                 is CryptoSessionException.MessageSkipExceeded,
                 -> SessionViolation(error)
                 is CryptoSessionException.SupersededDhChain -> SessionGap(error)
+                is CryptoSessionException.DecryptionFailed ->
+                    AuthenticationFailed(AuthenticationReason.DECRYPT_AUTH_FAILED, error)
                 is CryptoSessionException.NoSession,
                 is CryptoSessionException.HandshakeRequired,
                 is CryptoSessionException.HandshakeMismatch,

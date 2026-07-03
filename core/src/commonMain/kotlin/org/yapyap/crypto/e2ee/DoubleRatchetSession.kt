@@ -33,7 +33,10 @@ class DoubleRatchetSession private constructor(
             return decryptPlaintext(frame)
         } catch (error: Exception) {
             restoreState(checkpoint)
-            throw error
+            when (error) {
+                is CryptoSessionException -> throw error
+                else -> throw CryptoSessionException.DecryptionFailed(error)
+            }
         }
     }
 

@@ -11,6 +11,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketIdAllocator
 import org.yapyap.persistence.packet.PacketOutbox
@@ -202,6 +203,7 @@ class DefaultRouter(
         payload: MessagePayload,
         forceTransport: RouterTransport?,
     ): SendMessageResult {
+        check(started) { "Router must be started before sending messages" }
         val peers = identityResolver.getAllPeerDevicesForAccount(target)
         if (peers.isEmpty()) {
             logger.warn(
@@ -218,8 +220,16 @@ class DefaultRouter(
             )
         }
 
-        val outcomes = peers.map { peer ->
-            sendMessageToPeer(target = peer, payload = payload, forceTransport = forceTransport)
+        val outcomes = coroutineScope {
+            peers.map { peer ->
+                async {
+                    sendMessageToPeer(
+                        target = peer,
+                        payload = payload,
+                        forceTransport = forceTransport,
+                    )
+                }
+            }.awaitAll()
         }
         return aggregateSendResults(outcomes)
     }
@@ -346,47 +356,11 @@ class DefaultRouter(
                 ),
             )
         }
-        for (entry in dueEntries) {
-            val envelope = entry.envelope
-            val outbound = transportPolicy.resolve(
-                target = envelope.target,
-                retries = entry.attempts,
-                hasWebRtcSession = webRtcTransport.getSessionForPeer(envelope.target) != null,
-            )
-            val nextRetryAt = now + outbound.retryDelaySeconds
-            runCatching {
-                dispatchEnvelope(envelope, outbound.transport)
-            }.onSuccess {
-                packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-                logger.debug(
-                    component = LogComponent.ROUTER,
-                    event = LogEvent.OUTBOX_RETRY_DISPATCHED,
-                    message = "Dispatched due outbox envelope",
-                    fields = mapOf(
-                        "packetId" to envelope.packetId,
-                        "packetType" to envelope.packetType,
-                        "target" to envelope.target,
-                        "transport" to outbound.transport,
-                        "attempts" to entry.attempts + 1,
-                        "nextRetryAt" to nextRetryAt,
-                    ),
-                )
-            }.onFailure { error ->
-                if (error is CancellationException) throw error
-                logger.error(
-                    component = LogComponent.ROUTER,
-                    event = LogEvent.OUTBOX_DISPATCH_FAILED,
-                    message = "Failed to dispatch outbox envelope",
-                    throwable = error,
-                    fields = mapOf(
-                        "packetId" to envelope.packetId,
-                        "target" to envelope.target,
-                        "transport" to outbound.transport,
-                        "attempts" to entry.attempts,
-                        "nextRetryAt" to nextRetryAt,
-                    ),
-                )
-                packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
+        if (dueEntries.isNotEmpty()) {
+            coroutineScope {
+                dueEntries.map { entry ->
+                    async { processDueOutboxEntry(entry, now) }
+                }.awaitAll()
             }
         }
         outboxRetryLoop.notifyChanged()
@@ -397,6 +371,50 @@ class DefaultRouter(
                 message = "Processed outbox for due envelopes",
                 fields = mapOf("dueCount" to dueEntries.size),
             )
+        }
+    }
+
+    private suspend fun processDueOutboxEntry(entry: OutboxEntry, now: Long) {
+        val envelope = entry.envelope
+        val outbound = transportPolicy.resolve(
+            target = envelope.target,
+            retries = entry.attempts,
+            hasWebRtcSession = webRtcTransport.getSessionForPeer(envelope.target) != null,
+        )
+        val nextRetryAt = now + outbound.retryDelaySeconds
+        runCatching {
+            dispatchEnvelope(envelope, outbound.transport)
+        }.onSuccess {
+            packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
+            logger.debug(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_RETRY_DISPATCHED,
+                message = "Dispatched due outbox envelope",
+                fields = mapOf(
+                    "packetId" to envelope.packetId,
+                    "packetType" to envelope.packetType,
+                    "target" to envelope.target,
+                    "transport" to outbound.transport,
+                    "attempts" to entry.attempts + 1,
+                    "nextRetryAt" to nextRetryAt,
+                ),
+            )
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
+            logger.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_DISPATCH_FAILED,
+                message = "Failed to dispatch outbox envelope",
+                throwable = error,
+                fields = mapOf(
+                    "packetId" to envelope.packetId,
+                    "target" to envelope.target,
+                    "transport" to outbound.transport,
+                    "attempts" to entry.attempts,
+                    "nextRetryAt" to nextRetryAt,
+                ),
+            )
+            packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
         }
     }
 

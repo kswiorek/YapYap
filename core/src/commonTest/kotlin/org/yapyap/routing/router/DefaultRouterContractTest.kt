@@ -23,6 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 class DefaultRouterContractTest {
 
@@ -30,6 +31,8 @@ class DefaultRouterContractTest {
         PeerId("localrouteraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     private val remotePeer =
         PeerId("remoterouterbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    private val remotePeer2 =
+        PeerId("remoteroutercccccccccccccccccccccccccccccccccccccccccccccccccccccc")
 
     private fun localDevice(): DeviceIdentityRecord =
         DeviceIdentityRecord(
@@ -91,6 +94,67 @@ class DefaultRouterContractTest {
         assertEquals(SendFailureKind.NO_PEERS, result.failureKind)
         assertEquals(0, result.peersQueued)
         assertTrue(tor.sends.isEmpty())
+        router.stop()
+    }
+
+    @Test
+    fun sendMessage_beforeStart_throws() = runBlocking {
+        val account = AccountId("not-started-account")
+        val identity =
+            FakeIdentityResolverForRouter(
+                localDevice = localDevice(),
+                peersByAccount = mapOf(account to listOf(remotePeer)),
+            )
+        val router = defaultRouterUnderTest(identity = identity)
+
+        assertFailsWith<IllegalStateException> {
+            router.sendMessage(account, sampleTextPayload("not-started"), RouterTransport.TOR)
+        }
+        Unit
+    }
+
+    @Test
+    fun sendMessage_multiplePeers_protectsInParallel() = runBlocking {
+        val tor = RecordingTorTransport()
+        val account = AccountId("multi-device-account")
+        val tracking =
+            ConcurrencyTrackingEnvelopeProtectionService(
+                delegate = PassthroughFakeEnvelopeProtectionService(),
+                protectDelayMillis = 200,
+            )
+        val identity =
+            FakeIdentityResolverForRouter(
+                localDevice = localDevice(),
+                peersByAccount = mapOf(account to listOf(remotePeer, remotePeer2)),
+                torByPeer = mutableMapOf(
+                    remotePeer to TorEndpoint("peer1.onion", 80),
+                    remotePeer2 to TorEndpoint("peer2.onion", 80),
+                ),
+            )
+        val router =
+            defaultRouterUnderTest(
+                tor = tor,
+                identity = identity,
+                envelopeProtectionService = tracking,
+            )
+
+        router.start()
+        val startedAt = TimeSource.Monotonic.markNow()
+        val result = router.sendMessage(account, sampleTextPayload("parallel-fan-out"), RouterTransport.TOR)
+        val elapsedMs = startedAt.elapsedNow().inWholeMilliseconds
+
+        assertEquals(SendMessageStatus.SUCCESS, result.status)
+        assertEquals(2, result.peersTotal)
+        assertEquals(2, result.peersQueued)
+        assertEquals(2, tor.sends.size)
+        assertTrue(
+            tracking.maxConcurrentProtects >= 2,
+            "expected concurrent protectMessage calls but max was ${tracking.maxConcurrentProtects}",
+        )
+        assertTrue(
+            elapsedMs < 350,
+            "expected parallel fan-out (~200ms) but sendMessage took ${elapsedMs}ms",
+        )
         router.stop()
     }
 

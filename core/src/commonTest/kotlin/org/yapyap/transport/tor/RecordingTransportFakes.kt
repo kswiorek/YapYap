@@ -1,8 +1,11 @@
 package org.yapyap.transport.tor
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
@@ -38,6 +41,58 @@ class RecordingTorTransport(
             error("simulated Tor send failure")
         }
         sends.add(target to envelope)
+    }
+
+    fun tryEmitIncoming(envelope: TorIncomingEnvelope): Boolean = incomingMutable.tryEmit(envelope)
+}
+
+/**
+ * [TorTransport] fake that delays each [send] and tracks overlapping dispatches.
+ * Used to verify outbox retry dispatches run concurrently.
+ */
+class ConcurrencyTrackingTorTransport(
+    val advertisedEndpoint: TorEndpoint = TorEndpoint(onionAddress = "fake.onion", port = 80),
+    private val sendDelayMillis: Long = 200,
+) : TorTransport {
+
+    private val incomingMutable = MutableSharedFlow<TorIncomingEnvelope>(extraBufferCapacity = 64)
+    override val incoming: Flow<TorIncomingEnvelope> = incomingMutable.asSharedFlow()
+
+    private val sendStatsMutex = Mutex()
+    private var activeSends = 0
+    var maxConcurrentSends = 0
+        private set
+
+    var startCalls = 0
+        private set
+    var stopCalls = 0
+        private set
+    val sends = mutableListOf<Pair<TorEndpoint, BinaryEnvelope>>()
+
+    override suspend fun start(): TorEndpoint {
+        startCalls++
+        return advertisedEndpoint
+    }
+
+    override suspend fun stop() {
+        stopCalls++
+    }
+
+    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
+        sendStatsMutex.withLock {
+            activeSends++
+            if (activeSends > maxConcurrentSends) {
+                maxConcurrentSends = activeSends
+            }
+        }
+        try {
+            delay(sendDelayMillis)
+            sends.add(target to envelope)
+        } finally {
+            sendStatsMutex.withLock {
+                activeSends--
+            }
+        }
     }
 
     fun tryEmitIncoming(envelope: TorIncomingEnvelope): Boolean = incomingMutable.tryEmit(envelope)

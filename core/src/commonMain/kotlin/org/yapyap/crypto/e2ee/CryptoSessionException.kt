@@ -7,7 +7,10 @@ import org.yapyap.protocol.PeerId
  * store state). Programming mistakes and invalid local API use should throw [IllegalArgumentException]
  * via [require] or [error] instead.
  */
-sealed class CryptoSessionException(message: String) : Exception(message) {
+sealed class CryptoSessionException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause) {
 
     class NoSession(peerDeviceId: PeerId, sessionEpoch: Int) :
         CryptoSessionException("No crypto session for peer=$peerDeviceId epoch=$sessionEpoch")
@@ -39,4 +42,11 @@ sealed class CryptoSessionException(message: String) : Exception(message) {
 
     class Replay(messageNumber: Int) :
         CryptoSessionException("Ratchet message replay (messageNumber=$messageNumber)")
+
+    /** AEAD or other crypto primitive failure while opening a ratchet message (often wrong session row). */
+    class DecryptionFailed(cause: Throwable) :
+        CryptoSessionException(
+            message = "Ratchet decryption failed: ${cause.message ?: cause::class.simpleName.orEmpty()}",
+            cause = cause,
+        )
 }

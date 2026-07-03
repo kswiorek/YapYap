@@ -1,5 +1,8 @@
 package org.yapyap.routing.router
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.*
 import org.yapyap.crypto.identity.*
@@ -101,6 +104,61 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     }
 
     override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
+}
+
+/**
+ * Wraps [delegate] and tracks how many [protectMessage] calls overlap in time.
+ * Used to verify multi-peer fan-out runs concurrently rather than sequentially.
+ */
+internal class ConcurrencyTrackingEnvelopeProtectionService(
+    private val delegate: EnvelopeProtectionService,
+    private val protectDelayMillis: Long = 200,
+) : EnvelopeProtectionService {
+    private val protectStatsMutex = Mutex()
+    private var activeProtects = 0
+    var maxConcurrentProtects = 0
+        private set
+
+    override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
+        delegate.protectSignal(input, context)
+
+    override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
+        delegate.openSignal(envelope)
+
+    override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+        delegate.protectFile(input, context)
+
+    override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
+        delegate.openFile(envelope)
+
+    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+        delegate.decryptFileChunk(chunk)
+
+    override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+        protectStatsMutex.withLock {
+            activeProtects++
+            if (activeProtects > maxConcurrentProtects) {
+                maxConcurrentProtects = activeProtects
+            }
+        }
+        try {
+            delay(protectDelayMillis)
+            return delegate.protectMessage(input, context)
+        } finally {
+            protectStatsMutex.withLock {
+                activeProtects--
+            }
+        }
+    }
+
+    override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload =
+        delegate.openMessage(envelope)
+
+    override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
+        delegate.protectSystem(input, context)
+
+    override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload =
+        delegate.openSystem(envelope)
 }
 
 internal class SequencedPacketIdAllocator : PacketIdAllocator {
@@ -471,7 +529,7 @@ internal fun e2eeRouterUnderTest(
     )
 
 internal fun defaultRouterUnderTest(
-    tor: RecordingTorTransport = RecordingTorTransport(),
+    tor: org.yapyap.transport.tor.transport.TorTransport = RecordingTorTransport(),
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     identity: FakeIdentityResolverForRouter,
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
@@ -479,6 +537,7 @@ internal fun defaultRouterUnderTest(
     allocator: PacketIdAllocator = SequencedPacketIdAllocator(),
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
+    envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -487,7 +546,7 @@ internal fun defaultRouterUnderTest(
         packetIdAllocator = allocator,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
-        envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
+        envelopeProtectionService = envelopeProtectionService,
         timeProvider = time,
         logger = NoopAppLogger,
         routerConfig = routerConfig,

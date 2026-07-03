@@ -2,6 +2,7 @@ package org.yapyap.routing.outbox
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
@@ -15,6 +16,7 @@ import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
 import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.transport.tor.ConcurrencyTrackingTorTransport
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -25,6 +27,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 class DefaultRouterOutboxTest {
 
@@ -123,6 +127,54 @@ class DefaultRouterOutboxTest {
     }
 
     @Test
+    fun dueOutboxEntries_dispatchInParallel() = runBlocking {
+        val tor = ConcurrencyTrackingTorTransport(sendDelayMillis = 200)
+        val outbox = TrackingPacketOutbox()
+        val now = 10_000L
+        val packetId1 = PacketId.fromHex("a1".repeat(PacketId.SIZE_BYTES))
+        val packetId2 = PacketId.fromHex("a2".repeat(PacketId.SIZE_BYTES))
+
+        outbox.enqueue(
+            envelope = outboxMessageEnvelope(packetId1, source = localPeer, target = remotePeer, now = now),
+            nextRetryAt = now,
+        )
+        outbox.enqueue(
+            envelope = outboxMessageEnvelope(packetId2, source = localPeer, target = remotePeer, now = now),
+            nextRetryAt = now,
+        )
+
+        val router = routerForOutboxTests(
+            tor = tor,
+            outbox = outbox,
+            account = AccountId("outbox-parallel-account"),
+        )
+
+        val startedAt = TimeSource.Monotonic.markNow()
+        router.start()
+        withTimeout(3.seconds) {
+            while (tor.sends.size < 2) {
+                delay(10.milliseconds)
+            }
+        }
+        val elapsedMs = startedAt.elapsedNow().inWholeMilliseconds
+        router.stop()
+
+        assertEquals(2, tor.sends.size)
+        assertEquals(
+            setOf(packetId1, packetId2),
+            tor.sends.map { it.second.packetId }.toSet(),
+        )
+        assertTrue(
+            tor.maxConcurrentSends >= 2,
+            "expected concurrent outbox dispatches but max was ${tor.maxConcurrentSends}",
+        )
+        assertTrue(
+            elapsedMs < 350,
+            "expected parallel outbox dispatch (~200ms) but took ${elapsedMs}ms",
+        )
+    }
+
+    @Test
     fun dispatchFailure_stillRecordsAttempt() = runBlocking {
         val tor = RecordingTorTransport()
         tor.failNextSend = true
@@ -188,7 +240,7 @@ class DefaultRouterOutboxTest {
     }
 
     private fun routerForOutboxTests(
-        tor: RecordingTorTransport,
+        tor: org.yapyap.transport.tor.transport.TorTransport,
         outbox: TrackingPacketOutbox,
         account: AccountId,
         remoteTor: TorEndpoint = TorEndpoint("peer.onion", 443),
