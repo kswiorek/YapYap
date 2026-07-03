@@ -25,6 +25,8 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.routing.dispatch.EnvelopeDispatcher
+import org.yapyap.routing.inbound.AckResponder
 import org.yapyap.routing.outbox.OutboxRetryLoop
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
@@ -53,6 +55,20 @@ class DefaultRouter(
     val routerConfig: RouterConfig,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
 ): Router {
+    private val routingContext = RoutingContext(
+        identityResolver = identityResolver,
+        packetIdAllocator = packetIdAllocator,
+        packetDeduplicator = packetDeduplicator,
+        envelopeProtectionService = envelopeProtectionService,
+        torTransport = torTransport,
+        webRtcTransport = webRtcTransport,
+        timeProvider = timeProvider,
+        logger = logger,
+        routerConfig = routerConfig,
+    )
+    private val envelopeDispatcher = EnvelopeDispatcher(routingContext)
+    private val ackResponder = AckResponder(routingContext, envelopeDispatcher)
+
     private var started = false
     private var torEndpoint: TorEndpoint? = null
     private var localDeviceIdentity: DeviceIdentityRecord? = null
@@ -71,6 +87,7 @@ class DefaultRouter(
     override suspend fun start() {
         check(!started) { "Router is already started" }
         localDeviceIdentity = identityResolver.getLocalDeviceIdentityRecord()
+        routingContext.localDeviceIdentity = localDeviceIdentity!!
         packetIdAllocator.assignLocalDevice(localDeviceIdentity!!.deviceId)
 
         try {
@@ -267,7 +284,7 @@ class DefaultRouter(
 
         val plan = transportPolicy.resolve(
             target = target,
-            hasWebRtcSession = webRtcTransport.getSessionForPeer(target) != null,
+            hasWebRtcSession = envelopeDispatcher.hasWebRtcSession(target),
             retries = 0,
             forced = forceTransport,
         )
@@ -286,7 +303,7 @@ class DefaultRouter(
             ),
         )
         try {
-            dispatchEnvelope(binaryEnvelope, plan.transport)
+            envelopeDispatcher.dispatch(binaryEnvelope, plan.transport)
         }
         catch (e: CancellationException) {throw e}
         catch (e: TransportException) {
@@ -319,26 +336,6 @@ class DefaultRouter(
             packetOutbox.recordAttempt(binaryEnvelope.packetId, nextRetryAt, timeProvider.nowEpochSeconds())
         }
         return PeerSendOutcome.Queued
-    }
-
-    private suspend fun dispatchEnvelope(
-        envelope: BinaryEnvelope,
-        transport: RouterTransport,
-    ) {
-        when (transport) {
-            RouterTransport.TOR -> torTransport.send(
-                identityResolver.resolveTorEndpointForDevice(envelope.target),
-                envelope,
-            )
-            RouterTransport.WEBRTC -> {
-                val session = webRtcTransport.getSessionForPeer(envelope.target)
-                webRtcTransport.sendEnvelope(
-                    sessionId = session,
-                    targetId = envelope.target,
-                    envelope = envelope,
-                )
-            }
-        }
     }
 
     private suspend fun processDueOutbox() {
@@ -379,11 +376,11 @@ class DefaultRouter(
         val outbound = transportPolicy.resolve(
             target = envelope.target,
             retries = entry.attempts,
-            hasWebRtcSession = webRtcTransport.getSessionForPeer(envelope.target) != null,
+            hasWebRtcSession = envelopeDispatcher.hasWebRtcSession(envelope.target),
         )
         val nextRetryAt = now + outbound.retryDelaySeconds
         runCatching {
-            dispatchEnvelope(envelope, outbound.transport)
+            envelopeDispatcher.dispatch(envelope, outbound.transport)
         }.onSuccess {
             packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
             logger.debug(
@@ -490,7 +487,11 @@ class DefaultRouter(
             )
             when (inbound.packetType) {
                 PacketType.SYSTEM -> return
-                else -> sendDispositionForDuplicate(inbound, transport, packetDeduplicator.getNackReason(inbound.packetId, inbound.source))
+                else -> ackResponder.sendDispositionForDuplicate(
+                    inbound,
+                    transport,
+                    packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
+                )
             }
             return
         }
@@ -506,7 +507,7 @@ class DefaultRouter(
                     "receivedAtEpochSeconds" to receivedAtEpochSeconds,
                 ),
             )
-            sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
+            ackResponder.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
             return
         }
 
@@ -522,7 +523,7 @@ class DefaultRouter(
                     "localDeviceId" to localDeviceIdentity?.deviceId,
                 ),
             )
-            sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
+            ackResponder.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
             return
         }
         var handleResult: InboundHandleResult
@@ -550,7 +551,7 @@ class DefaultRouter(
         //TODO better ACK logic: update device state in db, etc
 
         when (handleResult) {
-            InboundHandleResult.Success -> sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+            InboundHandleResult.Success -> ackResponder.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
             InboundHandleResult.Deferred -> {
                 logger.info(
                     component = LogComponent.ROUTER,
@@ -564,7 +565,7 @@ class DefaultRouter(
                 )
                 packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
             }
-            is InboundHandleResult.Rejected -> sendNack(
+            is InboundHandleResult.Rejected -> ackResponder.sendNack(
                 inbound.packetId,
                 inbound.source,
                 inbound.packetType,
@@ -572,90 +573,6 @@ class DefaultRouter(
                 transport,
             )
         }
-    }
-
-    private suspend fun sendDispositionForDuplicate(inbound: BinaryEnvelope, transport: RouterTransport, nackReason: PacketNackReason?) {
-        // if correct target and not expired, send ack, else nack
-        if (nackReason == null) {
-            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
-        }
-        else {
-            sendNack(inbound.packetId, inbound.source, inbound.packetType, nackReason, transport, persistReason = false)
-        }
-    }
-
-    private suspend fun sendAck(packetId: PacketId, source: PeerId, packetType: PacketType, transport: RouterTransport) {
-        val ackContext = EnvelopeProtectContext(
-            sourceDeviceId = localDeviceIdentity!!.deviceId,
-            targetDeviceId = source,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
-        val ackPayload = SystemPayload.PacketAck(
-            packetId,
-            packetType
-        )
-        sendAckEnvelope(ackPayload, transport, ackContext)
-        logger.info(
-            LogComponent.ROUTER,
-            LogEvent.ACK_SENT,
-            "ACK sent for packet $packetId",
-            mapOf(
-                "packetId" to packetId,
-                "packetType" to packetType,
-                "source" to source,
-                "transport" to transport,
-            )
-        )
-    }
-
-    private suspend fun sendNack(packetId: PacketId, source: PeerId, packetType: PacketType, reason: PacketNackReason,
-                                 transport: RouterTransport, persistReason: Boolean = true, reasonText: String? = null) {
-        if (persistReason){
-            packetDeduplicator.markNacked(packetId, source, reason)
-        }
-
-        val ackContext = EnvelopeProtectContext(
-            sourceDeviceId = localDeviceIdentity!!.deviceId,
-            targetDeviceId = source,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
-        val ackPayload = SystemPayload.PacketNack(
-            packetId,
-            packetType,
-            reason,
-            reasonText = reasonText,
-        )
-        sendAckEnvelope(ackPayload, transport, ackContext)
-        logger.info(
-            LogComponent.ROUTER,
-            LogEvent.NACK_SENT,
-            "NACK sent for packet $packetId",
-            mapOf(
-                "packetId" to packetId,
-                "packetType" to packetType,
-                "source" to source,
-                "transport" to transport,
-                "reason" to reason,
-            )
-        )
-    }
-
-    private suspend fun sendAckEnvelope(ackPayload: SystemPayload, transport: RouterTransport, context: EnvelopeProtectContext){
-        val ackEnvelope = envelopeProtectionService.protectSystem(ackPayload, context)
-
-        val ackEnv = BinaryEnvelope(
-            packetId = packetIdAllocator.allocate(timeProvider.nowEpochSeconds()),
-            packetType = PacketType.SYSTEM,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            expiresAtEpochSeconds = timeProvider.nowEpochSeconds() + routerConfig.ackLifetimeSeconds, // 1 hour
-            source = localDeviceIdentity!!.deviceId,
-            target = context.targetDeviceId,
-            payload = ackEnvelope.encode(),
-        )
-
-        dispatchEnvelope(ackEnv, transport)
     }
 
     suspend fun testOpenWebRtcSession(target: PeerId, sessionId: String) {
