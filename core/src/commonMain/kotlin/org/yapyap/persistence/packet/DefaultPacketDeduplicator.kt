@@ -46,6 +46,13 @@ class DefaultPacketDeduplicator(
         }
     }
 
+    override fun clearPacket(
+        packetId: PacketId,
+        sourceDeviceId: PeerId
+    ) {
+        queries.clearPacket(packetId.toHex(), sourceDeviceId.id)
+    }
+
     override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
         queries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHex())
     }

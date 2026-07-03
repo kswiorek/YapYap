@@ -11,7 +11,11 @@ interface Router {
     suspend fun stop()
     fun isRunning(): Boolean
 
-    suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport? = null)
+    suspend fun sendMessage(
+        target: AccountId,
+        payload: MessagePayload,
+        forceTransport: RouterTransport? = null,
+    ): SendMessageResult
 
 
 }

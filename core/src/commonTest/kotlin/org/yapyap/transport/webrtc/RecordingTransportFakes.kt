@@ -31,7 +31,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
     val startCalls = mutableListOf<PeerId>()
     val stopCalls = mutableListOf<Unit>()
     val openSessionCalls = mutableListOf<Pair<PeerId, String>>()
-    val sendEnvelopeCalls = mutableListOf<Triple<String, PeerId, BinaryEnvelope>>()
+    val sendEnvelopeCalls = mutableListOf<Triple<String?, PeerId, BinaryEnvelope>>()
     val closeSessionCalls = mutableListOf<String>()
     val handleBootstrapCalls = mutableListOf<WebRtcSignal>()
     val getSessionForPeerCalls = mutableListOf<PeerId>()
@@ -55,7 +55,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
         openSessionCalls.add(target to sessionId)
     }
 
-    override suspend fun sendEnvelope(sessionId: String, targetId: PeerId, envelope: BinaryEnvelope) {
+    override suspend fun sendEnvelope(sessionId: String?, targetId: PeerId, envelope: BinaryEnvelope) {
         sendEnvelopeCalls.add(Triple(sessionId, targetId, envelope))
     }
 

@@ -23,6 +23,10 @@ WHERE source_device_id = ?
   AND packet_id = ?
 LIMIT 1;
 
+clearPacket:
+DELETE FROM dedup
+WHERE packet_id = ? AND source_device_id = ?;
+
 updateNackReason:
 UPDATE dedup
 SET

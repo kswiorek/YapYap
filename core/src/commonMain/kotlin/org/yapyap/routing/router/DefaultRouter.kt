@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
@@ -28,6 +29,7 @@ import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
@@ -195,7 +197,11 @@ class DefaultRouter(
         return started
     }
 
-    override suspend fun sendMessage(target: AccountId, payload: MessagePayload, forceTransport: RouterTransport?) {
+    override suspend fun sendMessage(
+        target: AccountId,
+        payload: MessagePayload,
+        forceTransport: RouterTransport?,
+    ): SendMessageResult {
         val peers = identityResolver.getAllPeerDevicesForAccount(target)
         if (peers.isEmpty()) {
             logger.warn(
@@ -204,15 +210,25 @@ class DefaultRouter(
                 message = "No peer devices found for target account",
                 fields = mapOf("targetAccountId" to target),
             )
-            return
+            return SendMessageResult(
+                status = SendMessageStatus.FAILURE,
+                peersTotal = 0,
+                peersQueued = 0,
+                failureKind = SendFailureKind.NO_PEERS,
+            )
         }
 
-        for (peer in peers) {
+        val outcomes = peers.map { peer ->
             sendMessageToPeer(target = peer, payload = payload, forceTransport = forceTransport)
         }
+        return aggregateSendResults(outcomes)
     }
 
-    private suspend fun sendMessageToPeer(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport? = null) {
+    private suspend fun sendMessageToPeer(
+        target: PeerId,
+        payload: MessagePayload,
+        forceTransport: RouterTransport? = null,
+    ): PeerSendOutcome {
         val context = EnvelopeProtectContext(
             sourceDeviceId = localDeviceIdentity!!.deviceId,
             targetDeviceId = target,
@@ -225,13 +241,7 @@ class DefaultRouter(
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
-            //TODO relay to upper layer or handle
-            logOutboundProtectionFailure(
-                message = "Failed to protect outbound message envelope",
-                target = target,
-                exception = e,
-            )
-            return
+            return handleOutboundProtectionFailure(target, e)
         }
 
         val binaryEnvelope = BinaryEnvelope(
@@ -265,7 +275,40 @@ class DefaultRouter(
                 "nextRetryAt" to nextRetryAt,
             ),
         )
-        dispatchEnvelope(binaryEnvelope, plan.transport)
+        try {
+            dispatchEnvelope(binaryEnvelope, plan.transport)
+        }
+        catch (e: CancellationException) {throw e}
+        catch (e: TransportException) {
+            logger.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
+                message = "Envelope dispatch failed: TransportException",
+                fields = mapOf(
+                    "packetId" to binaryEnvelope.packetId,
+                    "target" to target,
+                    "transport" to plan.transport,
+                    "error" to e.toString(),
+                )
+            )
+        }
+        catch (e: CryptoException) {
+            logger.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
+                message = "Envelope dispatch failed: CryptoException",
+                fields = mapOf(
+                    "packetId" to binaryEnvelope.packetId,
+                    "target" to target,
+                    "transport" to plan.transport,
+                    "error" to e.toString(),
+                )
+            )
+        }
+        finally {
+            packetOutbox.recordAttempt(binaryEnvelope.packetId, nextRetryAt, timeProvider.nowEpochSeconds())
+        }
+        return PeerSendOutcome.Queued
     }
 
     private suspend fun dispatchEnvelope(
@@ -279,7 +322,6 @@ class DefaultRouter(
             )
             RouterTransport.WEBRTC -> {
                 val session = webRtcTransport.getSessionForPeer(envelope.target)
-                checkNotNull(session) { "No WebRTC session found for target ${envelope.target}" }
                 webRtcTransport.sendEnvelope(
                     sessionId = session,
                     targetId = envelope.target,
@@ -491,16 +533,19 @@ class DefaultRouter(
 
         when (handleResult) {
             InboundHandleResult.Success -> sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
-            InboundHandleResult.Deferred -> logger.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                message = "Deferred inbound envelope until session prerequisites are met",
-                fields = mapOf(
-                    "packetId" to inbound.packetId,
-                    "packetType" to inbound.packetType,
-                    "sourceDeviceId" to inbound.source,
-                ),
-            )
+            InboundHandleResult.Deferred -> {
+                logger.info(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                    message = "Deferred inbound envelope until session prerequisites are met",
+                    fields = mapOf(
+                        "packetId" to inbound.packetId,
+                        "packetType" to inbound.packetType,
+                        "sourceDeviceId" to inbound.source,
+                    ),
+                )
+                packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
+            }
             is InboundHandleResult.Rejected -> sendNack(
                 inbound.packetId,
                 inbound.source,
@@ -672,8 +717,6 @@ class DefaultRouter(
     }
 
     private suspend fun handleMessageEnvelope(env: BinaryEnvelope): InboundHandleResult {
-        //TODO validate envelope fields before decryption to avoid expensive operations on invalid envelopes
-        //TODO check decryption
         val messageEnvelope = runCatching { MessageEnvelope.decode(env.payload) }.getOrNull() ?: run {
             logger.warn(
                 component = LogComponent.ROUTER,
@@ -842,32 +885,37 @@ class DefaultRouter(
         )
     }
 
-    private fun logOutboundProtectionFailure(
-        message: String,
+    private fun handleOutboundProtectionFailure(
         target: PeerId,
         exception: ProtectionException,
-    ) {
+    ): PeerSendOutcome {
         val fields = mapOf(
             "targetDeviceId" to target,
             "disposition" to exception.disposition.name,
             "reason" to exception.reason.name,
         )
-        when (exception.disposition) {
-            ProtectionDisposition.PERMANENT -> logger.error(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                message = message,
-                throwable = exception,
-                fields = fields,
-            )
+        return when (exception.disposition) {
+            ProtectionDisposition.PERMANENT -> {
+                logger.error(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                    message = "Message protection failed",
+                    fields = fields,
+                    throwable = exception,
+                )
+                PeerSendOutcome.PermanentFailure
+            }
             ProtectionDisposition.RETRYABLE,
             ProtectionDisposition.DEFER,
-            -> logger.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                message = message,
-                fields = fields + ("error" to exception.message),
-            )
+            -> {
+                logger.warn(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                    message = "Message protection failed",
+                    fields = fields + ("error" to exception.message),
+                )
+                PeerSendOutcome.NotReady
+            }
         }
     }
 

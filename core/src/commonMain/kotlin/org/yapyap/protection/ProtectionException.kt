@@ -45,7 +45,7 @@ sealed class ProtectionException(
         )
 
     class AuthenticationFailed(
-        val authReason: AuthenticationReason,
+        authReason: AuthenticationReason,
         cause: Throwable? = null,
     ) : ProtectionException(
         message = when (authReason) {
@@ -106,7 +106,7 @@ sealed class ProtectionException(
                 -> SessionNotReady(error)
             }
 
-        fun mapDecryptFailure(error: Exception): ProtectionException =
+        fun mapEncryptDecryptFailure(error: Exception): ProtectionException =
             when (error) {
                 is ProtectionException -> error
                 is CryptoSessionException -> mapCryptoSessionException(error)

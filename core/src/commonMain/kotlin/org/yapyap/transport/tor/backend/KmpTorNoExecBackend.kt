@@ -25,7 +25,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.transport.tor.TorException
+import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -192,7 +192,7 @@ class KmpTorNoExecBackend(
                         throwable = error,
                         fields = mapOf("targetHost" to target.onionAddress, "targetPort" to target.port, "code" to error.code),
                     )
-                    throw TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
+                    throw TransportException.TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
                 }
                 delay(config.socksRetryDelayMillis.milliseconds)
             } finally {
@@ -228,12 +228,12 @@ class KmpTorNoExecBackend(
 
                 if (ready) return@withTimeoutOrNull
 
-                if (torRuntime == null) {throw TorException.TorRuntimeError("Tor runtime exitted before ready")}
+                if (torRuntime == null) {throw TransportException.TorException.TorRuntimeError("Tor runtime exitted before ready")}
                 delay(150.milliseconds)
             }
         }
         if (completed == null) {
-            throw TorException.SocksConnectionTimeout()
+            throw TransportException.TorException.SocksConnectionTimeout()
         }
     }
 
@@ -257,7 +257,7 @@ class KmpTorNoExecBackend(
                             message = "Inbound Tor transport frame parse error",
                             throwable = error,
                         )
-                        throw TorException.TransportFrameError(error.message ?: "Unknown error")
+                        throw TransportException.TorException.TransportFrameError(error.message ?: "Unknown error")
                     }
                     inboundFlow.emit(frame)
                 } finally {

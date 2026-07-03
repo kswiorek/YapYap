@@ -1,13 +1,22 @@
 package org.yapyap.routing.router
 
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
+import org.yapyap.crypto.e2ee.*
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketIdAllocator
 import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.protection.PassthroughFileProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
+import org.yapyap.protection.envelope.SignedSystemProtection
+import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
+import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
@@ -122,6 +131,13 @@ internal class InMemoryPacketDeduplicator : PacketDeduplicator {
         return seen.add(key)
     }
 
+    override fun clearPacket(
+        packetId: PacketId,
+        sourceDeviceId: PeerId
+    ) {
+        seen.remove(sourceDeviceId.id to packetId.toHex())
+    }
+
     override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
         nackReasons[sourceDeviceId.id to packetId.toHex()] = nackReason
     }
@@ -144,6 +160,16 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
         val result = delegate.firstSeen(packetId, sourceDeviceId, receivedAtEpochSeconds)
         firstSeenResults.add(result)
         return result
+    }
+
+    override fun clearPacket(
+        packetId: PacketId,
+        sourceDeviceId: PeerId
+    ) {
+        delegate.clearPacket(
+            packetId = packetId,
+            sourceDeviceId = sourceDeviceId,
+        )
     }
 
     override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
@@ -304,6 +330,145 @@ internal class TrackingPacketOutbox : PacketOutbox {
             attempts = attempts,
         )
 }
+
+internal class E2eeIdentityResolverForRouter(
+    private val local: TestPeerIdentity,
+    private val peers: Map<PeerId, TestPeerIdentity>,
+    private val peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
+    private val torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
+    val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
+    private val crypto: CryptoProvider = KmpCryptoProvider(),
+) : IdentityResolver {
+
+    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
+
+    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
+        error("E2eeIdentityResolverForRouter: account record not stubbed")
+
+    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+        when (purpose) {
+            IdentityKeyPurpose.SIGNING -> local.signingPrivateKey
+            IdentityKeyPurpose.ENCRYPTION -> local.encryptionPrivateKey
+            else -> error("unexpected purpose $purpose")
+        }
+
+    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+        error("E2eeIdentityResolverForRouter: account private key not stubbed")
+
+    override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
+
+    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+        peers[deviceId]?.device ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
+
+    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
+        torByPeer[deviceId] ?: TorEndpoint(onionAddress = "missing.onion", port = 80)
+
+    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
+        peersByAccount[accountId].orEmpty()
+
+    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+        torUpdates.add(deviceId to torEndpoint)
+        torByPeer[deviceId] = torEndpoint
+    }
+
+    override suspend fun resolvePeerX3dhRemoteKeys(
+        deviceId: PeerId,
+        signedPreKeyId: String?,
+    ): X3dhRemotePeerKeys {
+        val device = resolvePeerIdentityRecord(deviceId)
+        val signedPreKey = when {
+            signedPreKeyId != null -> {
+                device.signedPreKey?.takeIf { it.keyId == signedPreKeyId }
+                    ?: error("Signed prekey not found: $signedPreKeyId")
+            }
+            else -> device.signedPreKey
+                ?: error("Missing signed prekey on roster for deviceId=$deviceId")
+        }
+        require(crypto.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
+            "failed to verify signed prekey signature"
+        }
+        return X3dhRemotePeerKeys(
+            identityEncryptionPublicKey = device.encryption.publicKey,
+            signedPreKeyPublicKey = signedPreKey.publicKey,
+            signedPreKeyId = signedPreKey.keyId,
+        )
+    }
+
+    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = local.signedPreKey
+
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord {
+        require(signedPreKeyId == local.signedPreKey.keyId) {
+            "Signed prekey not found: $signedPreKeyId"
+        }
+        return local.signedPreKey
+    }
+}
+
+internal data class E2eeRouterTestStack(
+    val peer: TestPeerIdentity,
+    val identity: E2eeIdentityResolverForRouter,
+    val protection: DefaultEnvelopeProtectionService,
+)
+
+internal fun buildE2eeRouterStack(
+    local: TestPeerIdentity,
+    remote: TestPeerIdentity,
+    peersByAccount: Map<AccountId, List<PeerId>>,
+    torByPeer: MutableMap<PeerId, TorEndpoint>,
+    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    crypto: CryptoProvider = KmpCryptoProvider(),
+): E2eeRouterTestStack {
+    val identity = E2eeIdentityResolverForRouter(
+        local = local,
+        peers = mapOf(remote.device.deviceId to remote),
+        peersByAccount = peersByAccount,
+        torByPeer = torByPeer,
+        crypto = crypto,
+    )
+    val sessionManager = DefaultCryptoSessionManager(
+        crypto = crypto,
+        x3dh = X3dhHandshake(crypto),
+        sessionStore = MapBackedCryptoSessionStore(),
+        identityResolver = identity,
+        opkRepository = InMemoryOpkRepository(crypto),
+        timeProvider = time,
+    )
+    val signatureProvider = DefaultSignatureProvider(identity, crypto)
+    val protection = DefaultEnvelopeProtectionService(
+        webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider, crypto),
+        fileProtection = PassthroughFileProtection(),
+        messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
+        systemProtection = SignedSystemProtection(signatureProvider, crypto),
+    )
+    return E2eeRouterTestStack(
+        peer = local,
+        identity = identity,
+        protection = protection,
+    )
+}
+
+internal fun e2eeRouterUnderTest(
+    stack: E2eeRouterTestStack,
+    tor: RecordingTorTransport,
+    webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
+    dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
+    outbox: PacketOutbox = TrackingPacketOutbox(),
+    allocator: PacketIdAllocator = SequencedPacketIdAllocator(),
+    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    routerConfig: RouterConfig = RouterConfig(),
+): DefaultRouter =
+    DefaultRouter(
+        torTransport = tor,
+        webRtcTransport = webRtc,
+        identityResolver = stack.identity,
+        packetIdAllocator = allocator,
+        packetDeduplicator = dedup,
+        packetOutbox = outbox,
+        envelopeProtectionService = stack.protection,
+        timeProvider = time,
+        logger = NoopAppLogger,
+        routerConfig = routerConfig,
+    )
 
 internal fun defaultRouterUnderTest(
     tor: RecordingTorTransport = RecordingTorTransport(),

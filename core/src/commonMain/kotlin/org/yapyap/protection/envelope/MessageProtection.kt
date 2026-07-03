@@ -1,5 +1,6 @@
 package org.yapyap.protection.envelope
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.CryptoSessionManager
 import org.yapyap.crypto.e2ee.CryptoWireLimits
 import org.yapyap.crypto.e2ee.SessionWireFrame
@@ -151,10 +152,20 @@ class SignedAndEncryptedMessageProtection(
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
 
-        val encryptedInput = cryptoSessionManager.encryptMessage(
-            remoteDeviceId = context.targetDeviceId,
-            bytes = input.encode(),
-        )
+        val encryptedInput = try {
+            cryptoSessionManager.encryptMessage(
+                remoteDeviceId = context.targetDeviceId,
+                bytes = input.encode(),
+            )
+        } catch (e: Exception) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENCRYPTION_FAILED,
+                message = "Failed to encrypt message",
+                throwable = e,
+            )
+            throw ProtectionException.mapEncryptDecryptFailure(e)
+        }
         val wirePayload = encryptedInput.encode()
 
         val unsigned = MessageEnvelope(
@@ -168,7 +179,17 @@ class SignedAndEncryptedMessageProtection(
             payload = wirePayload,
         )
 
-        val signature = signatureProvider.sign(unsigned.encodeForSigning())
+        val signature = try {
+            signatureProvider.sign(unsigned.encodeForSigning())
+        } catch (e: CryptoException) {
+            logger.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.SIGNATURE_SIGN_FAILED,
+                message = "Failed to sign message envelope",
+                throwable = e,
+            )
+            throw ProtectionException.IdentityNotReady(e)
+        }
         return unsigned.copy(signature = signature)
     }
 
@@ -214,7 +235,7 @@ class SignedAndEncryptedMessageProtection(
                 message = "Failed to decrypt message",
                 throwable = e,
             )
-            throw ProtectionException.mapDecryptFailure(e)
+            throw ProtectionException.mapEncryptDecryptFailure(e)
         }
 
         val messagePayload = try {

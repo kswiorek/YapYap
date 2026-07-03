@@ -10,6 +10,8 @@ interface PacketDeduplicator {
      */
     fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean
 
+    fun clearPacket(packetId: PacketId, sourceDeviceId: PeerId)
+
     fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason)
 
     fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason?

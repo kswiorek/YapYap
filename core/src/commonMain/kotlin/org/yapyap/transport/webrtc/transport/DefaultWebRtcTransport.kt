@@ -12,6 +12,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.types.*
+import org.yapyap.transport.TransportException
 import kotlin.time.Clock
 
 class DefaultWebRtcTransport(
@@ -233,9 +234,12 @@ class DefaultWebRtcTransport(
         return peerBySession.entries.find { it.value == target }?.key
     }
 
-    override suspend fun sendEnvelope(sessionId: String, targetId: PeerId, envelope: BinaryEnvelope) {
+    override suspend fun sendEnvelope(sessionId: String?, targetId: PeerId, envelope: BinaryEnvelope) {
         check(started) { "WebRTC transport must be started before sending data" }
         val local = requireNotNull(localDevice) { "Local device is not available" }
+        if (sessionId == null) {
+            throw TransportException.WebRtcException.SessionNotFound("no session id provided")
+        }
         val payload = envelope.encode()
         backend.sendData(
             WebRtcDataFrame(
@@ -331,7 +335,7 @@ class DefaultWebRtcTransport(
     override suspend fun handleBootstrapSignal(signal: WebRtcSignal) {
         val local = requireNotNull(localDevice) { "Local device is not available" }
         if (signal.target != local) {
-            throw WebRtcException.WrongTargetException(signal.target)
+            throw TransportException.WebRtcException.WrongTargetException(signal.target)
         }
 
         when (signal.kind) {
@@ -375,17 +379,15 @@ class DefaultWebRtcTransport(
     }
 
     private suspend fun handleIncomingFrame(frame: WebRtcDataFrame) {
-        val peer = peerBySession[frame.sessionId]
-        if (peer == null) {
-            throw WebRtcException.SessionNotFound(frame.sessionId)
-        }
+        val peer =
+            peerBySession[frame.sessionId] ?: throw TransportException.WebRtcException.SessionNotFound(frame.sessionId)
 
         when (frame.dataType) {
             WebRtcDataType.ENVELOPE_BINARY -> {
                 val envelope = try {
                     BinaryEnvelope.decode(frame.payload)
                 } catch (e: Exception) {
-                    throw WebRtcException.DecodeError("BinaryEnvelope decode error: ${e.message}")
+                    throw TransportException.WebRtcException.DecodeError("BinaryEnvelope decode error: ${e.message}")
                 }
                 incomingEnvelopeFlow.emit(WebRtcIncomingEnvelope(
                     sessionId = frame.sessionId,
@@ -417,7 +419,7 @@ class DefaultWebRtcTransport(
         val message = try {
             AvControlMessage.decode(frame.payload)
         } catch (e: Exception) {
-            throw WebRtcException.DecodeError("AvControlMessage decode error: ${e.message}")
+            throw TransportException.WebRtcException.DecodeError("AvControlMessage decode error: ${e.message}")
         }
         when (message) {
             is AvControlMessage.Invite -> {

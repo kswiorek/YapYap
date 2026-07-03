@@ -25,7 +25,7 @@ interface WebRtcTransport {
 
     // Session (transport)
     suspend fun openSession(target: PeerId, sessionId: String)
-    suspend fun sendEnvelope(sessionId: String, targetId: PeerId, envelope: BinaryEnvelope)
+    suspend fun sendEnvelope(sessionId: String?, targetId: PeerId, envelope: BinaryEnvelope)
     suspend fun closeSession(sessionId: String)
     suspend fun handleBootstrapSignal(signal: WebRtcSignal)
 

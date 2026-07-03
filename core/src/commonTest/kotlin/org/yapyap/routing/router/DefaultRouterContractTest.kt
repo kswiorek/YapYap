@@ -85,8 +85,11 @@ class DefaultRouterContractTest {
         router.start()
 
         val payload = sampleTextPayload("no-peer-msg")
-        router.sendMessage(targetAccount, payload, RouterTransport.TOR)
+        val result = router.sendMessage(targetAccount, payload, RouterTransport.TOR)
 
+        assertEquals(SendMessageStatus.FAILURE, result.status)
+        assertEquals(SendFailureKind.NO_PEERS, result.failureKind)
+        assertEquals(0, result.peersQueued)
         assertTrue(tor.sends.isEmpty())
         router.stop()
     }
@@ -106,8 +109,12 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(tor = tor, identity = identity)
         router.start()
 
-        router.sendMessage(account, sampleTextPayload("tor-send"), RouterTransport.TOR)
+        val result = router.sendMessage(account, sampleTextPayload("tor-send"), RouterTransport.TOR)
 
+        assertEquals(SendMessageStatus.SUCCESS, result.status)
+        assertEquals(1, result.peersQueued)
+        assertEquals(1, result.peersTotal)
+        assertEquals(null, result.failureKind)
         assertEquals(1, tor.sends.size)
         assertEquals(peerTor, tor.sends[0].first)
         assertEquals(PacketType.MESSAGE, tor.sends[0].second.packetType)

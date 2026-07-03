@@ -217,7 +217,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
                 message = "Failed to decrypt WebRTC signal",
                 throwable = e,
             )
-            throw ProtectionException.mapDecryptFailure(e)
+            throw ProtectionException.mapEncryptDecryptFailure(e)
         }
 
         val signalPayload = WebRtcSignal(
