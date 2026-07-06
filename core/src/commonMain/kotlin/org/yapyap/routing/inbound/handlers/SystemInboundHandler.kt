@@ -2,24 +2,19 @@ package org.yapyap.routing.inbound.handlers
 
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.inbound.logInboundProtectionFailure
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 
-internal fun interface OutboxChangeNotifier {
-    fun notifyChanged()
-}
-
 internal class SystemInboundHandler(
     private val ctx: RoutingContext,
-    private val packetOutbox: PacketOutbox,
-    private val outboxChangeNotifier: OutboxChangeNotifier,
+    private val outboxProcessor: OutboxProcessor,
 ) {
     suspend fun handle(env: BinaryEnvelope) {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -62,8 +57,7 @@ internal class SystemInboundHandler(
 
         when (payload) {
             is SystemPayload.PacketAck -> {
-                packetOutbox.markDelivered(payload.packetId)
-                outboxChangeNotifier.notifyChanged()
+                outboxProcessor.onOutboundPacketDelivered(payload.packetId)
                 ctx.logger.debug(
                     component = LogComponent.ROUTER,
                     event = LogEvent.OUTBOX_ACK_RECEIVED,
@@ -78,8 +72,7 @@ internal class SystemInboundHandler(
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
                     PacketNackReason.EXPIRED -> {
-                        packetOutbox.markDelivered(payload.packetId)
-                        outboxChangeNotifier.notifyChanged()
+                        outboxProcessor.onOutboundPacketDelivered(payload.packetId)
                         ctx.logger.info(
                             component = LogComponent.ROUTER,
                             event = LogEvent.OUTBOX_NACK_RECEIVED,

@@ -11,7 +11,6 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketIdAllocator
 import org.yapyap.persistence.packet.PacketOutbox
@@ -30,10 +29,9 @@ import org.yapyap.routing.inbound.AckResponder
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.inbound.handlers.MessageInboundHandler
-import org.yapyap.routing.inbound.handlers.OutboxChangeNotifier
 import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
-import org.yapyap.routing.outbox.OutboxRetryLoop
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.time.EpochSecondsProvider
@@ -42,7 +40,6 @@ import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
-import org.yapyap.transport.webrtc.types.WebRtcSessionState
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -73,11 +70,22 @@ class DefaultRouter(
     private val envelopeDispatcher = EnvelopeDispatcher(routingContext)
     private val ackResponder = AckResponder(routingContext, envelopeDispatcher)
     private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
-    private val outboxChangeNotifier = object : OutboxChangeNotifier {
-        private var notifier: OutboxChangeNotifier? = null
-        fun bind(notifier: OutboxChangeNotifier) { this.notifier = notifier }
-        override fun notifyChanged() { notifier?.notifyChanged() }
-    }
+    private val outboxProcessor = OutboxProcessor(
+        ctx = routingContext,
+        dispatcher = envelopeDispatcher,
+        transportPolicy = transportPolicy,
+        packetOutbox = packetOutbox,
+        maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
+        onProcessFailed = { error ->
+            logger.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_PROCESS_FAILED,
+                message = "Outbox processing failed",
+                throwable = error,
+            )
+        },
+    )
+
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         ackResponder = ackResponder,
@@ -88,8 +96,7 @@ class DefaultRouter(
         ),
         systemHandler = SystemInboundHandler(
             ctx = routingContext,
-            packetOutbox = packetOutbox,
-            outboxChangeNotifier = outboxChangeNotifier,
+            outboxProcessor = outboxProcessor,
         ),
     )
 
@@ -102,7 +109,6 @@ class DefaultRouter(
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
     private var webRtcSessionJob: Job? = null
-    private lateinit var outboxRetryLoop: OutboxRetryLoop
     private var outboxRetryJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
@@ -171,26 +177,13 @@ class DefaultRouter(
 
         webRtcSessionJob = s.launch {
             webRtcTransport.sessionStates.collect { state ->
-                handleWebRtcSessionState(state)
+                if (state.phase == WebRtcSessionPhase.CONNECTED) {
+                    outboxProcessor.onWebRtcSessionConnected(state.peerId, state.sessionId)
+                }
             }
         }
 
-        outboxRetryLoop = OutboxRetryLoop(
-            outbox = packetOutbox,
-            time = timeProvider,
-            processDue = { processDueOutbox() },
-            maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
-            onProcessFailed = { error ->
-                logger.error(
-                    component = LogComponent.ROUTER,
-                    event = LogEvent.OUTBOX_PROCESS_FAILED,
-                    message = "Outbox processing failed",
-                    throwable = error,
-                )
-            },
-        )
-        outboxChangeNotifier.bind(OutboxChangeNotifier { outboxRetryLoop.notifyChanged() })
-        outboxRetryJob = outboxRetryLoop.runIn(s)
+        outboxRetryJob = outboxProcessor.runIn(s)
 
         try {
             packetOutbox.pruneRelayOverCapacity(routerConfig.outboxMaxSizeBytes)
@@ -321,7 +314,7 @@ class DefaultRouter(
         )
         val nextRetryAt = timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
         packetOutbox.enqueue(binaryEnvelope, nextRetryAt)
-        outboxRetryLoop.notifyChanged()
+        outboxProcessor.wake()
         logger.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.OUTBOX_MESSAGE_QUEUED,
@@ -367,102 +360,6 @@ class DefaultRouter(
             packetOutbox.recordAttempt(binaryEnvelope.packetId, nextRetryAt, timeProvider.nowEpochSeconds())
         }
         return PeerSendOutcome.Queued
-    }
-
-    private suspend fun processDueOutbox() {
-        val now = timeProvider.nowEpochSeconds()
-        val pruned = packetOutbox.pruneExpired(now)
-        val dueEntries = packetOutbox.listDue(now)
-        if (dueEntries.isNotEmpty() || pruned > 0) {
-            logger.debug(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESSED,
-                message = "Processing due outbox entries",
-                fields = mapOf(
-                    "dueCount" to dueEntries.size,
-                    "prunedCount" to pruned,
-                ),
-            )
-        }
-        if (dueEntries.isNotEmpty()) {
-            coroutineScope {
-                dueEntries.map { entry ->
-                    async { processDueOutboxEntry(entry, now) }
-                }.awaitAll()
-            }
-        }
-        outboxRetryLoop.notifyChanged()
-        if (dueEntries.isNotEmpty()) {
-            logger.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESSED,
-                message = "Processed outbox for due envelopes",
-                fields = mapOf("dueCount" to dueEntries.size),
-            )
-        }
-    }
-
-    private suspend fun processDueOutboxEntry(entry: OutboxEntry, now: Long) {
-        val envelope = entry.envelope
-        val outbound = transportPolicy.resolve(
-            target = envelope.target,
-            retries = entry.attempts,
-            hasWebRtcSession = envelopeDispatcher.hasWebRtcSession(envelope.target),
-        )
-        val nextRetryAt = now + outbound.retryDelaySeconds
-        runCatching {
-            envelopeDispatcher.dispatch(envelope, outbound.transport)
-        }.onSuccess {
-            packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-            logger.debug(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_RETRY_DISPATCHED,
-                message = "Dispatched due outbox envelope",
-                fields = mapOf(
-                    "packetId" to envelope.packetId,
-                    "packetType" to envelope.packetType,
-                    "target" to envelope.target,
-                    "transport" to outbound.transport,
-                    "attempts" to entry.attempts + 1,
-                    "nextRetryAt" to nextRetryAt,
-                ),
-            )
-        }.onFailure { error ->
-            if (error is CancellationException) throw error
-            logger.error(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_DISPATCH_FAILED,
-                message = "Failed to dispatch outbox envelope",
-                throwable = error,
-                fields = mapOf(
-                    "packetId" to envelope.packetId,
-                    "target" to envelope.target,
-                    "transport" to outbound.transport,
-                    "attempts" to entry.attempts,
-                    "nextRetryAt" to nextRetryAt,
-                ),
-            )
-            packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-        }
-    }
-
-    private fun handleWebRtcSessionState(state: WebRtcSessionState) {
-        val phase = state.phase
-        if (phase == WebRtcSessionPhase.CONNECTED) {
-            val now = timeProvider.nowEpochSeconds()
-            packetOutbox.setDueForTarget(state.peerId, now)
-            outboxRetryLoop.notifyChanged()
-            logger.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_WEBRTC_DUE_SET,
-                message = "WebRTC session connected; accelerated outbox retries for peer",
-                fields = mapOf(
-                    "peerId" to state.peerId,
-                    "sessionId" to state.sessionId,
-                    "nextRetryAt" to now,
-                ),
-            )
-        }
     }
 
     suspend fun testOpenWebRtcSession(target: PeerId, sessionId: String) {

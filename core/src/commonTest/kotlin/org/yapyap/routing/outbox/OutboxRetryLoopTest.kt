@@ -5,6 +5,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.routing.outbound.OutboxRetryLoop
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.time.FixedEpochSecondsProvider
 import kotlin.test.Test

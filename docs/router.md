@@ -14,16 +14,16 @@ routing/
     EnvelopeDispatcher.kt          ✅ done
   inbound/
     AckResponder.kt                ✅ done
-    InboundEnvelopeProcessor.kt    (step 4)
-    ProtectionRouting.kt           (optional helpers)
+    InboundEnvelopeProcessor.kt    ✅ done
+    ProtectionRouting.kt           ✅ done
     handlers/
-      MessageInboundHandler.kt     (step 3)
-      SignalInboundHandler.kt      (step 3)
-      SystemInboundHandler.kt      (step 3)
-      FileInboundHandler.kt        (step 3, stub until Sprint 5)
+      MessageInboundHandler.kt     ✅ done
+      SignalInboundHandler.kt      ✅ done
+      SystemInboundHandler.kt      ✅ done
+      FileInboundHandler.kt        ✅ done (stub until Sprint 5)
   outbound/
     OutboundMessenger.kt           (step 6)
-    OutboxProcessor.kt             (step 5)
+    OutboxProcessor.kt             ✅ done
     WebRtcBootstrapSignaler.kt     (step 7)
   router/
     DefaultRouter.kt               (thin orchestrator)
@@ -69,6 +69,7 @@ flowchart TB
     OP --> ED
     WBS --> ED
     IEP --> AR
+    SYH --> OP
     OP --> ORL
     OM --> ORL
 ```
@@ -96,7 +97,42 @@ Owns inbound reply envelopes:
 - `sendNack(...)`
 - `sendDispositionForDuplicate(...)`
 
-Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `DefaultRouter.handleInboundEnvelope` delegates ACK/NACK to `AckResponder`.
+Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `InboundEnvelopeProcessor` delegates ACK/NACK to `AckResponder`.
+
+### Step 3: Per-type inbound handlers
+
+**Files:** `routing/inbound/handlers/*.kt`, `routing/inbound/InboundEnvelopeHandler.kt`
+
+- `MessageInboundHandler` — decodes/opens messages, emits to `Router.incomingMessages`
+- `SignalInboundHandler` — opens WebRTC bootstrap signals
+- `SystemInboundHandler` — handles inbound ACK/NACK system payloads via `OutboxProcessor`
+- `FileInboundHandler` — stub until Sprint 5
+
+Protection failure mapping lives in `routing/inbound/ProtectionRouting.kt`.
+
+### Step 4: `InboundEnvelopeProcessor`
+
+**File:** `routing/inbound/InboundEnvelopeProcessor.kt`
+
+Owns the inbound pipeline and transport ingress wrappers:
+
+- `handle(envelope, transport)` — dedup → expiry → target check → handler dispatch → ACK/NACK
+- `handleTorInbound(...)` — Tor endpoint learning + processing
+- `handleWebRtcInbound(...)` — WebRTC envelope processing
+
+### Step 5: `OutboxProcessor`
+
+**File:** `routing/outbound/OutboxProcessor.kt`
+
+Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
+
+- `processDue()` — prune expired, dispatch due entries in parallel, wake loop
+- `runIn(scope)` — start the retry loop job (called from `DefaultRouter.start()`)
+- `onWebRtcSessionConnected(peerId, sessionId)` — accelerate retries for peer
+- `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (used by `SystemInboundHandler` on ACK/expired NACK)
+- `wake()` — notify retry loop (used by `sendMessage` until step 6)
+
+`OutboxRetryLoop` is a private field inside `OutboxProcessor`, wired with `processDue = { processDue() }`. `DefaultRouter` only holds `OutboxProcessor` — no circular init block.
 
 ## Remaining migration steps
 
@@ -104,9 +140,6 @@ Do these as small, behavior-preserving PRs. Run existing router tests after each
 
 | Step | Extract | From `DefaultRouter` | Test focus |
 |------|---------|----------------------|------------|
-| 3 | Per-type handlers | `handleMessageEnvelope`, `handleSignalEnvelope`, `handleSystemEnvelope`, `handleFileEnvelope` | E2EE integration test |
-| 4 | `InboundEnvelopeProcessor` | `handleInboundEnvelope`, Tor/WebRTC ingress wrappers | `DefaultRouterContractTest` inbound cases |
-| 5 | `OutboxProcessor` | `processDueOutbox`, `processDueOutboxEntry`, `handleWebRtcSessionState` | `DefaultRouterOutboxTest` |
 | 6 | `OutboundMessenger` | `sendMessage`, `sendMessageToPeer` | send message contract tests |
 | 7 | `WebRtcBootstrapSignaler` | `handleWebRtcBootstrapSignal` | live WebRTC test (when enabled) |
 
@@ -118,36 +151,6 @@ After step 7, `DefaultRouter` should only:
 
 ## Class sketches for next steps
 
-### `InboundEnvelopeProcessor` (step 4)
-
-```kotlin
-internal class InboundEnvelopeProcessor(
-    private val ctx: RoutingContext,
-    private val ackResponder: AckResponder,
-    private val handlers: Map<PacketType, InboundEnvelopeHandler>,
-) {
-    suspend fun handle(envelope: BinaryEnvelope, transport: RouterTransport) { ... }
-}
-```
-
-Pipeline: dedup → expiry → target check → delegate handler → map `InboundHandleResult` to ACK/NACK.
-
-### `OutboxProcessor` (step 5)
-
-```kotlin
-internal class OutboxProcessor(
-    private val ctx: RoutingContext,
-    private val dispatcher: EnvelopeDispatcher,
-    private val transportPolicy: OutboundPolicy,
-    private val outboxRetryLoop: OutboxRetryLoop,
-) {
-    suspend fun processDue() { ... }
-    fun onWebRtcSessionConnected(peerId: PeerId) { ... }
-}
-```
-
-Wire via `OutboxRetryLoop(processDue = { outboxProcessor.processDue() })` — same pattern as today.
-
 ### `OutboundMessenger` (step 6)
 
 ```kotlin
@@ -155,25 +158,26 @@ internal class OutboundMessenger(
     private val ctx: RoutingContext,
     private val dispatcher: EnvelopeDispatcher,
     private val transportPolicy: OutboundPolicy,
-    private val outboxRetryLoop: OutboxRetryLoop,
+    private val outboxProcessor: OutboxProcessor,
 ) {
     suspend fun sendMessage(account, payload, forceTransport): SendMessageResult
 }
 ```
 
-### Handler interface (step 3)
+### `WebRtcBootstrapSignaler` (step 7)
 
 ```kotlin
-internal fun interface InboundEnvelopeHandler {
-    suspend fun handle(env: BinaryEnvelope): InboundHandleResult
+internal class WebRtcBootstrapSignaler(
+    private val ctx: RoutingContext,
+    private val dispatcher: EnvelopeDispatcher,
+) {
+    suspend fun signal(signal: WebRtcSignal)
 }
 ```
 
-`MessageInboundHandler` also owns the `MutableSharedFlow<MessagePayload>` for `Router.incomingMessages`.
-
 ## What not to split yet
 
-- Protection failure mapping (`inboundResultForProtectionFailure`, `handleOutboundProtectionFailure`) — keep inline or move to `ProtectionRouting.kt` when inbound is extracted
+- Outbound protection failure mapping (`handleOutboundProtectionFailure`) — moves with step 6
 - `aggregateSendResults` — already in `RoutingTypes.kt`
 - Transport collector jobs — can stay in `DefaultRouter` until step 7
 - Boot orchestrator (Sprint 3) — `OutboxProcessor.processDue()` becomes the natural hook later
