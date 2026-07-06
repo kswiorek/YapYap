@@ -6,7 +6,9 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketId
+import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -44,6 +46,15 @@ internal class OutboxProcessor(
         wake()
     }
 
+    fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Long) {
+        packetOutbox.enqueue(envelope, nextRetryAt)
+        wake()
+    }
+
+    fun recordSendAttempt(packetId: PacketId, nextRetryAt: Long, now: Long) {
+        packetOutbox.recordAttempt(packetId, nextRetryAt, now)
+    }
+
     fun onWebRtcSessionConnected(peerId: PeerId, sessionId: String) {
         val now = ctx.timeProvider.nowEpochSeconds()
         packetOutbox.setDueForTarget(peerId, now)
@@ -58,6 +69,19 @@ internal class OutboxProcessor(
                 "nextRetryAt" to now,
             ),
         )
+    }
+
+    fun pruneRelayOverCapacityOnBoot() {
+        try {
+            packetOutbox.pruneRelayOverCapacity(ctx.routerConfig.outboxMaxSizeBytes)
+        } catch (e: Exception) {
+            ctx.logger.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_PRUNE_FAILED,
+                message = "Failed to prune outbox for relay over capacity",
+                throwable = e,
+            )
+        }
     }
 
     suspend fun processDue() {

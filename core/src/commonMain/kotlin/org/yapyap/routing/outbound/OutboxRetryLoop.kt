@@ -9,7 +9,7 @@ import org.yapyap.time.EpochSecondsProvider
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
 
-class OutboxRetryLoop(
+internal class OutboxRetryLoop(
     private val outbox: PacketOutbox,
     private val time: EpochSecondsProvider,
     private val processDue: suspend () -> Unit,

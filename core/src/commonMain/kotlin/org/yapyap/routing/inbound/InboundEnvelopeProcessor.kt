@@ -6,9 +6,11 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.SystemInboundResult
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 
@@ -17,6 +19,7 @@ internal class InboundEnvelopeProcessor(
     private val ackResponder: AckResponder,
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
     private val systemHandler: SystemInboundHandler,
+    private val outboxProcessor: OutboxProcessor,
 ) {
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
         if (inbound.source != ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)) {
@@ -94,7 +97,7 @@ internal class InboundEnvelopeProcessor(
 
         when (inbound.packetType) {
             PacketType.SYSTEM -> {
-                systemHandler.handle(inbound)
+                applySystemInboundResult(systemHandler.handle(inbound))
                 return
             }
             else -> Unit
@@ -137,6 +140,16 @@ internal class InboundEnvelopeProcessor(
                 handleResult.reason,
                 transport,
             )
+        }
+    }
+
+    private fun applySystemInboundResult(result: SystemInboundResult) {
+        when (result) {
+            is SystemInboundResult.RemoveFromOutbox ->
+                outboxProcessor.onOutboundPacketDelivered(result.packetId)
+            SystemInboundResult.Ignored -> Unit
+            // TODO Sprint 4: is SystemInboundResult.PeerHeartbeat -> peerPresenceService.record(result)
+            // TODO Sprint 2: is SystemInboundResult.GapSyncRequested -> gapSyncCoordinator.onRequest(result)
         }
     }
 }

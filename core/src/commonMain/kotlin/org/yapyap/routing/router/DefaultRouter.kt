@@ -18,13 +18,13 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.AckResponder
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.inbound.handlers.MessageInboundHandler
 import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
-import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
@@ -75,7 +75,6 @@ class DefaultRouter(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
         transportPolicy = transportPolicy,
-        packetOutbox = packetOutbox,
         outboxProcessor = outboxProcessor,
     )
     private val webRtcBootstrapSignaler = WebRtcBootstrapSignaler(
@@ -90,10 +89,8 @@ class DefaultRouter(
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
             PacketType.FILE to FileInboundHandler(),
         ),
-        systemHandler = SystemInboundHandler(
-            ctx = routingContext,
-            outboxProcessor = outboxProcessor,
-        ),
+        systemHandler = SystemInboundHandler(ctx = routingContext),
+        outboxProcessor = outboxProcessor,
     )
 
     private var started = false
@@ -180,18 +177,7 @@ class DefaultRouter(
         }
 
         outboxRetryJob = outboxProcessor.runIn(s)
-
-        try {
-            packetOutbox.pruneRelayOverCapacity(routerConfig.outboxMaxSizeBytes)
-        }
-        catch (e: Exception) {
-            logger.error(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PRUNE_FAILED,
-                message = "Failed to prune outbox for relay over capacity",
-                throwable = e,
-            )
-        }
+        outboxProcessor.pruneRelayOverCapacityOnBoot()
 
         logger.info(
             component = LogComponent.ROUTER,

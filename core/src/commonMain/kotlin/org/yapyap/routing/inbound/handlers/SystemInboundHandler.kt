@@ -8,15 +8,14 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.inbound.logInboundProtectionFailure
-import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.SystemInboundResult
 import kotlin.coroutines.cancellation.CancellationException
 
 internal class SystemInboundHandler(
     private val ctx: RoutingContext,
-    private val outboxProcessor: OutboxProcessor,
 ) {
-    suspend fun handle(env: BinaryEnvelope) {
+    suspend fun handle(env: BinaryEnvelope): SystemInboundResult {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,
@@ -24,7 +23,7 @@ internal class SystemInboundHandler(
                 message = "Failed to decode message envelope",
                 fields = mapOf("error" to "decode_failed"),
             )
-            return
+            return SystemInboundResult.Ignored
         }
 
         if (systemEnvelope.target != ctx.localDeviceId) {
@@ -38,7 +37,7 @@ internal class SystemInboundHandler(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
-            return
+            return SystemInboundResult.Ignored
         }
 
         val payload = try {
@@ -52,12 +51,11 @@ internal class SystemInboundHandler(
                 source = env.source,
                 exception = e,
             )
-            return
+            return SystemInboundResult.Ignored
         }
 
-        when (payload) {
+        return when (payload) {
             is SystemPayload.PacketAck -> {
-                outboxProcessor.onOutboundPacketDelivered(payload.packetId)
                 ctx.logger.debug(
                     component = LogComponent.ROUTER,
                     event = LogEvent.OUTBOX_ACK_RECEIVED,
@@ -68,11 +66,11 @@ internal class SystemInboundHandler(
                         "source" to systemEnvelope.source,
                     ),
                 )
+                SystemInboundResult.RemoveFromOutbox(payload.packetId)
             }
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
                     PacketNackReason.EXPIRED -> {
-                        outboxProcessor.onOutboundPacketDelivered(payload.packetId)
                         ctx.logger.info(
                             component = LogComponent.ROUTER,
                             event = LogEvent.OUTBOX_NACK_RECEIVED,
@@ -84,6 +82,7 @@ internal class SystemInboundHandler(
                                 "source" to systemEnvelope.source,
                             ),
                         )
+                        SystemInboundResult.RemoveFromOutbox(payload.packetId)
                     }
                     PacketNackReason.PROTECTION_FAILED -> {
                         ctx.logger.warn(
@@ -97,6 +96,7 @@ internal class SystemInboundHandler(
                                 "source" to systemEnvelope.source,
                             ),
                         )
+                        SystemInboundResult.Ignored
                     }
                     else -> {
                         ctx.logger.debug(
@@ -110,12 +110,12 @@ internal class SystemInboundHandler(
                                 "source" to systemEnvelope.source,
                             ),
                         )
-                        // keep retrying
-                        // TODO add logic
+                        SystemInboundResult.Ignored
                     }
                 }
             }
-            // TODO send message on ping
+            // TODO Sprint 4: SystemPayload.Ping/Pong -> SystemInboundResult.PeerHeartbeat(...)
+            // TODO Sprint 2: gap sync request payload -> SystemInboundResult.GapSyncRequested(...)
         }
     }
 }

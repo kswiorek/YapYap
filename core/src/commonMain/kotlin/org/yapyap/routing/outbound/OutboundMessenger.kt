@@ -7,7 +7,6 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -16,6 +15,7 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.*
 import org.yapyap.transport.TransportException
@@ -25,7 +25,6 @@ internal class OutboundMessenger(
     private val ctx: RoutingContext,
     private val dispatcher: EnvelopeDispatcher,
     private val transportPolicy: OutboundPolicy,
-    private val packetOutbox: PacketOutbox,
     private val outboxProcessor: OutboxProcessor,
 ) {
     suspend fun sendMessage(
@@ -101,8 +100,7 @@ internal class OutboundMessenger(
             forced = forceTransport,
         )
         val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
-        packetOutbox.enqueue(binaryEnvelope, nextRetryAt)
-        outboxProcessor.wake()
+        outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
         ctx.logger.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.OUTBOX_MESSAGE_QUEUED,
@@ -143,7 +141,11 @@ internal class OutboundMessenger(
                 ),
             )
         } finally {
-            packetOutbox.recordAttempt(binaryEnvelope.packetId, nextRetryAt, ctx.timeProvider.nowEpochSeconds())
+            outboxProcessor.recordSendAttempt(
+                packetId = binaryEnvelope.packetId,
+                nextRetryAt = nextRetryAt,
+                now = ctx.timeProvider.nowEpochSeconds(),
+            )
         }
         return PeerSendOutcome.Queued
     }

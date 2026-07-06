@@ -1,6 +1,7 @@
 package org.yapyap.routing.router
 
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.packet.PacketId
 
 enum class RouterTransport {
     TOR,
@@ -31,6 +32,11 @@ internal sealed interface InboundHandleResult {
     data object Success : InboundHandleResult
     data object Deferred : InboundHandleResult
     data class Rejected(val reason: PacketNackReason) : InboundHandleResult
+}
+
+internal sealed interface SystemInboundResult {
+    data object Ignored : SystemInboundResult
+    data class RemoveFromOutbox(val packetId: PacketId) : SystemInboundResult
 }
 
 internal sealed interface PeerSendOutcome {

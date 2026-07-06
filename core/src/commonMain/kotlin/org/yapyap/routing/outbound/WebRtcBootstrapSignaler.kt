@@ -4,6 +4,7 @@ import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.webrtc.types.WebRtcSignal

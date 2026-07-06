@@ -70,7 +70,7 @@ flowchart TB
     OP --> ED
     WBS --> ED
     IEP --> AR
-    SYH --> OP
+    IEP --> OP
     OM --> OP
     OP --> ORL
 ```
@@ -106,10 +106,10 @@ Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `InboundEnvelope
 
 - `MessageInboundHandler` — decodes/opens messages, emits to `Router.incomingMessages`
 - `SignalInboundHandler` — opens WebRTC bootstrap signals
-- `SystemInboundHandler` — handles inbound ACK/NACK system payloads via `OutboxProcessor`
+- `SystemInboundHandler` — decodes/opens system payloads, returns `SystemInboundResult`
 - `FileInboundHandler` — stub until Sprint 5
 
-Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHandler.kt`.
+Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHandler.kt`. System message outcomes use `SystemInboundResult` in `RoutingTypes.kt`.
 
 ### Step 4: `InboundEnvelopeProcessor`
 
@@ -117,7 +117,7 @@ Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHand
 
 Owns the inbound pipeline and transport ingress wrappers:
 
-- `handle(envelope, transport)` — dedup → expiry → target check → handler dispatch → ACK/NACK
+- `handle(envelope, transport)` — dedup → expiry → target check → handler dispatch → ACK/NACK (or `SystemInboundResult` effects for SYSTEM)
 - `handleTorInbound(...)` — Tor endpoint learning + processing
 - `handleWebRtcInbound(...)` — WebRTC envelope processing
 
@@ -130,10 +130,14 @@ Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
 - `processDue()` — prune expired, dispatch due entries in parallel, wake loop
 - `runIn(scope)` — start the retry loop job (called from `DefaultRouter.start()`)
 - `onWebRtcSessionConnected(peerId, sessionId)` — accelerate retries for peer
-- `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (used by `SystemInboundHandler` on ACK/expired NACK)
+- `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (applied by `InboundEnvelopeProcessor` on `SystemInboundResult.RemoveFromOutbox`)
+- `enqueueAndWake(envelope, nextRetryAt)` — enqueue outbound send + wake loop (used by `OutboundMessenger`)
+- `recordSendAttempt(packetId, nextRetryAt, now)` — record dispatch attempt after immediate send
 - `wake()` — notify retry loop
 
-`OutboxRetryLoop` is a private field inside `OutboxProcessor`, wired with `processDue = { processDue() }`.
+- `pruneRelayOverCapacityOnBoot()` — relay cache prune on router start (Sprint 3 boot recovery hook)
+
+`PacketOutbox` is only accessed by `OutboxProcessor` in the outbound package.
 
 ### Step 6: `OutboundMessenger`
 
@@ -141,7 +145,7 @@ Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
 
 Owns outbound message send:
 
-- `sendMessage(account, payload, forceTransport)` — peer fan-out, protection, outbox enqueue, immediate dispatch
+- `sendMessage(account, payload, forceTransport)` — peer fan-out, protection, outbox enqueue via `OutboxProcessor`, immediate dispatch
 - Outbound protection failure mapping in `routing/outbound/ProtectionRouting.kt`
 
 `DefaultRouter.sendMessage` delegates here after the started check.
@@ -167,7 +171,7 @@ Wired from `webRtcTransport.outgoingBootstrapSignals` collector in `DefaultRoute
 
 | Sprint | Extension point |
 |--------|-----------------|
-| 3 Boot recovery | `OutboxProcessor.processDue()` on startup |
+| 3 Boot recovery | `OutboxProcessor.processDue()` and `pruneRelayOverCapacityOnBoot()` on startup |
 | 5 Files | `FileInboundHandler` + outbound file enqueue via `OutboundMessenger` |
 | 6 WebRTC resilience | `WebRtcBootstrapSignaler`, `OutboxProcessor.onWebRtcSessionConnected` |
 | 4 Relay / firewall | Tor endpoint update stays in Tor ingress wrapper |
