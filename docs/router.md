@@ -4,7 +4,7 @@ This document tracks the incremental split of `DefaultRouter` into focused colla
 
 ## Goal
 
-`DefaultRouter` currently mixes lifecycle, transport wiring, outbound send/outbox, inbound pipeline, per-packet handlers, and ACK/NACK replies. The target is a thin orchestrator that composes single-responsibility classes, matching the existing `routing/outbox` and `routing/policy` packages.
+`DefaultRouter` is now a thin orchestrator that composes single-responsibility classes, matching the existing `routing/outbox` and `routing/policy` packages.
 
 ## Target package layout
 
@@ -15,23 +15,24 @@ routing/
   inbound/
     AckResponder.kt                ✅ done
     InboundEnvelopeProcessor.kt    ✅ done
-    ProtectionRouting.kt           ✅ done
+    InboundEnvelopeHandler.kt      ✅ done (interface + inbound protection helpers)
     handlers/
       MessageInboundHandler.kt     ✅ done
       SignalInboundHandler.kt      ✅ done
       SystemInboundHandler.kt      ✅ done
       FileInboundHandler.kt        ✅ done (stub until Sprint 5)
   outbound/
-    OutboundMessenger.kt           (step 6)
+    OutboundMessenger.kt           ✅ done
     OutboxProcessor.kt             ✅ done
-    WebRtcBootstrapSignaler.kt     (step 7)
+    OutboxRetryLoop.kt             ✅ done
+    ProtectionRouting.kt           ✅ done
+    WebRtcBootstrapSignaler.kt     ✅ done
   router/
-    DefaultRouter.kt               (thin orchestrator)
+    DefaultRouter.kt               ✅ thin orchestrator
     Router.kt
     RouterConfig.kt
     RoutingContext.kt              ✅ done
     RoutingTypes.kt
-  outbox/                          (existing)
   policy/                          (existing)
 ```
 
@@ -70,8 +71,8 @@ flowchart TB
     WBS --> ED
     IEP --> AR
     SYH --> OP
+    OM --> OP
     OP --> ORL
-    OM --> ORL
 ```
 
 ## Completed steps
@@ -84,7 +85,7 @@ flowchart TB
 
 `EnvelopeDispatcher` is the single send path for Tor vs WebRTC:
 
-- `dispatch(envelope, transport)` — used by outbound send, outbox retries, and ACK/NACK
+- `dispatch(envelope, transport)` — used by outbound send, outbox retries, ACK/NACK, and WebRTC bootstrap signaling
 - `hasWebRtcSession(peer)` — shared session lookup for transport policy
 
 ### Step 2: `AckResponder`
@@ -108,7 +109,7 @@ Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `InboundEnvelope
 - `SystemInboundHandler` — handles inbound ACK/NACK system payloads via `OutboxProcessor`
 - `FileInboundHandler` — stub until Sprint 5
 
-Protection failure mapping lives in `routing/inbound/ProtectionRouting.kt`.
+Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHandler.kt`.
 
 ### Step 4: `InboundEnvelopeProcessor`
 
@@ -130,65 +131,45 @@ Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
 - `runIn(scope)` — start the retry loop job (called from `DefaultRouter.start()`)
 - `onWebRtcSessionConnected(peerId, sessionId)` — accelerate retries for peer
 - `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (used by `SystemInboundHandler` on ACK/expired NACK)
-- `wake()` — notify retry loop (used by `sendMessage` until step 6)
+- `wake()` — notify retry loop
 
-`OutboxRetryLoop` is a private field inside `OutboxProcessor`, wired with `processDue = { processDue() }`. `DefaultRouter` only holds `OutboxProcessor` — no circular init block.
+`OutboxRetryLoop` is a private field inside `OutboxProcessor`, wired with `processDue = { processDue() }`.
 
-## Remaining migration steps
+### Step 6: `OutboundMessenger`
 
-Do these as small, behavior-preserving PRs. Run existing router tests after each step.
+**File:** `routing/outbound/OutboundMessenger.kt`
 
-| Step | Extract | From `DefaultRouter` | Test focus |
-|------|---------|----------------------|------------|
-| 6 | `OutboundMessenger` | `sendMessage`, `sendMessageToPeer` | send message contract tests |
-| 7 | `WebRtcBootstrapSignaler` | `handleWebRtcBootstrapSignal` | live WebRTC test (when enabled) |
+Owns outbound message send:
 
-After step 7, `DefaultRouter` should only:
+- `sendMessage(account, payload, forceTransport)` — peer fan-out, protection, outbox enqueue, immediate dispatch
+- Outbound protection failure mapping in `routing/outbound/ProtectionRouting.kt`
+
+`DefaultRouter.sendMessage` delegates here after the started check.
+
+### Step 7: `WebRtcBootstrapSignaler`
+
+**File:** `routing/outbound/WebRtcBootstrapSignaler.kt`
+
+Owns outbound WebRTC bootstrap signaling over Tor:
+
+- `signal(signal)` — protect signal envelope, dispatch via `EnvelopeDispatcher` on `RouterTransport.TOR`
+
+Wired from `webRtcTransport.outgoingBootstrapSignals` collector in `DefaultRouter.start()`.
+
+## `DefaultRouter` responsibilities (final)
 
 - implement `Router` lifecycle (`start` / `stop` / `isRunning`)
 - wire transport collectors to inbound/outbound collaborators
-- expose `incomingMessages` (owned by `MessageInboundHandler` or passed in at construction)
-
-## Class sketches for next steps
-
-### `OutboundMessenger` (step 6)
-
-```kotlin
-internal class OutboundMessenger(
-    private val ctx: RoutingContext,
-    private val dispatcher: EnvelopeDispatcher,
-    private val transportPolicy: OutboundPolicy,
-    private val outboxProcessor: OutboxProcessor,
-) {
-    suspend fun sendMessage(account, payload, forceTransport): SendMessageResult
-}
-```
-
-### `WebRtcBootstrapSignaler` (step 7)
-
-```kotlin
-internal class WebRtcBootstrapSignaler(
-    private val ctx: RoutingContext,
-    private val dispatcher: EnvelopeDispatcher,
-) {
-    suspend fun signal(signal: WebRtcSignal)
-}
-```
-
-## What not to split yet
-
-- Outbound protection failure mapping (`handleOutboundProtectionFailure`) — moves with step 6
-- `aggregateSendResults` — already in `RoutingTypes.kt`
-- Transport collector jobs — can stay in `DefaultRouter` until step 7
-- Boot orchestrator (Sprint 3) — `OutboxProcessor.processDue()` becomes the natural hook later
+- expose `incomingMessages` (owned by `MessageInboundHandler`)
+- delegate `sendMessage` to `OutboundMessenger`
 
 ## Sprint alignment
 
 | Sprint | Extension point |
 |--------|-----------------|
 | 3 Boot recovery | `OutboxProcessor.processDue()` on startup |
-| 5 Files | `FileInboundHandler` + outbound file enqueue |
-| 6 WebRTC resilience | `WebRtcBootstrapSignaler`, `onWebRtcSessionConnected` |
+| 5 Files | `FileInboundHandler` + outbound file enqueue via `OutboundMessenger` |
+| 6 WebRTC resilience | `WebRtcBootstrapSignaler`, `OutboxProcessor.onWebRtcSessionConnected` |
 | 4 Relay / firewall | Tor endpoint update stays in Tor ingress wrapper |
 
 ## Testing strategy
@@ -198,5 +179,6 @@ Existing tests remain the safety net:
 - `DefaultRouterContractTest` — lifecycle, send, inbound ACK/NACK
 - `DefaultRouterOutboxTest` — retry and ACK removal
 - `DefaultRouterE2eeIntegrationTest` — end-to-end encrypted delivery
+- `DefaultRouterLiveIntegrationTest` — live WebRTC (when enabled)
 
-After each extraction, add focused unit tests for the new class where practical (e.g. `EnvelopeDispatcher` with recording transports, `AckResponder` with a fake dispatcher).
+Focused unit tests for extracted classes can be added where practical (e.g. `EnvelopeDispatcher` with recording transports, `AckResponder` with a fake dispatcher).

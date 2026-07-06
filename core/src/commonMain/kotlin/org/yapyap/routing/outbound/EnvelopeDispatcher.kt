@@ -1,4 +1,4 @@
-package org.yapyap.routing.dispatch
+package org.yapyap.routing.outbound
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope

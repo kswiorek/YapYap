@@ -19,8 +19,3 @@ interface Router {
 
 
 }
-
-enum class RouterTransport {
-    TOR,
-    WEBRTC
-}

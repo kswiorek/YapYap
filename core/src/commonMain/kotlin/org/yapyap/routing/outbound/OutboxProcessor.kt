@@ -7,7 +7,6 @@ import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.packet.PacketId
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -18,14 +17,20 @@ internal class OutboxProcessor(
     private val transportPolicy: OutboundPolicy,
     private val packetOutbox: PacketOutbox,
     maxIdlePollSeconds: Long,
-    onProcessFailed: (Throwable) -> Unit,
 ) {
     private val retryLoop = OutboxRetryLoop(
         outbox = packetOutbox,
         time = ctx.timeProvider,
         processDue = { processDue() },
         maxIdlePollSeconds = maxIdlePollSeconds,
-        onProcessFailed = onProcessFailed,
+        onProcessFailed = { error ->
+            ctx.logger.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_PROCESS_FAILED,
+                message = "Outbox processing failed",
+                throwable = error,
+            )
+        },
     )
 
     fun runIn(scope: CoroutineScope): Job = retryLoop.runIn(scope)

@@ -10,7 +10,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
+import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 

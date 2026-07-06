@@ -2,6 +2,11 @@ package org.yapyap.routing.router
 
 import org.yapyap.protocol.envelopes.PacketNackReason
 
+enum class RouterTransport {
+    TOR,
+    WEBRTC
+}
+
 enum class SendMessageStatus {
     SUCCESS,
     PARTIAL,

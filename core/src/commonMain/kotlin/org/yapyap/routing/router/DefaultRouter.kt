@@ -4,7 +4,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
@@ -14,33 +13,28 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketIdAllocator
 import org.yapyap.persistence.packet.PacketOutbox
-import org.yapyap.protection.ProtectionDisposition
-import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.AckResponder
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.inbound.handlers.MessageInboundHandler
 import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
+import org.yapyap.routing.outbound.EnvelopeDispatcher
+import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.SystemEpochSecondsProvider
-import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
-import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.coroutines.cancellation.CancellationException
 
 class DefaultRouter(
@@ -76,16 +70,18 @@ class DefaultRouter(
         transportPolicy = transportPolicy,
         packetOutbox = packetOutbox,
         maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
-        onProcessFailed = { error ->
-            logger.error(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESS_FAILED,
-                message = "Outbox processing failed",
-                throwable = error,
-            )
-        },
     )
-
+    private val outboundMessenger = OutboundMessenger(
+        ctx = routingContext,
+        dispatcher = envelopeDispatcher,
+        transportPolicy = transportPolicy,
+        packetOutbox = packetOutbox,
+        outboxProcessor = outboxProcessor,
+    )
+    private val webRtcBootstrapSignaler = WebRtcBootstrapSignaler(
+        ctx = routingContext,
+        dispatcher = envelopeDispatcher,
+    )
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         ackResponder = ackResponder,
@@ -168,7 +164,7 @@ class DefaultRouter(
 
         webRtcOutgoingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
             webRtcTransport.outgoingBootstrapSignals.collect { signal ->
-                runCatching { handleWebRtcBootstrapSignal(signal) }
+                runCatching { webRtcBootstrapSignaler.signal(signal) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
                     }
@@ -204,7 +200,6 @@ class DefaultRouter(
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )
         started = true
-
     }
 
     override suspend fun stop() {
@@ -235,9 +230,7 @@ class DefaultRouter(
         started = false
     }
 
-    override fun isRunning(): Boolean {
-        return started
-    }
+    override fun isRunning(): Boolean = started
 
     override suspend fun sendMessage(
         target: AccountId,
@@ -245,121 +238,7 @@ class DefaultRouter(
         forceTransport: RouterTransport?,
     ): SendMessageResult {
         check(started) { "Router must be started before sending messages" }
-        val peers = identityResolver.getAllPeerDevicesForAccount(target)
-        if (peers.isEmpty()) {
-            logger.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.MESSAGE_NO_PEERS,
-                message = "No peer devices found for target account",
-                fields = mapOf("targetAccountId" to target),
-            )
-            return SendMessageResult(
-                status = SendMessageStatus.FAILURE,
-                peersTotal = 0,
-                peersQueued = 0,
-                failureKind = SendFailureKind.NO_PEERS,
-            )
-        }
-
-        val outcomes = coroutineScope {
-            peers.map { peer ->
-                async {
-                    sendMessageToPeer(
-                        target = peer,
-                        payload = payload,
-                        forceTransport = forceTransport,
-                    )
-                }
-            }.awaitAll()
-        }
-        return aggregateSendResults(outcomes)
-    }
-
-    private suspend fun sendMessageToPeer(
-        target: PeerId,
-        payload: MessagePayload,
-        forceTransport: RouterTransport? = null,
-    ): PeerSendOutcome {
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = localDeviceIdentity!!.deviceId,
-            targetDeviceId = target,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-        )
-
-        val messageEnvelope = try {
-            envelopeProtectionService.protectMessage(payload, context)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ProtectionException) {
-            return handleOutboundProtectionFailure(target, e)
-        }
-
-        val binaryEnvelope = BinaryEnvelope(
-            packetId = packetIdAllocator.allocate(timeProvider.nowEpochSeconds()),
-            packetType = PacketType.MESSAGE,
-            createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
-            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + routerConfig.messageLifetimeSeconds, // 2 days
-            source = messageEnvelope.source,
-            target = messageEnvelope.target,
-            payload = messageEnvelope.encode(),
-        )
-        //TODO opening WebRTC session on demand if not exists, fallback to Tor if session cannot be established, etc
-
-        val plan = transportPolicy.resolve(
-            target = target,
-            hasWebRtcSession = envelopeDispatcher.hasWebRtcSession(target),
-            retries = 0,
-            forced = forceTransport,
-        )
-        val nextRetryAt = timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
-        packetOutbox.enqueue(binaryEnvelope, nextRetryAt)
-        outboxProcessor.wake()
-        logger.debug(
-            component = LogComponent.ROUTER,
-            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
-            message = "Queued outbound message in outbox",
-            fields = mapOf(
-                "packetId" to binaryEnvelope.packetId,
-                "target" to target,
-                "transport" to plan.transport,
-                "nextRetryAt" to nextRetryAt,
-            ),
-        )
-        try {
-            envelopeDispatcher.dispatch(binaryEnvelope, plan.transport)
-        }
-        catch (e: CancellationException) {throw e}
-        catch (e: TransportException) {
-            logger.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
-                message = "Envelope dispatch failed: TransportException",
-                fields = mapOf(
-                    "packetId" to binaryEnvelope.packetId,
-                    "target" to target,
-                    "transport" to plan.transport,
-                    "error" to e.toString(),
-                )
-            )
-        }
-        catch (e: CryptoException) {
-            logger.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
-                message = "Envelope dispatch failed: CryptoException",
-                fields = mapOf(
-                    "packetId" to binaryEnvelope.packetId,
-                    "target" to target,
-                    "transport" to plan.transport,
-                    "error" to e.toString(),
-                )
-            )
-        }
-        finally {
-            packetOutbox.recordAttempt(binaryEnvelope.packetId, nextRetryAt, timeProvider.nowEpochSeconds())
-        }
-        return PeerSendOutcome.Queued
+        return outboundMessenger.sendMessage(target, payload, forceTransport)
     }
 
     suspend fun testOpenWebRtcSession(target: PeerId, sessionId: String) {
@@ -368,62 +247,5 @@ class DefaultRouter(
 
     suspend fun testCloseWebRtcSession(sessionId: String) {
         webRtcTransport.closeSession(sessionId)
-    }
-
-    private suspend fun handleWebRtcBootstrapSignal(signal: WebRtcSignal) {
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = localDeviceIdentity!!.deviceId,
-            targetDeviceId = signal.target,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
-        val envelope = envelopeProtectionService.protectSignal(signal, context)
-
-        torTransport.send(
-            target = identityResolver.resolveTorEndpointForDevice(signal.target),
-            envelope = BinaryEnvelope(
-                packetId = packetIdAllocator.allocate(timeProvider.nowEpochSeconds()),
-                packetType = PacketType.SIGNAL,
-                createdAtEpochSeconds = context.createdAtEpochSeconds,
-                expiresAtEpochSeconds = context.createdAtEpochSeconds + 600,
-                source = localDeviceIdentity!!.deviceId,
-                target = signal.target,
-                payload = envelope.encode(),
-            )
-        )
-    }
-
-    private fun handleOutboundProtectionFailure(
-        target: PeerId,
-        exception: ProtectionException,
-    ): PeerSendOutcome {
-        val fields = mapOf(
-            "targetDeviceId" to target,
-            "disposition" to exception.disposition.name,
-            "reason" to exception.reason.name,
-        )
-        return when (exception.disposition) {
-            ProtectionDisposition.PERMANENT -> {
-                logger.error(
-                    component = LogComponent.ROUTER,
-                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                    message = "Message protection failed",
-                    fields = fields,
-                    throwable = exception,
-                )
-                PeerSendOutcome.PermanentFailure
-            }
-            ProtectionDisposition.RETRYABLE,
-            ProtectionDisposition.DEFER,
-            -> {
-                logger.warn(
-                    component = LogComponent.ROUTER,
-                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                    message = "Message protection failed",
-                    fields = fields + ("error" to exception.message),
-                )
-                PeerSendOutcome.NotReady
-            }
-        }
     }
 }
