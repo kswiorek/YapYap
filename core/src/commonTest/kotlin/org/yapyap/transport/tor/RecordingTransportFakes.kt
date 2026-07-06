@@ -6,10 +6,12 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.yield
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.transport.TorTransport
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Recording fake — no real Tor mesh. */
 class RecordingTorTransport(
@@ -41,6 +43,12 @@ class RecordingTorTransport(
             error("simulated Tor send failure")
         }
         sends.add(target to envelope)
+    }
+
+    suspend fun awaitSendCount(count: Int) {
+        while (sends.size < count) {
+            yield()
+        }
     }
 
     fun tryEmitIncoming(envelope: TorIncomingEnvelope): Boolean = incomingMutable.tryEmit(envelope)
@@ -86,12 +94,18 @@ class ConcurrencyTrackingTorTransport(
             }
         }
         try {
-            delay(sendDelayMillis)
+            delay(sendDelayMillis.milliseconds)
             sends.add(target to envelope)
         } finally {
             sendStatsMutex.withLock {
                 activeSends--
             }
+        }
+    }
+
+    suspend fun awaitSendCount(count: Int) {
+        while (sends.size < count) {
+            yield()
         }
     }
 

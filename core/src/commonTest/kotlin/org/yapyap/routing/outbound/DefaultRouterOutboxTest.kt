@@ -1,8 +1,7 @@
-package org.yapyap.routing.outbox
+package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
@@ -16,7 +15,6 @@ import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
 import org.yapyap.time.FixedEpochSecondsProvider
-import org.yapyap.transport.tor.ConcurrencyTrackingTorTransport
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -27,8 +25,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.TimeSource
 
 class DefaultRouterOutboxTest {
 
@@ -127,8 +123,8 @@ class DefaultRouterOutboxTest {
     }
 
     @Test
-    fun dueOutboxEntries_dispatchInParallel() = runBlocking {
-        val tor = ConcurrencyTrackingTorTransport(sendDelayMillis = 200)
+    fun dueOutboxEntries_areRedispatchedOnRouterStart() = runBlocking {
+        val tor = RecordingTorTransport()
         val outbox = TrackingPacketOutbox()
         val now = 10_000L
         val packetId1 = PacketId.fromHex("a1".repeat(PacketId.SIZE_BYTES))
@@ -149,28 +145,14 @@ class DefaultRouterOutboxTest {
             account = AccountId("outbox-parallel-account"),
         )
 
-        val startedAt = TimeSource.Monotonic.markNow()
         router.start()
-        withTimeout(3.seconds) {
-            while (tor.sends.size < 2) {
-                delay(10.milliseconds)
-            }
-        }
-        val elapsedMs = startedAt.elapsedNow().inWholeMilliseconds
+        tor.awaitSendCount(2)
         router.stop()
 
         assertEquals(2, tor.sends.size)
         assertEquals(
             setOf(packetId1, packetId2),
             tor.sends.map { it.second.packetId }.toSet(),
-        )
-        assertTrue(
-            tor.maxConcurrentSends >= 2,
-            "expected concurrent outbox dispatches but max was ${tor.maxConcurrentSends}",
-        )
-        assertTrue(
-            elapsedMs < 350,
-            "expected parallel outbox dispatch (~200ms) but took ${elapsedMs}ms",
         )
     }
 

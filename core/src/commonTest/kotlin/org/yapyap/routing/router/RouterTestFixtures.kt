@@ -27,11 +27,16 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.packet.PacketId
+import org.yapyap.routing.dispatch.EnvelopeDispatcher
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.FixedEpochSecondsProvider
 import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSignal
+import kotlin.time.Duration.Companion.milliseconds
 
 internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionService {
 
@@ -142,7 +147,7 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
             }
         }
         try {
-            delay(protectDelayMillis)
+            delay(protectDelayMillis.milliseconds)
             return delegate.protectMessage(input, context)
         } finally {
             protectStatsMutex.withLock {
@@ -527,6 +532,35 @@ internal fun e2eeRouterUnderTest(
         logger = NoopAppLogger,
         routerConfig = routerConfig,
     )
+
+internal fun outboxProcessorUnderTest(
+    tor: TorTransport = RecordingTorTransport(),
+    webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
+    identity: FakeIdentityResolverForRouter,
+    outbox: PacketOutbox = TrackingPacketOutbox(),
+    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    routerConfig: RouterConfig = RouterConfig(),
+): OutboxProcessor {
+    val ctx =
+        RoutingContext(
+            identityResolver = identity,
+            packetIdAllocator = SequencedPacketIdAllocator(),
+            packetDeduplicator = InMemoryPacketDeduplicator(),
+            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
+            torTransport = tor,
+            webRtcTransport = webRtc,
+            timeProvider = time,
+            logger = NoopAppLogger,
+            routerConfig = routerConfig,
+        )
+    return OutboxProcessor(
+        ctx = ctx,
+        dispatcher = EnvelopeDispatcher(ctx),
+        transportPolicy = SessionOrTorPolicy(routerConfig),
+        packetOutbox = outbox,
+        maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
+    )
+}
 
 internal fun defaultRouterUnderTest(
     tor: org.yapyap.transport.tor.transport.TorTransport = RecordingTorTransport(),

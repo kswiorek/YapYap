@@ -1,4 +1,4 @@
-package org.yapyap.routing.outbox
+package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking

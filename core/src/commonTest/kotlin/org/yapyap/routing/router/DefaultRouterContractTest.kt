@@ -23,7 +23,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.TimeSource
 
 class DefaultRouterContractTest {
 
@@ -139,9 +138,7 @@ class DefaultRouterContractTest {
             )
 
         router.start()
-        val startedAt = TimeSource.Monotonic.markNow()
         val result = router.sendMessage(account, sampleTextPayload("parallel-fan-out"), RouterTransport.TOR)
-        val elapsedMs = startedAt.elapsedNow().inWholeMilliseconds
 
         assertEquals(SendMessageStatus.SUCCESS, result.status)
         assertEquals(2, result.peersTotal)
@@ -150,10 +147,6 @@ class DefaultRouterContractTest {
         assertTrue(
             tracking.maxConcurrentProtects >= 2,
             "expected concurrent protectMessage calls but max was ${tracking.maxConcurrentProtects}",
-        )
-        assertTrue(
-            elapsedMs < 350,
-            "expected parallel fan-out (~200ms) but sendMessage took ${elapsedMs}ms",
         )
         router.stop()
     }

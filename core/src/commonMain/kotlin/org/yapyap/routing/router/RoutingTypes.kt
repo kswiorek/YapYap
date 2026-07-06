@@ -1,7 +1,17 @@
 package org.yapyap.routing.router
 
+import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.logging.AppLogger
+import org.yapyap.persistence.packet.PacketDeduplicator
+import org.yapyap.persistence.packet.PacketIdAllocator
+import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketId
+import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.transport.tor.transport.TorTransport
+import org.yapyap.transport.webrtc.transport.WebRtcTransport
 
 enum class RouterTransport {
     TOR,
@@ -45,36 +55,19 @@ internal sealed interface PeerSendOutcome {
     data object PermanentFailure : PeerSendOutcome
 }
 
-internal fun aggregateSendResults(outcomes: List<PeerSendOutcome>): SendMessageResult {
-    val peersTotal = outcomes.size
-    val peersQueued = outcomes.count { it is PeerSendOutcome.Queued }
-    val notReady = outcomes.count { it is PeerSendOutcome.NotReady }
-    val permanent = outcomes.count { it is PeerSendOutcome.PermanentFailure }
+internal class RoutingContext(
+    val identityResolver: IdentityResolver,
+    val packetIdAllocator: PacketIdAllocator,
+    val packetDeduplicator: PacketDeduplicator,
+    val envelopeProtectionService: EnvelopeProtectionService,
+    val torTransport: TorTransport,
+    val webRtcTransport: WebRtcTransport,
+    val timeProvider: EpochSecondsProvider,
+    val logger: AppLogger,
+    val routerConfig: RouterConfig,
+) {
+    lateinit var localDeviceIdentity: DeviceIdentityRecord
 
-    val status = when {
-        peersQueued == peersTotal -> SendMessageStatus.SUCCESS
-        peersQueued == 0 -> SendMessageStatus.FAILURE
-        else -> SendMessageStatus.PARTIAL
-    }
-
-    val failureKind = when (status) {
-        SendMessageStatus.SUCCESS -> null
-        SendMessageStatus.FAILURE -> when {
-            notReady == peersTotal -> SendFailureKind.NOT_READY
-            permanent == peersTotal -> SendFailureKind.PERMANENT
-            else -> SendFailureKind.MIXED
-        }
-        SendMessageStatus.PARTIAL -> when {
-            permanent > 0 -> SendFailureKind.MIXED
-            notReady > 0 -> SendFailureKind.NOT_READY
-            else -> SendFailureKind.MIXED
-        }
-    }
-
-    return SendMessageResult(
-        status = status,
-        peersTotal = peersTotal,
-        peersQueued = peersQueued,
-        failureKind = failureKind,
-    )
+    val localDeviceId: PeerId
+        get() = localDeviceIdentity.deviceId
 }
