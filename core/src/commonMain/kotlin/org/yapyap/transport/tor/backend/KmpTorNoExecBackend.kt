@@ -23,7 +23,6 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
@@ -36,7 +35,6 @@ import kotlin.time.TimeSource
  * Tor backend powered by kmp-tor runtime using noexec resources.
  */
 class KmpTorNoExecBackend(
-    private val deviceId: PeerId = PeerId("default-device"),
     private val torStateRootPath: File = defaultTorStateRootPath(),
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
     private val config: TorBackendConfig = TorBackendConfig(),
@@ -69,8 +67,6 @@ class KmpTorNoExecBackend(
         require(effectivePort in 1..65535) { "localPort must be in range 1..65535" }
         this.localServicePort = localPort
 
-        val localStateDir = resolveDeviceStateDirectory(deviceId, torStateRootPath)
-
         val selectorContext = if (coroutineContext == EmptyCoroutineContext) {
             Dispatchers.Default
         } else {
@@ -82,7 +78,7 @@ class KmpTorNoExecBackend(
         val listener = aSocket(selector).tcp().bind("127.0.0.1", 0)
         acceptSocket = listener
 
-        val runtime = createTorRuntime(localStateDir)
+        val runtime = createTorRuntime(torStateRootPath)
         torRuntime = runtime
 
         val localScope = CoroutineScope(SupervisorJob() + selectorContext)
@@ -113,7 +109,7 @@ class KmpTorNoExecBackend(
                 component = LogComponent.TOR_BACKEND,
                 event = LogEvent.STARTED,
                 message = "KMP Tor backend started",
-                fields = mapOf("deviceId" to deviceId, "onionAddress" to onionAddress, "port" to effectivePort),
+                fields = mapOf("onionAddress" to onionAddress, "port" to effectivePort),
             )
             return resolvedEndpoint
         } catch (error: Throwable) {
@@ -122,7 +118,6 @@ class KmpTorNoExecBackend(
                 event = LogEvent.SESSION_FAILED,
                 message = "Failed to start KMP Tor backend",
                 throwable = error,
-                fields = mapOf("deviceId" to deviceId),
             )
             stop()
             throw error
@@ -152,7 +147,6 @@ class KmpTorNoExecBackend(
             component = LogComponent.TOR_BACKEND,
             event = LogEvent.STOPPED,
             message = "KMP Tor backend stopped",
-            fields = mapOf("deviceId" to deviceId),
         )
     }
 
@@ -249,7 +243,6 @@ class KmpTorNoExecBackend(
                             component = LogComponent.TOR_BACKEND,
                             event = LogEvent.ENVELOPE_DECODE_FAILED,
                             message = "Failed to read inbound Tor transport frame",
-                            fields = mapOf("deviceId" to deviceId),
                         )
                         logger.error(
                             component = LogComponent.TOR_BACKEND,
@@ -370,20 +363,8 @@ class KmpTorNoExecBackend(
 
     private class SocksConnectException(val code: Int) : RuntimeException()
 
-
-    private fun resolveDeviceStateDirectory(deviceId: PeerId, rootPath: File): File {
-        val safeDeviceId = sanitizeDeviceId(deviceId.id)
-        return rootPath.resolve(safeDeviceId)
-    }
-
-    private fun sanitizeDeviceId(value: String): String {
-        require(value.isNotBlank()) { "deviceId must not be blank" }
-        return value.trim().replace(DEVICE_ID_SANITIZE_REGEX, "_")
-    }
-
     companion object {
         private const val FRAME_MAGIC: Int = 0x59595431
-        private val DEVICE_ID_SANITIZE_REGEX = Regex("[^A-Za-z0-9._-]")
 
         fun defaultTorStateRootPath(): File {
             return SysTempDir.resolve("yapyap").resolve("tor").resolve("devices")

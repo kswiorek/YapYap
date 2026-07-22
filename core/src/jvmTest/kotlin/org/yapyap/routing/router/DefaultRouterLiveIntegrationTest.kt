@@ -72,13 +72,11 @@ class DefaultRouterLiveIntegrationTest {
 
         val aliceTorBackend =
             KmpTorNoExecBackend(
-                deviceId = alicePeer,
                 torStateRootPath = File(aliceTorDir.absolutePathString()),
                 config = torConfig,
             )
         val bobTorBackend =
             KmpTorNoExecBackend(
-                deviceId = bobPeer,
                 torStateRootPath = File(bobTorDir.absolutePathString()),
                 config = torConfig,
             )

@@ -2,6 +2,7 @@ package org.yapyap.persistence.key
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.IdentityKeyPurpose
+import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.logging.NoopAppLogger
 import kotlin.random.Random
 import kotlin.test.Test
@@ -62,29 +63,40 @@ class DefaultKeyStoreIntegrationTest {
     }
 
     @Test
-    fun getOrCreateMasterKey_secondCall_returnsSameMaterial() = runTest {
+    fun masterKeyProvider_secondCall_returnsSameMaterial() = runTest {
         val backing = mutableMapOf<Pair<String, String>, String>()
         val store = defaultStore(serviceName = "yapyap.test.mk", backing = backing)
-        val ref = masterKeyRef()
+        val provider = DefaultMasterKeyProvider(
+            keyStore = store,
+            crypto = KmpCryptoProvider(random = Random(1)),
+        )
 
-        val first = getOrCreateMasterKey(store, ref, keySizeBytes = 32, random = Random(1))
-        val second = getOrCreateMasterKey(store, ref, keySizeBytes = 32, random = Random(2))
+        val first = provider.getOrCreate()
+        val second = DefaultMasterKeyProvider(
+            keyStore = store,
+            crypto = KmpCryptoProvider(random = Random(2)),
+        ).getOrCreate()
 
-        assertEquals(32, first.size)
+        assertEquals(DefaultMasterKeyProvider.DEFAULT_KEY_SIZE_BYTES, first.size)
         assertContentEquals(first, second)
         assertEquals(1, backing.size)
     }
 
     @Test
-    fun getOrCreateMasterKey_persistsDeterministicBytes_whenRandomIsFixed() = runTest {
+    fun masterKeyProvider_persistsDeterministicBytes_whenCryptoRandomIsFixed() = runTest {
         val store = defaultStore(serviceName = "yapyap.test.mk.det")
-        val ref = masterKeyRef(keyId = "slot")
-        val expectedRandom = Random(0xA5)
-        val expected = ByteArray(16) { expectedRandom.nextInt().toByte() }
+        val seed = 0xA5
+        val keySize = 16
+        val expected = KmpCryptoProvider(random = Random(seed)).randomBytes(keySize)
 
-        val key = getOrCreateMasterKey(store, ref, keySizeBytes = 16, random = Random(0xA5))
+        val key = DefaultMasterKeyProvider(
+            keyStore = store,
+            crypto = KmpCryptoProvider(random = Random(seed)),
+            keyId = "slot",
+            keySizeBytes = keySize,
+        ).getOrCreate()
 
-        assertEquals(16, key.size)
+        assertEquals(keySize, key.size)
         assertContentEquals(expected, key)
     }
 
@@ -97,23 +109,4 @@ class DefaultKeyStoreIntegrationTest {
             sessionFactory = MapBackedKeyringSessionFactory(backing),
             logger = NoopAppLogger,
         )
-
-    private fun masterKeyRef(keyId: String = "master-key-slot"): KeyReference =
-        KeyReference(
-            keyId = keyId,
-            purpose = IdentityKeyPurpose.ENCRYPTION,
-            type = KeyType.PRIVATE,
-        )
-
-    private suspend fun getOrCreateMasterKey(
-        store: KeyStore,
-        ref: KeyReference,
-        keySizeBytes: Int,
-        random: Random,
-    ): ByteArray {
-        store.getKey(ref)?.let { return it }
-        val generated = ByteArray(keySizeBytes) { random.nextInt().toByte() }
-        store.putKey(ref, generated)
-        return generated
-    }
 }

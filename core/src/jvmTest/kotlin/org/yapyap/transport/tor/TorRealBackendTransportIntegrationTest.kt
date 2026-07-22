@@ -14,7 +14,6 @@ import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import java.nio.file.Files
-import java.util.*
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteRecursively
@@ -35,10 +34,8 @@ class TorRealBackendTransportIntegrationTest {
     @Test
     fun defaultTorTransport_withKmpTorNoExecBackend_sendsToSelfAndDecodesIncoming() = runBlocking {
         val tempDir = Files.createTempDirectory("yapyap-tor-it")
-        val deviceId = PeerId("it-" + UUID.randomUUID())
         val torStateRoot = File(tempDir.absolutePathString())
         val backend = KmpTorNoExecBackend(
-            deviceId = deviceId,
             torStateRootPath = torStateRoot,
             config = TorBackendConfig(
                 startupTimeoutMillis = 180_000L,
