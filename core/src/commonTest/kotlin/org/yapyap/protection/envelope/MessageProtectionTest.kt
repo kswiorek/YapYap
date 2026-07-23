@@ -222,9 +222,9 @@ class MessageProtectionTest {
 
         val accountId = AccountId("protection-attest-account")
         repo.insertLocalAccount(
-            displayName = "Protection",
             identity = AccountIdentityRecord(
                 accountId = accountId,
+                displayName = "Protection Attest",
                 key = IdentityPublicKeyRecord("acc-k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
             ),
         )

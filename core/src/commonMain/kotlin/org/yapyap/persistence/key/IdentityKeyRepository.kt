@@ -17,7 +17,7 @@ interface IdentityKeyRepository {
 
     fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
-    fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord)
+    fun insertLocalAccount(identity: AccountIdentityRecord)
 
     fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
 

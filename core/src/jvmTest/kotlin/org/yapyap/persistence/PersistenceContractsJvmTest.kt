@@ -106,6 +106,7 @@ class PersistenceContractsJvmTest {
 
         val accountRecord = AccountIdentityRecord(
             accountId = accountId,
+            displayName = "Repo Account",
             key = IdentityPublicKeyRecord(
                 keyId = "acc-k",
                 keyVersion = 1L,
@@ -113,7 +114,7 @@ class PersistenceContractsJvmTest {
                 publicKey = byteArrayOf(0x11),
             ),
         )
-        repo.insertLocalAccount(displayName = "Repo User", identity = accountRecord)
+        repo.insertLocalAccount(identity = accountRecord)
 
         val devA = DeviceIdentityRecord(
             deviceId = deviceA,
@@ -161,6 +162,7 @@ class PersistenceContractsJvmTest {
         val accountId = AccountId("peer-acc-99")
         val record = AccountIdentityRecord(
             accountId = accountId,
+            displayName = "Peer Account",
             key = IdentityPublicKeyRecord(
                 keyId = "pk-99",
                 keyVersion = 2L,

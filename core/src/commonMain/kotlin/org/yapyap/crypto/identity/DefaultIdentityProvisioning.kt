@@ -165,13 +165,59 @@ class DefaultIdentityProvisioning(
         keyStore.putKey(privateAccountKeyRef, signingKey.privateKey)
         keyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
 
-        val accountRecord = AccountIdentityRecord(accountId, key = accountKeyRecord)
-        publicKeyRepository.insertLocalAccount(displayName, accountRecord)
+        val accountRecord = AccountIdentityRecord(accountId, displayName, key = accountKeyRecord)
+        publicKeyRepository.insertLocalAccount(accountRecord)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Created and persisted new local account identity",
             fields = mapOf("accountId" to accountId, "displayName" to displayName),
+        )
+        return accountRecord
+    }
+
+    override suspend fun exportLocalAccountRecoveryKey(): String {
+        val account = identityResolver.getLocalAccountIdentityRecord()
+        val privateKey = identityResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING)
+        return AccountRecoveryKeyCodec.encode(
+            displayName = account.displayName,
+            privateSigningKey = privateKey,
+        )
+    }
+
+    override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord {
+        val material = AccountRecoveryKeyCodec.decode(recoveryKey)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.STARTED,
+            message = "Importing local account identity from recovery key",
+            fields = mapOf("displayName" to material.displayName),
+        )
+
+        val publicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
+        val accountId = cryptoProvider.accountIdFromPublicKey(publicKey)
+        val accountKeyRecord = IdentityPublicKeyRecord(
+            config.defaultAccountLocalKeyPrefix + "signing",
+            0,
+            IdentityKeyPurpose.SIGNING,
+            publicKey,
+        )
+
+        val privateAccountKeyRef =
+            KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
+        val publicAccountKeyRef =
+            KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
+
+        keyStore.putKey(privateAccountKeyRef, material.privateSigningKey)
+        keyStore.putKey(publicAccountKeyRef, publicKey)
+
+        val accountRecord = AccountIdentityRecord(accountId, material.displayName, key = accountKeyRecord)
+        publicKeyRepository.insertLocalAccount(accountRecord)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            message = "Imported and persisted local account identity from recovery key",
+            fields = mapOf("accountId" to accountId, "displayName" to material.displayName),
         )
         return accountRecord
     }
@@ -186,13 +232,13 @@ class DefaultIdentityProvisioning(
         )
     }
 
-    override fun provisionAccountIdentity(displayName: String, accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
-        publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, displayName)
+    override fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
+        publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, accountIdentity.displayName)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Provisioned local account identity",
-            fields = mapOf("accountId" to accountIdentity.accountId, "displayName" to displayName),
+            fields = mapOf("accountId" to accountIdentity.accountId, "displayName" to accountIdentity.displayName),
         )
     }
 

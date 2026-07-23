@@ -108,8 +108,10 @@ class DefaultIdentityResolver(
         }
         val accountId = cryptoProvider.accountIdFromPublicKey(signingKeys.publicKey)
         return AccountIdentityRecord(
-            accountId,
-            IdentityPublicKeyRecord(
+            accountId = accountId,
+            // DB row is authoritative when present; this is only used to re-insert a missing row.
+            displayName = "",
+            key = IdentityPublicKeyRecord(
                 keyId = signingKeys.keyId,
                 keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
@@ -173,7 +175,7 @@ class DefaultIdentityResolver(
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
             message = "Local account identity record missing, creating from local keys",
         )
-        publicKeyRepository.insertLocalAccount(identity.accountId.id, identity)
+        publicKeyRepository.insertLocalAccount(identity)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,

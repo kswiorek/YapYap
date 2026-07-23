@@ -31,6 +31,7 @@ internal fun seedLocalAccountAndDevice(
     val repo = DefaultIdentityKeyRepository(database)
     val accountRecord = AccountIdentityRecord(
         accountId = accountId,
+        displayName = "Fixture Account",
         key = IdentityPublicKeyRecord(
             keyId = "fixture-account-key",
             keyVersion = 0L,
@@ -53,7 +54,7 @@ internal fun seedLocalAccountAndDevice(
             publicKey = byteArrayOf(0x03, 0x04),
         ),
     )
-    repo.insertLocalAccount(displayName = "Fixture Account", identity = accountRecord)
+    repo.insertLocalAccount(identity = accountRecord)
     repo.insertLocalDevice(accountId = accountId, identity = deviceRecord)
 }
 

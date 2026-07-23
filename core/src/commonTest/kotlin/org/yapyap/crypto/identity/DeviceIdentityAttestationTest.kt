@@ -57,10 +57,12 @@ class DeviceIdentityAttestationTest {
         val store = InMemoryKeyStore()
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
         val accountId = AccountId("attestation-account")
-        repo.insertLocalAccount(displayName = "Peer", identity = AccountIdentityRecord(
-            accountId = accountId,
-            key = IdentityPublicKeyRecord("acc-signing", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
-        )
+        repo.insertLocalAccount(
+            identity = AccountIdentityRecord(
+                accountId = accountId,
+                displayName = "Attestation User",
+                key = IdentityPublicKeyRecord("acc-signing", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
+            )
         )
         val peerTor = TorEndpoint(onionAddress = "peer-attest.onion", port = 443)
 

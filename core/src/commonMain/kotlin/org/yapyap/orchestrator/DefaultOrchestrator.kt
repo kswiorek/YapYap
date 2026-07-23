@@ -3,8 +3,10 @@ package org.yapyap.orchestrator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.X3dhHandshake
+import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
 import org.yapyap.crypto.identity.IdentityKeyServiceConfig
 import org.yapyap.crypto.primitives.KmpCryptoProvider
@@ -25,6 +27,7 @@ import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.routing.router.DefaultRouter
+import org.yapyap.time.SystemEpochSecondsProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
@@ -52,46 +55,96 @@ class DefaultOrchestrator(
     private lateinit var identityResolver: DefaultIdentityResolver
     private lateinit var cryptoSessionManager: DefaultCryptoSessionManager
     private lateinit var database: YapYapDatabase
+    private lateinit var keyStore: DefaultKeyStore
+    private lateinit var cryptoProvider: KmpCryptoProvider
+    private lateinit var identityRepo: DefaultIdentityKeyRepository
+    private lateinit var identityProvisioning: DefaultIdentityProvisioning
 
     override suspend fun start() {
         if (_state.value == OrchestratorState.Running) return
         _state.value = OrchestratorState.Starting
         _lastError.value = null
         try {
-            val keyStore = DefaultKeyStore(config.keyringServiceName, keyringSessionFactory, logger = logger)
-            val cryptoProvider = KmpCryptoProvider(logger = logger)
+            keyStore = DefaultKeyStore(config.keyringServiceName, keyringSessionFactory, logger = logger)
+            cryptoProvider = KmpCryptoProvider(logger = logger)
             val masterKey = DefaultMasterKeyProvider(keyStore, cryptoProvider).getOrCreate()
             val dbConnection = DatabaseFactory(createDriverFactory(masterKey), logger = logger).createConnection()
-            val identityRepo = DefaultIdentityKeyRepository(dbConnection.database, logger = logger)
+            identityRepo = DefaultIdentityKeyRepository(dbConnection.database, logger = logger)
             database = dbConnection.database
-
-            if (identityRepo.getLocalDeviceRecord() == null) {
-                _state.value = OrchestratorState.SetupRequired
-                firstInit()   // or pause for GUI + completeSetup later
+            identityResolver = DefaultIdentityResolver(
+                cryptoProvider = cryptoProvider,
+                publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
+                privateKeyStore = keyStore,                 // DefaultKeyStore
+                config = IdentityKeyServiceConfig(),        // use defaults or derive from config
+                logger = logger,
+            )
+            identityProvisioning = DefaultIdentityProvisioning(
+                cryptoProvider, identityRepo, keyStore,
+                IdentityKeyServiceConfig(), identityResolver,
+                SystemEpochSecondsProvider,
+                logger,
+            )
+            try {
+                identityResolver.getLocalDeviceIdentityRecord()
+                _state.value = OrchestratorState.Starting
+                init()
+                _state.value = OrchestratorState.Running
             }
-            _state.value = OrchestratorState.Starting
-            init(cryptoProvider, identityRepo, keyStore)
-
-            _state.value = OrchestratorState.Running
+            catch (_: CryptoException) {
+                _state.value = OrchestratorState.SetupRequired
+            }
         } catch (e: Throwable) {
             _lastError.value = e
             _state.value = OrchestratorState.Failed
         }
     }
 
-    private suspend fun firstInit() {
-        //TODO first init logic
+    override suspend fun completeSetup(intent: SetupIntent): SetupResult {
+        require(state.value == OrchestratorState.SetupRequired) { "Orchestrator must be in SetupRequired state" }
+        when (intent) {
+            is SetupIntent.NewAccountFirstDevice -> {
+                val account = identityProvisioning.createNewAccountIdentity(intent.accountName)
+                val device = identityProvisioning.createNewDeviceIdentity()
+                val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
+                _state.value = OrchestratorState.Starting
+                init()
+                val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
+                _state.value = OrchestratorState.Running
+
+                return SetupResult(
+                    identityPayload = IdentityPayload(
+                        account = account,
+                        device = identityResolver.getLocalDeviceIdentityRecord(),
+                        torEndpoint = tor,
+                    ),
+                    recoveryKey = recoveryKey,
+                )
+            }
+            is SetupIntent.ImportAccountRecoveryKey -> {
+                val account = identityProvisioning.importLocalAccountFromRecovery(intent.recoveryKey)
+                val device = identityProvisioning.createNewDeviceIdentity()
+                _state.value = OrchestratorState.Starting
+                init()
+                val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
+                _state.value = OrchestratorState.Running
+
+                return SetupResult(
+                    identityPayload = IdentityPayload(
+                        account = account,
+                        device = identityResolver.getLocalDeviceIdentityRecord(),
+                        torEndpoint = tor,
+                    ),
+                    recoveryKey = null,
+                )
+                //TODO trigger sync
+            }
+            is SetupIntent.AddDeviceToExistingAccount -> {
+                TODO("AddDeviceToExistingAccount")
+            }
+        }
     }
 
-    private suspend fun init(cryptoProvider: KmpCryptoProvider, identityRepo: DefaultIdentityKeyRepository, keyStore: DefaultKeyStore) {
-        identityResolver = DefaultIdentityResolver(
-            cryptoProvider = cryptoProvider,
-            publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
-            privateKeyStore = keyStore,                 // DefaultKeyStore
-            config = IdentityKeyServiceConfig(),        // use defaults or derive from config
-            logger = logger,
-        )
-
+    private suspend fun init() {
         torTransport = DefaultTorTransport(torBackend, logger)
         webRtcTransport = DefaultWebRtcTransport(webRtcBackend, logger)
 
@@ -153,6 +206,7 @@ class DefaultOrchestrator(
         )
 
         router.start()
+        // TODO ping, request sync etc
     }
 
     override suspend fun stop() {

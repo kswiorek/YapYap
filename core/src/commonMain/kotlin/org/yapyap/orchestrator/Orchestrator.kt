@@ -12,6 +12,8 @@ interface Orchestrator {
 
     suspend fun stop()
 
+    suspend fun completeSetup(intent: SetupIntent): SetupResult
+
     /**
      * Domain APIs. Prefer throwing/checking state over nullable returns
      * so misuse fails fast in tests.

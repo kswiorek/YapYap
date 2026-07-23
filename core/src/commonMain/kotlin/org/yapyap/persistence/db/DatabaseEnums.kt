@@ -3,6 +3,7 @@ package org.yapyap.persistence.db
 enum class AccountStatus {
     ACTIVE,
     BANNED,
+    UNBOUND,
 }
 
 enum class DeviceType {

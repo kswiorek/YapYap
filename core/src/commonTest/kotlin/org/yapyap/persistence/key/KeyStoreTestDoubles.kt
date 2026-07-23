@@ -98,7 +98,7 @@ internal class InMemoryIdentityKeyRepository(
         }
     }
 
-    override fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord) {
+    override fun insertLocalAccount(identity: AccountIdentityRecord) {
         accounts[identity.accountId.id] = identity
     }
 

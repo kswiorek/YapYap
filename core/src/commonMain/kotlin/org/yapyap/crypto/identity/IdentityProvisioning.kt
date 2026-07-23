@@ -8,9 +8,15 @@ interface IdentityProvisioning {
 
     suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord
 
+    /** Export local account signing key + display name as a pasteable recovery code. */
+    suspend fun exportLocalAccountRecoveryKey(): String
+
+    /** Restore local account from a recovery code (keystore + local accounts row). */
+    suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord
+
     fun provisionDeviceIdentity(accountId: AccountId, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
-    fun provisionAccountIdentity(displayName: String, accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus)
+    fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus)
 
     suspend fun provisionSignedPreKey(): SignedPreKeyRecord
 }

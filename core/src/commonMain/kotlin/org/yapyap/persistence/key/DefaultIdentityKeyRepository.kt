@@ -38,6 +38,7 @@ class DefaultIdentityKeyRepository(
             )
             AccountIdentityRecord(
                 accountId = AccountId(account.account_id),
+                displayName = account.display_name,
                 key = IdentityPublicKeyRecord(
                     keyId = account.pub_key_id,
                     keyVersion = account.pub_key_version,
@@ -165,7 +166,7 @@ class DefaultIdentityKeyRepository(
         )
     }
 
-    override fun insertLocalAccount(displayName: String, identity: AccountIdentityRecord) {
+    override fun insertLocalAccount(identity: AccountIdentityRecord) {
         val queries = database.identityQueries
 
         queries.putAccount(
@@ -176,13 +177,13 @@ class DefaultIdentityKeyRepository(
             pub_key_id = identity.key.keyId,
             is_admin = false,
             status = AccountStatus.ACTIVE,
-            display_name = displayName,
+            display_name = identity.displayName,
         )
         logger.info(
             component = LogComponent.DATABASE,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Inserted/updated local account identity record",
-            fields = mapOf("accountId" to identity.accountId, "displayName" to displayName),
+            fields = mapOf("accountId" to identity.accountId, "displayName" to identity.displayName),
         )
     }
 
