@@ -175,7 +175,5 @@ private fun sampleTextPayload(id: String): MessagePayload.Text =
         senderAccountId = "acct-sender",
         prevId = null,
         lamportClock = 0L,
-        messagePayload = "hello-integration".encodeToByteArray(),
-        lifecycleState = MessageLifecycleState.CREATED,
-        isOrphaned = false,
+        text = "hello-integration",
     )

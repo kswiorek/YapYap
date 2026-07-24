@@ -36,7 +36,7 @@ actual class OrchestratorFactory actual constructor(
                 config = config.torBackendConfig,
                 logger = logger,
             ),
-            webRtcBackend = JvmWebRtcBackend(logger = logger),
+            webRtcBackend = JvmWebRtcBackend(logger = logger, config = config.webRtcBackendConfig),
             logger = logger,
         )
     }

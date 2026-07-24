@@ -6,9 +6,9 @@ import org.yapyap.persistence.db.OpkStatus;
 CREATE TABLE accounts (
     account_id TEXT NOT NULL PRIMARY KEY,
     is_local_account INTEGER AS Boolean NOT NULL,
-    account_pub_key BLOB NOT NULL,
-    pub_key_version INTEGER NOT NULL,
-    pub_key_id TEXT NOT NULL,
+    account_pub_key BLOB,
+    pub_key_version INTEGER,
+    pub_key_id TEXT,
     is_admin INTEGER AS Boolean NOT NULL,
     status TEXT AS AccountStatus NOT NULL,
     display_name TEXT NOT NULL

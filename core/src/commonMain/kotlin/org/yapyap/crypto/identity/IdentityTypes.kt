@@ -63,5 +63,5 @@ data class DeviceIdentityRecord(
 data class AccountIdentityRecord(
     val accountId: AccountId,
     val displayName: String,
-    val key: IdentityPublicKeyRecord,
+    val key: IdentityPublicKeyRecord? = null,
 )

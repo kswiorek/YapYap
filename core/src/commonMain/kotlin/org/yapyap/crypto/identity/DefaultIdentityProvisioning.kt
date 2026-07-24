@@ -6,6 +6,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.db.AccountStatus
+import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyStore
@@ -34,14 +35,14 @@ class DefaultIdentityProvisioning(
         val deviceId = cryptoProvider.peerIdFromPublicKey(signingKey.publicKey)
 
         val signingKeyRecord = IdentityPublicKeyRecord(
-            config.defaultDeviceLocalKeyPrefix + "signing",
+            config.localDeviceKeyPrefix + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
             signingKey.publicKey)
         val privateSigningKeyRef =
             KeyReference(keyId = signingKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
         val encryptionKeyRecord = IdentityPublicKeyRecord(
-            config.defaultDeviceLocalKeyPrefix + "encryption",
+            config.localDeviceKeyPrefix + "encryption",
             0,
             IdentityKeyPurpose.ENCRYPTION,
             encryptionKey.publicKey)
@@ -84,7 +85,7 @@ class DefaultIdentityProvisioning(
 
         publicKeyRepository.insertLocalDevice(
             accountId = accountRecord.accountId,
-            identity = identity,
+            identity = identity
         )
         val spkRef =
             KeyReference(keyId = signedPreKey.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
@@ -152,7 +153,7 @@ class DefaultIdentityProvisioning(
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val accountId = cryptoProvider.accountIdFromPublicKey(signingKey.publicKey)
         val accountKeyRecord = IdentityPublicKeyRecord(
-            config.defaultAccountLocalKeyPrefix + "signing",
+            config.localAccountKeyPrefix + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
             signingKey.publicKey)
@@ -172,6 +173,17 @@ class DefaultIdentityProvisioning(
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Created and persisted new local account identity",
             fields = mapOf("accountId" to accountId, "displayName" to displayName),
+        )
+        return accountRecord
+    }
+
+    override suspend fun createPlaceholderAccountIdentity(): AccountIdentityRecord {
+        val accountRecord = AccountIdentityRecord(AccountId("placeholder"), "placeholder")
+        publicKeyRepository.insertLocalAccount(accountRecord)
+        logger.info(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            message = "Created and persisted placeholder local account identity",
         )
         return accountRecord
     }
@@ -197,7 +209,7 @@ class DefaultIdentityProvisioning(
         val publicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
         val accountId = cryptoProvider.accountIdFromPublicKey(publicKey)
         val accountKeyRecord = IdentityPublicKeyRecord(
-            config.defaultAccountLocalKeyPrefix + "signing",
+            config.localAccountKeyPrefix + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
             publicKey,
@@ -222,8 +234,13 @@ class DefaultIdentityProvisioning(
         return accountRecord
     }
 
-    override fun provisionDeviceIdentity(accountId: AccountId, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint) {
-        publicKeyRepository.insertPeerDevice(accountId, config.defaultDeviceType, deviceIdentity, torEndpoint)
+    override fun provisionDeviceIdentity(
+        accountId: AccountId,
+        deviceType: DeviceType,
+        deviceIdentity: DeviceIdentityRecord,
+        torEndpoint: TorEndpoint
+    ) {
+        publicKeyRepository.insertPeerDevice(accountId, deviceType, deviceIdentity, torEndpoint)
         logger.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,

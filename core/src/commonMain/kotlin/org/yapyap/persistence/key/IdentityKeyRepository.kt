@@ -7,7 +7,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 
 interface IdentityKeyRepository {
-    fun getAccountPublicKey(accountId: AccountId): AccountIdentityRecord?
+    fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
 
     fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord?
 

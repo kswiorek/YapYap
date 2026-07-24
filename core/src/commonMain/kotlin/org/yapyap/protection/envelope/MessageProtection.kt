@@ -62,7 +62,7 @@ class PlaintextMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "kind" to messagePayload.kind.name),
+            fields = mapOf("messageId" to envelope.messageId, "payloadType" to messagePayload.payloadType.name),
         )
         return messagePayload
     }
@@ -129,7 +129,7 @@ class SignedMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "kind" to messagePayload.kind.name),
+            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
         )
         return messagePayload
     }
@@ -254,7 +254,7 @@ class SignedAndEncryptedMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed and encrypted message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "kind" to messagePayload.kind.name),
+            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
         )
         return messagePayload
     }

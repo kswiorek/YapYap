@@ -8,7 +8,6 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.logging.NoopAppLogger
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -24,7 +23,6 @@ import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.milliseconds
@@ -57,9 +55,7 @@ class DefaultRouterLiveIntegrationTest {
             senderAccountId = "alice-acct",
             prevId = null,
             lamportClock = 1L,
-            messagePayload = "hello-live-router".encodeToByteArray(),
-            lifecycleState = MessageLifecycleState.CREATED,
-            isOrphaned = false,
+            text = "hello-live-router",
         )
 
     @Test
@@ -154,7 +150,7 @@ class DefaultRouterLiveIntegrationTest {
 
             val text = assertIs<MessagePayload.Text>(inbound)
             assertEquals(outbound.messageId, text.messageId)
-            assertContentEquals(outbound.messagePayload, text.messagePayload)
+            assertEquals(outbound.text, text.text)
             assertEquals(outbound.roomId, text.roomId)
         } finally {
             runCatching { aliceRouter.stop() }

@@ -17,11 +17,11 @@ class DefaultIdentityKeyRepository(
     private val logger: AppLogger = NoopAppLogger,
 ) : IdentityKeyRepository {
 
-    override fun getAccountPublicKey(accountId: AccountId): AccountIdentityRecord? {
+    override fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? {
         val queries = database.identityQueries
         val account = queries.selectAccountById(accountId.id).executeAsOneOrNull()
 
-        return if (account == null) {
+        return (if (account == null) {
             logger.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
@@ -29,6 +29,12 @@ class DefaultIdentityKeyRepository(
                 fields = mapOf("accountId" to accountId, "found" to false),
             )
             null
+        } else if (account.pub_key_id == null || account.pub_key_version == null || account.account_pub_key == null) {
+            AccountIdentityRecord(
+                accountId = AccountId(account.account_id),
+                displayName = account.display_name,
+                key = null,
+            )
         } else {
             logger.debug(
                 component = LogComponent.DATABASE,
@@ -46,7 +52,7 @@ class DefaultIdentityKeyRepository(
                     publicKey = account.account_pub_key,
                 )
             )
-        }
+        })
     }
 
     override fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? {
@@ -135,7 +141,7 @@ class DefaultIdentityKeyRepository(
                 device_id = identity.deviceId.id,
                 is_local_device = true,
                 account_id = accountId.id,
-                device_type = config.defaultDeviceType,
+                device_type = config.localDeviceType,
                 onion_address = config.defaultOnionAddress,
                 onion_port = config.defaultOnionPort,
                 signing_pub_key = identity.signing.publicKey,
@@ -168,13 +174,12 @@ class DefaultIdentityKeyRepository(
 
     override fun insertLocalAccount(identity: AccountIdentityRecord) {
         val queries = database.identityQueries
-
         queries.putAccount(
             account_id = identity.accountId.id,
-            account_pub_key = identity.key.publicKey,
+            account_pub_key = identity.key?.publicKey,
             is_local_account = true,
-            pub_key_version = identity.key.keyVersion,
-            pub_key_id = identity.key.keyId,
+            pub_key_version = identity.key?.keyVersion,
+            pub_key_id = identity.key?.keyId,
             is_admin = false,
             status = AccountStatus.ACTIVE,
             display_name = identity.displayName,
@@ -241,10 +246,10 @@ class DefaultIdentityKeyRepository(
 
         queries.putAccount(
             account_id = identity.accountId.id,
-            account_pub_key = identity.key.publicKey,
+            account_pub_key = identity.key?.publicKey,
             is_local_account = false,
-            pub_key_version = identity.key.keyVersion,
-            pub_key_id = identity.key.keyId,
+            pub_key_version = identity.key?.keyVersion,
+            pub_key_id = identity.key?.keyId,
             is_admin = admin,
             status = status,
             display_name = displayName

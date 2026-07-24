@@ -121,9 +121,9 @@ class PersistenceContractsJvmTest {
             signing = IdentityPublicKeyRecord("s-a", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(0x21)),
             encryption = IdentityPublicKeyRecord("e-a", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x31)),
         )
-        repo.insertLocalDevice(accountId = accountId, identity = devA)
+        repo.insertLocalDevice(accountId = accountId, identity = devA,)
 
-        assertEquals(accountRecord.accountId.id, repo.getAccountPublicKey(accountId)!!.accountId.id)
+        assertEquals(accountRecord.accountId.id, repo.getAccountRecord(accountId)!!.accountId.id)
         assertEquals(deviceA.id, repo.getDeviceRecord(deviceA)!!.deviceId.id)
 
         assertContentEquals(byteArrayOf(0x21), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.SIGNING)!!.publicKey)
@@ -177,9 +177,9 @@ class PersistenceContractsJvmTest {
             displayName = "Peer Account",
         )
 
-        val loaded = repo.getAccountPublicKey(accountId)
+        val loaded = repo.getAccountRecord(accountId)
         assertEquals(accountId.id, loaded!!.accountId.id)
-        assertContentEquals(byteArrayOf(0x55), loaded.key.publicKey)
+        assertContentEquals(byteArrayOf(0x55), loaded.key!!.publicKey)
     }
 
     @Test

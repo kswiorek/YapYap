@@ -6,6 +6,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.RecordingAppLogger
 import org.yapyap.persistence.db.AccountStatus
+import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -111,8 +112,8 @@ class DefaultIdentityOrchestrationTest {
         provisioning.createNewAccountIdentity(displayName = "Private-only recovery")
         val device = provisioning.createNewDeviceIdentity()
 
-        val signingKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
-        val encryptionKeyId = config.defaultDeviceLocalKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+        val signingKeyId = config.localDeviceKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
+        val encryptionKeyId = config.localDeviceKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
         store.deleteKey(KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PUBLIC))
         store.deleteKey(KeyReference(encryptionKeyId, IdentityKeyPurpose.ENCRYPTION, KeyType.PUBLIC))
         repo.clearLocalDeviceRecord()
@@ -134,7 +135,7 @@ class DefaultIdentityOrchestrationTest {
 
         val recovered = resolver.getLocalAccountIdentityRecord()
         assertEquals(account.accountId, recovered.accountId)
-        assertContentEquals(account.key.publicKey, recovered.key.publicKey)
+        assertContentEquals(account.key!!.publicKey, recovered.key!!.publicKey)
 
         assertTrue(
             logger.entries.any {
@@ -173,7 +174,7 @@ class DefaultIdentityOrchestrationTest {
             )
         val peerTor = TorEndpoint(onionAddress = "peerfixture.onion", port = 995)
 
-        provisioning.provisionDeviceIdentity(account.accountId, remotePeer, peerTor)
+        provisioning.provisionDeviceIdentity(account.accountId, DeviceType.DESKTOP, remotePeer, peerTor)
 
         assertEquals(peerTor, resolver.resolveTorEndpointForDevice(remotePeer.deviceId))
 
@@ -218,7 +219,7 @@ class DefaultIdentityOrchestrationTest {
 
         assertEquals(original.accountId, imported.accountId)
         assertEquals(original.displayName, imported.displayName)
-        assertContentEquals(original.key.publicKey, imported.key.publicKey)
+        assertContentEquals(original.key!!.publicKey, imported.key!!.publicKey)
 
         val resolved = targetResolver.getLocalAccountIdentityRecord()
         assertEquals(original.accountId, resolved.accountId)

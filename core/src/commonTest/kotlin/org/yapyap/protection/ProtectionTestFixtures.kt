@@ -10,7 +10,6 @@ import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.crypto.primitives.SigningKeyPair
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -50,9 +49,7 @@ internal fun sampleTextPayload(messageId: String = "msg-contract-1"): MessagePay
         senderAccountId = "acct-1",
         prevId = null,
         lamportClock = 0L,
-        messagePayload = "hello".encodeToByteArray(),
-        lifecycleState = MessageLifecycleState.CREATED,
-        isOrphaned = false,
+        text = "hello",
     )
 
 internal fun sampleWebRtcSignal(source: PeerId, target: PeerId): WebRtcSignal =

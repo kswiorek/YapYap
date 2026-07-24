@@ -1,0 +1,27 @@
+import org.yapyap.persistence.db.RoomMemberRole;
+import org.yapyap.persistence.db.RoomType;
+
+CREATE TABLE rooms (
+    room_id TEXT NOT NULL PRIMARY KEY,
+    space_id TEXT,
+    type TEXT AS RoomType NOT NULL,
+    name TEXT NOT NULL,
+    local_seq_n INTEGER NOT NULL,
+    FOREIGN KEY (space_id) REFERENCES spaces(space_id)
+);
+
+CREATE TABLE room_members (
+    room_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    role TEXT AS RoomMemberRole NOT NULL,
+    joined_timestamp INTEGER NOT NULL,
+    PRIMARY KEY (room_id, account_id),
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+);
+
+selectAllMembersForRoom:
+SELECT account_id, role FROM room_members WHERE room_id = ?;
+
+CREATE INDEX rooms_space_idx ON rooms(space_id);
+CREATE INDEX room_members_account_idx ON room_members(account_id);

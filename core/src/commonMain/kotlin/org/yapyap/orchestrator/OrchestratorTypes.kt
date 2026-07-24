@@ -2,9 +2,11 @@ package org.yapyap.orchestrator
 
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.IdentityKeyServiceConfig
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 
 enum class OrchestratorState {
     Created,
@@ -54,6 +56,8 @@ data class OrchestratorConfig(
     val dataDirectory: String,
     val routerConfig: RouterConfig = RouterConfig(),
     val torBackendConfig: TorBackendConfig = TorBackendConfig(),
+    val webRtcBackendConfig: WebRtcBackendConfig = WebRtcBackendConfig(),
+    val identityKeyServiceConfig: IdentityKeyServiceConfig = IdentityKeyServiceConfig(),
     val keyringServiceName: String = "org.yapyap",
 ) {
     init {

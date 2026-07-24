@@ -1,6 +1,5 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
@@ -98,22 +97,31 @@ data class MessageEnvelope(
     }
 }
 
+/**
+ * Causal DAG node carried inside [MessageEnvelope].
+ *
+ * Shared header fields are common to every room DAG (chat and global control).
+ * Delivery lifecycle and orphan flags are local DB concerns and are not on the wire.
+ *
+ * TODO: Attachment / file-offer message payload types (link to FileEnvelope transfers).
+ */
 sealed interface MessagePayload {
     val messageId: String
-    val kind: MessageEnvelopeKind
+    val roomId: String
+    val senderAccountId: String
+    val prevId: String?
+    val lamportClock: Long
     val payloadType: MessagePayloadType
 
     fun encode(): ByteArray
 
     data class Text(
         override val messageId: String,
-        val roomId: String,
-        val senderAccountId: String,
-        val prevId: String?,
-        val lamportClock: Long,
-        val messagePayload: ByteArray,
-        val lifecycleState: MessageLifecycleState,
-        val isOrphaned: Boolean,
+        override val roomId: String,
+        override val senderAccountId: String,
+        override val prevId: String?,
+        override val lamportClock: Long,
+        val text: String,
     ) : MessagePayload {
         init {
             require(messageId.isNotBlank()) { "messageId must not be blank" }
@@ -122,88 +130,40 @@ sealed interface MessagePayload {
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
         }
 
-        override val kind: MessageEnvelopeKind = MessageEnvelopeKind.TEXT
         override val payloadType: MessagePayloadType = MessagePayloadType.TEXT
 
         override fun encode(): ByteArray {
-            val writer = ByteWriter(256 + messagePayload.size)
-            writer.writeByte(kind.wireValue.toInt())
-            writer.writeString(messageId)
-            writer.writeString(roomId)
-            writer.writeString(senderAccountId)
-            writer.writeNullableString(prevId)
-            writer.writeLong(lamportClock)
-            writer.writeByteArray(messagePayload)
-            writer.writeByte(lifecycleState.toWireValue().toInt())
-            writer.writeByte(if (isOrphaned) 1 else 0)
+            val writer = ByteWriter(256 + text.length)
+            writeCommonHeader(writer)
+            writer.writeString(text)
             return writer.toByteArray()
         }
 
         companion object {
             fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
-                require(MessageEnvelopeKind.fromWireValue(reader.readByte()) == MessageEnvelopeKind.TEXT) {
-                    "Expected TEXT payload kind"
-                }
+                val header = readCommonHeader(reader, MessagePayloadType.TEXT)
                 val payload = Text(
-                    messageId = reader.readString(),
-                    roomId = reader.readString(),
-                    senderAccountId = reader.readString(),
-                    prevId = reader.readNullableString(),
-                    lamportClock = reader.readLong(),
-                    messagePayload = reader.readByteArray(),
-                    lifecycleState = messageLifecycleStateFromWireValue(reader.readByte()),
-                    isOrphaned = reader.readByte().toInt() != 0,
+                    messageId = header.messageId,
+                    roomId = header.roomId,
+                    senderAccountId = header.senderAccountId,
+                    prevId = header.prevId,
+                    lamportClock = header.lamportClock,
+                    text = reader.readString(),
                 )
                 reader.requireFullyRead()
                 return payload
             }
         }
-
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other == null || this::class != other::class) return false
-
-            other as Text
-
-            if (lamportClock != other.lamportClock) return false
-            if (isOrphaned != other.isOrphaned) return false
-            if (messageId != other.messageId) return false
-            if (roomId != other.roomId) return false
-            if (senderAccountId != other.senderAccountId) return false
-            if (prevId != other.prevId) return false
-            if (!messagePayload.contentEquals(other.messagePayload)) return false
-            if (lifecycleState != other.lifecycleState) return false
-            if (kind != other.kind) return false
-            if (payloadType != other.payloadType) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = lamportClock.hashCode()
-            result = 31 * result + isOrphaned.hashCode()
-            result = 31 * result + messageId.hashCode()
-            result = 31 * result + roomId.hashCode()
-            result = 31 * result + senderAccountId.hashCode()
-            result = 31 * result + (prevId?.hashCode() ?: 0)
-            result = 31 * result + messagePayload.contentHashCode()
-            result = 31 * result + lifecycleState.hashCode()
-            result = 31 * result + kind.hashCode()
-            result = 31 * result + payloadType.hashCode()
-            return result
-        }
     }
 
     data class GlobalEvent(
         override val messageId: String,
-        val roomId: String = "GLOBAL",
-        val senderAccountId: String,
-        val prevId: String?,
-        val lamportClock: Long,
-        val eventPayload: ByteArray,
-        val lifecycleState: MessageLifecycleState,
-        val isOrphaned: Boolean,
+        override val roomId: String = "GLOBAL",
+        override val senderAccountId: String,
+        override val prevId: String?,
+        override val lamportClock: Long,
+        val eventBytes: ByteArray,
     ) : MessagePayload {
         init {
             require(messageId.isNotBlank()) { "messageId must not be blank" }
@@ -212,40 +172,28 @@ sealed interface MessagePayload {
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
         }
 
-        override val kind: MessageEnvelopeKind = MessageEnvelopeKind.GLOBAL_EVENT
         override val payloadType: MessagePayloadType = MessagePayloadType.GLOBAL_EVENT
 
         override fun encode(): ByteArray {
-            val writer = ByteWriter(256 + eventPayload.size)
-            writer.writeByte(kind.wireValue.toInt())
-            writer.writeString(messageId)
-            writer.writeString(roomId)
-            writer.writeString(senderAccountId)
-            writer.writeNullableString(prevId)
-            writer.writeLong(lamportClock)
+            val writer = ByteWriter(256 + eventBytes.size)
+            writeCommonHeader(writer)
             // TODO: Replace raw global event payload blob with typed control event codec.
-            writer.writeByteArray(eventPayload)
-            writer.writeByte(lifecycleState.toWireValue().toInt())
-            writer.writeByte(if (isOrphaned) 1 else 0)
+            writer.writeByteArray(eventBytes)
             return writer.toByteArray()
         }
 
         companion object {
             fun decode(bytes: ByteArray): GlobalEvent {
                 val reader = ByteReader(bytes)
-                require(MessageEnvelopeKind.fromWireValue(reader.readByte()) == MessageEnvelopeKind.GLOBAL_EVENT) {
-                    "Expected GLOBAL_EVENT payload kind"
-                }
+                val header = readCommonHeader(reader, MessagePayloadType.GLOBAL_EVENT)
                 val payload = GlobalEvent(
-                    messageId = reader.readString(),
-                    roomId = reader.readString(),
-                    senderAccountId = reader.readString(),
-                    prevId = reader.readNullableString(),
-                    lamportClock = reader.readLong(),
+                    messageId = header.messageId,
+                    roomId = header.roomId,
+                    senderAccountId = header.senderAccountId,
+                    prevId = header.prevId,
+                    lamportClock = header.lamportClock,
                     // TODO: Decode typed global control events once schema is finalized.
-                    eventPayload = reader.readByteArray(),
-                    lifecycleState = messageLifecycleStateFromWireValue(reader.readByte()),
-                    isOrphaned = reader.readByte().toInt() != 0,
+                    eventBytes = reader.readByteArray(),
                 )
                 reader.requireFullyRead()
                 return payload
@@ -259,14 +207,11 @@ sealed interface MessagePayload {
             other as GlobalEvent
 
             if (lamportClock != other.lamportClock) return false
-            if (isOrphaned != other.isOrphaned) return false
             if (messageId != other.messageId) return false
             if (roomId != other.roomId) return false
             if (senderAccountId != other.senderAccountId) return false
             if (prevId != other.prevId) return false
-            if (!eventPayload.contentEquals(other.eventPayload)) return false
-            if (lifecycleState != other.lifecycleState) return false
-            if (kind != other.kind) return false
+            if (!eventBytes.contentEquals(other.eventBytes)) return false
             if (payloadType != other.payloadType) return false
 
             return true
@@ -274,14 +219,11 @@ sealed interface MessagePayload {
 
         override fun hashCode(): Int {
             var result = lamportClock.hashCode()
-            result = 31 * result + isOrphaned.hashCode()
             result = 31 * result + messageId.hashCode()
             result = 31 * result + roomId.hashCode()
             result = 31 * result + senderAccountId.hashCode()
             result = 31 * result + (prevId?.hashCode() ?: 0)
-            result = 31 * result + eventPayload.contentHashCode()
-            result = 31 * result + lifecycleState.hashCode()
-            result = 31 * result + kind.hashCode()
+            result = 31 * result + eventBytes.contentHashCode()
             result = 31 * result + payloadType.hashCode()
             return result
         }
@@ -289,39 +231,41 @@ sealed interface MessagePayload {
 
     companion object {
         fun decode(bytes: ByteArray): MessagePayload {
-            val kind = MessageEnvelopeKind.fromWireValue(ByteReader(bytes).readByte())
-            return when (kind) {
-                MessageEnvelopeKind.TEXT -> Text.decode(bytes)
-                MessageEnvelopeKind.GLOBAL_EVENT -> GlobalEvent.decode(bytes)
+            val payloadType = MessagePayloadType.fromWireValue(ByteReader(bytes).readByte())
+            return when (payloadType) {
+                MessagePayloadType.TEXT -> Text.decode(bytes)
+                MessagePayloadType.GLOBAL_EVENT -> GlobalEvent.decode(bytes)
             }
         }
     }
 }
 
-enum class MessageEnvelopeKind(val wireValue: Byte) {
-    TEXT(1),
-    GLOBAL_EVENT(2);
+private data class MessagePayloadHeader(
+    val messageId: String,
+    val roomId: String,
+    val senderAccountId: String,
+    val prevId: String?,
+    val lamportClock: Long,
+)
 
-    companion object {
-        fun fromWireValue(value: Byte): MessageEnvelopeKind =
-            entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported message envelope kind wire value: $value")
-    }
+private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
+    writer.writeByte(payloadType.wireValue.toInt())
+    writer.writeString(messageId)
+    writer.writeString(roomId)
+    writer.writeString(senderAccountId)
+    writer.writeNullableString(prevId)
+    writer.writeLong(lamportClock)
 }
 
-private fun MessageLifecycleState.toWireValue(): Byte =
-    when (this) {
-        MessageLifecycleState.CREATED -> 1
-        MessageLifecycleState.SENT -> 2
-        MessageLifecycleState.ACKED -> 3
-        MessageLifecycleState.ARCHIVED -> 4
+private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): MessagePayloadHeader {
+    require(MessagePayloadType.fromWireValue(reader.readByte()) == expected) {
+        "Expected ${expected.name} payload type"
     }
-
-private fun messageLifecycleStateFromWireValue(value: Byte): MessageLifecycleState =
-    when (value.toInt()) {
-        1 -> MessageLifecycleState.CREATED
-        2 -> MessageLifecycleState.SENT
-        3 -> MessageLifecycleState.ACKED
-        4 -> MessageLifecycleState.ARCHIVED
-        else -> error("Unsupported message lifecycle state wire value: $value")
-    }
+    return MessagePayloadHeader(
+        messageId = reader.readString(),
+        roomId = reader.readString(),
+        senderAccountId = reader.readString(),
+        prevId = reader.readNullableString(),
+        lamportClock = reader.readLong(),
+    )
+}

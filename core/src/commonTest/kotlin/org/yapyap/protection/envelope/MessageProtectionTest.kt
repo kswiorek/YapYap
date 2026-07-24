@@ -200,8 +200,8 @@ class MessageProtectionTest {
         val senderSigning = crypto.generateSigningKeyPair()
         val senderEncryption = crypto.generateEncryptionKeyPair()
         val senderPeer = crypto.peerIdFromPublicKey(senderSigning.publicKey)
-        val encryptionKeyId = "${config.defaultDeviceLocalKeyPrefix}encryption"
-        val signingKeyId = "${config.defaultDeviceLocalKeyPrefix}signing"
+        val encryptionKeyId = "${config.localDeviceKeyPrefix}encryption"
+        val signingKeyId = "${config.localDeviceKeyPrefix}signing"
 
         store.putKey(
             KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PRIVATE),

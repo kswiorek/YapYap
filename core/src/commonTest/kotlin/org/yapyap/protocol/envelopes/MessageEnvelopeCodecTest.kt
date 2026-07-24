@@ -1,6 +1,5 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -20,13 +19,11 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct",
             prevId = "prev",
             lamportClock = 42L,
-            messagePayload = "hello".encodeToByteArray(),
-            lifecycleState = MessageLifecycleState.SENT,
-            isOrphaned = false,
+            text = "hello",
         )
         val bytes = original.encode()
         val decoded = MessagePayload.Text.decode(bytes)
-        assertTextPayloadEquals(original, decoded)
+        assertEquals(original, decoded)
     }
 
     @Test
@@ -37,9 +34,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct",
             prevId = null,
             lamportClock = 0L,
-            eventPayload = byteArrayOf(0x01, 0x02),
-            lifecycleState = MessageLifecycleState.CREATED,
-            isOrphaned = true,
+            eventBytes = byteArrayOf(0x01, 0x02),
         )
         val bytes = original.encode()
         val decoded = MessagePayload.GlobalEvent.decode(bytes)
@@ -54,9 +49,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct-ge",
             prevId = "p",
             lamportClock = 99L,
-            eventPayload = byteArrayOf(0xab.toByte()),
-            lifecycleState = MessageLifecycleState.ARCHIVED,
-            isOrphaned = false,
+            eventBytes = byteArrayOf(0xab.toByte()),
         )
         val env = MessageEnvelope(
             messageId = "ge-full",
@@ -80,9 +73,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct2",
             prevId = null,
             lamportClock = 1L,
-            messagePayload = byteArrayOf(),
-            lifecycleState = MessageLifecycleState.ACKED,
-            isOrphaned = false,
+            text = "",
         )
         val env = MessageEnvelope(
             messageId = "mid-2",
@@ -106,9 +97,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
-            messagePayload = byteArrayOf(9),
-            lifecycleState = MessageLifecycleState.CREATED,
-            isOrphaned = false,
+            text = "\u0009",
         )
         val sig = ByteArray(64) { it.toByte() }
         val signed = MessageEnvelope(
@@ -134,9 +123,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
-            messagePayload = byteArrayOf(9),
-            lifecycleState = MessageLifecycleState.CREATED,
-            isOrphaned = false,
+            text = "\u0009",
         )
         val sig = ByteArray(64) { it.toByte() }
         val env = MessageEnvelope(
@@ -170,33 +157,28 @@ class MessageEnvelopeCodecTest {
                     senderAccountId = "a",
                     prevId = null,
                     lamportClock = 0L,
-                    messagePayload = byteArrayOf(),
-                    lifecycleState = MessageLifecycleState.CREATED,
-                    isOrphaned = false,
+                    text = "",
                 ).encode(),
             )
         }
     }
 
     @Test
-    fun messageEnvelopeKind_enum_wireValuesDistinct() {
-        val wires = MessageEnvelopeKind.entries.map { it.wireValue }.toSet()
-        assertEquals(MessageEnvelopeKind.entries.size, wires.size)
+    fun messagePayloadType_enum_wireValuesDistinct() {
+        val wires = MessagePayloadType.entries.map { it.wireValue }.toSet()
+        assertEquals(MessagePayloadType.entries.size, wires.size)
     }
 
     @Test
-    fun messagePayload_types_matchKinds() {
+    fun messagePayload_types_matchDiscriminant() {
         val text = MessagePayload.Text(
             messageId = "t",
             roomId = "r",
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
-            messagePayload = byteArrayOf(),
-            lifecycleState = MessageLifecycleState.CREATED,
-            isOrphaned = false,
+            text = "",
         )
-        assertEquals(MessageEnvelopeKind.TEXT, text.kind)
         assertEquals(MessagePayloadType.TEXT, text.payloadType)
 
         val ge = MessagePayload.GlobalEvent(
@@ -204,11 +186,8 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
-            eventPayload = byteArrayOf(),
-            lifecycleState = MessageLifecycleState.CREATED,
-            isOrphaned = false,
+            eventBytes = byteArrayOf(),
         )
-        assertEquals(MessageEnvelopeKind.GLOBAL_EVENT, ge.kind)
         assertEquals(MessagePayloadType.GLOBAL_EVENT, ge.payloadType)
     }
 
@@ -229,22 +208,11 @@ class MessageEnvelopeCodecTest {
     private fun assertMessagePayloadEquals(expected: MessagePayload, actual: MessagePayload) {
         when {
             expected is MessagePayload.Text && actual is MessagePayload.Text ->
-                assertTextPayloadEquals(expected, actual)
+                assertEquals(expected, actual)
             expected is MessagePayload.GlobalEvent && actual is MessagePayload.GlobalEvent ->
                 assertGlobalEventPayloadEquals(expected, actual)
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
-    }
-
-    private fun assertTextPayloadEquals(expected: MessagePayload.Text, actual: MessagePayload.Text) {
-        assertEquals(expected.messageId, actual.messageId)
-        assertEquals(expected.roomId, actual.roomId)
-        assertEquals(expected.senderAccountId, actual.senderAccountId)
-        assertEquals(expected.prevId, actual.prevId)
-        assertEquals(expected.lamportClock, actual.lamportClock)
-        assertContentEquals(expected.messagePayload, actual.messagePayload)
-        assertEquals(expected.lifecycleState, actual.lifecycleState)
-        assertEquals(expected.isOrphaned, actual.isOrphaned)
     }
 
     private fun assertGlobalEventPayloadEquals(
@@ -256,8 +224,6 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.senderAccountId, actual.senderAccountId)
         assertEquals(expected.prevId, actual.prevId)
         assertEquals(expected.lamportClock, actual.lamportClock)
-        assertContentEquals(expected.eventPayload, actual.eventPayload)
-        assertEquals(expected.lifecycleState, actual.lifecycleState)
-        assertEquals(expected.isOrphaned, actual.isOrphaned)
+        assertContentEquals(expected.eventBytes, actual.eventBytes)
     }
 }

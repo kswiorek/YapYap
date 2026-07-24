@@ -6,7 +6,6 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -441,7 +440,5 @@ private fun sampleTextPayload(id: String): MessagePayload.Text =
         senderAccountId = "acct-sender",
         prevId = null,
         lamportClock = 0L,
-        messagePayload = "hello-router".encodeToByteArray(),
-        lifecycleState = MessageLifecycleState.CREATED,
-        isOrphaned = false,
+        text = "hello-router",
     )

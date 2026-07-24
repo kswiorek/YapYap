@@ -39,6 +39,7 @@ enum class LogComponent {
     TOR_BACKEND,
     CRYPTO,
     DATABASE,
+    MESSAGING,
 }
 
 enum class LogLevel {

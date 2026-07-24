@@ -43,7 +43,7 @@ internal class InMemoryIdentityKeyRepository(
     private val peersForAccount = mutableMapOf<String, MutableSet<String>>()
     private val torForDevice = mutableMapOf<String, TorEndpoint>()
 
-    override fun getAccountPublicKey(accountId: AccountId): AccountIdentityRecord? =
+    override fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
         accounts[accountId.id]
 
     override fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =

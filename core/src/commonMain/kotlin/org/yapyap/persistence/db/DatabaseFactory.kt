@@ -47,6 +47,9 @@ class DatabaseFactory(
                 one_time_prekeysAdapter = One_time_prekeys.Adapter(
                     statusAdapter = EnumColumnAdapter(),
                 ),
+                room_membersAdapter = Room_members.Adapter(
+                    roleAdapter = EnumColumnAdapter(),
+                ),
             ),
             driver = driver,
         )

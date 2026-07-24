@@ -3,15 +3,15 @@ package org.yapyap.crypto.identity
 import org.yapyap.persistence.db.DeviceType
 
 data class IdentityKeyServiceConfig(
-    val defaultDeviceType: DeviceType = DeviceType.DESKTOP,
+    val localDeviceType: DeviceType = DeviceType.DESKTOP,
     val defaultOnionAddress: String = "unknown.onion",
     val defaultOnionPort: Long = 80L,
     val defaultPushToken: String? = null,
     val defaultPingAttempts: Long = 0L,
     val defaultPingSuccesses: Long = 0L,
     val defaultLastSeenTimestamp: Long = 0L,
-    val defaultDeviceLocalKeyPrefix: String = "yapyap:local_device:",
-    val defaultAccountLocalKeyPrefix: String = "yapyap:local_account:",
+    val localDeviceKeyPrefix: String = "yapyap:local_device:",
+    val localAccountKeyPrefix: String = "yapyap:local_account:",
 ) {
     init {
         require(defaultOnionAddress.endsWith(".onion")) { "defaultOnionAddress must end with .onion" }
@@ -19,6 +19,6 @@ data class IdentityKeyServiceConfig(
         require(defaultPingAttempts >= 0L) { "defaultPingAttempts must be >= 0" }
         require(defaultPingSuccesses >= 0L) { "defaultPingSuccesses must be >= 0" }
         require(defaultLastSeenTimestamp >= 0L) { "defaultLastSeenTimestamp must be >= 0" }
-        require(defaultDeviceLocalKeyPrefix.isNotBlank()) { "defaultLocalKeyId must not be blank" }
+        require(localDeviceKeyPrefix.isNotBlank()) { "defaultLocalKeyId must not be blank" }
     }
 }

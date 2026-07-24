@@ -24,9 +24,15 @@ enum class RoomMemberRole {
     MEMBER,
 }
 
-enum class MessagePayloadType {
-    TEXT,
-    GLOBAL_EVENT,
+enum class MessagePayloadType(val wireValue: Byte) {
+    TEXT(1),
+    GLOBAL_EVENT(2);
+
+    companion object {
+        fun fromWireValue(value: Byte): MessagePayloadType =
+            entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported message payload type wire value: $value")
+    }
 }
 
 enum class MessageLifecycleState {

@@ -1,15 +1,10 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.KmpCryptoProvider
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
@@ -17,12 +12,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.time.FixedEpochSecondsProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -58,7 +48,7 @@ class DefaultRouterE2eeIntegrationTest {
 
             val text = assertIs<MessagePayload.Text>(received)
             assertEquals(outbound.messageId, text.messageId)
-            assertContentEquals(outbound.messagePayload, text.messagePayload)
+            assertEquals(outbound.text, text.text)
             assertEquals(outbound.roomId, text.roomId)
         }
     }
@@ -85,7 +75,7 @@ class DefaultRouterE2eeIntegrationTest {
                 it.bobRouter.incomingMessages.first()
             }
             val text = assertIs<MessagePayload.Text>(received)
-            assertContentEquals(outbound.messagePayload, text.messagePayload)
+            assertEquals(outbound.text, text.text)
         }
     }
 
@@ -172,7 +162,5 @@ private fun sampleE2eeTextPayload(messageId: String): MessagePayload.Text =
         senderAccountId = "alice-e2ee-account",
         prevId = null,
         lamportClock = 1L,
-        messagePayload = "hello-e2ee-router".encodeToByteArray(),
-        lifecycleState = MessageLifecycleState.CREATED,
-        isOrphaned = false,
+        text = "hello-e2ee-router",
     )

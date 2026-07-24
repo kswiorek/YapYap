@@ -12,48 +12,6 @@ CREATE TABLE spaces (
     avatar_url TEXT
 );
 
-CREATE TABLE rooms (
-    room_id TEXT NOT NULL PRIMARY KEY,
-    space_id TEXT,
-    type TEXT AS RoomType NOT NULL,
-    name TEXT NOT NULL,
-    local_seq_n INTEGER NOT NULL,
-    FOREIGN KEY (space_id) REFERENCES spaces(space_id)
-);
-
-CREATE TABLE room_members (
-    room_id TEXT NOT NULL,
-    account_id TEXT NOT NULL,
-    role TEXT AS RoomMemberRole NOT NULL,
-    joined_timestamp INTEGER NOT NULL,
-    PRIMARY KEY (room_id, account_id),
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (account_id) REFERENCES accounts(account_id)
-);
-
-CREATE TABLE messages (
-    message_id TEXT NOT NULL PRIMARY KEY,
-    room_id TEXT NOT NULL,
-    sender_account_id TEXT NOT NULL,
-    prev_id TEXT,
-    lamport_clock INTEGER NOT NULL,
-    payload_type TEXT AS MessagePayloadType NOT NULL,
-    message_payload BLOB NOT NULL,
-    lifecycle_state TEXT AS MessageLifecycleState NOT NULL,
-    is_orphaned INTEGER AS Boolean NOT NULL,
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (sender_account_id) REFERENCES accounts(account_id),
-    FOREIGN KEY (prev_id) REFERENCES messages(message_id)
-);
-
-CREATE TABLE causal_hold (
-    gap_id TEXT NOT NULL PRIMARY KEY,
-    missing_prev_id TEXT NOT NULL,
-    orphaned_message_id TEXT NOT NULL,
-    detected_timestamp INTEGER NOT NULL,
-    FOREIGN KEY (orphaned_message_id) REFERENCES messages(message_id)
-);
-
 CREATE TABLE pending_syncs (
     sync_id TEXT NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
@@ -86,12 +44,6 @@ CREATE TABLE file_chunk_tracker (
     FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
 );
 
-CREATE INDEX rooms_space_idx ON rooms(space_id);
-CREATE INDEX room_members_account_idx ON room_members(account_id);
-CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
-CREATE INDEX messages_sender_idx ON messages(sender_account_id);
-CREATE INDEX messages_prev_idx ON messages(prev_id);
-CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
 CREATE INDEX pending_syncs_device_idx ON pending_syncs(target_device_id);
 CREATE INDEX file_transfers_message_idx ON file_transfers(message_id);

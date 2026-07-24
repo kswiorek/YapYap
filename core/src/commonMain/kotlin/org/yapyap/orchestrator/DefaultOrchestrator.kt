@@ -8,7 +8,6 @@ import org.yapyap.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.X3dhHandshake
 import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
-import org.yapyap.crypto.identity.IdentityKeyServiceConfig
 import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLogger
@@ -75,12 +74,12 @@ class DefaultOrchestrator(
                 cryptoProvider = cryptoProvider,
                 publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
                 privateKeyStore = keyStore,                 // DefaultKeyStore
-                config = IdentityKeyServiceConfig(),        // use defaults or derive from config
+                config = config.identityKeyServiceConfig,        // use defaults or derive from config
                 logger = logger,
             )
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
-                IdentityKeyServiceConfig(), identityResolver,
+                config.identityKeyServiceConfig, identityResolver,
                 SystemEpochSecondsProvider,
                 logger,
             )
@@ -139,7 +138,20 @@ class DefaultOrchestrator(
                 //TODO trigger sync
             }
             is SetupIntent.AddDeviceToExistingAccount -> {
-                TODO("AddDeviceToExistingAccount")
+                identityProvisioning.createPlaceholderAccountIdentity()
+                val device = identityProvisioning.createNewDeviceIdentity()
+                _state.value = OrchestratorState.Starting
+                init()
+                val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
+                _state.value = OrchestratorState.Running
+                return SetupResult(
+                    identityPayload = IdentityPayload(
+                        account = null,
+                        device = identityResolver.getLocalDeviceIdentityRecord(),
+                        torEndpoint = tor,
+                    ),
+                    recoveryKey = null,
+                )
             }
         }
     }
