@@ -267,6 +267,7 @@ internal class FakeIdentityResolverForRouter(
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
     override suspend fun getLocalDeviceId(): PeerId  = error("not used")
+    override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         throw CryptoException.MissingDeviceRecord(deviceId.id)
@@ -419,6 +420,7 @@ internal class E2eeIdentityResolverForRouter(
         error("E2eeIdentityResolverForRouter: account private key not stubbed")
 
     override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
+    override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         peers[deviceId]?.device ?: throw CryptoException.MissingDeviceRecord(deviceId.id)

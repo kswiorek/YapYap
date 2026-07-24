@@ -15,6 +15,8 @@ interface IdentityKeyRepository {
 
     fun getLocalDeviceRecord(): DeviceIdentityRecord?
 
+    fun getLocalAccountRecord(): AccountIdentityRecord?
+
     fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
     fun insertLocalAccount(identity: AccountIdentityRecord)

@@ -157,24 +157,26 @@ class DefaultIdentityResolver(
     }
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord {
-        val identity = buildLocalAccountIdentityRecordFromKeys()
-        val accountRecord = publicKeyRepository.getAccountRecord(identity.accountId)
+        val accountRecord = publicKeyRepository.getLocalAccountRecord()
+
 
         if (accountRecord != null) {
             logger.info(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
                 message = "Resolved local account identity record",
-                fields = mapOf("accountId" to identity.accountId),
+                fields = mapOf("accountId" to accountRecord.accountId),
             )
             return accountRecord
         }
 
+        val identity = buildLocalAccountIdentityRecordFromKeys()
         logger.warn(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
             message = "Local account identity record missing, creating from local keys",
         )
+        //TODO fill out accountName when received from swarm
         publicKeyRepository.insertLocalAccount(identity)
         logger.info(
             component = LogComponent.CRYPTO,
@@ -211,6 +213,11 @@ class DefaultIdentityResolver(
     override suspend fun getLocalDeviceId(): PeerId {
         return publicKeyRepository.getLocalDeviceRecord()?.deviceId
             ?: buildLocalDeviceIdentityRecordFromKeys().deviceId
+    }
+
+    override suspend fun getLocalAccountId(): AccountId {
+        return publicKeyRepository.getLocalAccountRecord()?.accountId
+            ?: buildLocalAccountIdentityRecordFromKeys().accountId
     }
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord {

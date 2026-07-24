@@ -13,11 +13,15 @@ data class Gap(
 )
 
 sealed interface IngestResult {
-    data class Inserted(val payload: MessagePayload) : IngestResult
+    data class Inserted(
+        val payload: MessagePayload,
+        val closedGapMissingPrevIds: List<String> = emptyList(),
+    ) : IngestResult
     data class Duplicate(val messageId: String) : IngestResult
     data class Rejected(val reason: String) : IngestResult
     data class BecameOrphan(
         val payload: MessagePayload,
         val missingPrevId: String,
+        val closedGapMissingPrevIds: List<String> = emptyList(),
     ) : IngestResult
 }

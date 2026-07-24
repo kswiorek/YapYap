@@ -131,6 +131,47 @@ class DefaultIdentityKeyRepository(
         }
     }
 
+    override fun getLocalAccountRecord(): AccountIdentityRecord? {
+        val queries = database.identityQueries
+        val account = queries.selectLocalAccount().executeAsOneOrNull()
+
+        return (if (account == null) {
+            logger.warn(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
+                message = "Account local identity record not found",
+            )
+            null
+        } else if (account.pub_key_id == null || account.pub_key_version == null || account.account_pub_key == null) {
+            logger.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                message = "Account local identity record found",
+            )
+            AccountIdentityRecord(
+                accountId = AccountId(account.account_id),
+                displayName = account.display_name,
+                key = null,
+            )
+        } else {
+            logger.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                message = "Account local identity record found",
+            )
+            AccountIdentityRecord(
+                accountId = AccountId(account.account_id),
+                displayName = account.display_name,
+                key = IdentityPublicKeyRecord(
+                    keyId = account.pub_key_id,
+                    keyVersion = account.pub_key_version,
+                    purpose = IdentityKeyPurpose.SIGNING,
+                    publicKey = account.account_pub_key,
+                )
+            )
+        })
+    }
+
     override fun insertLocalDevice(
         accountId: AccountId,
         identity: DeviceIdentityRecord,

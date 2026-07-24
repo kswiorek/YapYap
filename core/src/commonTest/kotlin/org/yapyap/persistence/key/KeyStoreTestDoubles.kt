@@ -37,6 +37,7 @@ internal class InMemoryIdentityKeyRepository(
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
     val devices = mutableMapOf<String, DeviceIdentityRecord>()
     var localDevice : DeviceIdentityRecord? = null
+    var localAccount : AccountIdentityRecord? = null
     private val signedPreKeys = mutableMapOf<String, SignedPreKeyRecord>()
     private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
     private val deviceToAccount = mutableMapOf<String, String>()
@@ -73,6 +74,7 @@ internal class InMemoryIdentityKeyRepository(
     }
 
     override fun getLocalDeviceRecord(): DeviceIdentityRecord? = localDevice
+    override fun getLocalAccountRecord(): AccountIdentityRecord? = localAccount
 
     fun clearLocalDeviceRecord() {
         localDevice = null
@@ -99,6 +101,7 @@ internal class InMemoryIdentityKeyRepository(
     }
 
     override fun insertLocalAccount(identity: AccountIdentityRecord) {
+        localAccount = identity
         accounts[identity.accountId.id] = identity
     }
 

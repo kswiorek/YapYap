@@ -177,6 +177,11 @@ SELECT *
 FROM devices
 WHERE is_local_device = 1;
 
+selectLocalAccount:
+SELECT *
+FROM accounts
+WHERE is_local_account = 1;
+
 selectDevicesByAccountId:
 SELECT *
 FROM devices

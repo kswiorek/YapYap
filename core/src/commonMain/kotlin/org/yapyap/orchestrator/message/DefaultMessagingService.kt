@@ -1,9 +1,7 @@
 package org.yapyap.orchestrator.message
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLogger
@@ -11,30 +9,80 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.dag.DagEngine
-import org.yapyap.orchestrator.dag.Gap
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.MessageDraft
-import org.yapyap.persistence.room.RoomMembershipRepository
+import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
+import org.yapyap.persistence.messaging.RoomMembershipRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.SendFailureKind
 import org.yapyap.routing.router.SendMessageResult
 import org.yapyap.routing.router.SendMessageStatus
-import kotlin.coroutines.cancellation.CancellationException
+import org.yapyap.time.EpochSecondsProvider
+import kotlin.concurrent.Volatile
 
 class DefaultMessagingService(
     private val dagEngine: DagEngine,
     private val router: Router,
+    private val pipeline: InboundMessagePipeline,
     private val roomMembershipRepository: RoomMembershipRepository,
     private val identityResolver: IdentityResolver,
+    private val timeProvider: EpochSecondsProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : MessagingService {
 
-    private val roomMessages = mutableMapOf<String, MutableStateFlow<List<MessageDisplayItem>>>()
-    private val roomGaps = mutableMapOf<String, MutableStateFlow<List<Gap>>>()
-    private val roomMessageLists = mutableMapOf<String, MutableList<MessagePayload>>()
-    private val orphanedMessageIds = mutableSetOf<String>()
-    private var inboundJob: Job? = null
+    private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
+    override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
+
+    private val openWindows = mutableMapOf<String, MutableSet<DefaultRoomMessageWindow>>()
+    private var subscriptionJob: Job? = null
+
+    override fun start(scope: CoroutineScope) {
+        check(subscriptionJob == null) { "MessagingService already started" }
+        subscriptionJob = scope.launch {
+            pipeline.ingestResults.collect { result ->
+                when (result) {
+                    is IngestResult.Inserted -> {
+                        if (result.payload is MessagePayload.GlobalEvent) return@collect
+                        notifyWindowsNewItem(result.payload.roomId, result.payload, result.closedGapMissingPrevIds)
+                        emitIncomingEventIfNeeded(result.payload)
+                    }
+                    is IngestResult.BecameOrphan -> {
+                        if (result.payload is MessagePayload.GlobalEvent) return@collect
+                        notifyWindowsNewItem(result.payload.roomId, result.payload, result.closedGapMissingPrevIds)
+                        emitIncomingEventIfNeeded(result.payload)
+                        //TODO sync request
+                        logger.info(
+                            component = LogComponent.MESSAGING,
+                            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+                            message = "Inbound message became orphan",
+                            fields = mapOf(
+                                "messageId" to result.payload.messageId,
+                                "roomId" to result.payload.roomId,
+                                "missingPrevId" to result.missingPrevId,
+                            ),
+                        )
+                    }
+                    is IngestResult.Duplicate -> {
+                        logger.debug(
+                            component = LogComponent.MESSAGING,
+                            event = LogEvent.PACKET_DUPLICATED,
+                            message = "Duplicate inbound message ignored",
+                            fields = mapOf("messageId" to result.messageId),
+                        )
+                    }
+                    is IngestResult.Rejected -> {
+                        logger.warn(
+                            component = LogComponent.MESSAGING,
+                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                            message = "Inbound message rejected by DAG engine",
+                            fields = mapOf("reason" to result.reason),
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     override suspend fun sendTextMessage(
         roomId: String,
@@ -42,11 +90,11 @@ class DefaultMessagingService(
     ): SendMessageResult {
         val payload = dagEngine.append(roomId, MessageDraft.Text(text))
 
-        val localAccountId = identityResolver.getLocalAccountIdentityRecord().accountId
+        val localAccountId = identityResolver.getLocalAccountId()
         val members = roomMembershipRepository.membersOfRoom(roomId)
             .filter { it != localAccountId }
 
-        trackOutboundMessage(payload)
+        notifyWindowsNewItem(payload.roomId, payload, closedGapMissingPrevIds = emptyList())
 
         if (members.isEmpty()) {
             logger.debug(
@@ -88,115 +136,46 @@ class DefaultMessagingService(
         return aggregateRoomSendResults(results)
     }
 
-    override fun startInboundCollection(scope: CoroutineScope) {
-        check(inboundJob == null) { "Inbound collection already started" }
-        inboundJob = scope.launch {
-            router.incomingMessages.collect { payload ->
-                runCatching {
-                    val result = dagEngine.ingest(payload)
-                    when (result) {
-                        is IngestResult.Inserted -> {
-                            trackInboundMessage(payload)
-                            refreshRoomGaps(payload.roomId)
-                        }
-                        is IngestResult.BecameOrphan -> {
-                            trackInboundMessage(payload)
-                            refreshRoomGaps(payload.roomId)
-                            //TODO sync request
-                            logger.info(
-                                component = LogComponent.MESSAGING,
-                                event = LogEvent.OUTBOX_MESSAGE_QUEUED,
-                                message = "Inbound message became orphan",
-                                fields = mapOf(
-                                    "messageId" to payload.messageId,
-                                    "roomId" to payload.roomId,
-                                    "missingPrevId" to result.missingPrevId,
-                                ),
-                            )
-                        }
-                        is IngestResult.Duplicate -> {
-                            logger.debug(
-                                component = LogComponent.MESSAGING,
-                                event = LogEvent.PACKET_DUPLICATED,
-                                message = "Duplicate inbound message ignored",
-                                fields = mapOf(
-                                    "messageId" to result.messageId,
-                                    "roomId" to payload.roomId,
-                                ),
-                            )
-                        }
-                        is IngestResult.Rejected -> {
-                            logger.warn(
-                                component = LogComponent.MESSAGING,
-                                event = LogEvent.ENVELOPE_HANDLE_FAILED,
-                                message = "Inbound message rejected by DAG engine",
-                                fields = mapOf(
-                                    "messageId" to payload.messageId,
-                                    "roomId" to payload.roomId,
-                                    "reason" to result.reason,
-                                ),
-                            )
-                        }
-                    }
-                }.onFailure { e ->
-                    if (e is CancellationException) throw e
-                    logger.error(
-                        component = LogComponent.MESSAGING,
-                        event = LogEvent.ENVELOPE_HANDLE_FAILED,
-                        message = "Failed to ingest inbound message",
-                        fields = mapOf(
-                            "messageId" to payload.messageId,
-                            "roomId" to payload.roomId,
-                        ),
-                        throwable = e,
-                    )
+    override fun openRoom(roomId: String, initialPageSize: Int): RoomMessageWindow {
+        val window = DefaultRoomMessageWindow(roomId, initialPageSize)
+        openWindows.getOrPut(roomId) { mutableSetOf() }.add(window)
+        return window
+    }
+
+    private fun notifyWindowsNewItem(
+        roomId: String,
+        payload: MessagePayload,
+        closedGapMissingPrevIds: List<String>,
+    ) {
+        val windows = openWindows[roomId] ?: return
+        val displayItem = payload.toDisplayItem() ?: return
+        for (window in windows) {
+            window.onNewItem(displayItem, closedGapMissingPrevIds)
+        }
+    }
+
+    private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload) {
+        when(payload) {
+            is MessagePayload.Text -> {
+                val localAccountId = identityResolver.getLocalAccountId()
+                if (payload.senderAccountId == localAccountId.id) return
+
+                val preview = if (payload.text.length > 80) {
+                    payload.text.take(80) + "\u2026"
+                } else {
+                    payload.text
                 }
+
+                incomingMessageEventFlow.emit(
+                    IncomingMessageEvent(
+                        roomId = payload.roomId,
+                        senderAccountId = AccountId(payload.senderAccountId),
+                        messagePreview = preview,
+                        timestamp = timeProvider.nowEpochSeconds(),
+                    )
+                )
             }
-        }
-    }
-
-    override fun messagesInRoom(roomId: String): Flow<List<MessageDisplayItem>> {
-        return getOrCreateRoomMessagesFlow(roomId).asStateFlow()
-    }
-
-    override fun gapsInRoom(roomId: String): Flow<List<Gap>> {
-        return getOrCreateRoomGapsFlow(roomId).asStateFlow()
-    }
-
-    private fun getOrCreateRoomMessagesFlow(roomId: String): MutableStateFlow<List<MessageDisplayItem>> =
-        roomMessages.getOrPut(roomId) { MutableStateFlow(emptyList()) }
-
-    private fun getOrCreateRoomGapsFlow(roomId: String): MutableStateFlow<List<Gap>> =
-        roomGaps.getOrPut(roomId) { MutableStateFlow(emptyList()) }
-
-    private fun trackOutboundMessage(payload: MessagePayload) {
-        val list = roomMessageLists.getOrPut(payload.roomId) { mutableListOf() }
-        list.add(payload)
-        getOrCreateRoomMessagesFlow(payload.roomId).value = list.map { it.toDisplayItem() }
-    }
-
-    private fun trackInboundMessage(payload: MessagePayload) {
-        val list = roomMessageLists.getOrPut(payload.roomId) { mutableListOf() }
-        if (list.none { it.messageId == payload.messageId }) {
-            list.add(payload)
-            getOrCreateRoomMessagesFlow(payload.roomId).value = list.map { it.toDisplayItem() }
-        }
-    }
-
-    private suspend fun refreshRoomGaps(roomId: String) {
-        val gaps = dagEngine.openGaps(roomId)
-        getOrCreateRoomGapsFlow(roomId).value = gaps
-
-        val roomOrphanIds = gaps.map { it.orphanedMessageId }.toSet()
-        val changed = orphanedMessageIds != roomOrphanIds
-        orphanedMessageIds.clear()
-        orphanedMessageIds.addAll(roomOrphanIds)
-
-        if (changed) {
-            val list = roomMessageLists[roomId]
-            if (list != null) {
-                getOrCreateRoomMessagesFlow(roomId).value = list.map { it.toDisplayItem() }
-            }
+            else -> TODO("Handle other message types")
         }
     }
 
@@ -228,19 +207,127 @@ class DefaultMessagingService(
         )
     }
 
-    private fun MessagePayload.toDisplayItem(): MessageDisplayItem = when (this) {
-        is MessagePayload.Text -> MessageDisplayItem(
+    private fun MessagePayload.toDisplayItem(): MessageDisplayItem? = when (this) {
+        is MessagePayload.Text -> MessageDisplayItem.Text(
             accountId = AccountId(senderAccountId),
+            timestamp = timeProvider.nowEpochSeconds(),
+            displayOrderId = lamportClock,
             text = text,
-            lamportClock = lamportClock,
-            isOrphaned = messageId in orphanedMessageIds,
         )
-        is MessagePayload.GlobalEvent -> MessageDisplayItem(
-            accountId = AccountId(senderAccountId),
-            text = "[Global Event]",
-            lamportClock = lamportClock,
-            isOrphaned = messageId in orphanedMessageIds,
-        )
-        //TODO process global events
+        else -> null
+    }
+
+    private inner class DefaultRoomMessageWindow(
+        private val roomId: String,
+        private val initialPageSize: Int,
+    ) : RoomMessageWindow {
+
+        private val _displayItems = MutableStateFlow<List<MessageDisplayItem>>(emptyList())
+        override val displayItems: StateFlow<List<MessageDisplayItem>> = _displayItems.asStateFlow()
+
+        private val _hasMoreOlder = MutableStateFlow(false)
+        override val hasMoreOlder: StateFlow<Boolean> = _hasMoreOlder.asStateFlow()
+
+        @Volatile
+        private var closed = false
+
+        @Volatile
+        private var oldestLamport: Long? = null
+
+        init {
+            runBlocking { loadInitial() }
+        }
+
+        private suspend fun loadInitial() {
+            val messages = dagEngine.getMessagesInRoom(roomId, initialPageSize)
+            if (messages.isEmpty()) {
+                _hasMoreOlder.value = false
+                return
+            }
+
+            oldestLamport = messages.first().lamportClock
+            _hasMoreOlder.value = messages.size >= initialPageSize
+            _displayItems.value = buildDisplayList(messages)
+        }
+
+        override suspend fun loadOlder(pageSize: Int): Int {
+            val cursor = oldestLamport ?: return 0
+
+            val messages = dagEngine.getMessagesInRoom(roomId, pageSize, beforeLamport = cursor)
+            if (messages.isEmpty()) {
+                _hasMoreOlder.value = false
+                return 0
+            }
+
+            oldestLamport = messages.first().lamportClock
+            _hasMoreOlder.value = messages.size >= pageSize
+
+            val olderItems = buildDisplayList(messages)
+            _displayItems.value = olderItems + _displayItems.value
+
+            return messages.size
+        }
+
+        override fun close() {
+            if (closed) return
+            closed = true
+            openWindows[roomId]?.remove(this)
+            if (openWindows[roomId]?.isEmpty() == true) {
+                openWindows.remove(roomId)
+            }
+        }
+
+        fun onNewItem(item: MessageDisplayItem, closedGapMissingPrevIds: List<String>) {
+            if (closed) return
+            val current = _displayItems.value.toMutableList()
+
+            if (closedGapMissingPrevIds.isNotEmpty()) {
+                val closedSet = closedGapMissingPrevIds.toSet()
+                current.removeAll {
+                    it is MessageDisplayItem.Gap && it.missingPrevId in closedSet
+                }
+            }
+
+            val insertIdx = current.indexOfFirst { it.displayOrderId > item.displayOrderId }
+            if (insertIdx == -1) {
+                current.add(item)
+            } else {
+                current.add(insertIdx, item)
+            }
+
+            _displayItems.value = current
+        }
+
+        private suspend fun buildDisplayList(messages: List<MessagePayload>): List<MessageDisplayItem> {
+            val gaps = dagEngine.openGaps(roomId)
+            val gapsByOrphanId = gaps.associateBy { it.orphanedMessageId }
+
+            val items = mutableListOf<MessageDisplayItem>()
+            for (msg in messages) {
+                if (msg !is MessagePayload.Text) continue
+
+                items.add(
+                    MessageDisplayItem.Text(
+                        accountId = AccountId(msg.senderAccountId),
+                        timestamp = timeProvider.nowEpochSeconds(),
+                        displayOrderId = msg.lamportClock,
+                        text = msg.text,
+                    )
+                )
+
+                val orphanedGap = gapsByOrphanId[msg.messageId]
+                if (orphanedGap != null) {
+                    items.add(
+                        MessageDisplayItem.Gap(
+                            accountId = AccountId(msg.senderAccountId),
+                            timestamp = timeProvider.nowEpochSeconds(),
+                            displayOrderId = msg.lamportClock,
+                            missingPrevId = orphanedGap.missingPrevId,
+                        )
+                    )
+                }
+            }
+            return items
+        }
     }
 }

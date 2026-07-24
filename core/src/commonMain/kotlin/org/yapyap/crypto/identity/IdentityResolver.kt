@@ -15,6 +15,8 @@ interface IdentityResolver {
 
     suspend fun getLocalDeviceId(): PeerId
 
+    suspend fun getLocalAccountId(): AccountId
+
     suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord
 
     fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint

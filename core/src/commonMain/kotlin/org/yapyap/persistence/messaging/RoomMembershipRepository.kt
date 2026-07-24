@@ -1,4 +1,4 @@
-package org.yapyap.persistence.room
+package org.yapyap.persistence.messaging
 
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.YapYapDatabase

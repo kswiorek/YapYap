@@ -14,6 +14,18 @@ class DefaultDagEngine(): DagEngine {
         TODO("Not yet implemented")
     }
 
+    override suspend fun getMessagesInRoom(roomId: String): List<MessagePayload> {
+        TODO("Not yet implemented")
+    }
+
+    override suspend fun getMessagesInRoom(
+        roomId: String,
+        limit: Int,
+        beforeLamport: Long?,
+    ): List<MessagePayload> {
+        TODO("Not yet implemented")
+    }
+
     override suspend fun ancestorsOf(
         roomId: String,
         messageId: String,

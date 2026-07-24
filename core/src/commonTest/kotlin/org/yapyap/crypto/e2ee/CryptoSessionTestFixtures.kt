@@ -38,6 +38,7 @@ internal class TestIdentityResolver(
         error("not used in crypto session tests")
 
     override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
+    override suspend fun getLocalAccountId(): AccountId = error("not used in crypto session tests")
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         peers[deviceId]?.device ?: error("Missing peer identity record for deviceId=$deviceId")

@@ -132,6 +132,8 @@ class DefaultIdentityOrchestrationTest {
 
         val account = provisioning.createNewAccountIdentity(displayName = "Recovery User")
         repo.accounts.remove(account.accountId.id)
+        repo.localAccount = null
+
 
         val recovered = resolver.getLocalAccountIdentityRecord()
         assertEquals(account.accountId, recovered.accountId)
