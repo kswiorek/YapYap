@@ -23,5 +23,19 @@ CREATE TABLE room_members (
 selectAllMembersForRoom:
 SELECT account_id, role FROM room_members WHERE room_id = ?;
 
+insertRoom:
+INSERT OR REPLACE INTO rooms (room_id, space_id, type, name, local_seq_n)
+VALUES (?, ?, ?, ?, ?);
+
+insertRoomMember:
+INSERT OR REPLACE INTO room_members (room_id, account_id, role, joined_timestamp)
+VALUES (?, ?, ?, ?);
+
+updateRoomLocalSeq:
+UPDATE rooms SET local_seq_n = ? WHERE room_id = ?;
+
+selectRoomLocalSeq:
+SELECT local_seq_n FROM rooms WHERE room_id = ?;
+
 CREATE INDEX rooms_space_idx ON rooms(space_id);
 CREATE INDEX room_members_account_idx ON room_members(account_id);

@@ -50,6 +50,9 @@ class DatabaseFactory(
                 room_membersAdapter = Room_members.Adapter(
                     roleAdapter = EnumColumnAdapter(),
                 ),
+                roomsAdapter = Rooms.Adapter(
+                    typeAdapter = EnumColumnAdapter(),
+                ),
                 messagesAdapter = Messages.Adapter(
                     payload_typeAdapter = EnumColumnAdapter(),
                     lifecycle_stateAdapter = EnumColumnAdapter(),

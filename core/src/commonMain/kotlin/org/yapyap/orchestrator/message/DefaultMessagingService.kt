@@ -149,8 +149,8 @@ class DefaultMessagingService(
                 val localAccountId = identityResolver.getLocalAccountId()
                 if (payload.senderAccountId == localAccountId.id) return
 
-                val preview = if (payload.text.length > 80) {
-                    payload.text.take(80) + "\u2026"
+                val preview = if (payload.text.length > 79) {
+                    payload.text.take(79) + "\u2026"
                 } else {
                     payload.text
                 }

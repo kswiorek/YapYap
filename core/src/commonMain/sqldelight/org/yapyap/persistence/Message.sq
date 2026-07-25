@@ -47,3 +47,67 @@ WHERE room_id = :roomId
        OR (created_at_epoch_seconds = :cursorCreated AND lamport_clock = :cursorLamport AND message_id < :cursorMessageId))
 ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
 LIMIT :limit;
+
+-- ---- message CRUD ----
+
+insertMessage:
+INSERT OR IGNORE INTO messages (
+    message_id,
+    room_id,
+    sender_account_id,
+    prev_id,
+    lamport_clock,
+    created_at_epoch_seconds,
+    payload_type,
+    message_payload,
+    lifecycle_state,
+    is_orphaned
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectMessageById:
+SELECT * FROM messages WHERE message_id = ?;
+
+-- Highest-lamport message in a room; tie-break by created_at_epoch_seconds DESC, message_id DESC.
+-- Used by DagEngine.append to determine the prev_id for a new message.
+selectRoomTail:
+SELECT * FROM messages
+WHERE room_id = ?
+ORDER BY lamport_clock DESC, created_at_epoch_seconds DESC, message_id DESC
+LIMIT 1;
+
+selectMaxLamportInRoom:
+SELECT MAX(lamport_clock) FROM messages WHERE room_id = ?;
+
+selectAllMessagesInRoom:
+SELECT * FROM messages
+WHERE room_id = ?
+ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC;
+
+updateMessageOrphanedFlag:
+UPDATE messages SET is_orphaned = ? WHERE message_id = ?;
+
+updateMessageLifecycleState:
+UPDATE messages SET lifecycle_state = ? WHERE message_id = ?;
+
+-- ---- causal_hold CRUD ----
+
+insertCausalHold:
+INSERT INTO causal_hold (gap_id, missing_prev_id, orphaned_message_id, detected_timestamp)
+VALUES (?, ?, ?, ?);
+
+selectCausalHoldsByMissingPrevId:
+SELECT * FROM causal_hold WHERE missing_prev_id = ?;
+
+selectCausalHoldsByRoom:
+SELECT c.* FROM causal_hold c
+JOIN messages m ON c.orphaned_message_id = m.message_id
+WHERE m.room_id = ?;
+
+selectAllCausalHolds:
+SELECT * FROM causal_hold;
+
+deleteCausalHoldsByMissingPrevId:
+DELETE FROM causal_hold WHERE missing_prev_id = ?;
+
+deleteCausalHoldByOrphanedMessageId:
+DELETE FROM causal_hold WHERE orphaned_message_id = ?;

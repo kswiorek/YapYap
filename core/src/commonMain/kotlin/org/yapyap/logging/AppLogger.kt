@@ -40,6 +40,7 @@ enum class LogComponent {
     CRYPTO,
     DATABASE,
     MESSAGING,
+    DAG,
 }
 
 enum class LogLevel {
