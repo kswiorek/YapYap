@@ -2,6 +2,8 @@ package org.yapyap.orchestrator.message
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLogger
@@ -11,6 +13,7 @@ import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.MessageDraft
+import org.yapyap.orchestrator.dag.MessagePageCursor
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.RoomMembershipRepository
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -34,52 +37,27 @@ class DefaultMessagingService(
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
 
+    /**
+     * Map of open windows per room. Guarded by [windowsMapMutex]; non-suspend callers
+     * ([openRoom]/[DefaultRoomMessageWindow.close]) route their mutations through [serviceScope]
+     * under the mutex, while suspend callers ([notifyWindowsNewItem]) acquire it directly.
+     * A stale entry after [close] is harmless because [DefaultRoomMessageWindow.closed] (Volatile)
+     * short-circuits notification before any state is touched.
+     */
+    private val windowsMapMutex = Mutex()
     private val openWindows = mutableMapOf<String, MutableSet<DefaultRoomMessageWindow>>()
+
+    private var serviceScope: CoroutineScope? = null
     private var subscriptionJob: Job? = null
 
     override fun start(scope: CoroutineScope) {
         check(subscriptionJob == null) { "MessagingService already started" }
+        serviceScope = scope
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
-                when (result) {
-                    is IngestResult.Inserted -> {
-                        if (result.payload is MessagePayload.GlobalEvent) return@collect
-                        notifyWindowsNewItem(result.payload.roomId, result.payload, result.closedGapMissingPrevIds)
-                        emitIncomingEventIfNeeded(result.payload)
-                    }
-                    is IngestResult.BecameOrphan -> {
-                        if (result.payload is MessagePayload.GlobalEvent) return@collect
-                        notifyWindowsNewItem(result.payload.roomId, result.payload, result.closedGapMissingPrevIds)
-                        emitIncomingEventIfNeeded(result.payload)
-                        //TODO sync request
-                        logger.info(
-                            component = LogComponent.MESSAGING,
-                            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
-                            message = "Inbound message became orphan",
-                            fields = mapOf(
-                                "messageId" to result.payload.messageId,
-                                "roomId" to result.payload.roomId,
-                                "missingPrevId" to result.missingPrevId,
-                            ),
-                        )
-                    }
-                    is IngestResult.Duplicate -> {
-                        logger.debug(
-                            component = LogComponent.MESSAGING,
-                            event = LogEvent.PACKET_DUPLICATED,
-                            message = "Duplicate inbound message ignored",
-                            fields = mapOf("messageId" to result.messageId),
-                        )
-                    }
-                    is IngestResult.Rejected -> {
-                        logger.warn(
-                            component = LogComponent.MESSAGING,
-                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
-                            message = "Inbound message rejected by DAG engine",
-                            fields = mapOf("reason" to result.reason),
-                        )
-                    }
-                }
+                if (result.payload is MessagePayload.GlobalEvent) return@collect
+                notifyWindowsNewItem(result)
+                emitIncomingEventIfNeeded(result.payload)
             }
         }
     }
@@ -90,11 +68,9 @@ class DefaultMessagingService(
     ): SendMessageResult {
         val payload = dagEngine.append(roomId, MessageDraft.Text(text))
 
-        val localAccountId = identityResolver.getLocalAccountId()
         val members = roomMembershipRepository.membersOfRoom(roomId)
-            .filter { it != localAccountId }
 
-        notifyWindowsNewItem(payload.roomId, payload, closedGapMissingPrevIds = emptyList())
+        notifyWindowsNewItem(IngestResult.Inserted(payload))
 
         if (members.isEmpty()) {
             logger.debug(
@@ -137,20 +113,33 @@ class DefaultMessagingService(
     }
 
     override fun openRoom(roomId: String, initialPageSize: Int): RoomMessageWindow {
-        val window = DefaultRoomMessageWindow(roomId, initialPageSize)
-        openWindows.getOrPut(roomId) { mutableSetOf() }.add(window)
+        val window = DefaultRoomMessageWindow(roomId, initialPageSize, serviceScope ?: error("MessagingService not started"))
+        serviceScope?.launch {
+            windowsMapMutex.withLock {
+                openWindows.getOrPut(roomId) { mutableSetOf() }.add(window)
+            }
+        }
         return window
     }
 
-    private fun notifyWindowsNewItem(
-        roomId: String,
-        payload: MessagePayload,
-        closedGapMissingPrevIds: List<String>,
-    ) {
-        val windows = openWindows[roomId] ?: return
+    private suspend fun notifyWindowsNewItem(result: IngestResult) {
+        val payload = result.payload
+        val roomId = payload.roomId
+        val windows: List<DefaultRoomMessageWindow> = windowsMapMutex.withLock {
+            openWindows[roomId]?.toList() ?: emptyList()
+        }
+        if (windows.isEmpty()) return
         val displayItem = payload.toDisplayItem() ?: return
+        val orphanGap: MessageDisplayItem.Gap? = (result as? IngestResult.BecameOrphan)?.let {
+            MessageDisplayItem.Gap(
+                accountId = AccountId(payload.senderAccountId),
+                timestamp = payload.createdAtEpochSeconds,
+                displayOrderId = payload.lamportClock,
+                missingPrevId = it.missingPrevId,
+            )
+        }
         for (window in windows) {
-            window.onNewItem(displayItem, closedGapMissingPrevIds)
+            window.onNewItem(displayItem, result.closedGapMissingPrevIds, orphanGap)
         }
     }
 
@@ -175,7 +164,7 @@ class DefaultMessagingService(
                     )
                 )
             }
-            else -> TODO("Handle other message types")
+            else -> {}//TODO Handle other message types
         }
     }
 
@@ -210,7 +199,7 @@ class DefaultMessagingService(
     private fun MessagePayload.toDisplayItem(): MessageDisplayItem? = when (this) {
         is MessagePayload.Text -> MessageDisplayItem.Text(
             accountId = AccountId(senderAccountId),
-            timestamp = timeProvider.nowEpochSeconds(),
+            timestamp = createdAtEpochSeconds,
             displayOrderId = lamportClock,
             text = text,
         )
@@ -220,6 +209,7 @@ class DefaultMessagingService(
     private inner class DefaultRoomMessageWindow(
         private val roomId: String,
         private val initialPageSize: Int,
+        private val scope: CoroutineScope,
     ) : RoomMessageWindow {
 
         private val _displayItems = MutableStateFlow<List<MessageDisplayItem>>(emptyList())
@@ -231,74 +221,126 @@ class DefaultMessagingService(
         @Volatile
         private var closed = false
 
-        @Volatile
-        private var oldestLamport: Long? = null
+        /**
+         * Cursor of the oldest currently-loaded row; the next page is loaded strictly below it.
+         * Guarded by [windowMutex].
+         */
+        private var oldestCursor: MessagePageCursor? = null
+
+        /**
+         * Serializes read-modify-write of [_displayItems] / [oldestCursor] between
+         * [loadOlder] (caller coroutine) and [onNewItem] (pipeline collector coroutine).
+         */
+        private val windowMutex = Mutex()
 
         init {
-            runBlocking { loadInitial() }
+            // Load asynchronously; displayItems starts empty and populates once loaded.
+            scope.launch { loadInitial() }
         }
 
         private suspend fun loadInitial() {
-            val messages = dagEngine.getMessagesInRoom(roomId, initialPageSize)
-            if (messages.isEmpty()) {
-                _hasMoreOlder.value = false
-                return
+            // DagEngine returns newest -> oldest; display is oldest -> newest.
+            val page = dagEngine.getMessagesInRoom(roomId, initialPageSize)
+            windowMutex.withLock {
+                if (page.isEmpty()) {
+                    _hasMoreOlder.value = false
+                    return
+                }
+                val oldest = page.last()
+                oldestCursor = MessagePageCursor(
+                    createdAtEpochSeconds = oldest.createdAtEpochSeconds,
+                    lamportClock = oldest.lamportClock,
+                    messageId = oldest.messageId,
+                )
+                _hasMoreOlder.value = page.size >= initialPageSize
+                _displayItems.value = buildDisplayListUnlocked(page.asReversed())
             }
-
-            oldestLamport = messages.first().lamportClock
-            _hasMoreOlder.value = messages.size >= initialPageSize
-            _displayItems.value = buildDisplayList(messages)
         }
 
         override suspend fun loadOlder(pageSize: Int): Int {
-            val cursor = oldestLamport ?: return 0
+            if (closed) return 0
+            return windowMutex.withLock {
+                val cursor = oldestCursor ?: return@withLock 0
 
-            val messages = dagEngine.getMessagesInRoom(roomId, pageSize, beforeLamport = cursor)
-            if (messages.isEmpty()) {
-                _hasMoreOlder.value = false
-                return 0
+                val page = dagEngine.getMessagesInRoom(roomId, pageSize, before = cursor)
+                if (page.isEmpty()) {
+                    _hasMoreOlder.value = false
+                    return@withLock 0
+                }
+
+                val oldest = page.last()
+                oldestCursor = MessagePageCursor(
+                    createdAtEpochSeconds = oldest.createdAtEpochSeconds,
+                    lamportClock = oldest.lamportClock,
+                    messageId = oldest.messageId,
+                )
+                _hasMoreOlder.value = page.size >= pageSize
+
+                val olderItems = buildDisplayListUnlocked(page.asReversed())
+                _displayItems.value = olderItems + _displayItems.value
+
+                page.size
             }
-
-            oldestLamport = messages.first().lamportClock
-            _hasMoreOlder.value = messages.size >= pageSize
-
-            val olderItems = buildDisplayList(messages)
-            _displayItems.value = olderItems + _displayItems.value
-
-            return messages.size
         }
 
         override fun close() {
             if (closed) return
             closed = true
-            openWindows[roomId]?.remove(this)
-            if (openWindows[roomId]?.isEmpty() == true) {
-                openWindows.remove(roomId)
-            }
-        }
-
-        fun onNewItem(item: MessageDisplayItem, closedGapMissingPrevIds: List<String>) {
-            if (closed) return
-            val current = _displayItems.value.toMutableList()
-
-            if (closedGapMissingPrevIds.isNotEmpty()) {
-                val closedSet = closedGapMissingPrevIds.toSet()
-                current.removeAll {
-                    it is MessageDisplayItem.Gap && it.missingPrevId in closedSet
+            scope.launch {
+                windowsMapMutex.withLock {
+                    openWindows[roomId]?.remove(this@DefaultRoomMessageWindow)
+                    if (openWindows[roomId]?.isEmpty() == true) {
+                        openWindows.remove(roomId)
+                    }
                 }
             }
-
-            val insertIdx = current.indexOfFirst { it.displayOrderId > item.displayOrderId }
-            if (insertIdx == -1) {
-                current.add(item)
-            } else {
-                current.add(insertIdx, item)
-            }
-
-            _displayItems.value = current
         }
 
-        private suspend fun buildDisplayList(messages: List<MessagePayload>): List<MessageDisplayItem> {
+        suspend fun onNewItem(
+            item: MessageDisplayItem,
+            closedGapMissingPrevIds: List<String>,
+            orphanGap: MessageDisplayItem.Gap?,
+        ) {
+            if (closed) return
+            windowMutex.withLock {
+                val current = _displayItems.value.toMutableList()
+
+                if (closedGapMissingPrevIds.isNotEmpty()) {
+                    val closedSet = closedGapMissingPrevIds.toSet()
+                    current.removeAll {
+                        it is MessageDisplayItem.Gap && it.missingPrevId in closedSet
+                    }
+                }
+
+                // Display list is oldest -> newest; insert before the first item newer than [item].
+                // Composite tie-break: (timestamp, displayOrderId, accountId.id) — matches the DB
+                // display-order index, which uses messageId as the final tiebreak. Same-sender
+                // messages never share a lamport clock, so (timestamp, lamport, accountId) is unique
+                // among display items and messageId is not needed here.
+                val insertIdx = current.indexOfFirst { it.isDisplayAfter(item) }
+                if (insertIdx == -1) {
+                    current.add(item)
+                    if (orphanGap != null) current.add(orphanGap)
+                } else {
+                    current.add(insertIdx, item)
+                    if (orphanGap != null) current.add(insertIdx + 1, orphanGap)
+                }
+
+                _displayItems.value = current
+            }
+        }
+
+        /**
+         * True if `this` is strictly newer than [other] per the composite display order
+         * `(createdAtEpochSeconds, lamportClock, accountId)`.
+         */
+        private fun MessageDisplayItem.isDisplayAfter(other: MessageDisplayItem): Boolean {
+            if (timestamp != other.timestamp) return timestamp > other.timestamp
+            if (displayOrderId != other.displayOrderId) return displayOrderId > other.displayOrderId
+            return accountId.id > other.accountId.id
+        }
+
+        private suspend fun buildDisplayListUnlocked(messages: List<MessagePayload>): List<MessageDisplayItem> {
             val gaps = dagEngine.openGaps(roomId)
             val gapsByOrphanId = gaps.associateBy { it.orphanedMessageId }
 
@@ -309,7 +351,7 @@ class DefaultMessagingService(
                 items.add(
                     MessageDisplayItem.Text(
                         accountId = AccountId(msg.senderAccountId),
-                        timestamp = timeProvider.nowEpochSeconds(),
+                        timestamp = msg.createdAtEpochSeconds,
                         displayOrderId = msg.lamportClock,
                         text = msg.text,
                     )
@@ -320,7 +362,7 @@ class DefaultMessagingService(
                     items.add(
                         MessageDisplayItem.Gap(
                             accountId = AccountId(msg.senderAccountId),
-                            timestamp = timeProvider.nowEpochSeconds(),
+                            timestamp = msg.createdAtEpochSeconds,
                             displayOrderId = msg.lamportClock,
                             missingPrevId = orphanedGap.missingPrevId,
                         )

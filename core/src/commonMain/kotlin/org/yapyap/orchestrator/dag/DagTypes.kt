@@ -12,16 +12,29 @@ data class Gap(
     val orphanedMessageId: String,
 )
 
+/**
+ * Composite cursor for stable pagination of room messages.
+ *
+ * Display ordering is `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` — a total
+ * order with no ties, so pagination is stable across live inserts and reloads. The cursor captures
+ * the oldest row of the currently-loaded window so the next page begins strictly below it.
+ */
+data class MessagePageCursor(
+    val createdAtEpochSeconds: Long,
+    val lamportClock: Long,
+    val messageId: String,
+)
+
 sealed interface IngestResult {
+    val payload: MessagePayload
+    val closedGapMissingPrevIds: List<String>
     data class Inserted(
-        val payload: MessagePayload,
-        val closedGapMissingPrevIds: List<String> = emptyList(),
+        override val payload: MessagePayload,
+        override val closedGapMissingPrevIds: List<String> = emptyList(),
     ) : IngestResult
-    data class Duplicate(val messageId: String) : IngestResult
-    data class Rejected(val reason: String) : IngestResult
     data class BecameOrphan(
-        val payload: MessagePayload,
+        override val payload: MessagePayload,
+        override val closedGapMissingPrevIds: List<String> = emptyList(),
         val missingPrevId: String,
-        val closedGapMissingPrevIds: List<String> = emptyList(),
     ) : IngestResult
 }

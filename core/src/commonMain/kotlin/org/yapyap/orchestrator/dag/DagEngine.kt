@@ -8,15 +8,19 @@ interface DagEngine {
     suspend fun getMessagesInRoom(roomId: String): List<MessagePayload>
 
     /**
-     * Paginated messages ordered by lamport_clock descending (newest first).
-     * @param beforeLamport If non-null, return messages with lamport_clock < this value.
-     *                      If null, return the latest [limit] messages.
-     * @return Up to [limit] messages, ordered oldest→newest within the page.
+     * Paginated room view ordered by display order
+     * `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` (newest first).
+     *
+     * @param before If non-null, return messages strictly older than this cursor
+     *               (i.e. the next page below the oldest row of the previous page).
+     *               If null, return the latest [limit] messages.
+     * @return Up to [limit] messages in display order (newest→oldest). Callers that need
+     *         oldest→newest rendering should reverse the result.
      */
     suspend fun getMessagesInRoom(
         roomId: String,
         limit: Int,
-        beforeLamport: Long? = null,
+        before: MessagePageCursor? = null,
     ): List<MessagePayload>
 
     suspend fun ancestorsOf(roomId: String, messageId: String, limit: Int): List<MessagePayload>

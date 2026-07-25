@@ -33,6 +33,7 @@ internal class OutboundMessenger(
         forceTransport: RouterTransport?,
     ): SendMessageResult {
         val peers = ctx.identityResolver.getAllPeerDevicesForAccount(target)
+            .filter { it != ctx.localDeviceId }   // skip originating device only
         if (peers.isEmpty()) {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,

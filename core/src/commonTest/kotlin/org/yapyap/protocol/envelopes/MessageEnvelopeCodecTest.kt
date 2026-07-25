@@ -19,6 +19,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct",
             prevId = "prev",
             lamportClock = 42L,
+            createdAtEpochSeconds = 1_700_000_042L,
             text = "hello",
         )
         val bytes = original.encode()
@@ -34,6 +35,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct",
             prevId = null,
             lamportClock = 0L,
+            createdAtEpochSeconds = 1_700_000_000L,
             eventBytes = byteArrayOf(0x01, 0x02),
         )
         val bytes = original.encode()
@@ -49,6 +51,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct-ge",
             prevId = "p",
             lamportClock = 99L,
+            createdAtEpochSeconds = 1_700_000_099L,
             eventBytes = byteArrayOf(0xab.toByte()),
         )
         val env = MessageEnvelope(
@@ -73,6 +76,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "acct2",
             prevId = null,
             lamportClock = 1L,
+            createdAtEpochSeconds = 1_700_000_001L,
             text = "",
         )
         val env = MessageEnvelope(
@@ -97,6 +101,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
+            createdAtEpochSeconds = 0L,
             text = "\u0009",
         )
         val sig = ByteArray(64) { it.toByte() }
@@ -123,6 +128,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
+            createdAtEpochSeconds = 0L,
             text = "\u0009",
         )
         val sig = ByteArray(64) { it.toByte() }
@@ -157,6 +163,7 @@ class MessageEnvelopeCodecTest {
                     senderAccountId = "a",
                     prevId = null,
                     lamportClock = 0L,
+                    createdAtEpochSeconds = 0L,
                     text = "",
                 ).encode(),
             )
@@ -177,6 +184,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
+            createdAtEpochSeconds = 0L,
             text = "",
         )
         assertEquals(MessagePayloadType.TEXT, text.payloadType)
@@ -186,6 +194,7 @@ class MessageEnvelopeCodecTest {
             senderAccountId = "a",
             prevId = null,
             lamportClock = 0L,
+            createdAtEpochSeconds = 0L,
             eventBytes = byteArrayOf(),
         )
         assertEquals(MessagePayloadType.GLOBAL_EVENT, ge.payloadType)
@@ -224,6 +233,7 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.senderAccountId, actual.senderAccountId)
         assertEquals(expected.prevId, actual.prevId)
         assertEquals(expected.lamportClock, actual.lamportClock)
+        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
         assertContentEquals(expected.eventBytes, actual.eventBytes)
     }
 }

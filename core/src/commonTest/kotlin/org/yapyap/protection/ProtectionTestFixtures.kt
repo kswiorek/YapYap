@@ -49,6 +49,7 @@ internal fun sampleTextPayload(messageId: String = "msg-contract-1"): MessagePay
         senderAccountId = "acct-1",
         prevId = null,
         lamportClock = 0L,
+        createdAtEpochSeconds = 0L,
         text = "hello",
     )
 

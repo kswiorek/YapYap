@@ -339,5 +339,6 @@ private fun sampleTextPayload(id: String): MessagePayload.Text =
         senderAccountId = "acct-sender",
         prevId = null,
         lamportClock = 0L,
+        createdAtEpochSeconds = 0L,
         text = "hello-outbox",
     )

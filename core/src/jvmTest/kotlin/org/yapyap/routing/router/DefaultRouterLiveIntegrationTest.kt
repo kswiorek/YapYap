@@ -55,6 +55,7 @@ class DefaultRouterLiveIntegrationTest {
             senderAccountId = "alice-acct",
             prevId = null,
             lamportClock = 1L,
+            createdAtEpochSeconds = 0L,
             text = "hello-live-router",
         )
 

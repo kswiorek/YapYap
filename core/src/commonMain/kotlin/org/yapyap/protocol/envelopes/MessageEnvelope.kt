@@ -111,6 +111,13 @@ sealed interface MessagePayload {
     val senderAccountId: String
     val prevId: String?
     val lamportClock: Long
+    /**
+     * Sender's wall-clock composition time, set once by [org.yapyap.orchestrator.dag.DagEngine.append]
+     * at send time and carried on the wire unchanged. Distinct from
+     * [MessageEnvelope.createdAtEpochSeconds] (transport-level, set at envelope assembly).
+     * Used as the primary GUI display-order key.
+     */
+    val createdAtEpochSeconds: Long
     val payloadType: MessagePayloadType
 
     fun encode(): ByteArray
@@ -121,6 +128,7 @@ sealed interface MessagePayload {
         override val senderAccountId: String,
         override val prevId: String?,
         override val lamportClock: Long,
+        override val createdAtEpochSeconds: Long,
         val text: String,
     ) : MessagePayload {
         init {
@@ -128,6 +136,7 @@ sealed interface MessagePayload {
             require(roomId.isNotBlank()) { "roomId must not be blank" }
             require(senderAccountId.isNotBlank()) { "senderAccountId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
+            require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
         }
 
         override val payloadType: MessagePayloadType = MessagePayloadType.TEXT
@@ -149,6 +158,7 @@ sealed interface MessagePayload {
                     senderAccountId = header.senderAccountId,
                     prevId = header.prevId,
                     lamportClock = header.lamportClock,
+                    createdAtEpochSeconds = header.createdAtEpochSeconds,
                     text = reader.readString(),
                 )
                 reader.requireFullyRead()
@@ -163,6 +173,7 @@ sealed interface MessagePayload {
         override val senderAccountId: String,
         override val prevId: String?,
         override val lamportClock: Long,
+        override val createdAtEpochSeconds: Long,
         val eventBytes: ByteArray,
     ) : MessagePayload {
         init {
@@ -170,6 +181,7 @@ sealed interface MessagePayload {
             require(roomId.isNotBlank()) { "roomId must not be blank" }
             require(senderAccountId.isNotBlank()) { "senderAccountId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
+            require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
         }
 
         override val payloadType: MessagePayloadType = MessagePayloadType.GLOBAL_EVENT
@@ -192,6 +204,7 @@ sealed interface MessagePayload {
                     senderAccountId = header.senderAccountId,
                     prevId = header.prevId,
                     lamportClock = header.lamportClock,
+                    createdAtEpochSeconds = header.createdAtEpochSeconds,
                     // TODO: Decode typed global control events once schema is finalized.
                     eventBytes = reader.readByteArray(),
                 )
@@ -207,6 +220,7 @@ sealed interface MessagePayload {
             other as GlobalEvent
 
             if (lamportClock != other.lamportClock) return false
+            if (createdAtEpochSeconds != other.createdAtEpochSeconds) return false
             if (messageId != other.messageId) return false
             if (roomId != other.roomId) return false
             if (senderAccountId != other.senderAccountId) return false
@@ -219,6 +233,7 @@ sealed interface MessagePayload {
 
         override fun hashCode(): Int {
             var result = lamportClock.hashCode()
+            result = 31 * result + createdAtEpochSeconds.hashCode()
             result = 31 * result + messageId.hashCode()
             result = 31 * result + roomId.hashCode()
             result = 31 * result + senderAccountId.hashCode()
@@ -231,7 +246,9 @@ sealed interface MessagePayload {
 
     companion object {
         fun decode(bytes: ByteArray): MessagePayload {
-            val payloadType = MessagePayloadType.fromWireValue(ByteReader(bytes).readByte())
+            val reader = ByteReader(bytes)
+            readPayloadHeaderVersion(reader)
+            val payloadType = MessagePayloadType.fromWireValue(reader.readByte())
             return when (payloadType) {
                 MessagePayloadType.TEXT -> Text.decode(bytes)
                 MessagePayloadType.GLOBAL_EVENT -> GlobalEvent.decode(bytes)
@@ -246,18 +263,31 @@ private data class MessagePayloadHeader(
     val senderAccountId: String,
     val prevId: String?,
     val lamportClock: Long,
+    val createdAtEpochSeconds: Long,
 )
 
+private const val PAYLOAD_HEADER_VERSION: Byte = 1
+
+private fun readPayloadHeaderVersion(reader: ByteReader) {
+    val version = reader.readByte()
+    require(version == PAYLOAD_HEADER_VERSION) {
+        "Unsupported message payload header version: $version"
+    }
+}
+
 private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
+    writer.writeByte(PAYLOAD_HEADER_VERSION.toInt())
     writer.writeByte(payloadType.wireValue.toInt())
     writer.writeString(messageId)
     writer.writeString(roomId)
     writer.writeString(senderAccountId)
     writer.writeNullableString(prevId)
     writer.writeLong(lamportClock)
+    writer.writeLong(createdAtEpochSeconds)
 }
 
 private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): MessagePayloadHeader {
+    readPayloadHeaderVersion(reader)
     require(MessagePayloadType.fromWireValue(reader.readByte()) == expected) {
         "Expected ${expected.name} payload type"
     }
@@ -267,5 +297,6 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
         senderAccountId = reader.readString(),
         prevId = reader.readNullableString(),
         lamportClock = reader.readLong(),
+        createdAtEpochSeconds = reader.readLong(),
     )
 }

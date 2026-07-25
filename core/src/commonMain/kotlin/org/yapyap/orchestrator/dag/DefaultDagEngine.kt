@@ -21,7 +21,7 @@ class DefaultDagEngine(): DagEngine {
     override suspend fun getMessagesInRoom(
         roomId: String,
         limit: Int,
-        beforeLamport: Long?,
+        before: MessagePageCursor?,
     ): List<MessagePayload> {
         TODO("Not yet implemented")
     }

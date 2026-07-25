@@ -8,6 +8,7 @@ CREATE TABLE messages (
     sender_account_id TEXT NOT NULL,
     prev_id TEXT,
     lamport_clock INTEGER NOT NULL,
+    created_at_epoch_seconds INTEGER NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
     message_payload BLOB NOT NULL,
     lifecycle_state TEXT AS MessageLifecycleState NOT NULL,
@@ -27,4 +28,22 @@ CREATE TABLE causal_hold (
 CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
 CREATE INDEX messages_sender_idx ON messages(sender_account_id);
 CREATE INDEX messages_prev_idx ON messages(prev_id);
+CREATE INDEX messages_room_display_order_idx ON messages(
+    room_id,
+    created_at_epoch_seconds DESC,
+    lamport_clock DESC,
+    message_id DESC
+);
 CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
+
+-- Paginated room view, ordered newest -> oldest by (createdAtEpochSeconds, lamportClock, messageId).
+-- Pass null cursor values to read the latest page; pass the oldest row of the previous page to load older.
+selectMessagesInRoomPageDesc :
+SELECT * FROM messages
+WHERE room_id = :roomId
+  AND (:cursorCreated IS NULL
+       OR created_at_epoch_seconds < :cursorCreated
+       OR (created_at_epoch_seconds = :cursorCreated AND lamport_clock < :cursorLamport)
+       OR (created_at_epoch_seconds = :cursorCreated AND lamport_clock = :cursorLamport AND message_id < :cursorMessageId))
+ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
+LIMIT :limit;
