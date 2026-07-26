@@ -1,18 +1,48 @@
 package org.yapyap.orchestrator
 
-interface OrchestratorRuntime {
-    // --- GUI-facing domain services (build these now, stub Sprint 2/4 pieces) ---
-//    val messaging: MessagingService
-//    val identity: IdentityQueryService        // read-only views for UI
-//    val rooms: RoomQueryService               // SQLDelight-backed flows
-//    val sync: SyncStatusService               // orphan/gap state — Sprint 2
-//    val roster: DeviceRosterService           // global control DAG — Sprint 4
-//
-//    // --- Observability ---
-//    val connectivity: StateFlow<ConnectivitySnapshot>
-    // local tor endpoint, router running, peer reachability later
+import kotlinx.coroutines.CoroutineScope
+import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.logging.AppLogger
+import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.message.DefaultMessagingService
+import org.yapyap.orchestrator.message.MessagingService
+import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
+import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.messaging.DefaultRoomMembershipRepository
+import org.yapyap.routing.router.Router
+import org.yapyap.time.SystemEpochSecondsProvider
 
-    // --- Intentionally NOT exposed to GUI ---
-    // internal val router: Router
-    // internal val bootRecovery: BootRecovery
+interface OrchestratorRuntime {
+    val messaging: MessagingService
+    // identity / rooms / sync / roster added in later sprints
+}
+
+internal class DefaultOrchestratorRuntime(
+    private val dagEngine: DagEngine,
+    private val router: Router,
+    private val pipeline: InboundMessagePipeline,
+    private val database: YapYapDatabase,
+    private val identityResolver: IdentityResolver,
+    private val logger: AppLogger,
+) : OrchestratorRuntime {
+
+    private lateinit var _messaging: DefaultMessagingService
+    override val messaging: MessagingService get() = _messaging
+
+    fun start(scope: CoroutineScope) {
+        _messaging = DefaultMessagingService(
+            dagEngine = dagEngine,
+            router = router,
+            pipeline = pipeline,
+            roomMembershipRepository = DefaultRoomMembershipRepository(database),
+            identityResolver = identityResolver,
+            timeProvider = SystemEpochSecondsProvider,
+            logger = logger,
+        )
+        _messaging.start(scope)
+    }
+
+    suspend fun stop() {
+        _messaging.stop()
+    }
 }

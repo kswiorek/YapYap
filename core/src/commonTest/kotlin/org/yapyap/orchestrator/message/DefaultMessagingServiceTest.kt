@@ -141,6 +141,7 @@ class DefaultMessagingServiceTest {
         assertEquals("msg-1", (items[0] as MessageDisplayItem.Text).text)
         assertTrue(items[1] is MessageDisplayItem.Text)
         assertEquals("msg-2", (items[1] as MessageDisplayItem.Text).text)
+        window.close()
     }
 
     @Test
@@ -162,6 +163,7 @@ class DefaultMessagingServiceTest {
         assertTrue(item is MessageDisplayItem.Text)
         assertEquals("window update", item.text)
         assertEquals(localAccount, item.accountId)
+        window.close()
     }
 
     @Test

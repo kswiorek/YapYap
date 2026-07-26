@@ -1,5 +1,9 @@
 package org.yapyap.orchestrator
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,11 +16,15 @@ import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.NoopAppLogger
+import org.yapyap.orchestrator.dag.DefaultDagEngine
+import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.key.*
+import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
+import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketIdAllocator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
@@ -43,7 +51,6 @@ class DefaultOrchestrator(
 
     private val _state = MutableStateFlow(OrchestratorState.Created)
     private val _lastError = MutableStateFlow<Throwable?>(null)
-    private val runtimeImpl = object : OrchestratorRuntime {}
 
     override val state: StateFlow<OrchestratorState> = _state.asStateFlow()
     override val lastError: StateFlow<Throwable?> = _lastError.asStateFlow()
@@ -58,9 +65,16 @@ class DefaultOrchestrator(
     private lateinit var cryptoProvider: KmpCryptoProvider
     private lateinit var identityRepo: DefaultIdentityKeyRepository
     private lateinit var identityProvisioning: DefaultIdentityProvisioning
+    private lateinit var dagEngine: DefaultDagEngine
+    private lateinit var pipeline: DefaultInboundMessagePipeline
+    private lateinit var orchestratorScope: CoroutineScope
+
+    private lateinit var orchestratorRuntime: DefaultOrchestratorRuntime
+
 
     override suspend fun start() {
         if (_state.value == OrchestratorState.Running) return
+        orchestratorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         _state.value = OrchestratorState.Starting
         _lastError.value = null
         try {
@@ -218,6 +232,31 @@ class DefaultOrchestrator(
         )
 
         router.start()
+
+        val messageRepo = DefaultMessageRepository(database)
+        val causalHoldRepo = DefaultCausalHoldRepository(database)
+        dagEngine = DefaultDagEngine(
+            messageRepository = messageRepo,
+            causalHoldRepository = causalHoldRepo,
+            identityResolver = identityResolver,
+            timeProvider = SystemEpochSecondsProvider,
+            logger = logger,
+        )
+        pipeline = DefaultInboundMessagePipeline(router, dagEngine, logger)
+        pipeline.start(orchestratorScope)
+
+        if (config.mode == NodeMode.FULL_CLIENT) {
+            orchestratorRuntime = DefaultOrchestratorRuntime(
+                dagEngine = dagEngine,
+                router = router,
+                pipeline = pipeline,
+                database = database,
+                identityResolver = identityResolver,
+                logger = logger,
+            )
+            orchestratorRuntime.start(orchestratorScope)
+        }
+
         // TODO ping, request sync etc
     }
 
@@ -226,7 +265,12 @@ class DefaultOrchestrator(
         _state.value = OrchestratorState.Stopping
 
         try {
+            if (::orchestratorRuntime.isInitialized) {
+                orchestratorRuntime.stop()
+            }
             router.stop()
+            orchestratorScope.cancel()
+            orchestratorScope.cancel()
         } catch (e: Throwable) {
             _lastError.value = e
             _state.value = OrchestratorState.Failed
@@ -237,7 +281,8 @@ class DefaultOrchestrator(
     }
 
     override fun runtime(): OrchestratorRuntime {
+        check(config.mode == NodeMode.FULL_CLIENT) { "runtime() requires FULL_CLIENT mode"}
         check(_state.value == OrchestratorState.Running) { "Orchestrator must be Running" }
-        return runtimeImpl
+        return orchestratorRuntime
     }
 }

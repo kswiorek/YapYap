@@ -55,5 +55,5 @@ interface RoomMessageWindow {
     suspend fun loadOlder(pageSize: Int = 50): Int
 
     /** Release this window and unsubscribe from updates. */
-    fun close()
+    suspend fun close()
 }
