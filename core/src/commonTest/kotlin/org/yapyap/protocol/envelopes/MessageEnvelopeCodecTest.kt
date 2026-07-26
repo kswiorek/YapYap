@@ -9,7 +9,9 @@ class MessageEnvelopeCodecTest {
 
     private val source = PeerId("src-device")
     private val target = PeerId("dst-device")
+    private val authorDeviceId = PeerId("author-device")
     private val nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 }
+    private val testSignature = byteArrayOf(0x01, 0x02, 0x03)
 
     @Test
     fun messagePayload_text_encodeDecode_roundTrip() {
@@ -17,10 +19,12 @@ class MessageEnvelopeCodecTest {
             messageId = "mid-1",
             roomId = "room-a",
             senderAccountId = "acct",
+            authorDeviceId = authorDeviceId,
             prevId = "prev",
             lamportClock = 42L,
             createdAtEpochSeconds = 1_700_000_042L,
             text = "hello",
+            authorSignature = testSignature,
         )
         val bytes = original.encode()
         val decoded = MessagePayload.Text.decode(bytes)
@@ -33,14 +37,35 @@ class MessageEnvelopeCodecTest {
             messageId = "evt-1",
             roomId = "GLOBAL",
             senderAccountId = "acct",
+            authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = 1_700_000_000L,
             eventBytes = byteArrayOf(0x01, 0x02),
+            authorSignature = testSignature,
         )
         val bytes = original.encode()
         val decoded = MessagePayload.GlobalEvent.decode(bytes)
         assertGlobalEventPayloadEquals(original, decoded)
+    }
+
+    @Test
+    fun messagePayload_encodeForAuthorSigning_excludesSignature() {
+        val payload = MessagePayload.Text(
+            messageId = "mid-sign",
+            roomId = "room-a",
+            senderAccountId = "acct",
+            authorDeviceId = authorDeviceId,
+            prevId = "prev",
+            lamportClock = 42L,
+            createdAtEpochSeconds = 1_700_000_042L,
+            text = "hello",
+            authorSignature = testSignature,
+        )
+        val signedBytes = payload.encodeForAuthorSigning()
+        val fullBytes = payload.encode()
+        assertTrue(signedBytes.size < fullBytes.size)
+        assertFalse(signedBytes.contentEquals(testSignature))
     }
 
     @Test
@@ -49,10 +74,12 @@ class MessageEnvelopeCodecTest {
             messageId = "ge-full",
             roomId = "GLOBAL",
             senderAccountId = "acct-ge",
+            authorDeviceId = authorDeviceId,
             prevId = "p",
             lamportClock = 99L,
             createdAtEpochSeconds = 1_700_000_099L,
             eventBytes = byteArrayOf(0xab.toByte()),
+            authorSignature = testSignature,
         )
         val env = MessageEnvelope(
             messageId = "ge-full",
@@ -74,10 +101,12 @@ class MessageEnvelopeCodecTest {
             messageId = "mid-2",
             roomId = "room-b",
             senderAccountId = "acct2",
+            authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 1L,
             createdAtEpochSeconds = 1_700_000_001L,
             text = "",
+            authorSignature = testSignature,
         )
         val env = MessageEnvelope(
             messageId = "mid-2",
@@ -99,10 +128,12 @@ class MessageEnvelopeCodecTest {
             messageId = "mid-sign",
             roomId = "r",
             senderAccountId = "a",
+            authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = 0L,
             text = "\u0009",
+            authorSignature = testSignature,
         )
         val sig = ByteArray(64) { it.toByte() }
         val signed = MessageEnvelope(
@@ -126,10 +157,12 @@ class MessageEnvelopeCodecTest {
             messageId = "mid-3",
             roomId = "r",
             senderAccountId = "a",
+            authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = 0L,
             text = "\u0009",
+            authorSignature = testSignature,
         )
         val sig = ByteArray(64) { it.toByte() }
         val env = MessageEnvelope(
@@ -161,10 +194,12 @@ class MessageEnvelopeCodecTest {
                     messageId = "x",
                     roomId = "r",
                     senderAccountId = "a",
+                    authorDeviceId = authorDeviceId,
                     prevId = null,
                     lamportClock = 0L,
                     createdAtEpochSeconds = 0L,
                     text = "",
+                    authorSignature = testSignature,
                 ).encode(),
             )
         }
@@ -182,20 +217,24 @@ class MessageEnvelopeCodecTest {
             messageId = "t",
             roomId = "r",
             senderAccountId = "a",
+            authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = 0L,
             text = "",
+            authorSignature = testSignature,
         )
         assertEquals(MessagePayloadType.TEXT, text.payloadType)
 
         val ge = MessagePayload.GlobalEvent(
             messageId = "g",
             senderAccountId = "a",
+            authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = 0L,
             eventBytes = byteArrayOf(),
+            authorSignature = testSignature,
         )
         assertEquals(MessagePayloadType.GLOBAL_EVENT, ge.payloadType)
     }
@@ -231,9 +270,11 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.messageId, actual.messageId)
         assertEquals(expected.roomId, actual.roomId)
         assertEquals(expected.senderAccountId, actual.senderAccountId)
+        assertEquals(expected.authorDeviceId, actual.authorDeviceId)
         assertEquals(expected.prevId, actual.prevId)
         assertEquals(expected.lamportClock, actual.lamportClock)
         assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
         assertContentEquals(expected.eventBytes, actual.eventBytes)
+        assertContentEquals(expected.authorSignature, actual.authorSignature)
     }
 }

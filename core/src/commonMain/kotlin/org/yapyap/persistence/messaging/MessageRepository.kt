@@ -60,6 +60,7 @@ class DefaultMessageRepository(
             message_id = payload.messageId,
             room_id = payload.roomId,
             sender_account_id = payload.senderAccountId,
+            author_device_id = payload.authorDeviceId.id,
             prev_id = payload.prevId,
             lamport_clock = payload.lamportClock,
             created_at_epoch_seconds = payload.createdAtEpochSeconds,

@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.dag
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.CausalHoldRepository
 import org.yapyap.persistence.messaging.CausalHoldRow
@@ -23,22 +24,27 @@ class DefaultDagEngineTest {
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var causalHoldRepo: FakeCausalHoldRepository
     private lateinit var identityResolver: FakeIdentityResolver
+    private lateinit var signatureProvider: FakeSignatureProvider
     private lateinit var timeProvider: MutableEpochSecondsProvider
 
     private val testAccount = AccountId("dag-sender-account")
     private val remoteAccount = AccountId("dag-remote-account")
+    private val testDeviceId = PeerId("test-device-id")
+    private val remoteDeviceId = PeerId("remote-device-id")
     private val roomId = "dag-test-room"
 
     @BeforeTest
     fun setup() {
         messageRepo = FakeMessageRepository()
         causalHoldRepo = FakeCausalHoldRepository(messageRepo)
-        identityResolver = FakeIdentityResolver(testAccount)
+        identityResolver = FakeIdentityResolver(testAccount, testDeviceId)
+        signatureProvider = FakeSignatureProvider()
         timeProvider = MutableEpochSecondsProvider(1_000_000L)
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             identityResolver = identityResolver,
+            signatureProvider = signatureProvider,
             timeProvider = timeProvider,
         )
     }
@@ -87,6 +93,8 @@ class DefaultDagEngineTest {
             messageId = "remote-msg-1",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = first.messageId,
             lamportClock = 1L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -108,8 +116,7 @@ class DefaultDagEngineTest {
 
         // Ingesting an appended message is a dedup case.
         val result = dagEngine.ingest(first)
-        assertTrue(result is IngestResult.Inserted)
-        assertEquals(0, result.closedGapMissingPrevIds.size)
+        assertNull(result)
         // No new row inserted.
         assertEquals(1, messageRepo.byId.size)
     }
@@ -120,6 +127,8 @@ class DefaultDagEngineTest {
             messageId = "orphan-msg-1",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = "nonexistent-prev",
             lamportClock = 5L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -146,6 +155,8 @@ class DefaultDagEngineTest {
             messageId = "orphan-msg-1",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = "missing-prev-id",
             lamportClock = 5L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -160,6 +171,8 @@ class DefaultDagEngineTest {
             messageId = "missing-prev-id",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 4L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -184,6 +197,8 @@ class DefaultDagEngineTest {
             messageId = "orphan-1",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = "missing-prev-id",
             lamportClock = 5L,
             createdAtEpochSeconds = 10L,
@@ -193,6 +208,8 @@ class DefaultDagEngineTest {
             messageId = "orphan-2",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = "missing-prev-id",
             lamportClock = 6L,
             createdAtEpochSeconds = 11L,
@@ -206,6 +223,8 @@ class DefaultDagEngineTest {
             messageId = "missing-prev-id",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 4L,
             createdAtEpochSeconds = 9L,
@@ -288,6 +307,8 @@ class DefaultDagEngineTest {
             messageId = "orphan-1",
             roomId = roomId,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = "missing-a",
             lamportClock = 1L,
             createdAtEpochSeconds = 0L,
@@ -301,6 +322,8 @@ class DefaultDagEngineTest {
             messageId = "orphan-2",
             roomId = otherRoom,
             senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = "missing-b",
             lamportClock = 1L,
             createdAtEpochSeconds = 0L,
@@ -328,6 +351,43 @@ class DefaultDagEngineTest {
         assertEquals(roomId, payload.roomId)
         assertContentEquals(byteArrayOf(0x01, 0x02), payload.eventBytes)
         assertEquals(0L, payload.lamportClock)
+    }
+
+    @Test
+    fun ingest_invalidSignature_returnsNull_doesNotInsert() = runTest {
+        val remotePayload = MessagePayload.Text(
+            messageId = "invalid-sig-msg",
+            roomId = roomId,
+            senderAccountId = remoteAccount.id,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevId = null,
+            lamportClock = 1L,
+            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            text = "should be rejected",
+        )
+
+        // Replace with a rejecting signature provider
+        val rejectingEngine = DefaultDagEngine(
+            messageRepository = messageRepo,
+            causalHoldRepository = causalHoldRepo,
+            identityResolver = identityResolver,
+            signatureProvider = FakeRejectingSignatureProvider(),
+            timeProvider = timeProvider,
+        )
+
+        val result = rejectingEngine.ingest(remotePayload)
+
+        assertNull(result)
+        assertNull(messageRepo.findById("invalid-sig-msg"))
+    }
+
+    @Test
+    fun append_setsAuthorDeviceIdAndSignature() = runTest {
+        val payload = dagEngine.append(roomId, MessageDraft.Text("hello"))
+
+        assertEquals(testDeviceId, payload.authorDeviceId)
+        assertContentEquals(byteArrayOf(0x01, 0x02, 0x03), payload.authorSignature)
     }
 }
 
@@ -452,12 +512,13 @@ private class FakeCausalHoldRepository(
 
 private class FakeIdentityResolver(
     private val localAccountId: AccountId,
+    private val localDeviceId: PeerId,
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
-    override suspend fun getLocalDeviceId(): PeerId = error("not used")
+    override suspend fun getLocalDeviceId(): PeerId = localDeviceId
     override suspend fun getLocalAccountId(): AccountId = localAccountId
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
@@ -466,4 +527,30 @@ private class FakeIdentityResolver(
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
     override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")
     override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used")
+}
+
+private class FakeSignatureProvider : SignatureProvider {
+    override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
+
+    override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = true
+
+    override suspend fun verifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray,
+    ): Boolean = true
+}
+
+private class FakeRejectingSignatureProvider : SignatureProvider {
+    override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
+
+    override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = false
+
+    override suspend fun verifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray,
+    ): Boolean = false
 }

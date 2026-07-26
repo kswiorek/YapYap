@@ -5,7 +5,6 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
-
 data class MessageEnvelope(
     val messageId: String,
     val source: PeerId,
@@ -109,6 +108,7 @@ sealed interface MessagePayload {
     val messageId: String
     val roomId: String
     val senderAccountId: String
+    val authorDeviceId: PeerId
     val prevId: String?
     val lamportClock: Long
     /**
@@ -119,17 +119,24 @@ sealed interface MessagePayload {
      */
     val createdAtEpochSeconds: Long
     val payloadType: MessagePayloadType
+    val authorSignature: ByteArray?
 
     fun encode(): ByteArray
+
+    fun encodeForAuthorSigning(): ByteArray
+
+    fun withSignature(signature: ByteArray): MessagePayload
 
     data class Text(
         override val messageId: String,
         override val roomId: String,
         override val senderAccountId: String,
+        override val authorDeviceId: PeerId,
         override val prevId: String?,
         override val lamportClock: Long,
         override val createdAtEpochSeconds: Long,
         val text: String,
+        override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
             require(messageId.isNotBlank()) { "messageId must not be blank" }
@@ -137,32 +144,76 @@ sealed interface MessagePayload {
             require(senderAccountId.isNotBlank()) { "senderAccountId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
             require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
+            if (authorSignature != null) {
+                require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
+            }
         }
 
         override val payloadType: MessagePayloadType = MessagePayloadType.TEXT
 
+        override fun withSignature(signature: ByteArray): Text = copy(authorSignature = signature)
+
         override fun encode(): ByteArray {
+            val writer = ByteWriter(256 + text.length + (authorSignature?.size ?: 4))
+            writeCommonHeader(writer)
+            writer.writeString(text)
+            writer.writeNullableByteArray(authorSignature)
+            return writer.toByteArray()
+        }
+
+        override fun encodeForAuthorSigning(): ByteArray {
             val writer = ByteWriter(256 + text.length)
             writeCommonHeader(writer)
             writer.writeString(text)
             return writer.toByteArray()
         }
 
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Text) return false
+            return messageId == other.messageId &&
+                    roomId == other.roomId &&
+                    senderAccountId == other.senderAccountId &&
+                    authorDeviceId == other.authorDeviceId &&
+                    prevId == other.prevId &&
+                    lamportClock == other.lamportClock &&
+                    createdAtEpochSeconds == other.createdAtEpochSeconds &&
+                    text == other.text &&
+                    ((authorSignature == null && other.authorSignature == null) ||
+                     (authorSignature != null && other.authorSignature != null && authorSignature.contentEquals(other.authorSignature)))
+        }
+
+        override fun hashCode(): Int {
+            var result = messageId.hashCode()
+            result = 31 * result + roomId.hashCode()
+            result = 31 * result + senderAccountId.hashCode()
+            result = 31 * result + authorDeviceId.hashCode()
+            result = 31 * result + (prevId?.hashCode() ?: 0)
+            result = 31 * result + lamportClock.hashCode()
+            result = 31 * result + createdAtEpochSeconds.hashCode()
+            result = 31 * result + text.hashCode()
+            result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
+            return result
+        }
+
         companion object {
             fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.TEXT)
-                val payload = Text(
+                val text = reader.readString()
+                val authorSignature = reader.readNullableByteArray()
+                reader.requireFullyRead()
+                return Text(
                     messageId = header.messageId,
                     roomId = header.roomId,
                     senderAccountId = header.senderAccountId,
+                    authorDeviceId = header.authorDeviceId,
                     prevId = header.prevId,
                     lamportClock = header.lamportClock,
                     createdAtEpochSeconds = header.createdAtEpochSeconds,
-                    text = reader.readString(),
+                    text = text,
+                    authorSignature = authorSignature,
                 )
-                reader.requireFullyRead()
-                return payload
             }
         }
     }
@@ -171,10 +222,12 @@ sealed interface MessagePayload {
         override val messageId: String,
         override val roomId: String = "GLOBAL",
         override val senderAccountId: String,
+        override val authorDeviceId: PeerId,
         override val prevId: String?,
         override val lamportClock: Long,
         override val createdAtEpochSeconds: Long,
         val eventBytes: ByteArray,
+        override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
             require(messageId.isNotBlank()) { "messageId must not be blank" }
@@ -182,14 +235,27 @@ sealed interface MessagePayload {
             require(senderAccountId.isNotBlank()) { "senderAccountId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
             require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
+            if (authorSignature != null) {
+                require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
+            }
         }
 
         override val payloadType: MessagePayloadType = MessagePayloadType.GLOBAL_EVENT
 
+        override fun withSignature(signature: ByteArray): GlobalEvent = copy(authorSignature = signature)
+
         override fun encode(): ByteArray {
-            val writer = ByteWriter(256 + eventBytes.size)
+            val writer = ByteWriter(256 + eventBytes.size + (authorSignature?.size ?: 4))
             writeCommonHeader(writer)
             // TODO: Replace raw global event payload blob with typed control event codec.
+            writer.writeByteArray(eventBytes)
+            writer.writeNullableByteArray(authorSignature)
+            return writer.toByteArray()
+        }
+
+        override fun encodeForAuthorSigning(): ByteArray {
+            val writer = ByteWriter(256 + eventBytes.size)
+            writeCommonHeader(writer)
             writer.writeByteArray(eventBytes)
             return writer.toByteArray()
         }
@@ -198,18 +264,21 @@ sealed interface MessagePayload {
             fun decode(bytes: ByteArray): GlobalEvent {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.GLOBAL_EVENT)
-                val payload = GlobalEvent(
+                // TODO: Decode typed global control events once schema is finalized.
+                val eventBytes = reader.readByteArray()
+                val authorSignature = reader.readNullableByteArray()
+                reader.requireFullyRead()
+                return GlobalEvent(
                     messageId = header.messageId,
                     roomId = header.roomId,
                     senderAccountId = header.senderAccountId,
+                    authorDeviceId = header.authorDeviceId,
                     prevId = header.prevId,
                     lamportClock = header.lamportClock,
                     createdAtEpochSeconds = header.createdAtEpochSeconds,
-                    // TODO: Decode typed global control events once schema is finalized.
-                    eventBytes = reader.readByteArray(),
+                    eventBytes = eventBytes,
+                    authorSignature = authorSignature,
                 )
-                reader.requireFullyRead()
-                return payload
             }
         }
 
@@ -224,8 +293,11 @@ sealed interface MessagePayload {
             if (messageId != other.messageId) return false
             if (roomId != other.roomId) return false
             if (senderAccountId != other.senderAccountId) return false
+            if (authorDeviceId != other.authorDeviceId) return false
             if (prevId != other.prevId) return false
             if (!eventBytes.contentEquals(other.eventBytes)) return false
+            if (!((authorSignature == null && other.authorSignature == null) ||
+                  (authorSignature != null && other.authorSignature != null && authorSignature.contentEquals(other.authorSignature)))) return false
             if (payloadType != other.payloadType) return false
 
             return true
@@ -237,8 +309,10 @@ sealed interface MessagePayload {
             result = 31 * result + messageId.hashCode()
             result = 31 * result + roomId.hashCode()
             result = 31 * result + senderAccountId.hashCode()
+            result = 31 * result + authorDeviceId.hashCode()
             result = 31 * result + (prevId?.hashCode() ?: 0)
             result = 31 * result + eventBytes.contentHashCode()
+            result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
             result = 31 * result + payloadType.hashCode()
             return result
         }
@@ -261,6 +335,7 @@ private data class MessagePayloadHeader(
     val messageId: String,
     val roomId: String,
     val senderAccountId: String,
+    val authorDeviceId: PeerId,
     val prevId: String?,
     val lamportClock: Long,
     val createdAtEpochSeconds: Long,
@@ -281,6 +356,7 @@ private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writeString(messageId)
     writer.writeString(roomId)
     writer.writeString(senderAccountId)
+    writer.writePeerId(authorDeviceId)
     writer.writeNullableString(prevId)
     writer.writeLong(lamportClock)
     writer.writeLong(createdAtEpochSeconds)
@@ -295,6 +371,7 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
         messageId = reader.readString(),
         roomId = reader.readString(),
         senderAccountId = reader.readString(),
+        authorDeviceId = reader.readPeerId(),
         prevId = reader.readNullableString(),
         lamportClock = reader.readLong(),
         createdAtEpochSeconds = reader.readLong(),

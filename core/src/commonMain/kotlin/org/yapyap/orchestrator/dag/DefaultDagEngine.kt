@@ -2,7 +2,9 @@ package org.yapyap.orchestrator.dag
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -35,6 +37,7 @@ class DefaultDagEngine(
     private val messageRepository: MessageRepository,
     private val causalHoldRepository: CausalHoldRepository,
     private val identityResolver: IdentityResolver,
+    private val signatureProvider: SignatureProvider,
     private val timeProvider: EpochSecondsProvider,
     private val logger: AppLogger = NoopAppLogger,
 ) : DagEngine {
@@ -47,17 +50,20 @@ class DefaultDagEngine(
 
     override suspend fun append(roomId: String, draft: MessageDraft): MessagePayload = mutex.withLock {
         val senderAccountId = identityResolver.getLocalAccountId().id
+        val authorDeviceId = identityResolver.getLocalDeviceId()
         val createdAt = timeProvider.nowEpochSeconds()
         val tail = messageRepository.findRoomTail(roomId)
         val prevId = tail?.payload?.messageId
         val lamport = tail?.payload?.lamportClock?.let { it + 1 } ?: 0L
         val messageId = Uuid.random().toString()
 
-        val payload = when (draft) {
+        // Create an unsigned payload (signature is null)
+        val unsignedPayload = when (draft) {
             is MessageDraft.Text -> MessagePayload.Text(
                 messageId = messageId,
                 roomId = roomId,
                 senderAccountId = senderAccountId,
+                authorDeviceId = authorDeviceId,
                 prevId = prevId,
                 lamportClock = lamport,
                 createdAtEpochSeconds = createdAt,
@@ -67,12 +73,19 @@ class DefaultDagEngine(
                 messageId = messageId,
                 roomId = roomId,
                 senderAccountId = senderAccountId,
+                authorDeviceId = authorDeviceId,
                 prevId = prevId,
                 lamportClock = lamport,
                 createdAtEpochSeconds = createdAt,
                 eventBytes = draft.eventBytes,
             )
         }
+
+        // Get the bytes to sign (without the signature field)
+        val bytesToSign = unsignedPayload.encodeForAuthorSigning()
+
+        // Sign the bytes and create the final payload
+        val payload = unsignedPayload.withSignature(signatureProvider.sign(bytesToSign))
 
         val inserted = messageRepository.insert(payload, MessageLifecycleState.CREATED, isOrphaned = false)
         if (!inserted) {
@@ -99,7 +112,47 @@ class DefaultDagEngine(
         payload
     }
 
-    override suspend fun ingest(payload: MessagePayload): IngestResult = mutex.withLock {
+    override suspend fun ingest(payload: MessagePayload): IngestResult? = mutex.withLock {
+        // Verify author signature before processing
+        val signature = payload.authorSignature
+        if (signature == null) {
+            logger.warn(
+                component = LogComponent.DAG,
+                event = LogEvent.MESSAGE_REJECTED_INVALID_SIGNATURE,
+                message = "Message rejected — missing author signature",
+                fields = mapOf(
+                    "messageId" to payload.messageId,
+                    "roomId" to payload.roomId,
+                    "senderAccountId" to payload.senderAccountId,
+                    "authorDeviceId" to payload.authorDeviceId,
+                ),
+            )
+            return@withLock null
+        }
+
+        val accountId = AccountId(payload.senderAccountId)
+        val signedBytes = payload.encodeForAuthorSigning()
+        val signatureValid = signatureProvider.verifyMessageAuthorship(
+            accountId = accountId,
+            authorDeviceId = payload.authorDeviceId,
+            signedBytes = signedBytes,
+            signature = signature,
+        )
+        if (!signatureValid) {
+            logger.warn(
+                component = LogComponent.DAG,
+                event = LogEvent.MESSAGE_REJECTED_INVALID_SIGNATURE,
+                message = "Message rejected — invalid author signature",
+                fields = mapOf(
+                    "messageId" to payload.messageId,
+                    "roomId" to payload.roomId,
+                    "senderAccountId" to payload.senderAccountId,
+                    "authorDeviceId" to payload.authorDeviceId,
+                ),
+            )
+            return@withLock null
+        }
+
         // Dedup: if we already have this message, treat as already-inserted (no new gaps closed).
         if (messageRepository.findById(payload.messageId) != null) {
             logger.debug(
@@ -108,7 +161,7 @@ class DefaultDagEngine(
                 message = "Ingested duplicate message — already present",
                 fields = mapOf("messageId" to payload.messageId, "roomId" to payload.roomId),
             )
-            return@withLock IngestResult.Inserted(payload, closedGapMissingPrevIds = emptyList())
+            return@withLock null
         }
 
         // Determine orphan status: orphaned iff prevId is non-null AND not in our DB.

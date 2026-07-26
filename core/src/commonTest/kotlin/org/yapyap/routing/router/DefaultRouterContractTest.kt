@@ -442,4 +442,5 @@ private fun sampleTextPayload(id: String): MessagePayload.Text =
         lamportClock = 0L,
         createdAtEpochSeconds = 0L,
         text = "hello-router",
+        authorDeviceId = PeerId("test-device"),
     )

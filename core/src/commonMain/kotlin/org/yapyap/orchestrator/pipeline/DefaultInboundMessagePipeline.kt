@@ -32,7 +32,9 @@ class DefaultInboundMessagePipeline(
             router.incomingMessages.collect { payload ->
                 runCatching {
                     val result = dagEngine.ingest(payload)
-                    _ingestResults.emit(result)
+                    if (result != null) {
+                        _ingestResults.emit(result)
+                    }
                 }.onFailure { e ->
                     if (e is CancellationException) throw e
                     logger.error(

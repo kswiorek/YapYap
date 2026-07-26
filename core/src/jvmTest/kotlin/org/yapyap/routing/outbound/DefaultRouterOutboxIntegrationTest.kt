@@ -177,4 +177,5 @@ private fun sampleTextPayload(id: String): MessagePayload.Text =
         lamportClock = 0L,
         createdAtEpochSeconds = 0L,
         text = "hello-integration",
+        authorDeviceId = PeerId("test-device"),
     )

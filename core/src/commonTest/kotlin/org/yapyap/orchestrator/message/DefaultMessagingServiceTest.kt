@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
@@ -55,6 +56,7 @@ class DefaultMessagingServiceTest {
             causalHoldRepository = causalHoldRepo,
             identityResolver = identityResolver,
             timeProvider = timeProvider,
+            signatureProvider = FakeSignatureProvider(),
         )
         router = RecordingRouter()
         roomMembershipRepo = FakeRoomMembershipRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
@@ -184,6 +186,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 0L,
             createdAtEpochSeconds = remoteTimestamp,
             text = "hello from remote",
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(incoming)
         advanceUntilIdle()
@@ -214,6 +218,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 1L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = "i am orphaned",
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(orphan)
         advanceUntilIdle()
@@ -243,6 +249,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 1L,
             createdAtEpochSeconds = 1_000_500L,
             text = "waiting",
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(orphan)
         advanceUntilIdle()
@@ -259,6 +267,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 0L,
             createdAtEpochSeconds = 1_000_400L,
             text = "i am the prev",
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(missing)
         advanceUntilIdle()
@@ -292,6 +302,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 0L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = "hi from remote",
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(remoteIncoming)
         advanceUntilIdle()
@@ -311,6 +323,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 1L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = "from me",
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(selfIncoming)
         advanceUntilIdle()
@@ -338,6 +352,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 0L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = longText,
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(remoteIncoming)
         advanceUntilIdle()
@@ -370,6 +386,8 @@ class DefaultMessagingServiceTest {
             lamportClock = 0L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             eventBytes = byteArrayOf(0x01),
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
         )
         router.emitIncoming(globalEvent)
         advanceUntilIdle()
@@ -539,12 +557,13 @@ private class FakeCausalHoldRepository(
 
 private class FakeIdentityResolver(
     private val localAccountId: AccountId,
+    private val localDeviceId: PeerId = PeerId("local-device-id"),
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
-    override suspend fun getLocalDeviceId(): PeerId = error("not used")
+    override suspend fun getLocalDeviceId(): PeerId = localDeviceId
     override suspend fun getLocalAccountId(): AccountId = localAccountId
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
@@ -582,4 +601,17 @@ private class RecordingRouter : Router {
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)
     }
+}
+
+private class FakeSignatureProvider : SignatureProvider {
+    override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
+
+    override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = true
+
+    override suspend fun verifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray,
+    ): Boolean = true
 }

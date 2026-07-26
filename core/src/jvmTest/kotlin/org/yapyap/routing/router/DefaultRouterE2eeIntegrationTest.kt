@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.first
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
@@ -164,4 +165,5 @@ private fun sampleE2eeTextPayload(messageId: String): MessagePayload.Text =
         lamportClock = 1L,
         createdAtEpochSeconds = 0L,
         text = "hello-e2ee-router",
+        authorDeviceId = PeerId("test-device"),
     )

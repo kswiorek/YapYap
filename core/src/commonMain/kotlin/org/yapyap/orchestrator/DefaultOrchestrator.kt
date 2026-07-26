@@ -239,6 +239,7 @@ class DefaultOrchestrator(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             identityResolver = identityResolver,
+            signatureProvider = signatureProvider,
             timeProvider = SystemEpochSecondsProvider,
             logger = logger,
         )

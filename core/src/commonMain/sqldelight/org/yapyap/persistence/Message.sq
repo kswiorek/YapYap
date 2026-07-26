@@ -6,6 +6,7 @@ CREATE TABLE messages (
     message_id TEXT NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
     sender_account_id TEXT NOT NULL,
+    author_device_id TEXT NOT NULL,
     prev_id TEXT,
     lamport_clock INTEGER NOT NULL,
     created_at_epoch_seconds INTEGER NOT NULL,
@@ -14,7 +15,8 @@ CREATE TABLE messages (
     lifecycle_state TEXT AS MessageLifecycleState NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (sender_account_id) REFERENCES accounts(account_id)
+    FOREIGN KEY (sender_account_id) REFERENCES accounts(account_id),
+    FOREIGN KEY (author_device_id) REFERENCES devices(device_id)
 );
 
 CREATE TABLE causal_hold (
@@ -27,6 +29,7 @@ CREATE TABLE causal_hold (
 
 CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
 CREATE INDEX messages_sender_idx ON messages(sender_account_id);
+CREATE INDEX messages_author_device_idx ON messages(author_device_id);
 CREATE INDEX messages_prev_idx ON messages(prev_id);
 CREATE INDEX messages_room_display_order_idx ON messages(
     room_id,
@@ -55,6 +58,7 @@ INSERT OR IGNORE INTO messages (
     message_id,
     room_id,
     sender_account_id,
+    author_device_id,
     prev_id,
     lamport_clock,
     created_at_epoch_seconds,
@@ -62,7 +66,7 @@ INSERT OR IGNORE INTO messages (
     message_payload,
     lifecycle_state,
     is_orphaned
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessageById:
 SELECT * FROM messages WHERE message_id = ?;

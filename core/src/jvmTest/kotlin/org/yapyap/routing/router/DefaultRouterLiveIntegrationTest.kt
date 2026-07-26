@@ -57,6 +57,7 @@ class DefaultRouterLiveIntegrationTest {
             lamportClock = 1L,
             createdAtEpochSeconds = 0L,
             text = "hello-live-router",
+            authorDeviceId = alicePeer,
         )
 
     @Test

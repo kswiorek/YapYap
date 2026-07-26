@@ -4,7 +4,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 
 interface DagEngine {
     suspend fun append(roomId: String, draft: MessageDraft): MessagePayload
-    suspend fun ingest(payload: MessagePayload): IngestResult
+    suspend fun ingest(payload: MessagePayload): IngestResult?
     suspend fun getMessagesInRoom(roomId: String): List<MessagePayload>
 
     /**

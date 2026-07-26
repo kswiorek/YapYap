@@ -1,5 +1,6 @@
 package org.yapyap.crypto.signature
 
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -48,5 +49,55 @@ class DefaultSignatureProvider(
             )
         }
         return verified
+    }
+
+    override suspend fun verifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray,
+    ): Boolean {
+        val verified = verify(authorDeviceId, signedBytes, signature)
+        if (!verified) {
+            logger.warn(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
+                message = "Author signature verification failed",
+                fields = mapOf(
+                    "accountId" to accountId,
+                    "authorDeviceId" to authorDeviceId,
+                    "signedBytesLength" to signedBytes.size,
+                ),
+            )
+            return false
+        }
+        val peerCandidates = identityResolver.getAllPeerDevicesForAccount(accountId)
+
+        if (authorDeviceId !in peerCandidates) {
+            logger.warn(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
+                message = "Author device not found in account's roster",
+                fields = mapOf(
+                    "accountId" to accountId,
+                    "authorDeviceId" to authorDeviceId,
+                    "peerCandidates" to peerCandidates,
+                ),
+            )
+            return false
+        }
+        // TODO Sprint 4: Verify device belongs to account via signed roster (global events DAG).
+        // For now, the signature proves the message was signed by the claimed device key.
+        // The account→device binding will be verified once the typed global events are implemented.
+        logger.debug(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.AUTHOR_SIGNATURE_VERIFIED,
+            message = "Author signature verified",
+            fields = mapOf(
+                "accountId" to accountId,
+                "authorDeviceId" to authorDeviceId,
+            ),
+        )
+        return true
     }
 }

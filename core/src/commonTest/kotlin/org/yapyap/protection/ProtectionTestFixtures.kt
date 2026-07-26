@@ -51,6 +51,8 @@ internal fun sampleTextPayload(messageId: String = "msg-contract-1"): MessagePay
         lamportClock = 0L,
         createdAtEpochSeconds = 0L,
         text = "hello",
+        authorDeviceId = PeerId("test-device"),
+        authorSignature = byteArrayOf(0x01, 0x02, 0x03),
     )
 
 internal fun sampleWebRtcSignal(source: PeerId, target: PeerId): WebRtcSignal =
