@@ -5,9 +5,11 @@ import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
-data class WebRtcSignalEnvelope(
-    val sessionId: String,
+data class WebRtcSignalEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+    val signalEnvelopeId: Uuid,
     val kind: WebRtcSignalKind,
     val source: PeerId,
     val target: PeerId,
@@ -18,7 +20,6 @@ data class WebRtcSignalEnvelope(
     val payload: ByteArray,
 ) {
     init {
-        require(sessionId.isNotBlank()) { "sessionId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
@@ -30,7 +31,7 @@ data class WebRtcSignalEnvelope(
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
         writer.writeByte(kind.wireValue.toInt())
-        writer.writeString(sessionId)
+        writer.writeUuid(signalEnvelopeId)
         writer.writePeerId(source)
         writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
@@ -42,7 +43,7 @@ data class WebRtcSignalEnvelope(
     }
 
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
-        Fields.SESSION_ID to sessionId,
+        Fields.SIGNAL_ENVELOPE_ID to signalEnvelopeId,
         Fields.KIND to kind,
         Fields.SOURCE to source,
         Fields.TARGET to target,
@@ -54,7 +55,7 @@ data class WebRtcSignalEnvelope(
 
     companion object {
         object Fields {
-            const val SESSION_ID = "sessionId"
+            const val SIGNAL_ENVELOPE_ID = "signalEnvelopeId"
             const val KIND = "kind"
             const val SOURCE = "source"
             const val TARGET = "target"
@@ -68,7 +69,7 @@ data class WebRtcSignalEnvelope(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'W'.code.toByte(), 'S'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-        fun decode(bytes: ByteArray): WebRtcSignalEnvelope {
+            fun decode(bytes: ByteArray): WebRtcSignalEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid WebRTC signal envelope magic" }
@@ -77,7 +78,7 @@ data class WebRtcSignalEnvelope(
             require(version == VERSION) { "Unsupported WebRTC signal envelope version: $version" }
 
             val kind = WebRtcSignalKind.fromWireValue(reader.readByte())
-            val sessionId = reader.readString()
+            val sessionId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
@@ -88,7 +89,7 @@ data class WebRtcSignalEnvelope(
             reader.requireFullyRead()
 
             return WebRtcSignalEnvelope(
-                sessionId = sessionId,
+                signalEnvelopeId = sessionId,
                 kind = kind,
                 source = source,
                 target = target,

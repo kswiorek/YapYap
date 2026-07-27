@@ -56,7 +56,7 @@ class MessageProtectionTest {
         val protection = PlaintextMessageProtection(crypto)
         val payload = sampleTextPayload()
         val envelope = MessageEnvelope(
-            messageId = payload.messageId,
+            messageEnvelopeId = payload.messageId,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
             createdAtEpochSeconds = 1L,

@@ -11,7 +11,6 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.PacketDeduplicator
-import org.yapyap.persistence.packet.PacketIdAllocator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
@@ -41,7 +40,6 @@ class DefaultRouter(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val identityResolver: IdentityResolver,
-    val packetIdAllocator: PacketIdAllocator,
     val packetDeduplicator: PacketDeduplicator,
     val packetOutbox: PacketOutbox,
     val envelopeProtectionService: EnvelopeProtectionService,
@@ -52,7 +50,6 @@ class DefaultRouter(
 ): Router {
     private val routingContext = RoutingContext(
         identityResolver = identityResolver,
-        packetIdAllocator = packetIdAllocator,
         packetDeduplicator = packetDeduplicator,
         envelopeProtectionService = envelopeProtectionService,
         torTransport = torTransport,
@@ -110,7 +107,6 @@ class DefaultRouter(
         check(!started) { "Router is already started" }
         localDeviceIdentity = identityResolver.getLocalDeviceIdentityRecord()
         routingContext.localDeviceIdentity = localDeviceIdentity!!
-        packetIdAllocator.assignLocalDevice(localDeviceIdentity!!.deviceId)
 
         try {
             torEndpoint = torTransport.start()
@@ -171,7 +167,7 @@ class DefaultRouter(
         webRtcSessionJob = s.launch {
             webRtcTransport.sessionStates.collect { state ->
                 if (state.phase == WebRtcSessionPhase.CONNECTED) {
-                    outboxProcessor.onWebRtcSessionConnected(state.peerId, state.sessionId)
+                    outboxProcessor.onWebRtcSessionConnected(state.peerId)
                 }
             }
         }
@@ -227,11 +223,11 @@ class DefaultRouter(
         return outboundMessenger.sendMessage(target, payload, forceTransport)
     }
 
-    suspend fun testOpenWebRtcSession(target: PeerId, sessionId: String) {
-        webRtcTransport.openSession(target, sessionId)
+    suspend fun testOpenWebRtcSession(target: PeerId) {
+        webRtcTransport.openSession(target)
     }
 
-    suspend fun testCloseWebRtcSession(sessionId: String) {
-        webRtcTransport.closeSession(sessionId)
+    suspend fun testCloseWebRtcSession(target: PeerId) {
+        webRtcTransport.closeSession(target)
     }
 }

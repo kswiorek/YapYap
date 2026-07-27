@@ -2,13 +2,13 @@ package org.yapyap.persistence.packet
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
+import kotlin.uuid.Uuid
 
 interface PacketOutbox {
     fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean = false)
-    fun markDelivered(packetId: PacketId)
+    fun markDelivered(packetId: Uuid)
     fun setDueForTarget(target: PeerId, nextRetryAt: Long)
-    fun recordAttempt(packetId: PacketId, nextRetryAt: Long, now: Long)
+    fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long)
     fun listAllForTarget(target: PeerId): List<OutboxEntry>
 
     fun listDue(now: Long): List<OutboxEntry>
@@ -19,7 +19,7 @@ interface PacketOutbox {
 }
 
 data class OutboxEntry(
-    val packetId: PacketId,
+    val packetId: Uuid,
     val envelope: BinaryEnvelope,
     val nextRetryAt: Long?,
     val attempts: Long

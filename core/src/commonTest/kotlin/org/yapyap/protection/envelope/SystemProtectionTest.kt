@@ -147,7 +147,7 @@ class SystemProtectionTest {
             target = targetPeer,
         )
         val envelope = protection.protect(payload, ctx)
-        assertEquals("ack:${payload.packetId.toHex()}", envelope.correlationId)
+        assertEquals("ack:${payload.packetId.toHex()}", envelope.systemEnvelopeId)
     }
 
     @Test
@@ -155,7 +155,7 @@ class SystemProtectionTest {
         val protection = PlaintextSystemProtection(crypto)
         val payload = samplePacketAckPayload()
         val envelope = SystemEnvelope(
-            correlationId = "ack:${payload.packetId.toHex()}",
+            systemEnvelopeId = "ack:${payload.packetId.toHex()}",
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
             createdAtEpochSeconds = 1L,

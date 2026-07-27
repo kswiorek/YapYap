@@ -10,9 +10,9 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.types.*
-import org.yapyap.transport.TransportException
 import kotlin.time.Clock
 
 class DefaultWebRtcTransport(
@@ -38,10 +38,8 @@ class DefaultWebRtcTransport(
     private var localDevice: PeerId? = null
     private var scope: CoroutineScope? = null
 
-    private val peerBySession = mutableMapOf<String, PeerId>()
-    private val pendingIncomingCallBySession = mutableMapOf<String, WebRtcIncomingAvSessionRequest>()
-    private val avPeerBySession = mutableMapOf<String, PeerId>()
-    private val avOptionsBySession = mutableMapOf<String, AvSessionOptions>()
+    private val pendingIncomingCallByPeer = mutableMapOf<PeerId, WebRtcIncomingAvSessionRequest>()
+    private val avOptionsByPeer = mutableMapOf<PeerId, AvSessionOptions>()
 
     private var backendSignalJob: Job? = null
     private var backendDataJob: Job? = null
@@ -74,10 +72,8 @@ class DefaultWebRtcTransport(
             backend.sessionEvents.collect { event ->
                 when (event) {
                     is WebRtcSessionEvent.Connecting -> {
-                        peerBySession[event.sessionId] = event.peer
                         sessionStateFlow.value =
                             WebRtcSessionState(
-                                sessionId = event.sessionId,
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.NEGOTIATING,
                             )
@@ -85,14 +81,12 @@ class DefaultWebRtcTransport(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_STATE_CHANGED,
                             message = "WebRTC session negotiating",
-                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "phase" to WebRtcSessionPhase.NEGOTIATING.name),
+                            fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.NEGOTIATING.name),
                         )
                     }
                     is WebRtcSessionEvent.Connected -> {
-                        peerBySession[event.sessionId] = event.peer
                         sessionStateFlow.value =
                             WebRtcSessionState(
-                                sessionId = event.sessionId,
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.CONNECTED,
                             )
@@ -100,14 +94,12 @@ class DefaultWebRtcTransport(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_STATE_CHANGED,
                             message = "WebRTC session connected",
-                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "phase" to WebRtcSessionPhase.CONNECTED.name),
+                            fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.CONNECTED.name),
                         )
                     }
                     is WebRtcSessionEvent.Closed -> {
-                        peerBySession.remove(event.sessionId)
                         sessionStateFlow.value =
                             WebRtcSessionState(
-                                sessionId = event.sessionId,
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.CLOSED,
                             )
@@ -115,14 +107,12 @@ class DefaultWebRtcTransport(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_STATE_CHANGED,
                             message = "WebRTC session closed",
-                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "phase" to WebRtcSessionPhase.CLOSED.name),
+                            fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.CLOSED.name),
                         )
                     }
                     is WebRtcSessionEvent.Failed -> {
-                        peerBySession.remove(event.sessionId)
                         sessionStateFlow.value =
                             WebRtcSessionState(
-                                sessionId = event.sessionId,
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.FAILED,
                                 reason = event.reason,
@@ -131,7 +121,7 @@ class DefaultWebRtcTransport(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_FAILED,
                             message = "WebRTC session failed",
-                            fields = mapOf("sessionId" to event.sessionId, "peer" to event.peer, "reason" to event.reason),
+                            fields = mapOf("peer" to event.peer, "reason" to event.reason),
                         )
                     }
                 }
@@ -143,37 +133,30 @@ class DefaultWebRtcTransport(
                 when (event) {
                     is WebRtcAvChannelEvent.Adding -> {
                         callStateFlow.value = WebRtcAvSessionState(
-                            sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.NEGOTIATING,
-                            options = avOptionsBySession[event.sessionId],
+                            options = avOptionsByPeer[event.peer],
                         )
                     }
                     is WebRtcAvChannelEvent.Active -> {
-                        avPeerBySession[event.sessionId] = event.peer
                         callStateFlow.value = WebRtcAvSessionState(
-                            sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.ACTIVE,
-                            options = avOptionsBySession[event.sessionId],
+                            options = avOptionsByPeer[event.peer],
                         )
                     }
                     is WebRtcAvChannelEvent.Removed -> {
-                        avPeerBySession.remove(event.sessionId)
-                        pendingIncomingCallBySession.remove(event.sessionId)
-                        avOptionsBySession.remove(event.sessionId)
+                        pendingIncomingCallByPeer.remove(event.peer)
+                        avOptionsByPeer.remove(event.peer)
                         callStateFlow.value = WebRtcAvSessionState(
-                            sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.ENDED,
                         )
                     }
                     is WebRtcAvChannelEvent.Failed -> {
-                        avPeerBySession.remove(event.sessionId)
-                        pendingIncomingCallBySession.remove(event.sessionId)
-                        avOptionsBySession.remove(event.sessionId)
+                        pendingIncomingCallByPeer.remove(event.peer)
+                        avOptionsByPeer.remove(event.peer)
                         callStateFlow.value = WebRtcAvSessionState(
-                            sessionId = event.sessionId,
                             peer = event.peer,
                             phase = WebRtcAvSessionPhase.FAILED,
                             reason = event.reason,
@@ -205,10 +188,8 @@ class DefaultWebRtcTransport(
         backendSessionEventsJob = null
         backendAvChannelEventsJob = null
 
-        peerBySession.clear()
-        pendingIncomingCallBySession.clear()
-        avPeerBySession.clear()
-        avOptionsBySession.clear()
+        pendingIncomingCallByPeer.clear()
+        avOptionsByPeer.clear()
 
         scope?.cancel()
         scope = null
@@ -224,26 +205,17 @@ class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun openSession(target: PeerId, sessionId: String) {
+    override suspend fun openSession(target: PeerId) {
         check(started) { "WebRTC transport must be started before opening session" }
-        peerBySession[sessionId] = target
-        backend.openSession(target = target, sessionId = sessionId)
+        backend.openSession(target = target)
     }
 
-    override suspend fun getSessionForPeer(target: PeerId): String? {
-        return peerBySession.entries.find { it.value == target }?.key
-    }
-
-    override suspend fun sendEnvelope(sessionId: String?, targetId: PeerId, envelope: BinaryEnvelope) {
+    override suspend fun sendEnvelope(targetId: PeerId, envelope: BinaryEnvelope) {
         check(started) { "WebRTC transport must be started before sending data" }
         val local = requireNotNull(localDevice) { "Local device is not available" }
-        if (sessionId == null) {
-            throw TransportException.WebRtcException.SessionNotFound("no session id provided")
-        }
         val payload = envelope.encode()
         backend.sendData(
             WebRtcDataFrame(
-                sessionId = sessionId,
                 source = local,
                 target = targetId,
                 dataType = WebRtcDataType.ENVELOPE_BINARY,
@@ -252,80 +224,69 @@ class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun closeSession(sessionId: String) {
+    override suspend fun closeSession(targetId: PeerId) {
         check(started) { "WebRTC transport must be started before closing session" }
-        backend.closeSession(sessionId)
+        backend.closeSession(targetId)
     }
 
-    override suspend fun inviteCall(target: PeerId, sessionId: String, options: AvSessionOptions) {
+    override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
         check(started) { "WebRTC transport must be started before inviting call" }
-        avPeerBySession[sessionId] = target
-        avOptionsBySession[sessionId] = options
-        backend.addAvChannel(sessionId = sessionId)
-        sendAvControl(sessionId = sessionId, target = target, message = AvControlMessage.Invite(options))
+        avOptionsByPeer[peer] = options
+        backend.addAvChannel(peer)
+        sendAvControl(target = peer, message = AvControlMessage.Invite(options))
         callStateFlow.value = WebRtcAvSessionState(
-            sessionId = sessionId,
-            peer = target,
+            peer = peer,
             phase = WebRtcAvSessionPhase.NEGOTIATING,
             options = options,
         )
     }
 
-    override suspend fun acceptCall(sessionId: String, options: AvSessionOptions) {
+    override suspend fun acceptCall(peer: PeerId, options: AvSessionOptions) {
         check(started) { "WebRTC transport must be started before accepting call" }
-        val request = pendingIncomingCallBySession.remove(sessionId)
-            ?: error("No pending call invite found for sessionId $sessionId")
-        avPeerBySession[sessionId] = request.source
-        avOptionsBySession[sessionId] = options
-        backend.addAvChannel(sessionId = sessionId)
-        sendAvControl(sessionId = sessionId, target = request.source, message = AvControlMessage.Accept(options))
+        val request = pendingIncomingCallByPeer.remove(peer)
+            ?: error("No pending call invite found for sessionId $peer")
+        avOptionsByPeer[peer] = options
+        backend.addAvChannel(peer)
+        sendAvControl(target = request.source, message = AvControlMessage.Accept(options))
         callStateFlow.value = WebRtcAvSessionState(
-            sessionId = sessionId,
             peer = request.source,
             phase = WebRtcAvSessionPhase.ACTIVE,
             options = options,
         )
     }
 
-    override suspend fun rejectCall(sessionId: String, reason: String) {
+    override suspend fun rejectCall(peer: PeerId, reason: String) {
         check(started) { "WebRTC transport must be started before rejecting call" }
-        val request = pendingIncomingCallBySession.remove(sessionId)
-            ?: error("No pending call invite found for sessionId $sessionId")
-        sendAvControl(sessionId = sessionId, target = request.source, message = AvControlMessage.Reject(reason))
-        backend.removeAvChannel(sessionId)
-        avPeerBySession.remove(sessionId)
-        avOptionsBySession.remove(sessionId)
+        val request = pendingIncomingCallByPeer.remove(peer)
+            ?: error("No pending call invite found for sessionId $peer")
+        sendAvControl(target = request.source, message = AvControlMessage.Reject(reason))
+        backend.removeAvChannel(peer)
+        avOptionsByPeer.remove(peer)
         callStateFlow.value = WebRtcAvSessionState(
-            sessionId = sessionId,
             peer = request.source,
             phase = WebRtcAvSessionPhase.REJECTED,
             reason = reason,
         )
     }
 
-    override suspend fun updateCallOptions(sessionId: String, options: AvSessionOptions) {
+    override suspend fun updateCallOptions(peer: PeerId, options: AvSessionOptions) {
         check(started) { "WebRTC transport must be started before updating call options" }
-        val peer = avPeerBySession[sessionId] ?: error("No AV peer found for sessionId $sessionId")
-        avOptionsBySession[sessionId] = options
-        sendAvControl(sessionId = sessionId, target = peer, message = AvControlMessage.Update(options))
+        avOptionsByPeer[peer] = options
+        sendAvControl(target = peer, message = AvControlMessage.Update(options))
         callStateFlow.value = WebRtcAvSessionState(
-            sessionId = sessionId,
             peer = peer,
             phase = WebRtcAvSessionPhase.ACTIVE,
             options = options,
         )
     }
 
-    override suspend fun endCall(sessionId: String, reason: String?) {
+    override suspend fun endCall(peer: PeerId, reason: String?) {
         check(started) { "WebRTC transport must be started before ending call" }
-        val peer = avPeerBySession[sessionId] ?: peerBySession[sessionId] ?: return
-        sendAvControl(sessionId = sessionId, target = peer, message = AvControlMessage.End(reason))
-        backend.removeAvChannel(sessionId)
-        avPeerBySession.remove(sessionId)
-        pendingIncomingCallBySession.remove(sessionId)
-        avOptionsBySession.remove(sessionId)
+        sendAvControl(target = peer, message = AvControlMessage.End(reason))
+        backend.removeAvChannel(peer)
+        pendingIncomingCallByPeer.remove(peer)
+        avOptionsByPeer.remove(peer)
         callStateFlow.value = WebRtcAvSessionState(
-            sessionId = sessionId,
             peer = peer,
             phase = WebRtcAvSessionPhase.ENDED,
             reason = reason,
@@ -337,51 +298,46 @@ class DefaultWebRtcTransport(
         if (signal.target != local) {
             throw TransportException.WebRtcException.WrongTargetException(signal.target)
         }
-
+        backend.handleRemoteSignal(signal)
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
-                peerBySession[signal.sessionId] = signal.source
                 sessionStateFlow.value =
                     WebRtcSessionState(
-                        sessionId = signal.sessionId,
                         peerId = signal.source,
                         phase = WebRtcSessionPhase.NEGOTIATING,
                     )
-                backend.handleRemoteSignal(signal)
                 logger.debug(
                     component = LogComponent.WEBRTC_TRANSPORT,
                     event = LogEvent.SIGNAL_INBOUND_HANDLED,
                     message = "Handled inbound OFFER signal",
-                    fields = mapOf("sessionId" to signal.sessionId, "source" to signal.source),
+                    fields = mapOf("source" to signal.source),
                 )
             }
             WebRtcSignalKind.REJECT -> {
                 val reason = signal.payload.decodeToString()
-                peerBySession.remove(signal.sessionId)
                 sessionStateFlow.value =
                     WebRtcSessionState(
-                        sessionId = signal.sessionId,
                         peerId = signal.source,
                         phase = WebRtcSessionPhase.REJECTED,
                         reason = reason,
                     )
             }
             else -> {
-                backend.handleRemoteSignal(signal)
                 logger.debug(
                     component = LogComponent.WEBRTC_TRANSPORT,
                     event = LogEvent.SIGNAL_INBOUND_HANDLED,
                     message = "Handled inbound WebRTC signal",
-                    fields = mapOf("sessionId" to signal.sessionId, "kind" to signal.kind.name, "source" to signal.source),
+                    fields = mapOf("kind" to signal.kind.name, "source" to signal.source),
                 )
             }
         }
     }
 
-    private suspend fun handleIncomingFrame(frame: WebRtcDataFrame) {
-        val peer =
-            peerBySession[frame.sessionId] ?: throw TransportException.WebRtcException.SessionNotFound(frame.sessionId)
+    override fun hasSession(peerId: PeerId): Boolean {
+        return backend.hasSession(peerId)
+    }
 
+    private suspend fun handleIncomingFrame(frame: WebRtcDataFrame) {
         when (frame.dataType) {
             WebRtcDataType.ENVELOPE_BINARY -> {
                 val envelope = try {
@@ -390,23 +346,21 @@ class DefaultWebRtcTransport(
                     throw TransportException.WebRtcException.DecodeError("BinaryEnvelope decode error: ${e.message}")
                 }
                 incomingEnvelopeFlow.emit(WebRtcIncomingEnvelope(
-                    sessionId = frame.sessionId,
-                    source = peer,
+                    source = frame.source,
                     envelope = envelope,
                 ))
             }
             WebRtcDataType.AV_DATA -> {
-                handleAvControlFrame(frame, peer)
+                handleAvControlFrame(frame)
                 incomingAvFrameFlow.emit(frame)
             }
         }
     }
 
-    private suspend fun sendAvControl(sessionId: String, target: PeerId, message: AvControlMessage) {
+    private suspend fun sendAvControl(target: PeerId, message: AvControlMessage) {
         val local = requireNotNull(localDevice) { "Local device is not available" }
         backend.sendData(
             WebRtcDataFrame(
-                sessionId = sessionId,
                 source = local,
                 target = target,
                 dataType = WebRtcDataType.AV_DATA,
@@ -415,7 +369,7 @@ class DefaultWebRtcTransport(
         )
     }
 
-    private suspend fun handleAvControlFrame(frame: WebRtcDataFrame, peer: PeerId) {
+    private suspend fun handleAvControlFrame(frame: WebRtcDataFrame) {
         val message = try {
             AvControlMessage.decode(frame.payload)
         } catch (e: Exception) {
@@ -423,62 +377,52 @@ class DefaultWebRtcTransport(
         }
         when (message) {
             is AvControlMessage.Invite -> {
-                avPeerBySession[frame.sessionId] = peer
-                avOptionsBySession[frame.sessionId] = message.options
+                avOptionsByPeer[frame.source] = message.options
                 val invite = WebRtcIncomingAvSessionRequest(
-                    sessionId = frame.sessionId,
-                    source = peer,
+                    source = frame.source,
                     options = message.options,
                     receivedAtEpochSeconds = Clock.System.now().epochSeconds,
                 )
-                pendingIncomingCallBySession[frame.sessionId] = invite
+                pendingIncomingCallByPeer[frame.source] = invite
                 incomingCallInviteFlow.emit(invite)
                 callStateFlow.value = WebRtcAvSessionState(
-                    sessionId = frame.sessionId,
-                    peer = peer,
+                    peer = frame.source,
                     phase = WebRtcAvSessionPhase.PENDING_DECISION,
                     options = message.options,
                 )
             }
             is AvControlMessage.Accept -> {
-                avPeerBySession[frame.sessionId] = peer
-                avOptionsBySession[frame.sessionId] = message.options
+                avOptionsByPeer[frame.source] = message.options
                 callStateFlow.value = WebRtcAvSessionState(
-                    sessionId = frame.sessionId,
-                    peer = peer,
+                    peer = frame.source,
                     phase = WebRtcAvSessionPhase.ACTIVE,
                     options = message.options,
                 )
             }
             is AvControlMessage.Reject -> {
-                pendingIncomingCallBySession.remove(frame.sessionId)
-                avPeerBySession.remove(frame.sessionId)
-                avOptionsBySession.remove(frame.sessionId)
-                backend.removeAvChannel(frame.sessionId)
+                pendingIncomingCallByPeer.remove(frame.source)
+                avOptionsByPeer.remove(frame.source)
+                backend.removeAvChannel(frame.source)
                 callStateFlow.value = WebRtcAvSessionState(
-                    sessionId = frame.sessionId,
-                    peer = peer,
+                    peer = frame.source,
                     phase = WebRtcAvSessionPhase.REJECTED,
                     reason = message.reason,
                 )
             }
             is AvControlMessage.Update -> {
-                avOptionsBySession[frame.sessionId] = message.options
+                avOptionsByPeer[frame.source] = message.options
                 callStateFlow.value = WebRtcAvSessionState(
-                    sessionId = frame.sessionId,
-                    peer = peer,
+                    peer = frame.source,
                     phase = WebRtcAvSessionPhase.ACTIVE,
                     options = message.options,
                 )
             }
             is AvControlMessage.End -> {
-                pendingIncomingCallBySession.remove(frame.sessionId)
-                avPeerBySession.remove(frame.sessionId)
-                avOptionsBySession.remove(frame.sessionId)
-                backend.removeAvChannel(frame.sessionId)
+                pendingIncomingCallByPeer.remove(frame.source)
+                avOptionsByPeer.remove(frame.source)
+                backend.removeAvChannel(frame.source)
                 callStateFlow.value = WebRtcAvSessionState(
-                    sessionId = frame.sessionId,
-                    peer = peer,
+                    peer = frame.source,
                     phase = WebRtcAvSessionPhase.ENDED,
                     reason = message.reason,
                 )
@@ -488,7 +432,7 @@ class DefaultWebRtcTransport(
             component = LogComponent.WEBRTC_TRANSPORT,
             event = LogEvent.SIGNAL_INBOUND_HANDLED,
             message = "Handled inbound AV control frame",
-            fields = mapOf("sessionId" to frame.sessionId, "peer" to peer, "kind" to message.kindName),
+            fields = mapOf("peer" to frame.source, "kind" to message.kindName),
         )
     }
 }

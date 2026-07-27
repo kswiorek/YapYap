@@ -274,7 +274,7 @@ class DefaultRouterOutboxTest {
         val ackPayload = SystemPayload.PacketAck(ackForPacketId, PacketType.MESSAGE)
         val systemEnvelope =
             SystemEnvelope(
-                correlationId = "ack:${ackForPacketId.toHex()}",
+                systemEnvelopeId = "ack:${ackForPacketId.toHex()}",
                 source = remotePeer,
                 target = localPeer,
                 createdAtEpochSeconds = 10_000L,
@@ -309,7 +309,7 @@ class DefaultRouterOutboxTest {
         )
         val systemEnvelope =
             SystemEnvelope(
-                correlationId = "nack:${nackedPacketId.toHex()}",
+                systemEnvelopeId = "nack:${nackedPacketId.toHex()}",
                 source = remotePeer,
                 target = localPeer,
                 createdAtEpochSeconds = 10_000L,

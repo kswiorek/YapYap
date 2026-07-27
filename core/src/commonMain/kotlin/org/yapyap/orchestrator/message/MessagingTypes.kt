@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.message
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
+import kotlin.uuid.Uuid
 
 sealed interface MessageDisplayItem {
     val accountId: AccountId
@@ -26,7 +27,7 @@ sealed interface MessageDisplayItem {
         override val accountId: AccountId,
         override val timestamp: Long,
         override val displayOrderId: Long,
-        val missingPrevId: String,
+        val missingPrevId: Uuid,
     ): MessageDisplayItem
 }
 

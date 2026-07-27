@@ -7,17 +7,19 @@ import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RoutingContext
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 internal fun interface InboundEnvelopeHandler {
     suspend fun handle(env: BinaryEnvelope): InboundHandleResult
 }
 
+@OptIn(ExperimentalUuidApi::class)
 internal fun RoutingContext.logInboundProtectionFailure(
     message: String,
-    packetId: PacketId,
+    packetId: Uuid,
     source: PeerId,
     exception: ProtectionException,
 ) {

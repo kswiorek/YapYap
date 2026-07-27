@@ -1,12 +1,16 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
-data class MessageEnvelope(
-    val messageId: String,
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+
+data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+    val messageEnvelopeId: Uuid,
     val source: PeerId,
     val target: PeerId,
     val createdAtEpochSeconds: Long,
@@ -16,7 +20,6 @@ data class MessageEnvelope(
     val payload: ByteArray,
 ) {
     init {
-        require(messageId.isNotBlank()) { "messageId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
@@ -27,7 +30,7 @@ data class MessageEnvelope(
         val writer = ByteWriter(256 + nonce.size + payload.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeString(messageId)
+        writer.writeUuid(messageEnvelopeId)
         writer.writePeerId(source)
         writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
@@ -40,7 +43,7 @@ data class MessageEnvelope(
     fun decodePayload(): MessagePayload = MessagePayload.decode(payload)
 
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
-        Fields.MESSAGE_ID to messageId,
+        Fields.MESSAGE_ID to messageEnvelopeId,
         Fields.SOURCE to source,
         Fields.TARGET to target,
         Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
@@ -64,7 +67,7 @@ data class MessageEnvelope(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'M'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-        fun decode(bytes: ByteArray): MessageEnvelope {
+            fun decode(bytes: ByteArray): MessageEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid message envelope magic" }
@@ -72,7 +75,7 @@ data class MessageEnvelope(
             val version = reader.readByte()
             require(version == VERSION) { "Unsupported message envelope version: $version" }
 
-            val messageId = reader.readString()
+            val messageEnvelopeId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
@@ -83,7 +86,7 @@ data class MessageEnvelope(
             reader.requireFullyRead()
 
             return MessageEnvelope(
-                messageId = messageId,
+                messageEnvelopeId = messageEnvelopeId,
                 source = source,
                 target = target,
                 createdAtEpochSeconds = createdAtEpochSeconds,
@@ -105,11 +108,11 @@ data class MessageEnvelope(
  * TODO: Attachment / file-offer message payload types (link to FileEnvelope transfers).
  */
 sealed interface MessagePayload {
-    val messageId: String
+    val messageId: Uuid
     val roomId: String
-    val senderAccountId: String
+    val senderAccountId: AccountId
     val authorDeviceId: PeerId
-    val prevId: String?
+    val prevId: Uuid?
     val lamportClock: Long
     /**
      * Sender's wall-clock composition time, set once by [org.yapyap.orchestrator.dag.DagEngine.append]
@@ -128,20 +131,18 @@ sealed interface MessagePayload {
     fun withSignature(signature: ByteArray): MessagePayload
 
     data class Text(
-        override val messageId: String,
+        override val messageId: Uuid,
         override val roomId: String,
-        override val senderAccountId: String,
+        override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevId: String?,
+        override val prevId: Uuid?,
         override val lamportClock: Long,
         override val createdAtEpochSeconds: Long,
         val text: String,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
-            require(messageId.isNotBlank()) { "messageId must not be blank" }
             require(roomId.isNotBlank()) { "roomId must not be blank" }
-            require(senderAccountId.isNotBlank()) { "senderAccountId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
             require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
             if (authorSignature != null) {
@@ -151,7 +152,7 @@ sealed interface MessagePayload {
 
         override val payloadType: MessagePayloadType = MessagePayloadType.TEXT
 
-        override fun withSignature(signature: ByteArray): Text = copy(authorSignature = signature)
+            override fun withSignature(signature: ByteArray): Text = copy(authorSignature = signature)
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(256 + text.length + (authorSignature?.size ?: 4))
@@ -168,36 +169,8 @@ sealed interface MessagePayload {
             return writer.toByteArray()
         }
 
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is Text) return false
-            return messageId == other.messageId &&
-                    roomId == other.roomId &&
-                    senderAccountId == other.senderAccountId &&
-                    authorDeviceId == other.authorDeviceId &&
-                    prevId == other.prevId &&
-                    lamportClock == other.lamportClock &&
-                    createdAtEpochSeconds == other.createdAtEpochSeconds &&
-                    text == other.text &&
-                    ((authorSignature == null && other.authorSignature == null) ||
-                     (authorSignature != null && other.authorSignature != null && authorSignature.contentEquals(other.authorSignature)))
-        }
-
-        override fun hashCode(): Int {
-            var result = messageId.hashCode()
-            result = 31 * result + roomId.hashCode()
-            result = 31 * result + senderAccountId.hashCode()
-            result = 31 * result + authorDeviceId.hashCode()
-            result = 31 * result + (prevId?.hashCode() ?: 0)
-            result = 31 * result + lamportClock.hashCode()
-            result = 31 * result + createdAtEpochSeconds.hashCode()
-            result = 31 * result + text.hashCode()
-            result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
-            return result
-        }
-
         companion object {
-            fun decode(bytes: ByteArray): Text {
+                    fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.TEXT)
                 val text = reader.readString()
@@ -218,21 +191,19 @@ sealed interface MessagePayload {
         }
     }
 
-    data class GlobalEvent(
-        override val messageId: String,
+    data class GlobalEvent @OptIn(ExperimentalUuidApi::class) constructor(
+        override val messageId: Uuid,
         override val roomId: String = "GLOBAL",
-        override val senderAccountId: String,
+        override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevId: String?,
+        override val prevId: Uuid?,
         override val lamportClock: Long,
         override val createdAtEpochSeconds: Long,
         val eventBytes: ByteArray,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
-            require(messageId.isNotBlank()) { "messageId must not be blank" }
             require(roomId.isNotBlank()) { "roomId must not be blank" }
-            require(senderAccountId.isNotBlank()) { "senderAccountId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
             require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
             if (authorSignature != null) {
@@ -242,7 +213,7 @@ sealed interface MessagePayload {
 
         override val payloadType: MessagePayloadType = MessagePayloadType.GLOBAL_EVENT
 
-        override fun withSignature(signature: ByteArray): GlobalEvent = copy(authorSignature = signature)
+            override fun withSignature(signature: ByteArray): GlobalEvent = copy(authorSignature = signature)
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(256 + eventBytes.size + (authorSignature?.size ?: 4))
@@ -261,7 +232,7 @@ sealed interface MessagePayload {
         }
 
         companion object {
-            fun decode(bytes: ByteArray): GlobalEvent {
+                    fun decode(bytes: ByteArray): GlobalEvent {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.GLOBAL_EVENT)
                 // TODO: Decode typed global control events once schema is finalized.
@@ -281,41 +252,6 @@ sealed interface MessagePayload {
                 )
             }
         }
-
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other == null || this::class != other::class) return false
-
-            other as GlobalEvent
-
-            if (lamportClock != other.lamportClock) return false
-            if (createdAtEpochSeconds != other.createdAtEpochSeconds) return false
-            if (messageId != other.messageId) return false
-            if (roomId != other.roomId) return false
-            if (senderAccountId != other.senderAccountId) return false
-            if (authorDeviceId != other.authorDeviceId) return false
-            if (prevId != other.prevId) return false
-            if (!eventBytes.contentEquals(other.eventBytes)) return false
-            if (!((authorSignature == null && other.authorSignature == null) ||
-                  (authorSignature != null && other.authorSignature != null && authorSignature.contentEquals(other.authorSignature)))) return false
-            if (payloadType != other.payloadType) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = lamportClock.hashCode()
-            result = 31 * result + createdAtEpochSeconds.hashCode()
-            result = 31 * result + messageId.hashCode()
-            result = 31 * result + roomId.hashCode()
-            result = 31 * result + senderAccountId.hashCode()
-            result = 31 * result + authorDeviceId.hashCode()
-            result = 31 * result + (prevId?.hashCode() ?: 0)
-            result = 31 * result + eventBytes.contentHashCode()
-            result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
-            result = 31 * result + payloadType.hashCode()
-            return result
-        }
     }
 
     companion object {
@@ -332,11 +268,11 @@ sealed interface MessagePayload {
 }
 
 private data class MessagePayloadHeader(
-    val messageId: String,
+    val messageId: Uuid,
     val roomId: String,
-    val senderAccountId: String,
+    val senderAccountId: AccountId,
     val authorDeviceId: PeerId,
-    val prevId: String?,
+    val prevId: Uuid?,
     val lamportClock: Long,
     val createdAtEpochSeconds: Long,
 )
@@ -353,11 +289,11 @@ private fun readPayloadHeaderVersion(reader: ByteReader) {
 private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writeByte(PAYLOAD_HEADER_VERSION.toInt())
     writer.writeByte(payloadType.wireValue.toInt())
-    writer.writeString(messageId)
+    writer.writeUuid(messageId)
     writer.writeString(roomId)
-    writer.writeString(senderAccountId)
+    writer.writeString(senderAccountId.id)
     writer.writePeerId(authorDeviceId)
-    writer.writeNullableString(prevId)
+    writer.writeNullableUuid(prevId)
     writer.writeLong(lamportClock)
     writer.writeLong(createdAtEpochSeconds)
 }
@@ -368,11 +304,11 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
         "Expected ${expected.name} payload type"
     }
     return MessagePayloadHeader(
-        messageId = reader.readString(),
+        messageId = reader.readUuid(),
         roomId = reader.readString(),
-        senderAccountId = reader.readString(),
+        senderAccountId = AccountId(reader.readString()),
         authorDeviceId = reader.readPeerId(),
-        prevId = reader.readNullableString(),
+        prevId = reader.readNullableUuid(),
         lamportClock = reader.readLong(),
         createdAtEpochSeconds = reader.readLong(),
     )

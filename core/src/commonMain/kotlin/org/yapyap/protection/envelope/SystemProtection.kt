@@ -13,6 +13,7 @@ import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
+import kotlin.uuid.Uuid
 
 interface SystemProtection {
     suspend fun open(envelope: SystemEnvelope): SystemPayload
@@ -28,7 +29,7 @@ class PlaintextSystemProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextSystemProtection but got ${context.securityScheme}"
         }
         return SystemEnvelope(
-            correlationId = systemEnvelopeCorrelationId(input),
+            systemEnvelopeId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -58,7 +59,7 @@ class PlaintextSystemProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext system envelope",
-            fields = mapOf("correlationId" to envelope.correlationId, "kind" to systemPayload.kind.name),
+            fields = mapOf("correlationId" to envelope.systemEnvelopeId, "kind" to systemPayload.kind.name),
         )
         return systemPayload
     }
@@ -80,7 +81,7 @@ class SignedSystemProtection(
             "Context security scheme must be SIGNED for SignedSystemProtection but got ${context.securityScheme}"
         }
         val unsigned = SystemEnvelope(
-            correlationId = systemEnvelopeCorrelationId(input),
+            systemEnvelopeId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -125,7 +126,7 @@ class SignedSystemProtection(
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed system envelope",
             fields = mapOf(
-                "correlationId" to envelope.correlationId,
+                "correlationId" to envelope.systemEnvelopeId,
                 "source" to envelope.source,
                 "kind" to systemPayload.kind.name,
             ),
@@ -139,9 +140,3 @@ class SignedSystemProtection(
 
     override fun envelopeLabel(): String = "System envelope"
 }
-
-private fun systemEnvelopeCorrelationId(payload: SystemPayload): String =
-    when (payload) {
-        is SystemPayload.PacketAck -> "ack:${payload.packetId.toHex()}"
-        is SystemPayload.PacketNack -> "nack:${payload.packetId.toHex()}"
-    }

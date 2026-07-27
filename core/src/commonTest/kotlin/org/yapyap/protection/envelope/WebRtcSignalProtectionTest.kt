@@ -47,7 +47,7 @@ class WebRtcSignalProtectionTest {
         val protection = PlaintextWebRtcSignalProtection(crypto)
         val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
         val envelope = WebRtcSignalEnvelope(
-            sessionId = input.sessionId,
+            signalEnvelopeId = input.sessionId,
             kind = input.kind,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,

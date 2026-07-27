@@ -17,15 +17,17 @@ interface WebRtcBackend {
 
     suspend fun stop()
 
-    suspend fun openSession(target: PeerId, sessionId: String)
+    suspend fun openSession(target: PeerId)
 
     suspend fun handleRemoteSignal(signal: WebRtcSignal)
 
-    suspend fun closeSession(sessionId: String)
+    fun hasSession(target: PeerId): Boolean
+
+    suspend fun closeSession(target: PeerId)
 
     suspend fun sendData(dataFrame: WebRtcDataFrame)
 
-    suspend fun addAvChannel(sessionId: String)
-    suspend fun removeAvChannel(sessionId: String)
+    suspend fun addAvChannel(target: PeerId)
+    suspend fun removeAvChannel(target: PeerId)
 }
 

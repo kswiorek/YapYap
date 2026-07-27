@@ -54,7 +54,7 @@ class SystemEnvelopeCodecTest {
             packetType = PacketType.SYSTEM,
         )
         val env = SystemEnvelope(
-            correlationId = "ack:${samplePacketId.toHex()}",
+            systemEnvelopeId = "ack:${samplePacketId.toHex()}",
             source = source,
             target = target,
             createdAtEpochSeconds = 1_700_000_000L,
@@ -76,7 +76,7 @@ class SystemEnvelopeCodecTest {
             reasonText = null,
         )
         val env = SystemEnvelope(
-            correlationId = "nack:${samplePacketId.toHex()}",
+            systemEnvelopeId = "nack:${samplePacketId.toHex()}",
             source = source,
             target = target,
             createdAtEpochSeconds = 42L,
@@ -93,7 +93,7 @@ class SystemEnvelopeCodecTest {
     fun systemEnvelope_init_rejectsBlankCorrelationId() {
         assertFailsWith<IllegalArgumentException> {
             SystemEnvelope(
-                correlationId = " ",
+                systemEnvelopeId = " ",
                 source = source,
                 target = target,
                 createdAtEpochSeconds = 0L,
@@ -122,7 +122,7 @@ class SystemEnvelopeCodecTest {
     }
 
     private fun assertSystemEnvelopeEquals(expected: SystemEnvelope, actual: SystemEnvelope) {
-        assertEquals(expected.correlationId, actual.correlationId)
+        assertEquals(expected.systemEnvelopeId, actual.systemEnvelopeId)
         assertEquals(expected.source, actual.source)
         assertEquals(expected.target, actual.target)
         assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)

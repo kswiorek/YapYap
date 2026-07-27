@@ -7,15 +7,15 @@ import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.packet.PacketId
+import kotlin.uuid.Uuid
 
 class DefaultPacketDeduplicator(
     database: YapYapDatabase,
     private val logger: AppLogger = NoopAppLogger,
 ) : PacketDeduplicator {
     private val queries = database.dedupQueries
-    override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
-        val packetHex = packetId.toHex()
+    override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
+        val packetHex = packetId.toHexString()
         return queries.transactionWithResult {
             val existing = queries.selectDedupBySourceAndPacketId(
                 source_device_id = sourceDeviceId.id,
@@ -47,19 +47,19 @@ class DefaultPacketDeduplicator(
     }
 
     override fun clearPacket(
-        packetId: PacketId,
+        packetId: Uuid,
         sourceDeviceId: PeerId
     ) {
-        queries.clearPacket(packetId.toHex(), sourceDeviceId.id)
+        queries.clearPacket(packetId.toHexString(), sourceDeviceId.id)
     }
 
-    override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
-        queries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHex())
+    override fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+        queries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHexString())
     }
 
-    override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? {
+    override fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? {
         return queries
-            .getNackReason(sourceDeviceId.id, packetId.toHex())
+            .getNackReason(sourceDeviceId.id, packetId.toHexString())
             .executeAsOneOrNull()
             ?.nack_reason
     }

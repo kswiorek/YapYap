@@ -3,11 +3,12 @@ package org.yapyap.protocol.envelopes
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
-data class BinaryEnvelope(
-    val packetId: PacketId,
+data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+    val packetId: Uuid,
     val packetType: PacketType,
     val createdAtEpochSeconds: Long,
     val expiresAtEpochSeconds: Long,
@@ -26,7 +27,7 @@ data class BinaryEnvelope(
         writer.writeByte(packetType.wireValue.toInt())
         writer.writeLong(createdAtEpochSeconds)
         writer.writeLong(expiresAtEpochSeconds)
-        writer.writeBytes(packetId.toByteArray())
+        writer.writeUuid(packetId)
         writer.writePeerId(source)
         writer.writePeerId(target)
         writer.writeByteArray(payload)
@@ -56,7 +57,7 @@ data class BinaryEnvelope(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'Y'.code.toByte(), 'P'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-        fun decode(bytes: ByteArray): BinaryEnvelope {
+            fun decode(bytes: ByteArray): BinaryEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid envelope magic" }
@@ -67,7 +68,7 @@ data class BinaryEnvelope(
             val type = PacketType.fromWireValue(reader.readByte())
             val createdAt = reader.readLong()
             val expiresAt = reader.readLong()
-            val packetId = PacketId.fromBytes(reader.readBytes(PacketId.SIZE_BYTES))
+            val packetId = reader.readUuid()
 
             val source = reader.readPeerId()
             val target = reader.readPeerId()

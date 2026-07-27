@@ -223,7 +223,6 @@ class DefaultOrchestrator(
             torTransport = torTransport,
             webRtcTransport = webRtcTransport,
             identityResolver = identityResolver,
-            packetIdAllocator = packetIdAllocator,
             packetDeduplicator = packetDeduplicator,
             packetOutbox = packetOutbox,
             envelopeProtectionService = envelopeProtectionService,

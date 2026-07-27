@@ -16,6 +16,7 @@ import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.transport.webrtc.types.WebRtcSignal
+import kotlin.uuid.Uuid
 
 /**
  * Security boundary for signaling.
@@ -42,7 +43,7 @@ class PlaintextWebRtcSignalProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextWebRtcSignalProtection but got ${context.securityScheme}"
         }
         return WebRtcSignalEnvelope(
-            sessionId = input.sessionId,
+            signalEnvelopeId = Uuid.random(),
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -62,10 +63,9 @@ class PlaintextWebRtcSignalProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext WebRTC signal envelope",
-            fields = mapOf("sessionId" to envelope.sessionId, "kind" to envelope.kind.name),
+            fields = mapOf("sessionId" to envelope.signalEnvelopeId, "kind" to envelope.kind.name),
         )
         return WebRtcSignal(
-            sessionId = envelope.sessionId,
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
@@ -90,7 +90,7 @@ class SignedWebRtcSignalProtection(
             "Context security scheme must be SIGNED for SignedWebRtcSignalProtection but got ${context.securityScheme}"
         }
         val unsigned = WebRtcSignalEnvelope(
-            sessionId = input.sessionId,
+            signalEnvelopeId = Uuid.random(),
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -124,10 +124,9 @@ class SignedWebRtcSignalProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed WebRTC signal envelope",
-            fields = mapOf("sessionId" to envelope.sessionId, "source" to envelope.source, "kind" to envelope.kind.name),
+            fields = mapOf("sessionId" to envelope.signalEnvelopeId, "source" to envelope.source, "kind" to envelope.kind.name),
         )
         return WebRtcSignal(
-            sessionId = envelope.sessionId,
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
@@ -160,7 +159,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
         val wirePayload = encryptedInput.encode()
 
         val unsigned = WebRtcSignalEnvelope(
-            sessionId = input.sessionId,
+            signalEnvelopeId = Uuid.random(),
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -221,7 +220,6 @@ class SignedAndEncryptedWebRtcSignalProtection(
         }
 
         val signalPayload = WebRtcSignal(
-            sessionId = envelope.sessionId,
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
@@ -232,7 +230,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed and encrypted Signal envelope",
-            fields = mapOf("sessionId" to envelope.sessionId, "source" to envelope.source, "kind" to envelope.kind.name),
+            fields = mapOf("sessionId" to envelope.signalEnvelopeId, "source" to envelope.source, "kind" to envelope.kind.name),
         )
         return signalPayload
     }

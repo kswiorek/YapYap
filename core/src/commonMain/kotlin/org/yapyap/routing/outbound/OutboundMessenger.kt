@@ -20,6 +20,7 @@ import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.*
 import org.yapyap.transport.TransportException
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.uuid.Uuid
 
 internal class OutboundMessenger(
     private val ctx: RoutingContext,
@@ -118,7 +119,7 @@ internal class OutboundMessenger(
         }
 
         val binaryEnvelope = BinaryEnvelope(
-            packetId = ctx.packetIdAllocator.allocate(ctx.timeProvider.nowEpochSeconds()),
+            packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
             createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
             expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + ctx.routerConfig.messageLifetimeSeconds,
@@ -130,7 +131,7 @@ internal class OutboundMessenger(
 
         val plan = transportPolicy.resolve(
             target = target,
-            hasWebRtcSession = dispatcher.hasWebRtcSession(target),
+            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
             retries = 0,
             forced = forceTransport,
         )

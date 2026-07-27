@@ -5,6 +5,7 @@ import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.protocol.envelopes.MessagePayload
+import kotlin.uuid.Uuid
 
 /**
  * DB row mapped from [org.yapyap.persistence.Messages]: the decoded [MessagePayload]
@@ -21,7 +22,7 @@ interface MessageRepository {
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
     fun insert(payload: MessagePayload, lifecycleState: MessageLifecycleState, isOrphaned: Boolean): Boolean
 
-    fun findById(messageId: String): MessageRow?
+    fun findById(messageId: Uuid): MessageRow?
 
     /** Highest-lamport message in the room; tie-break by createdAt DESC, messageId DESC. Null if room is empty. */
     fun findRoomTail(roomId: String): MessageRow?
@@ -31,7 +32,7 @@ interface MessageRepository {
         limit: Int,
         cursorCreated: Long?,
         cursorLamport: Long,
-        cursorMessageId: String,
+        cursorMessageId: Uuid?,
     ): List<MessageRow>
 
     fun findAllInRoom(roomId: String): List<MessageRow>
@@ -39,7 +40,7 @@ interface MessageRepository {
     /** Max lamport_clock in the room (null if empty) — used to reconstruct rooms.local_seq_n on boot. */
     fun maxLamportInRoom(roomId: String): Long?
 
-    fun updateOrphanedFlag(messageId: String, isOrphaned: Boolean)
+    fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
 
     fun updateLifecycleState(messageId: String, state: MessageLifecycleState)
 }
@@ -57,11 +58,11 @@ class DefaultMessageRepository(
         isOrphaned: Boolean,
     ): Boolean {
         queries.insertMessage(
-            message_id = payload.messageId,
+            message_id = payload.messageId.toString(),
             room_id = payload.roomId,
-            sender_account_id = payload.senderAccountId,
+            sender_account_id = payload.senderAccountId.id,
             author_device_id = payload.authorDeviceId.id,
-            prev_id = payload.prevId,
+            prev_id = payload.prevId?.toHexString(),
             lamport_clock = payload.lamportClock,
             created_at_epoch_seconds = payload.createdAtEpochSeconds,
             payload_type = payload.payloadType,
@@ -69,11 +70,11 @@ class DefaultMessageRepository(
             lifecycle_state = lifecycleState,
             is_orphaned = isOrphaned,
         )
-        return queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
+        return queries.selectMessageById(payload.messageId.toHexString()).executeAsOneOrNull() != null
     }
 
-    override fun findById(messageId: String): MessageRow? =
-        queries.selectMessageById(messageId).executeAsOneOrNull()?.toRow()
+    override fun findById(messageId: Uuid): MessageRow? =
+        queries.selectMessageById(messageId.toHexString()).executeAsOneOrNull()?.toRow()
 
     override fun findRoomTail(roomId: String): MessageRow? =
         queries.selectRoomTail(roomId).executeAsOneOrNull()?.toRow()
@@ -83,13 +84,13 @@ class DefaultMessageRepository(
         limit: Int,
         cursorCreated: Long?,
         cursorLamport: Long,
-        cursorMessageId: String,
+        cursorMessageId: Uuid?,
     ): List<MessageRow> =
         queries.selectMessagesInRoomPageDesc(
             roomId = roomId,
             cursorCreated = cursorCreated,
             cursorLamport = cursorLamport,
-            cursorMessageId = cursorMessageId,
+            cursorMessageId = cursorMessageId?.toHexString()?:"",
             limit = limit.toLong(),
         ).executeAsList().map { it.toRow() }
 
@@ -99,8 +100,8 @@ class DefaultMessageRepository(
     override fun maxLamportInRoom(roomId: String): Long? =
         queries.selectMaxLamportInRoom(roomId).executeAsOne().MAX
 
-    override fun updateOrphanedFlag(messageId: String, isOrphaned: Boolean) {
-        queries.updateMessageOrphanedFlag(isOrphaned, messageId)
+    override fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
+        queries.updateMessageOrphanedFlag(isOrphaned, messageId.toHexString())
     }
 
     override fun updateLifecycleState(messageId: String, state: MessageLifecycleState) {

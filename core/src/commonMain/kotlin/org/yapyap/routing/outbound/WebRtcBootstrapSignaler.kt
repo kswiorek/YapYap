@@ -8,6 +8,7 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.webrtc.types.WebRtcSignal
+import kotlin.uuid.Uuid
 
 internal class WebRtcBootstrapSignaler(
     private val ctx: RoutingContext,
@@ -24,7 +25,7 @@ internal class WebRtcBootstrapSignaler(
 
         dispatcher.dispatch(
             envelope = BinaryEnvelope(
-                packetId = ctx.packetIdAllocator.allocate(ctx.timeProvider.nowEpochSeconds()),
+                packetId = Uuid.random(),
                 packetType = PacketType.SIGNAL,
                 createdAtEpochSeconds = protectContext.createdAtEpochSeconds,
                 expiresAtEpochSeconds = protectContext.createdAtEpochSeconds + 600,

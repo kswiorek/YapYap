@@ -8,7 +8,7 @@ import org.yapyap.persistence.Outbox
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
+import kotlin.uuid.Uuid
 
 class DefaultPacketOutbox(
     private val database: YapYapDatabase,
@@ -19,7 +19,7 @@ class DefaultPacketOutbox(
     override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
         val envelopeBlob = envelope.encode()
         queries.insertOutbox(
-            packet_id = envelope.packetId.toHex(),
+            packet_id = envelope.packetId.toHexString(),
             target_device_id = envelope.target.id,
             is_relay = relayMessage,
             retry_count = 0,
@@ -45,8 +45,8 @@ class DefaultPacketOutbox(
         )
     }
 
-    override fun markDelivered(packetId: PacketId) {
-        queries.deleteByPacketId(packetId.toHex())
+    override fun markDelivered(packetId: Uuid) {
+        queries.deleteByPacketId(packetId.toHexString())
         logger.debug(
             component = LogComponent.DATABASE,
             event = LogEvent.OUTBOX_DELIVERED,
@@ -68,9 +68,9 @@ class DefaultPacketOutbox(
         )
     }
 
-    override fun recordAttempt(packetId: PacketId, nextRetryAt: Long, now: Long) {
+    override fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
         queries.updateAttempt(
-            packet_id = packetId.toHex(),
+            packet_id = packetId.toHexString(),
             last_attempt_at = now,
             next_retry_at = nextRetryAt,
         )
@@ -163,7 +163,7 @@ class DefaultPacketOutbox(
     }
 
     private fun mapRowOrDrop(row: Outbox): OutboxEntry? {
-        val packetId = runCatching { PacketId.fromHex(row.packet_id) }.getOrElse { error ->
+        val packetId = runCatching { Uuid.parseHex(row.packet_id) }.getOrElse { error ->
             dropRow(
                 packetIdHex = row.packet_id,
                 event = LogEvent.OUTBOX_ROW_INVALID,

@@ -8,7 +8,6 @@ enum class WebRtcDataType {
 }
 
 data class WebRtcDataFrame(
-    val sessionId: String,
     val source: PeerId,
     val target: PeerId,
     val dataType: WebRtcDataType,

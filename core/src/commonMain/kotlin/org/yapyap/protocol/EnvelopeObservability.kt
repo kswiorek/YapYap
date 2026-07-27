@@ -50,7 +50,7 @@ object EnvelopeObservability {
     val webRtcSignalEnvelope = ObservabilityProfile(
         schemaId = "webrtc-signal-envelope-v1",
         fields = mapOf(
-            WebRtcSignalEnvelope.Companion.Fields.SESSION_ID to FieldSensitivity.ROUTING_VISIBLE,
+            WebRtcSignalEnvelope.Companion.Fields.SIGNAL_ENVELOPE_ID to FieldSensitivity.ROUTING_VISIBLE,
             WebRtcSignalEnvelope.Companion.Fields.KIND to FieldSensitivity.ROUTING_VISIBLE,
             WebRtcSignalEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
             WebRtcSignalEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,

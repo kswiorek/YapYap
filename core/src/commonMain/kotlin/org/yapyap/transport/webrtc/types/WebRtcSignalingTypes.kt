@@ -3,7 +3,6 @@ package org.yapyap.transport.webrtc.types
 import org.yapyap.protocol.PeerId
 
 data class WebRtcSignal(
-    val sessionId: String,
     val kind: WebRtcSignalKind,
     val source: PeerId,
     val target: PeerId,

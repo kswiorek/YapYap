@@ -1,5 +1,7 @@
 package org.yapyap.protocol
 
+import kotlin.uuid.Uuid
+
 class ByteReader(private val bytes: ByteArray) {
     private var position: Int = 0
 
@@ -26,6 +28,10 @@ class ByteReader(private val bytes: ByteArray) {
         return value
     }
 
+    fun readUuid(): Uuid {
+        return Uuid.fromByteArray(readByteArray(Uuid.SIZE_BYTES))
+    }
+
     fun readInt(): Int {
         var value = 0
         repeat(4) {
@@ -44,6 +50,12 @@ class ByteReader(private val bytes: ByteArray) {
         val len = readShort()
         require(len != 0xffff) { "String cannot be null" }
         return readBytes(len).decodeToString()
+    }
+
+    fun readNullableUuid(): Uuid? {
+        val len = readInt()
+        if (len == -1) return null
+        return readUuid()
     }
 
     fun readNullableString(): String? {
@@ -105,6 +117,10 @@ class ByteWriter(initialCapacity: Int) {
         }
     }
 
+    fun writeUuid(value: Uuid) {
+        writeByteArray(value.toByteArray())
+    }
+
     fun writeInt(value: Int) {
         var shift = 24
         while (shift >= 0) {
@@ -127,6 +143,14 @@ class ByteWriter(initialCapacity: Int) {
 
     fun writePeerId(value: PeerId) {
         writeString(value.id)
+    }
+
+    fun writeNullableUuid(value: Uuid?) {
+        if (value == null) {
+            writeInt(-1)
+            return
+        }
+        writeUuid(value)
     }
 
     fun writeNullableString(value: String?) {

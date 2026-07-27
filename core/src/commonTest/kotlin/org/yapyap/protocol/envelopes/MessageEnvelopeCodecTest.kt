@@ -82,7 +82,7 @@ class MessageEnvelopeCodecTest {
             authorSignature = testSignature,
         )
         val env = MessageEnvelope(
-            messageId = "ge-full",
+            messageEnvelopeId = "ge-full",
             source = source,
             target = target,
             createdAtEpochSeconds = 5L,
@@ -109,7 +109,7 @@ class MessageEnvelopeCodecTest {
             authorSignature = testSignature,
         )
         val env = MessageEnvelope(
-            messageId = "mid-2",
+            messageEnvelopeId = "mid-2",
             source = source,
             target = target,
             createdAtEpochSeconds = 1_700_000_000L,
@@ -137,7 +137,7 @@ class MessageEnvelopeCodecTest {
         )
         val sig = ByteArray(64) { it.toByte() }
         val signed = MessageEnvelope(
-            messageId = "mid-sign",
+            messageEnvelopeId = "mid-sign",
             source = source,
             target = target,
             createdAtEpochSeconds = 0L,
@@ -166,7 +166,7 @@ class MessageEnvelopeCodecTest {
         )
         val sig = ByteArray(64) { it.toByte() }
         val env = MessageEnvelope(
-            messageId = "mid-3",
+            messageEnvelopeId = "mid-3",
             source = source,
             target = target,
             createdAtEpochSeconds = 0L,
@@ -183,7 +183,7 @@ class MessageEnvelopeCodecTest {
     fun messageEnvelope_init_rejectsBlankMessageId() {
         assertFailsWith<IllegalArgumentException> {
             MessageEnvelope(
-                messageId = " ",
+                messageEnvelopeId = " ",
                 source = source,
                 target = target,
                 createdAtEpochSeconds = 0L,
@@ -240,7 +240,7 @@ class MessageEnvelopeCodecTest {
     }
 
     private fun assertMessageEnvelopeEquals(expected: MessageEnvelope, actual: MessageEnvelope) {
-        assertEquals(expected.messageId, actual.messageId)
+        assertEquals(expected.messageEnvelopeId, actual.messageEnvelopeId)
         assertEquals(expected.source, actual.source)
         assertEquals(expected.target, actual.target)
         assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)

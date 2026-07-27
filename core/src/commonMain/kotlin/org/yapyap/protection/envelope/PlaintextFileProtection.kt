@@ -10,6 +10,7 @@ import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.FieldSensitivity
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.*
+import kotlin.uuid.Uuid
 
 // TODO Sprint 5: Replace with real encrypted file protection (SignedAndEncryptedFileProtection).
 //  This is a plaintext passthrough placeholder so the orchestrator can compile and boot.
@@ -24,7 +25,7 @@ class PlaintextFileProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextFileProtection but got ${context.securityScheme}"
         }
         val envelope = FileEnvelope(
-            transferId = generateTransferId(input), //TODO transferid
+            transferId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -98,11 +99,4 @@ class PlaintextFileProtection(
 
     fun observabilityPolicy(): Map<String, FieldSensitivity> =
         EnvelopeObservability.fileEnvelope.fields
-
-    private suspend fun generateTransferId(input: FilePayload): String {
-        val kindPrefix = input.kind.name.lowercase()
-        val hash = cryptoProvider.sha256(input.encode()).take(8)
-            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-        return "$kindPrefix-$hash"
-    }
 }

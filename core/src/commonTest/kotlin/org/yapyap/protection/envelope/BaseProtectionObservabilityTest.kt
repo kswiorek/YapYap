@@ -82,7 +82,7 @@ class BaseProtectionObservabilityTest {
                 is MessagePayload.GlobalEvent -> input.messageId
             }
             return MessageEnvelope(
-                messageId = messageId,
+                messageEnvelopeId = messageId,
                 source = context.sourceDeviceId,
                 target = context.targetDeviceId,
                 createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -116,7 +116,7 @@ class BaseProtectionObservabilityTest {
         override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
             require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             return WebRtcSignalEnvelope(
-                sessionId = input.sessionId,
+                signalEnvelopeId = input.sessionId,
                 kind = input.kind,
                 source = context.sourceDeviceId,
                 target = context.targetDeviceId,
@@ -131,7 +131,7 @@ class BaseProtectionObservabilityTest {
         override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
             require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             return WebRtcSignal(
-                sessionId = envelope.sessionId,
+                sessionId = envelope.signalEnvelopeId,
                 kind = envelope.kind,
                 source = envelope.source,
                 target = envelope.target,

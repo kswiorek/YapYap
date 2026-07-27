@@ -6,12 +6,10 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.packet.PacketId
-import kotlin.random.Random
+import kotlin.uuid.Uuid
 
 class DefaultPacketIdAllocator(
     private val database: YapYapDatabase,
-    private val random: Random = Random.Default,
     private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
     private val logger: AppLogger = NoopAppLogger,
 ) : PacketIdAllocator {
@@ -32,16 +30,16 @@ class DefaultPacketIdAllocator(
         )
     }
 
-    override fun allocate(now: Long): PacketId {
+    override fun allocate(now: Long): Uuid {
         requireNotNull(localDeviceId) { "Local device ID must be assigned before allocating packet ID" }
         repeat(maxAttempts) {
-            val candidate = PacketId.random(random)
+            val candidate = Uuid.random()
             if (tryReserve(sourceDeviceId = localDeviceId!!, packetId = candidate, receivedAtEpochSeconds = now)) {
                 logger.debug(
                     component = LogComponent.DATABASE,
                     event = LogEvent.PACKET_ID_ALLOCATED,
                     message = "Allocated packet ID",
-                    fields = mapOf("packetId" to candidate.toHex(), "attempt" to it + 1),
+                    fields = mapOf("packetId" to candidate, "attempt" to it + 1),
                 )
                 return candidate
             }
@@ -55,11 +53,11 @@ class DefaultPacketIdAllocator(
         error("Failed to allocate unique packet ID after $maxAttempts attempts")
     }
 
-    private fun tryReserve(sourceDeviceId: PeerId, packetId: PacketId, receivedAtEpochSeconds: Long): Boolean {
+    private fun tryReserve(sourceDeviceId: PeerId, packetId: Uuid, receivedAtEpochSeconds: Long): Boolean {
         val queries = database.dedupQueries
         return queries.transactionWithResult {
             queries.tryReservePacketId(
-                packet_id = packetId.toHex(),
+                packet_id = packetId.toHexString(),
                 source_device_id = sourceDeviceId.id,
                 received_at = receivedAtEpochSeconds,
             )

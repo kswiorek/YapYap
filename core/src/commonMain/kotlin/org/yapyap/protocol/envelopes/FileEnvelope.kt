@@ -4,9 +4,11 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
-data class FileEnvelope(
-    val transferId: String,
+data class FileEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+    val transferId: Uuid,
     val source: PeerId,
     val target: PeerId,
     val createdAtEpochSeconds: Long,
@@ -16,7 +18,6 @@ data class FileEnvelope(
     val payload: ByteArray,
 ) {
     init {
-        require(transferId.isNotBlank()) { "transferId must not be blank" }
         require(nonce.isNotEmpty()) { "nonce must not be empty" }
     }
 
@@ -24,7 +25,7 @@ data class FileEnvelope(
         val writer = ByteWriter(256 + nonce.size + payload.size + (signature?.size ?: 0))
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeString(transferId)
+        writer.writeUuid(transferId)
         writer.writePeerId(source)
         writer.writePeerId(target)
         writer.writeLong(createdAtEpochSeconds)
@@ -62,7 +63,7 @@ data class FileEnvelope(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'F'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-        fun decode(bytes: ByteArray): FileEnvelope {
+            fun decode(bytes: ByteArray): FileEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid file envelope magic" }
@@ -70,7 +71,7 @@ data class FileEnvelope(
             val version = reader.readByte()
             require(version == VERSION) { "Unsupported file envelope version: $version" }
 
-            val transferId = reader.readString()
+            val transferId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
             val createdAtEpochSeconds = reader.readLong()
@@ -112,7 +113,7 @@ data class FileChunk(
 )
 
 data class OpenedFileEnvelope(
-    val transferId: String,
+    val transferId: Uuid,
     val source: String,
     val target: String,
     val createdAtEpochSeconds: Long,

@@ -7,11 +7,11 @@ import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.uuid.Uuid
 
 internal class OutboxProcessor(
     private val ctx: RoutingContext,
@@ -41,7 +41,7 @@ internal class OutboxProcessor(
         retryLoop.notifyChanged()
     }
 
-    fun onOutboundPacketDelivered(packetId: PacketId) {
+    fun onOutboundPacketDelivered(packetId: Uuid) {
         packetOutbox.markDelivered(packetId)
         wake()
     }
@@ -51,11 +51,11 @@ internal class OutboxProcessor(
         wake()
     }
 
-    fun recordSendAttempt(packetId: PacketId, nextRetryAt: Long, now: Long) {
+    fun recordSendAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
         packetOutbox.recordAttempt(packetId, nextRetryAt, now)
     }
 
-    fun onWebRtcSessionConnected(peerId: PeerId, sessionId: String) {
+    fun onWebRtcSessionConnected(peerId: PeerId) {
         val now = ctx.timeProvider.nowEpochSeconds()
         packetOutbox.setDueForTarget(peerId, now)
         wake()
@@ -65,7 +65,6 @@ internal class OutboxProcessor(
             message = "WebRTC session connected; accelerated outbox retries for peer",
             fields = mapOf(
                 "peerId" to peerId,
-                "sessionId" to sessionId,
                 "nextRetryAt" to now,
             ),
         )
@@ -122,7 +121,7 @@ internal class OutboxProcessor(
         val outbound = transportPolicy.resolve(
             target = envelope.target,
             retries = entry.attempts,
-            hasWebRtcSession = dispatcher.hasWebRtcSession(envelope.target),
+            hasWebRtcSession = ctx.webRtcTransport.hasSession(envelope.target),
         )
         val nextRetryAt = now + outbound.retryDelaySeconds
         runCatching {

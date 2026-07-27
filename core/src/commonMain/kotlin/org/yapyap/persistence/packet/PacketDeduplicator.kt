@@ -2,19 +2,19 @@ package org.yapyap.persistence.packet
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.packet.PacketId
+import kotlin.uuid.Uuid
 
 interface PacketDeduplicator {
     /**
      * Marks packet as seen and returns whether it is first time seen.
      */
-    fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean
+    fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean
 
-    fun clearPacket(packetId: PacketId, sourceDeviceId: PeerId)
+    fun clearPacket(packetId: Uuid, sourceDeviceId: PeerId)
 
-    fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason)
+    fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason)
 
-    fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason?
+    fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason?
 
     fun prune(receivedBeforeEpochSeconds: Long)
 }

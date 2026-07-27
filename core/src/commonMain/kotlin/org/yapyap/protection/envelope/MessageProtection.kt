@@ -32,7 +32,7 @@ class PlaintextMessageProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextMessageProtection but got ${context.securityScheme}"
         }
         return MessageEnvelope(
-            messageId = input.messageId,
+            messageEnvelopeId = input.messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -62,7 +62,7 @@ class PlaintextMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "payloadType" to messagePayload.payloadType.name),
+            fields = mapOf("messageId" to envelope.messageEnvelopeId, "payloadType" to messagePayload.payloadType.name),
         )
         return messagePayload
     }
@@ -84,7 +84,7 @@ class SignedMessageProtection(
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
         val unsigned = MessageEnvelope(
-            messageId = input.messageId,
+            messageEnvelopeId = input.messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -129,7 +129,7 @@ class SignedMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
+            fields = mapOf("messageId" to envelope.messageEnvelopeId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
         )
         return messagePayload
     }
@@ -169,7 +169,7 @@ class SignedAndEncryptedMessageProtection(
         val wirePayload = encryptedInput.encode()
 
         val unsigned = MessageEnvelope(
-            messageId = input.messageId,
+            messageEnvelopeId = input.messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -254,7 +254,7 @@ class SignedAndEncryptedMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed and encrypted message envelope",
-            fields = mapOf("messageId" to envelope.messageId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
+            fields = mapOf("messageId" to envelope.messageEnvelopeId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
         )
         return messagePayload
     }

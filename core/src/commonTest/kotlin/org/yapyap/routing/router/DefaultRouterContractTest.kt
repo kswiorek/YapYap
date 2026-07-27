@@ -386,7 +386,7 @@ class DefaultRouterContractTest {
     ): TorIncomingEnvelope {
         val msgEnv =
             MessageEnvelope(
-                messageId = text.messageId,
+                messageEnvelopeId = text.messageId,
                 source = remotePeer,
                 target = target,
                 createdAtEpochSeconds = 10_000L,

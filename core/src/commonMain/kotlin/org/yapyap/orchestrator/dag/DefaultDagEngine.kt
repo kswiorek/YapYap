@@ -2,7 +2,6 @@ package org.yapyap.orchestrator.dag
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLogger
@@ -49,13 +48,13 @@ class DefaultDagEngine(
     private val mutex = Mutex()
 
     override suspend fun append(roomId: String, draft: MessageDraft): MessagePayload = mutex.withLock {
-        val senderAccountId = identityResolver.getLocalAccountId().id
+        val senderAccountId = identityResolver.getLocalAccountId()
         val authorDeviceId = identityResolver.getLocalDeviceId()
         val createdAt = timeProvider.nowEpochSeconds()
         val tail = messageRepository.findRoomTail(roomId)
         val prevId = tail?.payload?.messageId
         val lamport = tail?.payload?.lamportClock?.let { it + 1 } ?: 0L
-        val messageId = Uuid.random().toString()
+        val messageId = Uuid.random()
 
         // Create an unsigned payload (signature is null)
         val unsignedPayload = when (draft) {
@@ -130,10 +129,9 @@ class DefaultDagEngine(
             return@withLock null
         }
 
-        val accountId = AccountId(payload.senderAccountId)
         val signedBytes = payload.encodeForAuthorSigning()
         val signatureValid = signatureProvider.verifyMessageAuthorship(
-            accountId = accountId,
+            accountId = payload.senderAccountId,
             authorDeviceId = payload.authorDeviceId,
             signedBytes = signedBytes,
             signature = signature,
@@ -233,11 +231,11 @@ class DefaultDagEngine(
             limit = limit,
             cursorCreated = before?.createdAtEpochSeconds,
             cursorLamport = before?.lamportClock ?: 0L,
-            cursorMessageId = before?.messageId ?: "",
+            cursorMessageId = before?.messageId,
         ).map { it.payload }
     }
 
-    override suspend fun ancestorsOf(roomId: String, messageId: String, limit: Int): List<MessagePayload> {
+    override suspend fun ancestorsOf(roomId: String, messageId: Uuid, limit: Int): List<MessagePayload> {
         val result = mutableListOf<MessagePayload>()
         var current = messageRepository.findById(messageId) ?: return result
         var steps = 0
@@ -277,7 +275,7 @@ class DefaultDagEngine(
      * and returns the list of closed `missingPrevId`s (all equal to [arrivedMessageId],
      * one per closed orphan — the UI uses a Set to deduplicate).
      */
-    private fun closeGapsFor(arrivedMessageId: String): List<String> {
+    private fun closeGapsFor(arrivedMessageId: Uuid): List<Uuid> {
         val holds = causalHoldRepository.findByMissingPrevId(arrivedMessageId)
         if (holds.isEmpty()) return emptyList()
 

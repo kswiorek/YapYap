@@ -5,6 +5,8 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.types.*
 
+//TODO add handling glare
+
 interface WebRtcTransport {
     // Data plane
     val incomingEnvelopes: Flow<WebRtcIncomingEnvelope>
@@ -24,23 +26,22 @@ interface WebRtcTransport {
     suspend fun stop()
 
     // Session (transport)
-    suspend fun openSession(target: PeerId, sessionId: String)
-    suspend fun sendEnvelope(sessionId: String?, targetId: PeerId, envelope: BinaryEnvelope)
-    suspend fun closeSession(sessionId: String)
+    suspend fun openSession(target: PeerId)
+    suspend fun sendEnvelope(targetId: PeerId, envelope: BinaryEnvelope)
+    suspend fun closeSession(targetId: PeerId)
     suspend fun handleBootstrapSignal(signal: WebRtcSignal)
 
-    suspend fun getSessionForPeer(target: PeerId): String?
+    fun hasSession(peerId: PeerId): Boolean
 
     // Call (in-band over WebRTC data)
-    suspend fun inviteCall(target: PeerId, sessionId: String, options: AvSessionOptions)
-    suspend fun acceptCall(sessionId: String, options: AvSessionOptions)
-    suspend fun rejectCall(sessionId: String, reason: String)
-    suspend fun updateCallOptions(sessionId: String, options: AvSessionOptions)
-    suspend fun endCall(sessionId: String, reason: String? = null)
+    suspend fun inviteCall(peer: PeerId, options: AvSessionOptions)
+    suspend fun acceptCall(peer: PeerId, options: AvSessionOptions)
+    suspend fun rejectCall(peer: PeerId, reason: String)
+    suspend fun updateCallOptions(peer: PeerId, options: AvSessionOptions)
+    suspend fun endCall(peer: PeerId, reason: String? = null)
 }
 
 data class WebRtcIncomingEnvelope(
-    val sessionId: String,
     val source: PeerId,
     val envelope: BinaryEnvelope,
 )

@@ -8,11 +8,11 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
+import kotlin.uuid.Uuid
 
 internal class AckResponder(
     private val ctx: RoutingContext,
@@ -38,7 +38,7 @@ internal class AckResponder(
     }
 
     suspend fun sendAck(
-        packetId: PacketId,
+        packetId: Uuid,
         source: PeerId,
         packetType: PacketType,
         transport: RouterTransport,
@@ -68,7 +68,7 @@ internal class AckResponder(
     }
 
     suspend fun sendNack(
-        packetId: PacketId,
+        packetId: Uuid,
         source: PeerId,
         packetType: PacketType,
         reason: PacketNackReason,
@@ -115,7 +115,7 @@ internal class AckResponder(
         val protected = ctx.envelopeProtectionService.protectSystem(payload, context)
         val now = ctx.timeProvider.nowEpochSeconds()
         val envelope = BinaryEnvelope(
-            packetId = ctx.packetIdAllocator.allocate(now),
+            packetId = Uuid.random(),
             packetType = PacketType.SYSTEM,
             createdAtEpochSeconds = now,
             expiresAtEpochSeconds = now + ctx.routerConfig.ackLifetimeSeconds,

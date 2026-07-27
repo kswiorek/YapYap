@@ -42,7 +42,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
 
     override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
         WebRtcSignalEnvelope(
-            sessionId = input.sessionId,
+            signalEnvelopeId = input.sessionId,
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -55,7 +55,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
 
     override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
         WebRtcSignal(
-            sessionId = envelope.sessionId,
+            sessionId = envelope.signalEnvelopeId,
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
@@ -78,7 +78,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
                 is MessagePayload.GlobalEvent -> input.messageId
             }
         return MessageEnvelope(
-            messageId = messageId,
+            messageEnvelopeId = messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -97,7 +97,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             is SystemPayload.PacketNack -> "nack:${input.packetId.toHex()}"
         }
         return SystemEnvelope(
-            correlationId = correlationId,
+            systemEnvelopeId = correlationId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,

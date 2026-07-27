@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.dag
 
 import org.yapyap.protocol.envelopes.MessagePayload
+import kotlin.uuid.Uuid
 
 sealed interface MessageDraft {
     data class Text(val text: String) : MessageDraft
@@ -8,8 +9,8 @@ sealed interface MessageDraft {
 }
 
 data class Gap(
-    val missingPrevId: String,
-    val orphanedMessageId: String,
+    val missingPrevId: Uuid,
+    val orphanedMessageId: Uuid,
 )
 
 /**
@@ -22,19 +23,19 @@ data class Gap(
 data class MessagePageCursor(
     val createdAtEpochSeconds: Long,
     val lamportClock: Long,
-    val messageId: String,
+    val messageId: Uuid,
 )
 
 sealed interface IngestResult {
     val payload: MessagePayload
-    val closedGapMissingPrevIds: List<String>
+    val closedGapMissingPrevIds: List<Uuid>
     data class Inserted(
         override val payload: MessagePayload,
-        override val closedGapMissingPrevIds: List<String> = emptyList(),
+        override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
     ) : IngestResult
     data class BecameOrphan(
         override val payload: MessagePayload,
-        override val closedGapMissingPrevIds: List<String> = emptyList(),
-        val missingPrevId: String,
+        override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
+        val missingPrevId: Uuid,
     ) : IngestResult
 }
