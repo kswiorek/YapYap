@@ -64,14 +64,14 @@ class DefaultEnvelopeProtectionServiceTest {
 
             val signal = sampleWebRtcSignal(sourcePeer, targetPeer)
             val signalOut = row.service.openSignal(row.service.protectSignal(signal, ctx))
-            assertEquals(signal.sessionId, signalOut.sessionId, "signal ${row.name} sessionId")
+            assertEquals(signal.target, signalOut.target, "signal ${row.name} sessionId")
             assertContentEquals(signal.payload, signalOut.payload, "signal ${row.name} payload")
 
             val file = sampleFileOfferPayload()
             val fileOut = row.service.openFile(row.service.protectFile(file, ctx))
             assertEquals(file, fileOut.payload, "file ${row.name}")
 
-            val text = sampleTextPayload("m-${row.name}")
+            val text = sampleTextPayload()
             val messageOut = row.service.openMessage(row.service.protectMessage(text, ctx))
             assertEquals(text, messageOut, "message ${row.name}")
 

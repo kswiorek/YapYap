@@ -82,7 +82,7 @@ class MessageProtectionTest {
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
         val protection = SignedMessageProtection(signatureProvider, crypto)
 
-        val payload = sampleTextPayload("signed-msg-1")
+        val payload = sampleTextPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,
             source = sourcePeer,
@@ -123,7 +123,7 @@ class MessageProtectionTest {
         val signatureProvider = DefaultSignatureProvider(resolver, crypto)
         val protection = SignedMessageProtection(signatureProvider, crypto)
 
-        val payload = sampleTextPayload("tamper-msg")
+        val payload = sampleTextPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.SIGNED,
             source = sourcePeer,
@@ -144,7 +144,7 @@ class MessageProtectionTest {
     @Test
     fun signedAndEncrypted_protectThenOpen_roundTrip() = runTest {
         val pair = sampleSignedAndEncryptedProtectionPair(crypto)
-        val payload = sampleTextPayload("signed-encrypted-msg-1")
+        val payload = sampleTextPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             source = pair.sourcePeer,
@@ -171,7 +171,7 @@ class MessageProtectionTest {
     @Test
     fun signedAndEncrypted_open_throwsWhenSignatureInvalid() = runTest {
         val pair = sampleSignedAndEncryptedProtectionPair(crypto)
-        val payload = sampleTextPayload("signed-encrypted-tamper-msg")
+        val payload = sampleTextPayload()
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             source = pair.sourcePeer,
@@ -262,7 +262,7 @@ class MessageProtectionTest {
         )
         val receiverProtection = SignedMessageProtection(DefaultSignatureProvider(resolver, crypto), crypto)
 
-        val payload = sampleTextPayload("attest-invalid-msg")
+        val payload = sampleTextPayload()
         val envelope = senderProtection.protect(
             payload,
             sampleEnvelopeContext(

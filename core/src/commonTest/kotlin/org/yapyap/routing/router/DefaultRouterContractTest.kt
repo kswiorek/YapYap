@@ -11,7 +11,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.time.FixedEpochSecondsProvider
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -22,6 +21,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 class DefaultRouterContractTest {
 
@@ -85,7 +85,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(tor = tor, identity = identity)
         router.start()
 
-        val payload = sampleTextPayload("no-peer-msg")
+        val payload = sampleTextPayload()
         val result = router.sendMessage(targetAccount, payload, RouterTransport.TOR)
 
         assertEquals(SendMessageStatus.FAILURE, result.status)
@@ -106,7 +106,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(identity = identity)
 
         assertFailsWith<IllegalStateException> {
-            router.sendMessage(account, sampleTextPayload("not-started"), RouterTransport.TOR)
+            router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
         }
         Unit
     }
@@ -137,7 +137,7 @@ class DefaultRouterContractTest {
             )
 
         router.start()
-        val result = router.sendMessage(account, sampleTextPayload("parallel-fan-out"), RouterTransport.TOR)
+        val result = router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
 
         assertEquals(SendMessageStatus.SUCCESS, result.status)
         assertEquals(2, result.peersTotal)
@@ -165,7 +165,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(tor = tor, identity = identity)
         router.start()
 
-        val result = router.sendMessage(account, sampleTextPayload("tor-send"), RouterTransport.TOR)
+        val result = router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
 
         assertEquals(SendMessageStatus.SUCCESS, result.status)
         assertEquals(1, result.peersQueued)
@@ -185,7 +185,7 @@ class DefaultRouterContractTest {
 
         router.start()
 
-        val packetId = PacketId.fromHex("aa".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val incoming = inboundTorMessage(packetId = packetId, remoteTor = remoteTor)
 
         tor.tryEmitIncoming(incoming)
@@ -216,7 +216,7 @@ class DefaultRouterContractTest {
 
         router.start()
 
-        val packetId = PacketId.fromHex("aa".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val incoming = inboundTorMessage(packetId = packetId, remoteTor = remoteTor)
 
         tor.tryEmitIncoming(incoming)
@@ -253,7 +253,7 @@ class DefaultRouterContractTest {
 
         router.start()
 
-        val packetId = PacketId.fromHex("bb".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val incoming =
             inboundTorMessage(
                 packetId = packetId,
@@ -290,7 +290,7 @@ class DefaultRouterContractTest {
 
         router.start()
 
-        val packetId = PacketId.fromHex("cc".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val incoming =
             inboundTorMessage(
                 packetId = packetId,
@@ -327,7 +327,7 @@ class DefaultRouterContractTest {
 
         router.start()
 
-        val packetId = PacketId.fromHex("dd".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val incoming =
             TorIncomingEnvelope(
                 remoteTor,
@@ -378,9 +378,9 @@ class DefaultRouterContractTest {
     }
 
     private fun inboundTorMessage(
-        packetId: PacketId,
+        packetId: Uuid,
         remoteTor: TorEndpoint,
-        text: MessagePayload.Text = sampleTextPayload("dedup-msg"),
+        text: MessagePayload.Text = sampleTextPayload(),
         expiresAtEpochSeconds: Long = 11_000L,
         target: PeerId = localPeer,
     ): TorIncomingEnvelope {
@@ -410,7 +410,7 @@ class DefaultRouterContractTest {
 
     private fun assertSystemAck(
         envelope: BinaryEnvelope,
-        expectedPacketId: PacketId,
+        expectedPacketId: Uuid,
         expectedPacketType: PacketType,
     ) {
         assertEquals(PacketType.SYSTEM, envelope.packetType)
@@ -422,7 +422,7 @@ class DefaultRouterContractTest {
 
     private fun assertSystemNack(
         envelope: BinaryEnvelope,
-        expectedPacketId: PacketId,
+        expectedPacketId: Uuid,
         expectedReason: PacketNackReason,
     ) {
         assertEquals(PacketType.SYSTEM, envelope.packetType)
@@ -433,11 +433,11 @@ class DefaultRouterContractTest {
     }
 }
 
-private fun sampleTextPayload(id: String): MessagePayload.Text =
+private fun sampleTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
-        messageId = id,
+        messageId = Uuid.random(),
         roomId = "room-1",
-        senderAccountId = "acct-sender",
+        senderAccountId = AccountId("acct-sender"),
         prevId = null,
         lamportClock = 0L,
         createdAtEpochSeconds = 0L,

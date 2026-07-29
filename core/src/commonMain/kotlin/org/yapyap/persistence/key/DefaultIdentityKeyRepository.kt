@@ -19,7 +19,7 @@ class DefaultIdentityKeyRepository(
 
     override fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? {
         val queries = database.identityQueries
-        val account = queries.selectAccountById(accountId.id).executeAsOneOrNull()
+        val account = queries.selectAccountById(accountId).executeAsOneOrNull()
 
         return (if (account == null) {
             logger.debug(
@@ -31,7 +31,7 @@ class DefaultIdentityKeyRepository(
             null
         } else if (account.pub_key_id == null || account.pub_key_version == null || account.account_pub_key == null) {
             AccountIdentityRecord(
-                accountId = AccountId(account.account_id),
+                accountId = account.account_id,
                 displayName = account.display_name,
                 key = null,
             )
@@ -43,7 +43,7 @@ class DefaultIdentityKeyRepository(
                 fields = mapOf("accountId" to accountId, "found" to true),
             )
             AccountIdentityRecord(
-                accountId = AccountId(account.account_id),
+                accountId = account.account_id,
                 displayName = account.display_name,
                 key = IdentityPublicKeyRecord(
                     keyId = account.pub_key_id,
@@ -57,7 +57,7 @@ class DefaultIdentityKeyRepository(
 
     override fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? {
         val queries = database.identityQueries
-        val device = queries.selectDeviceById(deviceId.id).executeAsOneOrNull()
+        val device = queries.selectDeviceById(deviceId).executeAsOneOrNull()
 
         return if (device == null) {
             logger.debug(
@@ -75,7 +75,7 @@ class DefaultIdentityKeyRepository(
                 fields = mapOf("deviceId" to deviceId, "found" to true),
             )
             DeviceIdentityRecord(
-                deviceId = PeerId(device.device_id),
+                deviceId = device.device_id,
                 signing = IdentityPublicKeyRecord(
                     keyId = device.signing_key_id,
                     keyVersion = device.signing_key_version,
@@ -112,7 +112,7 @@ class DefaultIdentityKeyRepository(
                 message = "Local device identity record found",
             )
             DeviceIdentityRecord(
-                deviceId = PeerId(device.device_id),
+                deviceId = device.device_id,
                 signing = IdentityPublicKeyRecord(
                     keyId = device.signing_key_id,
                     keyVersion = device.signing_key_version,
@@ -125,7 +125,7 @@ class DefaultIdentityKeyRepository(
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = device.encryption_pub_key,
                 ),
-                signedPreKey = getActiveSignedPreKeyForDevice(PeerId(device.device_id)),
+                signedPreKey = getActiveSignedPreKeyForDevice(device.device_id),
                 keySignature = device.key_signature,
             )
         }
@@ -149,7 +149,7 @@ class DefaultIdentityKeyRepository(
                 message = "Account local identity record found",
             )
             AccountIdentityRecord(
-                accountId = AccountId(account.account_id),
+                accountId = account.account_id,
                 displayName = account.display_name,
                 key = null,
             )
@@ -160,7 +160,7 @@ class DefaultIdentityKeyRepository(
                 message = "Account local identity record found",
             )
             AccountIdentityRecord(
-                accountId = AccountId(account.account_id),
+                accountId = account.account_id,
                 displayName = account.display_name,
                 key = IdentityPublicKeyRecord(
                     keyId = account.pub_key_id,
@@ -179,7 +179,7 @@ class DefaultIdentityKeyRepository(
         val queries = database.identityQueries
         database.transaction {
             queries.putDevice(
-                device_id = identity.deviceId.id,
+                device_id = identity.deviceId,
                 is_local_device = true,
                 account_id = accountId.id,
                 device_type = config.localDeviceType,
@@ -216,7 +216,7 @@ class DefaultIdentityKeyRepository(
     override fun insertLocalAccount(identity: AccountIdentityRecord) {
         val queries = database.identityQueries
         queries.putAccount(
-            account_id = identity.accountId.id,
+            account_id = identity.accountId,
             account_pub_key = identity.key?.publicKey,
             is_local_account = true,
             pub_key_version = identity.key?.keyVersion,
@@ -234,7 +234,7 @@ class DefaultIdentityKeyRepository(
     }
 
     override fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
-        val device = database.identityQueries.selectDeviceById(deviceId.id).executeAsOneOrNull() ?: return null
+        val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return null
         return when (purpose) {
             IdentityKeyPurpose.SIGNING -> {
                 if (device.signing_key_id.isBlank() || device.signing_pub_key.isEmpty()) return null
@@ -269,7 +269,7 @@ class DefaultIdentityKeyRepository(
     }
 
     override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? {
-        val device = database.identityQueries.selectDeviceById(deviceId.id).executeAsOneOrNull()
+        val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull()
             ?: return null
         return TorEndpoint(
             onionAddress = device.onion_address,
@@ -286,7 +286,7 @@ class DefaultIdentityKeyRepository(
         val queries = database.identityQueries
 
         queries.putAccount(
-            account_id = identity.accountId.id,
+            account_id = identity.accountId,
             account_pub_key = identity.key?.publicKey,
             is_local_account = false,
             pub_key_version = identity.key?.keyVersion,
@@ -306,7 +306,7 @@ class DefaultIdentityKeyRepository(
         val queries = database.identityQueries
         database.transaction {
             queries.putDevice(
-                device_id = identity.deviceId.id,
+                device_id = identity.deviceId,
                 is_local_device = false,
                 account_id = accountId.id,
                 device_type = deviceType,
@@ -342,21 +342,21 @@ class DefaultIdentityKeyRepository(
                     publicKey = it.public_key,
                     signature = it.signature,
                     privateKey = null,
-                    deviceId = PeerId(it.device_id),
+                    deviceId = it.device_id,
                     isActive = it.is_active,
                     createdAtEpochSeconds = it.created_at_epoch_seconds,
                 )
         }
 
     override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
-        database.identityQueries.selectActiveSignedPreKeyForDevice(deviceId.id).executeAsOneOrNull().let {
+        database.identityQueries.selectActiveSignedPreKeyForDevice(deviceId).executeAsOneOrNull().let {
             if (it == null) null else
                 SignedPreKeyRecord(
                     keyId = it.spk_id,
                     publicKey = it.public_key,
                     signature = it.signature,
                     privateKey = null,
-                    deviceId = PeerId(it.device_id),
+                    deviceId = it.device_id,
                     isActive = it.is_active,
                     createdAtEpochSeconds = it.created_at_epoch_seconds,
                 )
@@ -365,7 +365,7 @@ class DefaultIdentityKeyRepository(
     override fun insertSignedPreKey(spk: SignedPreKeyRecord) {
         database.identityQueries.insertSignedPreKey(
             spk_id = spk.keyId,
-            device_id = spk.deviceId.id,
+            device_id = spk.deviceId,
             public_key = spk.publicKey,
             signature = spk.signature,
             is_active = spk.isActive,
@@ -378,7 +378,7 @@ class DefaultIdentityKeyRepository(
         spk: SignedPreKeyRecord,
     ) {
         database.transaction {
-            database.identityQueries.deactivateSignedPreKeysForDevice(spk.deviceId.id)
+            database.identityQueries.deactivateSignedPreKeysForDevice(spk.deviceId)
             persistSignedPreKey(
                 spk = spk,
                 activateOnDevice = true,
@@ -394,13 +394,13 @@ class DefaultIdentityKeyRepository(
 
     override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> {
         val queries = database.identityQueries
-        return queries.selectDevicesByAccountId(accountId.id).executeAsList().map { PeerId(it.device_id) }
+        return queries.selectDevicesByAccountId(accountId.id).executeAsList().map { it.device_id }
     }
 
     override fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         val queries = database.identityQueries
         queries.updateDeviceTorEndpoint(
-            device_id = deviceId.id,
+            device_id = deviceId,
             onion_address = torEndpoint.onionAddress,
             onion_port = torEndpoint.port.toLong(),
         )
@@ -409,7 +409,7 @@ class DefaultIdentityKeyRepository(
     private fun persistSignedPreKey(spk: SignedPreKeyRecord, activateOnDevice: Boolean) {
         database.identityQueries.insertSignedPreKey(
             spk_id = spk.keyId,
-            device_id = spk.deviceId.id,
+            device_id = spk.deviceId,
             public_key = spk.publicKey,
             signature = spk.signature,
             is_active = spk.isActive,
@@ -418,7 +418,7 @@ class DefaultIdentityKeyRepository(
         if (activateOnDevice && spk.isActive) {
             database.identityQueries.updateDeviceCurrentSignedPreKey(
                 current_signed_prekey_id = spk.keyId,
-                device_id = spk.deviceId.id,
+                device_id = spk.deviceId,
             )
         }
     }

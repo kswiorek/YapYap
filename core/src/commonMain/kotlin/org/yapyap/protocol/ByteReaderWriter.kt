@@ -55,7 +55,7 @@ class ByteReader(private val bytes: ByteArray) {
     fun readNullableUuid(): Uuid? {
         val len = readInt()
         if (len == -1) return null
-        return readUuid()
+        return Uuid.fromByteArray(readBytes(len))
     }
 
     fun readNullableString(): String? {
@@ -150,7 +150,7 @@ class ByteWriter(initialCapacity: Int) {
             writeInt(-1)
             return
         }
-        writeUuid(value)
+        writeByteArray(value.toByteArray())
     }
 
     fun writeNullableString(value: String?) {

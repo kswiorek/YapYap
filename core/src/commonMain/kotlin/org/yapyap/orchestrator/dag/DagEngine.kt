@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator.dag
 
+import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.uuid.Uuid
 
@@ -21,7 +22,7 @@ interface DagEngine {
     suspend fun getMessagesInRoom(
         roomId: String,
         limit: Int,
-        before: MessagePageCursor? = null,
+        before: MessageCursor? = null,
     ): List<MessagePayload>
 
     suspend fun ancestorsOf(roomId: String, messageId: Uuid, limit: Int): List<MessagePayload>

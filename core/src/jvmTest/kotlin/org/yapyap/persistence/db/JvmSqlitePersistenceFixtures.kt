@@ -9,8 +9,8 @@ import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
+import kotlin.uuid.Uuid
 
 /** Plain JDBC SQLite (no SQLCipher) for JVM contract tests. */
 internal class JvmInMemorySqliteDriverFactory : DriverFactory {
@@ -149,7 +149,7 @@ internal fun seedLocalAndRemoteDevices(database: YapYapDatabase) {
 }
 
 internal fun sampleOutboxEnvelope(
-    packetId: PacketId,
+    packetId: Uuid = Uuid.random(),
     target: PeerId,
     now: Long,
     expiresAt: Long = now + 3_600,
@@ -196,14 +196,14 @@ internal fun readPragmaForeignKeys(driver: SqlDriver): Boolean =
         binders = null,
     ).value
 
-internal fun corruptOutboxBlob(driver: SqlDriver, packetIdHex: String, corruptBlob: ByteArray = byteArrayOf(0x00)) {
+internal fun corruptOutboxBlob(driver: SqlDriver, packetIdHex: Uuid, corruptBlob: ByteArray = byteArrayOf(0x00)) {
     driver.execute(
         identifier = null,
         sql = "UPDATE outbox SET envelope_blob = ? WHERE packet_id = ?",
         parameters = 2,
         binders = {
             bindBytes(0, corruptBlob)
-            bindString(1, packetIdHex)
+            bindString(1, packetIdHex.toHexString())
         },
     )
 }

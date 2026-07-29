@@ -15,7 +15,7 @@ class DefaultPacketDeduplicator(
 ) : PacketDeduplicator {
     private val queries = database.dedupQueries
     override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
-        val packetHex = packetId.toHexString()
+        val packetHex = packetId
         return queries.transactionWithResult {
             val existing = queries.selectDedupBySourceAndPacketId(
                 source_device_id = sourceDeviceId.id,
@@ -50,16 +50,16 @@ class DefaultPacketDeduplicator(
         packetId: Uuid,
         sourceDeviceId: PeerId
     ) {
-        queries.clearPacket(packetId.toHexString(), sourceDeviceId.id)
+        queries.clearPacket(packetId, sourceDeviceId.id)
     }
 
     override fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
-        queries.updateNackReason(nackReason, sourceDeviceId.id, packetId.toHexString())
+        queries.updateNackReason(nackReason, sourceDeviceId.id, packetId)
     }
 
     override fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? {
         return queries
-            .getNackReason(sourceDeviceId.id, packetId.toHexString())
+            .getNackReason(sourceDeviceId.id, packetId)
             .executeAsOneOrNull()
             ?.nack_reason
     }

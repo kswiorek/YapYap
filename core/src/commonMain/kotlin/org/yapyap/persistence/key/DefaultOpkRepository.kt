@@ -28,7 +28,7 @@ class DefaultOpkRepository(
         val now = timeProvider.nowEpochSeconds()
         database.identityQueries.insertOneTimePreKey(
             opk_id = opk.keyId,
-            device_id = localDeviceId.id,
+            device_id = localDeviceId,
             public_key = opk.publicKey,
             status = OpkStatus.ALLOCATED,
             created_at_epoch_seconds = now,
@@ -47,17 +47,17 @@ class DefaultOpkRepository(
             status = OpkStatus.OFFERED,
             offered_at_epoch_seconds = now,
             opk_id = opkId,
-            device_id = localDeviceId.id,
+            device_id = localDeviceId,
         )
     }
 
     override suspend fun consume(opkId: String): LocalOneTimePreKey? {
         val row = database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return null
         if (row.status != OpkStatus.OFFERED) return null
-        if (row.device_id != localDeviceId.id) return null
+        if (row.device_id != localDeviceId) return null
         database.identityQueries.markOneTimePreKeyConsumed(
             opk_id = opkId,
-            device_id = localDeviceId.id,
+            device_id = localDeviceId,
         )
 
         val privateKey = keyStore.getKey(opkPrivateKeyRef(opkId)) ?: return null
@@ -71,7 +71,7 @@ class DefaultOpkRepository(
 
     override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? {
         val row = database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return null
-        if (row.device_id != localDeviceId.id) return null
+        if (row.device_id != localDeviceId) return null
         if (row.status != OpkStatus.ALLOCATED && row.status != OpkStatus.OFFERED) return null
         val privateKey = keyStore.getKey(opkPrivateKeyRef(opkId)) ?: return null
         return LocalOneTimePreKey(
@@ -84,7 +84,7 @@ class DefaultOpkRepository(
     override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> {
         val expiredIds = database.identityQueries
             .selectExpiredOfferedOneTimePreKeys(
-                device_id = localDeviceId.id,
+                device_id = localDeviceId,
                 offered_at_epoch_seconds = cutoffEpochSeconds,
             )
             .executeAsList()
@@ -92,7 +92,7 @@ class DefaultOpkRepository(
             keyStore.deleteKey(opkPrivateKeyRef(opkId))
             database.identityQueries.deleteOneTimePreKeyById(
                 opk_id = opkId,
-                device_id = localDeviceId.id,
+                device_id = localDeviceId,
             )
         }
         return expiredIds

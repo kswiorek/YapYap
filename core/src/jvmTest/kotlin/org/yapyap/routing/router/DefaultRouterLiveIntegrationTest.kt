@@ -18,7 +18,6 @@ import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import java.nio.file.Files
-import java.util.*
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteRecursively
@@ -26,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 /**
  * Two [org.yapyap.routing.router.DefaultRouter] instances over real [DefaultTorTransport]/[KmpTorNoExecBackend] and real WebRTC stacks.
@@ -48,11 +48,11 @@ class DefaultRouterLiveIntegrationTest {
             encryption = IdentityPublicKeyRecord("en", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
 
-    private fun sampleText(id: String): MessagePayload.Text =
+    private fun sampleText(): MessagePayload.Text =
         MessagePayload.Text(
-            messageId = id,
+            messageId = Uuid.random(),
             roomId = "room-live",
-            senderAccountId = "alice-acct",
+            senderAccountId = AccountId("alice-acct"),
             prevId = null,
             lamportClock = 1L,
             createdAtEpochSeconds = 0L,
@@ -106,7 +106,6 @@ class DefaultRouterLiveIntegrationTest {
                 torTransport = aliceTorTransport,
                 webRtcTransport = aliceWebRtc,
                 identityResolver = aliceIdentity,
-                packetIdAllocator = SequencedPacketIdAllocator(),
                 packetDeduplicator = InMemoryPacketDeduplicator(),
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
@@ -119,7 +118,6 @@ class DefaultRouterLiveIntegrationTest {
                 torTransport = bobTorTransport,
                 webRtcTransport = bobWebRtc,
                 identityResolver = bobIdentity,
-                packetIdAllocator = SequencedPacketIdAllocator(),
                 packetDeduplicator = InMemoryPacketDeduplicator(),
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
@@ -135,7 +133,7 @@ class DefaultRouterLiveIntegrationTest {
             aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)
             bobTorMap[alicePeer] = aliceIdentity.resolveTorEndpointForDevice(alicePeer)
 
-            val outbound = sampleText("live-msg-${UUID.randomUUID()}")
+            val outbound = sampleText()
 
             val inbound =
                 withTimeout(420_000L.milliseconds) {

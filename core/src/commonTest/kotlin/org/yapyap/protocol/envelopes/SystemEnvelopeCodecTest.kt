@@ -2,16 +2,16 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class SystemEnvelopeCodecTest {
 
     private val source = PeerId("src-device")
     private val target = PeerId("dst-device")
     private val nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 }
-    private val samplePacketId = PacketId.fromHex("01".repeat(PacketId.SIZE_BYTES))
+    private val samplePacketId = Uuid.random()
 
     @Test
     fun systemPayload_packetAck_encodeDecode_roundTrip() {
@@ -54,7 +54,7 @@ class SystemEnvelopeCodecTest {
             packetType = PacketType.SYSTEM,
         )
         val env = SystemEnvelope(
-            systemEnvelopeId = "ack:${samplePacketId.toHex()}",
+            systemEnvelopeId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 1_700_000_000L,
@@ -76,7 +76,7 @@ class SystemEnvelopeCodecTest {
             reasonText = null,
         )
         val env = SystemEnvelope(
-            systemEnvelopeId = "nack:${samplePacketId.toHex()}",
+            systemEnvelopeId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 42L,
@@ -87,25 +87,6 @@ class SystemEnvelopeCodecTest {
         )
         val round = SystemEnvelope.decode(env.encode())
         assertSystemEnvelopeEquals(env, round)
-    }
-
-    @Test
-    fun systemEnvelope_init_rejectsBlankCorrelationId() {
-        assertFailsWith<IllegalArgumentException> {
-            SystemEnvelope(
-                systemEnvelopeId = " ",
-                source = source,
-                target = target,
-                createdAtEpochSeconds = 0L,
-                nonce = nonce,
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = SystemPayload.PacketAck(
-                    packetId = samplePacketId,
-                    packetType = PacketType.MESSAGE,
-                ).encode(),
-            )
-        }
     }
 
     @Test

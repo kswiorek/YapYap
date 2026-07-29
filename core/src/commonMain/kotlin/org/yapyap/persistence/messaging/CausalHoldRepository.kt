@@ -5,7 +5,7 @@ import org.yapyap.persistence.YapYapDatabase
 import kotlin.uuid.Uuid
 
 data class CausalHoldRow(
-    val gapId: String,
+    val gapId: Uuid,
     val missingPrevId: Uuid,
     val orphanedMessageId: Uuid,
     val detectedTimestamp: Long,
@@ -13,7 +13,7 @@ data class CausalHoldRow(
 
 interface CausalHoldRepository {
 
-    fun insert(gapId: String, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long)
+    fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long)
 
     fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow>
 
@@ -32,12 +32,12 @@ class DefaultCausalHoldRepository(
 
     private val queries = database.messageQueries
 
-    override fun insert(gapId: String, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
-        queries.insertCausalHold(gapId, missingPrevId.toHexString(), orphanedMessageId.toHexString(), detectedTimestamp)
+    override fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
+        queries.insertCausalHold(gapId, missingPrevId, orphanedMessageId, detectedTimestamp)
     }
 
     override fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
-        queries.selectCausalHoldsByMissingPrevId(missingPrevId.toHexString()).executeAsList().map { it.toRow() }
+        queries.selectCausalHoldsByMissingPrevId(missingPrevId).executeAsList().map { it.toRow() }
 
     override fun findByRoom(roomId: String): List<CausalHoldRow> =
         queries.selectCausalHoldsByRoom(roomId).executeAsList().map { it.toRow() }
@@ -46,18 +46,18 @@ class DefaultCausalHoldRepository(
         queries.selectAllCausalHolds().executeAsList().map { it.toRow() }
 
     override fun deleteByMissingPrevId(missingPrevId: Uuid) {
-        queries.deleteCausalHoldsByMissingPrevId(missingPrevId.toHexString())
+        queries.deleteCausalHoldsByMissingPrevId(missingPrevId)
     }
 
     override fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
-        queries.deleteCausalHoldByOrphanedMessageId(orphanedMessageId.toHexString())
+        queries.deleteCausalHoldByOrphanedMessageId(orphanedMessageId)
     }
 
     private fun Causal_hold.toRow(): CausalHoldRow =
         CausalHoldRow(
             gapId = this.gap_id,
-            missingPrevId = Uuid.parseHex(this.missing_prev_id),
-            orphanedMessageId = Uuid.parseHex(this.orphaned_message_id),
+            missingPrevId = this.missing_prev_id,
+            orphanedMessageId = this.orphaned_message_id,
             detectedTimestamp = this.detected_timestamp,
         )
 }

@@ -1,7 +1,8 @@
+import kotlin.uuid.Uuid;
 import org.yapyap.protocol.envelopes.PacketNackReason;
 
 CREATE TABLE dedup (
-    packet_id TEXT NOT NULL,
+    packet_id TEXT AS Uuid NOT NULL,
     source_device_id TEXT NOT NULL,
     received_at INTEGER NOT NULL,
     nack_reason TEXT AS PacketNackReason,

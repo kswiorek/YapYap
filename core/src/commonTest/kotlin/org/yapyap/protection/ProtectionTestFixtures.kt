@@ -18,10 +18,10 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
+import kotlin.uuid.Uuid
 
 internal object FixturePeerIds {
     val A = PeerId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -42,11 +42,11 @@ internal fun sampleEnvelopeContext(
     securityScheme = scheme,
 )
 
-internal fun sampleTextPayload(messageId: String = "msg-contract-1"): MessagePayload.Text =
+internal fun sampleTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
-        messageId = messageId,
+        messageId = Uuid.random(),
         roomId = "room-1",
-        senderAccountId = "acct-1",
+        senderAccountId = AccountId("acct-1"),
         prevId = null,
         lamportClock = 0L,
         createdAtEpochSeconds = 0L,
@@ -57,18 +57,14 @@ internal fun sampleTextPayload(messageId: String = "msg-contract-1"): MessagePay
 
 internal fun sampleWebRtcSignal(source: PeerId, target: PeerId): WebRtcSignal =
     WebRtcSignal(
-        sessionId = "session-contract-1",
         kind = WebRtcSignalKind.OFFER,
         source = source,
         target = target,
         payload = byteArrayOf(0x01, 0x02, 0x03),
     )
 
-internal fun samplePacketId(byte: Int = 1): PacketId =
-    PacketId.fromHex(byte.toString(16).padStart(PacketId.SIZE_BYTES * 2, '0'))
-
 internal fun samplePacketAckPayload(
-    packetId: PacketId = samplePacketId(),
+    packetId: Uuid = Uuid.random(),
     packetType: PacketType = PacketType.MESSAGE,
 ): SystemPayload.PacketAck =
     SystemPayload.PacketAck(
@@ -77,7 +73,7 @@ internal fun samplePacketAckPayload(
     )
 
 internal fun samplePacketNackPayload(
-    packetId: PacketId = samplePacketId(2),
+    packetId: Uuid = Uuid.random(),
     packetType: PacketType = PacketType.MESSAGE,
     reason: PacketNackReason = PacketNackReason.PROTECTION_FAILED,
     reasonText: String? = "bad sig",
@@ -235,7 +231,7 @@ internal class PassthroughFileProtection : FileProtection {
 
     override suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
         FileEnvelope(
-            transferId = "fixture-transfer-id",
+            transferId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,

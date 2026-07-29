@@ -7,6 +7,7 @@ import org.yapyap.protection.*
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class WebRtcSignalProtectionTest {
 
@@ -23,7 +24,7 @@ class WebRtcSignalProtectionTest {
         val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
         val envelope = protection.protect(input, ctx)
         val opened = protection.open(envelope)
-        assertEquals(input.sessionId, opened.sessionId)
+        assertEquals(input.target, opened.target)
         assertEquals(input.kind, opened.kind)
         assertContentEquals(input.payload, opened.payload)
     }
@@ -47,7 +48,7 @@ class WebRtcSignalProtectionTest {
         val protection = PlaintextWebRtcSignalProtection(crypto)
         val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
         val envelope = WebRtcSignalEnvelope(
-            signalEnvelopeId = input.sessionId,
+            signalEnvelopeId = Uuid.random(),
             kind = input.kind,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
@@ -82,7 +83,7 @@ class WebRtcSignalProtectionTest {
         val input = sampleWebRtcSignal(sourcePeer, targetPeer)
         val envelope = protection.protect(input, ctx)
         val opened = protection.open(envelope)
-        assertEquals(input.sessionId, opened.sessionId)
+        assertEquals(input.target, opened.target)
         assertContentEquals(input.payload, opened.payload)
     }
 

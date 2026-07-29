@@ -1,26 +1,29 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class MessageEnvelopeCodecTest {
 
     private val source = PeerId("src-device")
     private val target = PeerId("dst-device")
     private val authorDeviceId = PeerId("author-device")
+    private val authorAccountId = AccountId("author-account")
     private val nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 3 }
     private val testSignature = byteArrayOf(0x01, 0x02, 0x03)
 
     @Test
     fun messagePayload_text_encodeDecode_roundTrip() {
         val original = MessagePayload.Text(
-            messageId = "mid-1",
+            messageId = Uuid.random(),
             roomId = "room-a",
-            senderAccountId = "acct",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
-            prevId = "prev",
+            prevId = Uuid.random(),
             lamportClock = 42L,
             createdAtEpochSeconds = 1_700_000_042L,
             text = "hello",
@@ -28,15 +31,15 @@ class MessageEnvelopeCodecTest {
         )
         val bytes = original.encode()
         val decoded = MessagePayload.Text.decode(bytes)
-        assertEquals(original, decoded)
+        assertMessagePayloadEquals(original, decoded)
     }
 
     @Test
     fun messagePayload_globalEvent_encodeDecode_roundTrip() {
         val original = MessagePayload.GlobalEvent(
-            messageId = "evt-1",
+            messageId = Uuid.random(),
             roomId = "GLOBAL",
-            senderAccountId = "acct",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
@@ -52,11 +55,11 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messagePayload_encodeForAuthorSigning_excludesSignature() {
         val payload = MessagePayload.Text(
-            messageId = "mid-sign",
+            messageId = Uuid.random(),
             roomId = "room-a",
-            senderAccountId = "acct",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
-            prevId = "prev",
+            prevId = Uuid.random(),
             lamportClock = 42L,
             createdAtEpochSeconds = 1_700_000_042L,
             text = "hello",
@@ -71,18 +74,18 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messageEnvelope_full_encodeDecode_globalEvent_roundTrip() {
         val payload = MessagePayload.GlobalEvent(
-            messageId = "ge-full",
+            messageId = Uuid.random(),
             roomId = "GLOBAL",
-            senderAccountId = "acct-ge",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
-            prevId = "p",
+            prevId = Uuid.random(),
             lamportClock = 99L,
             createdAtEpochSeconds = 1_700_000_099L,
             eventBytes = byteArrayOf(0xab.toByte()),
             authorSignature = testSignature,
         )
         val env = MessageEnvelope(
-            messageEnvelopeId = "ge-full",
+            messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 5L,
@@ -98,9 +101,9 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messageEnvelope_full_encodeDecode_text_roundTrip() {
         val payload = MessagePayload.Text(
-            messageId = "mid-2",
+            messageId = Uuid.random(),
             roomId = "room-b",
-            senderAccountId = "acct2",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 1L,
@@ -109,7 +112,7 @@ class MessageEnvelopeCodecTest {
             authorSignature = testSignature,
         )
         val env = MessageEnvelope(
-            messageEnvelopeId = "mid-2",
+            messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 1_700_000_000L,
@@ -125,9 +128,9 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messageEnvelope_encodeForSigning_omitsSignatureBytes() {
         val payload = MessagePayload.Text(
-            messageId = "mid-sign",
+            messageId = Uuid.random(),
             roomId = "r",
-            senderAccountId = "a",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
@@ -137,7 +140,7 @@ class MessageEnvelopeCodecTest {
         )
         val sig = ByteArray(64) { it.toByte() }
         val signed = MessageEnvelope(
-            messageEnvelopeId = "mid-sign",
+            messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 0L,
@@ -154,9 +157,9 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messageEnvelope_full_encodeDecode_signedSignatureBytes_roundTrip() {
         val payload = MessagePayload.Text(
-            messageId = "mid-3",
+            messageId = Uuid.random(),
             roomId = "r",
-            senderAccountId = "a",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
@@ -166,7 +169,7 @@ class MessageEnvelopeCodecTest {
         )
         val sig = ByteArray(64) { it.toByte() }
         val env = MessageEnvelope(
-            messageEnvelopeId = "mid-3",
+            messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 0L,
@@ -180,32 +183,6 @@ class MessageEnvelopeCodecTest {
     }
 
     @Test
-    fun messageEnvelope_init_rejectsBlankMessageId() {
-        assertFailsWith<IllegalArgumentException> {
-            MessageEnvelope(
-                messageEnvelopeId = " ",
-                source = source,
-                target = target,
-                createdAtEpochSeconds = 0L,
-                nonce = nonce,
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = MessagePayload.Text(
-                    messageId = "x",
-                    roomId = "r",
-                    senderAccountId = "a",
-                    authorDeviceId = authorDeviceId,
-                    prevId = null,
-                    lamportClock = 0L,
-                    createdAtEpochSeconds = 0L,
-                    text = "",
-                    authorSignature = testSignature,
-                ).encode(),
-            )
-        }
-    }
-
-    @Test
     fun messagePayloadType_enum_wireValuesDistinct() {
         val wires = MessagePayloadType.entries.map { it.wireValue }.toSet()
         assertEquals(MessagePayloadType.entries.size, wires.size)
@@ -214,9 +191,9 @@ class MessageEnvelopeCodecTest {
     @Test
     fun messagePayload_types_matchDiscriminant() {
         val text = MessagePayload.Text(
-            messageId = "t",
+            messageId = Uuid.random(),
             roomId = "r",
-            senderAccountId = "a",
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
@@ -227,8 +204,8 @@ class MessageEnvelopeCodecTest {
         assertEquals(MessagePayloadType.TEXT, text.payloadType)
 
         val ge = MessagePayload.GlobalEvent(
-            messageId = "g",
-            senderAccountId = "a",
+            messageId = Uuid.random(),
+            senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
@@ -256,11 +233,23 @@ class MessageEnvelopeCodecTest {
     private fun assertMessagePayloadEquals(expected: MessagePayload, actual: MessagePayload) {
         when {
             expected is MessagePayload.Text && actual is MessagePayload.Text ->
-                assertEquals(expected, actual)
+                assertTextPayloadEquals(expected, actual)       // ← replace plain assertEquals
             expected is MessagePayload.GlobalEvent && actual is MessagePayload.GlobalEvent ->
                 assertGlobalEventPayloadEquals(expected, actual)
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
+    }
+
+    private fun assertTextPayloadEquals(expected: MessagePayload.Text, actual: MessagePayload.Text) {
+        assertEquals(expected.messageId, actual.messageId)
+        assertEquals(expected.roomId, actual.roomId)
+        assertEquals(expected.senderAccountId, actual.senderAccountId)
+        assertEquals(expected.authorDeviceId, actual.authorDeviceId)
+        assertEquals(expected.prevId, actual.prevId)
+        assertEquals(expected.lamportClock, actual.lamportClock)
+        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
+        assertEquals(expected.text, actual.text)
+        assertContentEquals(expected.authorSignature, actual.authorSignature)
     }
 
     private fun assertGlobalEventPayloadEquals(

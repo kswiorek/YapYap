@@ -1,12 +1,12 @@
 package org.yapyap.transport.webrtc.backend
 
 import dev.onvoid.webrtc.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -16,6 +16,8 @@ import org.yapyap.transport.webrtc.types.*
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration.Companion.seconds
 
 class JvmWebRtcBackend(
     private val config: WebRtcBackendConfig = WebRtcBackendConfig(),
@@ -26,7 +28,6 @@ class JvmWebRtcBackend(
     private val incomingDataFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
     private val sessionEventFlow = MutableSharedFlow<WebRtcSessionEvent>(extraBufferCapacity = 64)
     private val avChannelEventFlow = MutableSharedFlow<WebRtcAvChannelEvent>(extraBufferCapacity = 64)
-    private val callbackScope = CoroutineScope(Dispatchers.Default)
 
     override val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
     override val incomingDataFrames: Flow<WebRtcDataFrame> = incomingDataFlow.asSharedFlow()
@@ -36,11 +37,13 @@ class JvmWebRtcBackend(
     private var localDevice: PeerId? = null
     private var factory: PeerConnectionFactory? = null
     private val sessions = ConcurrentHashMap<PeerId, Session>()
+    private var scope: CoroutineScope? = null
 
     override suspend fun start(localDevice: PeerId) {
         check(this.localDevice == null) { "WebRTC backend is already started" }
         this.localDevice = localDevice
         this.factory = PeerConnectionFactory()
+        this.scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         logger.info(
             component = LogComponent.WEBRTC_BACKEND,
             event = LogEvent.STARTED,
@@ -52,6 +55,8 @@ class JvmWebRtcBackend(
     override suspend fun stop() {
         sessions.values.forEach { it.dispose() }
         sessions.clear()
+        scope?.cancel()
+        scope = null
         factory?.dispose()
         factory = null
         localDevice = null
@@ -64,63 +69,32 @@ class JvmWebRtcBackend(
 
     override suspend fun openSession(target: PeerId) {
         val local = requireNotNull(localDevice) { "WebRTC backend must be started before opening session" }
-        val peerConnection = createPeerConnection(targetId = target)
-        val session = Session(remotePeer = target, peerConnection = peerConnection)
-        if (sessions.putIfAbsent(target, session) != null) return
+        if (sessions.containsKey(target)) return
+
+        val sessionRef = AtomicReference<Session?>()
+        val pc = createPeerConnection(target, sessionRef)
+        val session = Session(remotePeer = target, peerConnection = pc)
+        sessionRef.set(session)
+
+        if (sessions.putIfAbsent(target, session) != null) {
+            session.dispose()
+            return
+        }
 
         val channelInit = RTCDataChannelInit().also { init ->
             init.ordered = config.orderedDataChannel
             config.maxRetransmits?.let { init.maxRetransmits = it }
             config.maxPacketLifeTimeMs?.let { init.maxPacketLifeTime = it }
         }
-        val label = envelopeChannelLabel(target)
-        val channel = peerConnection.createDataChannel(label, channelInit)
+        val channel = pc.createDataChannel(envelopeChannelLabel(local, target), channelInit)
         attachDataChannel(session, channel, WebRtcDataType.ENVELOPE_BINARY)
         emitSessionEvent(WebRtcSessionEvent.Connecting(peer = target))
 
-        peerConnection.createOffer(
-            RTCOfferOptions(),
-            object : CreateSessionDescriptionObserver {
-                override fun onSuccess(description: RTCSessionDescription) {
-                    peerConnection.setLocalDescription(
-                        description,
-                        object : SetSessionDescriptionObserver {
-                            override fun onSuccess() {
-                                emitSignal(
-                                    WebRtcSignal(
-                                        kind = WebRtcSignalKind.OFFER,
-                                        source = local,
-                                        target = target,
-                                        payload = description.sdp.encodeToByteArray(),
-                                    )
-                                )
-                            }
-
-                            override fun onFailure(error: String) {
-                                val session = sessions.remove(target) ?: return
-                                session.dispose()
-                                emitSessionEvent(
-                                    WebRtcSessionEvent.Failed(
-                                        peer = target,
-                                        reason = "Failed to set local offer: $error",
-                                    )
-                                )
-                            }
-                        }
-                    )
-                }
-
-                override fun onFailure(error: String) {
-                    val session = sessions.remove(target) ?: return
-                    session.dispose()
-                    emitSessionEvent(
-                        WebRtcSessionEvent.Failed(
-                            peer = target,
-                            reason = "Failed to create offer: $error",
-                        )
-                    )
-                }
-            }
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SESSION_STATE_CHANGED,
+            message = "Opened outbound session (offerer); awaiting renegotiation callback",
+            fields = mapOf("peer" to target),
         )
     }
 
@@ -133,137 +107,43 @@ class JvmWebRtcBackend(
             fields = mapOf("kind" to signal.kind.name, "source" to signal.source),
         )
         when (signal.kind) {
-            WebRtcSignalKind.OFFER -> {
-                val session = sessions.computeIfAbsent(signal.source) {
-                    val pc = createPeerConnection(targetId = signal.source)
-                    Session(remotePeer = signal.source, peerConnection = pc)
-                }
-                emitSessionEvent(WebRtcSessionEvent.Connecting(signal.source))
-                val offer = RTCSessionDescription(RTCSdpType.OFFER, signal.payload.decodeToString())
-                session.peerConnection.setRemoteDescription(
-                    offer,
-                    object : SetSessionDescriptionObserver {
-                        override fun onSuccess() {
-                            session.peerConnection.createAnswer(
-                                RTCAnswerOptions(),
-                                object : CreateSessionDescriptionObserver {
-                                    override fun onSuccess(answer: RTCSessionDescription) {
-                                        session.peerConnection.setLocalDescription(
-                                            answer,
-                                            object : SetSessionDescriptionObserver {
-                                                override fun onSuccess() {
-                                                    emitSignal(
-                                                        WebRtcSignal(
-                                                            kind = WebRtcSignalKind.ANSWER,
-                                                            source = local,
-                                                            target = signal.source,
-                                                            payload = answer.sdp.encodeToByteArray(),
-                                                        )
-                                                    )
-                                                }
-
-                                                override fun onFailure(error: String) {
-                                                    val session = sessions.remove(signal.source) ?: return
-                                                    session.dispose()
-                                                    emitSessionEvent(
-                                                        WebRtcSessionEvent.Failed(
-                                                            peer = signal.source,
-                                                            reason = "Failed to set local answer: $error",
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                        )
-                                    }
-
-                                    override fun onFailure(error: String) {
-                                        val session = sessions.remove(signal.source) ?: return
-                                        session.dispose()
-                                        emitSessionEvent(
-                                            WebRtcSessionEvent.Failed(
-                                                peer = signal.source,
-                                                reason = "Failed to create answer: $error",
-                                            )
-                                        )
-                                    }
-                                }
-                            )
-                        }
-
-                        override fun onFailure(error: String) {
-                            val session = sessions.remove(signal.source) ?: return
-                            session.dispose()
-                            emitSessionEvent(
-                                WebRtcSessionEvent.Failed(
-                                    peer = signal.source,
-                                    reason = "Failed to set remote offer: $error",
-                                )
-                            )
-                        }
-                    }
-                )
-            }
-
-            WebRtcSignalKind.ANSWER -> {
-                val session = sessions[signal.source] ?: return
-                val answer = RTCSessionDescription(RTCSdpType.ANSWER, signal.payload.decodeToString())
-                session.peerConnection.setRemoteDescription(
-                    answer,
-                    object : SetSessionDescriptionObserver {
-                        override fun onSuccess() = Unit
-                        override fun onFailure(error: String) {
-                            val session = sessions.remove(signal.source) ?: return
-                            session.dispose()
-                            emitSessionEvent(
-                                WebRtcSessionEvent.Failed(
-                                    peer = session.remotePeer,
-                                    reason = "Failed to set remote answer: $error",
-                                )
-                            )
-                        }
-                    }
-                )
-            }
-
-            WebRtcSignalKind.ICE -> {
-                val session = sessions[signal.source] ?: return
-                val candidate = decodeIceCandidate(signal.payload) ?: return
-                session.peerConnection.addIceCandidate(candidate)
-            }
-
+            WebRtcSignalKind.OFFER -> handleRemoteOffer(local, signal)
+            WebRtcSignalKind.ANSWER -> handleRemoteAnswer(signal)
+            WebRtcSignalKind.ICE -> handleRemoteIce(signal)
             WebRtcSignalKind.REJECT,
             WebRtcSignalKind.CANCEL,
-            -> {
-                val session = sessions.remove(signal.source) ?: return
-                session.dispose()
-                emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
-            }
+            -> teardownRemote(signal.source, "Remote ${signal.kind.name.lowercase()}")
         }
     }
 
-    override fun hasSession(target: PeerId): Boolean {
-        return sessions.containsKey(target)
-    }
+    override fun hasSession(target: PeerId): Boolean = sessions.containsKey(target)
 
     override suspend fun closeSession(target: PeerId) {
         check(localDevice != null) { "WebRTC backend must be started before closing session" }
         val session = sessions.remove(target) ?: return
-        session.dispose()
-        emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
+        session.signalMutex.withLock {
+            session.dispose()
+            emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
+        }
     }
 
     override suspend fun sendData(dataFrame: WebRtcDataFrame) {
         check(localDevice != null) { "WebRTC backend must be started before sending data" }
         val local = requireNotNull(localDevice)
+        require(dataFrame.source == local) { "Frame source mismatch for local device ${dataFrame.source}" }
         val session = sessions[dataFrame.target] ?: error("Unknown session for target: ${dataFrame.target}")
-        check(session.remotePeer == dataFrame.target) { "Session target mismatch for target ${dataFrame.target}" }
-        check(dataFrame.source == local) { "Frame source mismatch for local device ${dataFrame.source}" }
-        val channel = when (dataFrame.dataType) {
-            WebRtcDataType.ENVELOPE_BINARY -> session.envelopeDataChannel
-            WebRtcDataType.AV_DATA -> session.avDataChannel
-        } ?: error("No ${dataFrame.dataType} channel available for target: ${dataFrame.target}") //TODO better exceptions
-        check(channel.state == RTCDataChannelState.OPEN) { "Data channel is not open for target: ${dataFrame.target}" }
-        channel.send(RTCDataChannelBuffer(ByteBuffer.wrap(dataFrame.payload), true))
+        require(session.remotePeer == dataFrame.target) { "Session target mismatch for target ${dataFrame.target}" }
+
+        val channel = session.channelFor(dataFrame.dataType)
+        if (channel?.state != RTCDataChannelState.OPEN) {
+            awaitChannelOpen(session, dataFrame.dataType)
+        }
+        val openChannel = session.channelFor(dataFrame.dataType)
+            ?: error("No ${dataFrame.dataType} channel available for target: ${dataFrame.target}")
+        check(openChannel.state == RTCDataChannelState.OPEN) {
+            "Data channel is not open for target: ${dataFrame.target}"
+        }
+        openChannel.send(RTCDataChannelBuffer(ByteBuffer.wrap(dataFrame.payload), true))
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
             event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
@@ -278,62 +158,277 @@ class JvmWebRtcBackend(
 
     override suspend fun addAvChannel(target: PeerId) {
         check(localDevice != null) { "WebRTC backend must be started before adding AV channel" }
+        val local = requireNotNull(localDevice)
         val session = sessions[target] ?: error("Unknown target: $target")
-        logger.debug(
-            component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SESSION_STATE_CHANGED,
-            message = "Adding AV data channel",
-            fields = mapOf("peer" to session.remotePeer),
-        )
-        addAvChannelInternal(session)
+        session.signalMutex.withLock {
+            if (session.disposed.get()) error("Session disposed for target: $target")
+            val existing = session.avDataChannel
+            if (existing != null && existing.state != RTCDataChannelState.CLOSED) {
+                emitAvChannelEvent(WebRtcAvChannelEvent.Active(peer = target))
+                return@withLock
+            }
+            val channelInit = RTCDataChannelInit().also { init ->
+                init.ordered = false
+                init.maxRetransmits = 0
+            }
+            val channel = session.peerConnection.createDataChannel(avChannelLabel(local, target), channelInit)
+            attachDataChannel(session, channel, WebRtcDataType.AV_DATA)
+            emitAvChannelEvent(WebRtcAvChannelEvent.Adding(peer = target))
+            logger.debug(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_STATE_CHANGED,
+                message = "Added AV data channel; renegotiation pending",
+                fields = mapOf("peer" to target),
+            )
+        }
     }
 
     override suspend fun removeAvChannel(target: PeerId) {
         check(localDevice != null) { "WebRTC backend must be started before removing AV channel" }
         val session = sessions[target] ?: return
-        logger.debug(
+        session.signalMutex.withLock {
+            val channel = session.avDataChannel ?: return@withLock
+            session.avDataChannel = null
+            runCatching {
+                channel.unregisterObserver()
+                channel.close()
+                channel.dispose()
+            }
+            session.avChannelOpen = CompletableDeferred()
+            emitAvChannelEvent(WebRtcAvChannelEvent.Removed(peer = target))
+            logger.debug(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_STATE_CHANGED,
+                message = "AV data channel removed; renegotiation pending",
+                fields = mapOf("peer" to target),
+            )
+        }
+    }
+
+    private suspend fun handleRemoteOffer(local: PeerId, signal: WebRtcSignal) {
+        val remote = signal.source
+        val polite = isPolite(local, remote)
+        val isNew = !sessions.containsKey(remote)
+
+        val sessionRef = AtomicReference<Session?>()
+        val session = sessions.computeIfAbsent(remote) {
+            val pc = createPeerConnection(remote, sessionRef)
+            Session(remotePeer = remote, peerConnection = pc).also { s -> sessionRef.set(s) }
+        }
+
+        session.signalMutex.withLock {
+            if (session.disposed.get()) return@withLock
+            val state = session.peerConnection.signalingState
+
+            if (state == RTCSignalingState.HAVE_LOCAL_OFFER) {
+                if (!polite) {
+                    logger.info(
+                        component = LogComponent.WEBRTC_BACKEND,
+                        event = LogEvent.SESSION_STATE_CHANGED,
+                        message = "Glare: impolite, ignoring inbound offer",
+                        fields = mapOf("peer" to remote, "local" to local, "state" to state.name),
+                    )
+                    return@withLock
+                }
+                logger.info(
+                    component = LogComponent.WEBRTC_BACKEND,
+                    event = LogEvent.SESSION_STATE_CHANGED,
+                    message = "Glare: polite, rolling back local offer",
+                    fields = mapOf("peer" to remote, "local" to local),
+                )
+                runCatching {
+                    session.peerConnection.setLocalDescriptionSuspending(
+                        RTCSessionDescription(RTCSdpType.ROLLBACK, "")
+                    )
+                }.onFailure { err ->
+                    failSession(session, "Rollback failed: ${err.message ?: err}")
+                    return@withLock
+                }
+                disposeEnvelopeChannel(session)
+                session.envelopeChannelOpen = CompletableDeferred()
+            } else if (isNew) {
+                logger.debug(
+                    component = LogComponent.WEBRTC_BACKEND,
+                    event = LogEvent.SESSION_STATE_CHANGED,
+                    message = "Accepting inbound offer as answerer",
+                    fields = mapOf("peer" to remote),
+                )
+            }
+
+            emitSessionEvent(WebRtcSessionEvent.Connecting(remote))
+            val offer = RTCSessionDescription(RTCSdpType.OFFER, signal.payload.decodeToString())
+            runCatching {
+                session.peerConnection.setRemoteDescriptionSuspending(offer)
+            }.onFailure { err ->
+                failSession(session, "Failed to set remote offer: ${err.message ?: err}")
+                return@withLock
+            }
+            session.remoteDescriptionApplied = true
+            drainPendingIce(session)
+
+            val answer = runCatching {
+                session.peerConnection.createAnswerSuspending(RTCAnswerOptions())
+            }.onFailure { err ->
+                failSession(session, "Failed to create answer: ${err.message ?: err}")
+                return@withLock
+            }.getOrThrow()
+
+            runCatching {
+                session.peerConnection.setLocalDescriptionSuspending(answer)
+            }.onFailure { err ->
+                failSession(session, "Failed to set local answer: ${err.message ?: err}")
+                return@withLock
+            }
+
+            emitSignal(
+                WebRtcSignal(
+                    kind = WebRtcSignalKind.ANSWER,
+                    source = local,
+                    target = remote,
+                    payload = answer.sdp.encodeToByteArray(),
+                )
+            )
+        }
+    }
+
+    private suspend fun handleRemoteAnswer(signal: WebRtcSignal) {
+        val remote = signal.source
+        val session = sessions[remote] ?: return
+        session.signalMutex.withLock {
+            if (session.disposed.get()) return@withLock
+            val state = session.peerConnection.signalingState
+            if (state != RTCSignalingState.HAVE_LOCAL_OFFER) {
+                logger.warn(
+                    component = LogComponent.WEBRTC_BACKEND,
+                    event = LogEvent.SESSION_FAILED,
+                    message = "Received ANSWER in unexpected signaling state; ignoring",
+                    fields = mapOf("peer" to remote, "state" to state.name),
+                )
+                return@withLock
+            }
+            val answer = RTCSessionDescription(RTCSdpType.ANSWER, signal.payload.decodeToString())
+            runCatching {
+                session.peerConnection.setRemoteDescriptionSuspending(answer)
+            }.onFailure { err ->
+                failSession(session, "Failed to set remote answer: ${err.message ?: err}")
+                return@withLock
+            }
+            session.remoteDescriptionApplied = true
+            drainPendingIce(session)
+            maybeRenegotiateLocked(session)
+        }
+    }
+
+    private suspend fun handleRemoteIce(signal: WebRtcSignal) {
+        val remote = signal.source
+        val session = sessions[remote] ?: return
+        val candidate = decodeIceCandidate(signal.payload) ?: return
+        session.signalMutex.withLock {
+            if (session.disposed.get()) return@withLock
+            if (session.remoteDescriptionApplied) {
+                runCatching { session.peerConnection.addIceCandidate(candidate) }
+            } else {
+                session.pendingIceCandidates.add(candidate)
+                logger.debug(
+                    component = LogComponent.WEBRTC_BACKEND,
+                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    message = "Buffered ICE candidate (no remote description yet)",
+                    fields = mapOf("peer" to remote, "buffered" to session.pendingIceCandidates.size),
+                )
+            }
+        }
+    }
+
+    private suspend fun teardownRemote(remote: PeerId, reason: String) {
+        val session = sessions.remove(remote) ?: return
+        session.signalMutex.withLock {
+            session.dispose()
+            emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
+        }
+        logger.info(
             component = LogComponent.WEBRTC_BACKEND,
             event = LogEvent.SESSION_STATE_CHANGED,
-            message = "Removing AV data channel",
-            fields = mapOf("peer" to session.remotePeer),
+            message = "Tore down session",
+            fields = mapOf("peer" to remote, "reason" to reason),
         )
-        removeAvChannelInternal(session)
     }
 
-    private fun addAvChannelInternal(session: Session) {
-        emitAvChannelEvent(WebRtcAvChannelEvent.Adding(peer = session.remotePeer))
-        val existing = session.avDataChannel
-        if (existing != null && existing.state != RTCDataChannelState.CLOSED) {
-            emitAvChannelEvent(WebRtcAvChannelEvent.Active(peer = session.remotePeer))
+    private fun drainPendingIce(session: Session) {
+        val pending = session.pendingIceCandidates
+        if (pending.isEmpty()) return
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            message = "Draining buffered ICE candidates",
+            fields = mapOf("peer" to session.remotePeer, "count" to pending.size),
+        )
+        pending.forEach { candidate ->
+            runCatching { session.peerConnection.addIceCandidate(candidate) }
+        }
+        pending.clear()
+    }
+
+    private suspend fun maybeRenegotiateLocked(session: Session) {
+        if (session.disposed.get()) return
+        if (!session.renegotiationPending.compareAndSet(true, false)) return
+        val state = session.peerConnection.signalingState
+        if (state != RTCSignalingState.STABLE) {
+            session.renegotiationPending.set(true)
             return
         }
-        val channelInit = RTCDataChannelInit().also { init ->
-            init.ordered = false
-            init.maxRetransmits = 0
+        val local = requireNotNull(localDevice)
+        val offer = runCatching {
+            session.peerConnection.createOfferSuspending(RTCOfferOptions())
+        }.onFailure { err ->
+            failSession(session, "Renegotiation createOffer failed: ${err.message ?: err}")
+            return
+        }.getOrThrow()
+
+        runCatching {
+            session.peerConnection.setLocalDescriptionSuspending(offer)
+        }.onFailure { err ->
+            failSession(session, "Renegotiation setLocalDescription failed: ${err.message ?: err}")
+            return
         }
-        val channel = session.peerConnection.createDataChannel(avChannelLabel(session.remotePeer), channelInit)
-        attachDataChannel(session, channel, WebRtcDataType.AV_DATA)
-        emitAvChannelEvent(WebRtcAvChannelEvent.Active(peer = session.remotePeer))
+
+        emitSignal(
+            WebRtcSignal(
+                kind = WebRtcSignalKind.OFFER,
+                source = local,
+                target = session.remotePeer,
+                payload = offer.sdp.encodeToByteArray(),
+            )
+        )
+        logger.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            message = "Emitted renegotiation offer",
+            fields = mapOf("peer" to session.remotePeer),
+        )
     }
 
-    private fun removeAvChannelInternal(session: Session) {
-        val channel = session.avDataChannel ?: return
-        session.avDataChannel = null
+    private fun failSession(session: Session, reason: String) {
+        sessions.remove(session.remotePeer, session)
+        session.dispose()
+        emitSessionEvent(WebRtcSessionEvent.Failed(peer = session.remotePeer, reason = reason))
+    }
+
+    private fun disposeEnvelopeChannel(session: Session) {
+        val channel = session.envelopeDataChannel ?: return
+        session.envelopeDataChannel = null
         runCatching {
             channel.unregisterObserver()
             channel.close()
             channel.dispose()
         }
-        logger.debug(
-            component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SESSION_STATE_CHANGED,
-            message = "AV data channel removed",
-            fields = mapOf("peer" to session.remotePeer),
-        )
-        emitAvChannelEvent(WebRtcAvChannelEvent.Removed(peer = session.remotePeer))
     }
 
-    private fun createPeerConnection(targetId: PeerId): RTCPeerConnection {
+    private fun isPolite(local: PeerId, remote: PeerId): Boolean = local.id > remote.id
+
+    private fun createPeerConnection(
+        targetId: PeerId,
+        sessionRef: AtomicReference<Session?>,
+    ): RTCPeerConnection {
         val rtcConfig = RTCConfiguration().also { configuration ->
             configuration.iceServers = config.iceServers.map { serverConfig ->
                 RTCIceServer().also { server ->
@@ -385,16 +480,21 @@ class JvmWebRtcBackend(
                 }
 
                 override fun onDataChannel(channel: RTCDataChannel) {
-                    sessions[targetId]?.let { session ->
-                        val dataType = inferDataTypeFromLabel(channel.label, targetId)
-                        logger.debug(
-                            component = LogComponent.WEBRTC_BACKEND,
-                            event = LogEvent.SESSION_STATE_CHANGED,
-                            message = "Attached inbound data channel",
-                            fields = mapOf("peer" to session.remotePeer, "dataType" to dataType.name),
-                        )
-                        attachDataChannel(session, channel, dataType)
-                    }
+                    val session = sessionRef.get() ?: return
+                    val dataType = inferDataTypeFromLabel(channel.label)
+                    logger.debug(
+                        component = LogComponent.WEBRTC_BACKEND,
+                        event = LogEvent.SESSION_STATE_CHANGED,
+                        message = "Attached inbound data channel",
+                        fields = mapOf("peer" to session.remotePeer, "dataType" to dataType.name, "label" to channel.label),
+                    )
+                    attachDataChannel(session, channel, dataType)
+                }
+
+                override fun onRenegotiationNeeded() {
+                    val session = sessionRef.get() ?: return
+                    session.renegotiationPending.set(true)
+                    scope?.launch { session.signalMutex.withLock { maybeRenegotiateLocked(session) } }
                 }
             }
         )
@@ -405,14 +505,40 @@ class JvmWebRtcBackend(
             WebRtcDataType.ENVELOPE_BINARY -> session.envelopeDataChannel = channel
             WebRtcDataType.AV_DATA -> {
                 session.avDataChannel = channel
-                emitAvChannelEvent(WebRtcAvChannelEvent.Active(session.remotePeer))
+                emitAvChannelEvent(WebRtcAvChannelEvent.Adding(peer = session.remotePeer))
             }
         }
         channel.registerObserver(
             object : RTCDataChannelObserver {
                 override fun onBufferedAmountChange(previousAmount: Long) = Unit
 
-                override fun onStateChange() = Unit
+                override fun onStateChange() {
+                    val state = channel.state
+                    when (dataType) {
+                        WebRtcDataType.ENVELOPE_BINARY -> {
+                            if (state == RTCDataChannelState.OPEN) {
+                                session.envelopeChannelOpen.complete(Unit)
+                            } else if (state == RTCDataChannelState.CLOSED) {
+                                session.envelopeChannelOpen = CompletableDeferred()
+                            }
+                        }
+
+                        WebRtcDataType.AV_DATA -> {
+                            when (state) {
+                                RTCDataChannelState.OPEN -> {
+                                    session.avChannelOpen.complete(Unit)
+                                    emitAvChannelEvent(WebRtcAvChannelEvent.Active(peer = session.remotePeer))
+                                }
+
+                                RTCDataChannelState.CLOSED -> {
+                                    emitAvChannelEvent(WebRtcAvChannelEvent.Removed(peer = session.remotePeer))
+                                }
+
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
 
                 override fun onMessage(buffer: RTCDataChannelBuffer) {
                     val bytes = ByteArray(buffer.data.remaining())
@@ -440,17 +566,26 @@ class JvmWebRtcBackend(
         )
     }
 
-    private fun inferDataTypeFromLabel(label: String, peerId: PeerId): WebRtcDataType {
-        if (label == avChannelLabel(peerId)) return WebRtcDataType.AV_DATA
-        if (label == envelopeChannelLabel(peerId)) {
-            return WebRtcDataType.ENVELOPE_BINARY
-        }
+    private fun inferDataTypeFromLabel(label: String): WebRtcDataType {
+        if (label.contains("-av-")) return WebRtcDataType.AV_DATA
         return WebRtcDataType.ENVELOPE_BINARY
     }
 
-    private fun envelopeChannelLabel(peerId: PeerId): String = "${config.dataChannelLabelPrefix}-env-$peerId"
+    private fun envelopeChannelLabel(local: PeerId, target: PeerId): String =
+        "${config.dataChannelLabelPrefix}-env-${local.id}-${target.id}"
 
-    private fun avChannelLabel(peerId: PeerId): String = "${config.dataChannelLabelPrefix}-av-$peerId"
+    private fun avChannelLabel(local: PeerId, target: PeerId): String =
+        "${config.dataChannelLabelPrefix}-av-${local.id}-${target.id}"
+
+    private suspend fun awaitChannelOpen(session: Session, dataType: WebRtcDataType) {
+        val deferred = when (dataType) {
+            WebRtcDataType.ENVELOPE_BINARY -> session.envelopeChannelOpen
+            WebRtcDataType.AV_DATA -> session.avChannelOpen
+        }
+        withTimeoutOrNull(CHANNEL_OPEN_TIMEOUT) {
+            deferred.await()
+        } ?: error("Channel did not open within $CHANNEL_OPEN_TIMEOUT for ${session.remotePeer}")
+    }
 
     private fun emitSignal(signal: WebRtcSignal) {
         logger.debug(
@@ -459,15 +594,11 @@ class JvmWebRtcBackend(
             message = "Emitting outbound WebRTC signal",
             fields = mapOf("kind" to signal.kind.name, "target" to signal.target),
         )
-        callbackScope.launch {
-            outgoingSignalFlow.emit(signal)
-        }
+        scope?.launch { outgoingSignalFlow.emit(signal) }
     }
 
     private fun emitIncomingData(frame: WebRtcDataFrame) {
-        callbackScope.launch {
-            incomingDataFlow.emit(frame)
-        }
+        scope?.launch { incomingDataFlow.emit(frame) }
     }
 
     private fun emitSessionEvent(event: WebRtcSessionEvent) {
@@ -478,6 +609,7 @@ class JvmWebRtcBackend(
                 message = "WebRTC backend session failed",
                 fields = mapOf("peer" to event.peer, "reason" to event.reason),
             )
+
             else -> logger.debug(
                 component = LogComponent.WEBRTC_BACKEND,
                 event = LogEvent.SESSION_STATE_CHANGED,
@@ -485,24 +617,34 @@ class JvmWebRtcBackend(
                 fields = mapOf("type" to event::class.simpleName),
             )
         }
-        callbackScope.launch {
-            sessionEventFlow.emit(event)
-        }
+        scope?.launch { sessionEventFlow.emit(event) }
     }
 
     private fun emitAvChannelEvent(event: WebRtcAvChannelEvent) {
-        callbackScope.launch {
-            avChannelEventFlow.emit(event)
-        }
+        scope?.launch { avChannelEventFlow.emit(event) }
     }
 
-    private data class Session(
+    private class Session(
         val remotePeer: PeerId,
         val peerConnection: RTCPeerConnection,
-        var envelopeDataChannel: RTCDataChannel? = null,
-        var avDataChannel: RTCDataChannel? = null,
     ) {
-        private val disposed = AtomicBoolean(false)
+        val signalMutex = Mutex()
+        val disposed = AtomicBoolean(false)
+
+        @Volatile var envelopeDataChannel: RTCDataChannel? = null
+        @Volatile var avDataChannel: RTCDataChannel? = null
+
+        @Volatile var remoteDescriptionApplied: Boolean = false
+        val pendingIceCandidates = mutableListOf<RTCIceCandidate>()
+        val renegotiationPending = AtomicBoolean(false)
+
+        @Volatile var envelopeChannelOpen: CompletableDeferred<Unit> = CompletableDeferred()
+        @Volatile var avChannelOpen: CompletableDeferred<Unit> = CompletableDeferred()
+
+        fun channelFor(dataType: WebRtcDataType): RTCDataChannel? = when (dataType) {
+            WebRtcDataType.ENVELOPE_BINARY -> envelopeDataChannel
+            WebRtcDataType.AV_DATA -> avDataChannel
+        }
 
         fun dispose() {
             if (!disposed.compareAndSet(false, true)) return
@@ -510,6 +652,8 @@ class JvmWebRtcBackend(
                 envelopeDataChannel?.unregisterObserver()
                 envelopeDataChannel?.close()
                 envelopeDataChannel?.dispose()
+            }
+            runCatching {
                 avDataChannel?.unregisterObserver()
                 avDataChannel?.close()
                 avDataChannel?.dispose()
@@ -517,7 +661,79 @@ class JvmWebRtcBackend(
             runCatching { peerConnection.close() }
         }
     }
+
+    private companion object {
+        val CHANNEL_OPEN_TIMEOUT = 30.seconds
+    }
 }
+
+private suspend fun RTCPeerConnection.createOfferSuspending(options: RTCOfferOptions): RTCSessionDescription =
+    suspendCancellableCoroutine { cont ->
+        createOffer(
+            options,
+            object : CreateSessionDescriptionObserver {
+                override fun onSuccess(description: RTCSessionDescription) {
+                    cont.resumeWith(Result.success(description))
+                }
+
+                override fun onFailure(error: String) {
+                    cont.resumeWith(Result.failure(WebRtcBackendException("createOffer failed: $error")))
+                }
+            }
+        )
+    }
+
+private suspend fun RTCPeerConnection.createAnswerSuspending(options: RTCAnswerOptions): RTCSessionDescription =
+    suspendCancellableCoroutine { cont ->
+        createAnswer(
+            options,
+            object : CreateSessionDescriptionObserver {
+                override fun onSuccess(description: RTCSessionDescription) {
+                    cont.resumeWith(Result.success(description))
+                }
+
+                override fun onFailure(error: String) {
+                    cont.resumeWith(Result.failure(WebRtcBackendException("createAnswer failed: $error")))
+                }
+            }
+        )
+    }
+
+private suspend fun RTCPeerConnection.setLocalDescriptionSuspending(description: RTCSessionDescription) {
+    suspendCancellableCoroutine<Unit> { cont ->
+        setLocalDescription(
+            description,
+            object : SetSessionDescriptionObserver {
+                override fun onSuccess() {
+                    cont.resumeWith(Result.success(Unit))
+                }
+
+                override fun onFailure(error: String) {
+                    cont.resumeWith(Result.failure(WebRtcBackendException("setLocalDescription failed: $error")))
+                }
+            }
+        )
+    }
+}
+
+private suspend fun RTCPeerConnection.setRemoteDescriptionSuspending(description: RTCSessionDescription) {
+    suspendCancellableCoroutine<Unit> { cont ->
+        setRemoteDescription(
+            description,
+            object : SetSessionDescriptionObserver {
+                override fun onSuccess() {
+                    cont.resumeWith(Result.success(Unit))
+                }
+
+                override fun onFailure(error: String) {
+                    cont.resumeWith(Result.failure(WebRtcBackendException("setRemoteDescription failed: $error")))
+                }
+            }
+        )
+    }
+}
+
+class WebRtcBackendException(message: String) : RuntimeException(message)
 
 private fun encodeIceCandidate(candidate: RTCIceCandidate): ByteArray {
     val mid = candidate.sdpMid
@@ -553,4 +769,3 @@ private fun decodeIceCandidate(bytes: ByteArray): RTCIceCandidate? {
         )
     }.getOrNull()
 }
-

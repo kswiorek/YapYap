@@ -13,7 +13,6 @@ import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
-import org.yapyap.persistence.packet.PacketIdAllocator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -26,7 +25,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.SessionOrTorPolicy
@@ -37,12 +35,13 @@ import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionService {
 
     override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
         WebRtcSignalEnvelope(
-            signalEnvelopeId = input.sessionId,
+            signalEnvelopeId = Uuid.random(),
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -55,7 +54,6 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
 
     override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
         WebRtcSignal(
-            sessionId = envelope.signalEnvelopeId,
             kind = envelope.kind,
             source = envelope.source,
             target = envelope.target,
@@ -92,12 +90,8 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = envelope.decodePayload()
 
     override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
-        val correlationId = when (input) {
-            is SystemPayload.PacketAck -> "ack:${input.packetId.toHex()}"
-            is SystemPayload.PacketNack -> "nack:${input.packetId.toHex()}"
-        }
         return SystemEnvelope(
-            systemEnvelopeId = correlationId,
+            systemEnvelopeId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAtEpochSeconds = context.createdAtEpochSeconds,
@@ -166,47 +160,29 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
         delegate.openSystem(envelope)
 }
 
-internal class SequencedPacketIdAllocator : PacketIdAllocator {
-    private var localPeer: PeerId? = null
-    private var seq = 0L
-
-    override fun assignLocalDevice(deviceId: PeerId) {
-        localPeer = deviceId
-    }
-
-    override fun allocate(now: Long): PacketId {
-        checkNotNull(localPeer) { "assignLocalDevice first" }
-        seq++
-        val bytes = ByteArray(PacketId.SIZE_BYTES)
-        for (i in 0 until 8) {
-            bytes[PacketId.SIZE_BYTES - 1 - i] = ((seq shr (8 * i)) and 0xFFL).toInt().toByte()
-        }
-        return PacketId.fromBytes(bytes)
-    }
-}
 
 internal class InMemoryPacketDeduplicator : PacketDeduplicator {
-    private val seen = mutableSetOf<Pair<String, String>>()
-    private val nackReasons = mutableMapOf<Pair<String, String>, PacketNackReason>()
+    private val seen = mutableSetOf<Pair<PeerId, Uuid>>()
+    private val nackReasons = mutableMapOf<Pair<PeerId, Uuid>, PacketNackReason>()
 
-    override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
-        val key = sourceDeviceId.id to packetId.toHex()
+    override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
+        val key = sourceDeviceId to packetId
         return seen.add(key)
     }
 
     override fun clearPacket(
-        packetId: PacketId,
+        packetId: Uuid,
         sourceDeviceId: PeerId
     ) {
-        seen.remove(sourceDeviceId.id to packetId.toHex())
+        seen.remove(sourceDeviceId to packetId)
     }
 
-    override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
-        nackReasons[sourceDeviceId.id to packetId.toHex()] = nackReason
+    override fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+        nackReasons[sourceDeviceId to packetId] = nackReason
     }
 
-    override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? =
-        nackReasons[sourceDeviceId.id to packetId.toHex()]
+    override fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
+        nackReasons[sourceDeviceId to packetId]
 
     override fun prune(receivedBeforeEpochSeconds: Long) {
         // No-op for router contract tests
@@ -214,11 +190,11 @@ internal class InMemoryPacketDeduplicator : PacketDeduplicator {
 }
 
 internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplicator) : PacketDeduplicator {
-    val firstSeenCalls = mutableListOf<Triple<PacketId, PeerId, Long>>()
+    val firstSeenCalls = mutableListOf<Triple<Uuid, PeerId, Long>>()
     val firstSeenResults = mutableListOf<Boolean>()
-    val markNackedCalls = mutableListOf<Triple<PacketId, PeerId, PacketNackReason>>()
+    val markNackedCalls = mutableListOf<Triple<Uuid, PeerId, PacketNackReason>>()
 
-    override fun firstSeen(packetId: PacketId, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
+    override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         firstSeenCalls.add(Triple(packetId, sourceDeviceId, receivedAtEpochSeconds))
         val result = delegate.firstSeen(packetId, sourceDeviceId, receivedAtEpochSeconds)
         firstSeenResults.add(result)
@@ -226,7 +202,7 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
     }
 
     override fun clearPacket(
-        packetId: PacketId,
+        packetId: Uuid,
         sourceDeviceId: PeerId
     ) {
         delegate.clearPacket(
@@ -235,12 +211,12 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
         )
     }
 
-    override fun markNacked(packetId: PacketId, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+    override fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
         markNackedCalls.add(Triple(packetId, sourceDeviceId, nackReason))
         delegate.markNacked(packetId, sourceDeviceId, nackReason)
     }
 
-    override fun getNackReason(packetId: PacketId, sourceDeviceId: PeerId): PacketNackReason? =
+    override fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
         delegate.getNackReason(packetId, sourceDeviceId)
 
     override fun prune(receivedBeforeEpochSeconds: Long) {
@@ -305,15 +281,15 @@ internal class TrackingPacketOutbox : PacketOutbox {
         val blobSize: Long,
     )
 
-    private val entries = linkedMapOf<String, StoredEntry>()
+    private val entries = linkedMapOf<Uuid, StoredEntry>()
     val enqueued = mutableListOf<BinaryEnvelope>()
-    val markDeliveredCalls = mutableListOf<PacketId>()
-    val recordAttemptCalls = mutableListOf<Triple<PacketId, Long, Long>>()
+    val markDeliveredCalls = mutableListOf<Uuid>()
+    val recordAttemptCalls = mutableListOf<Triple<Uuid, Long, Long>>()
     val setDueForTargetCalls = mutableListOf<Pair<PeerId, Long>>()
 
     override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
         val blobSize = envelope.encode().size.toLong()
-        entries[envelope.packetId.toHex()] = StoredEntry(
+        entries[envelope.packetId] = StoredEntry(
             envelope = envelope,
             nextRetryAt = nextRetryAt,
             attempts = 0,
@@ -324,9 +300,9 @@ internal class TrackingPacketOutbox : PacketOutbox {
         enqueued.add(envelope)
     }
 
-    override fun markDelivered(packetId: PacketId) {
+    override fun markDelivered(packetId: Uuid) {
         markDeliveredCalls.add(packetId)
-        entries.remove(packetId.toHex())
+        entries.remove(packetId)
     }
 
     override fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
@@ -338,9 +314,9 @@ internal class TrackingPacketOutbox : PacketOutbox {
         }
     }
 
-    override fun recordAttempt(packetId: PacketId, nextRetryAt: Long, now: Long) {
+    override fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
         recordAttemptCalls.add(Triple(packetId, nextRetryAt, now))
-        val entry = entries[packetId.toHex()] ?: return
+        val entry = entries[packetId] ?: return
         entry.attempts += 1
         entry.nextRetryAt = nextRetryAt
     }
@@ -372,19 +348,19 @@ internal class TrackingPacketOutbox : PacketOutbox {
         while (relayCacheBytes() > maxBytes) {
             val victim = entries.values
                 .filter { it.relayMessage }
-                .minWithOrNull(compareBy<StoredEntry> { it.expiresAtEpochSeconds }.thenBy { it.envelope.packetId.toHex() })
+                .minWithOrNull(compareBy<StoredEntry> { it.expiresAtEpochSeconds }.thenBy { it.envelope.packetId })
                 ?: break
-            entries.remove(victim.envelope.packetId.toHex())
+            entries.remove(victim.envelope.packetId)
             evicted++
         }
         return evicted
     }
 
-    fun contains(packetId: PacketId): Boolean = entries.containsKey(packetId.toHex())
+    fun contains(packetId: Uuid): Boolean = entries.containsKey(packetId)
 
-    fun getNextRetryAt(packetId: PacketId): Long? = entries[packetId.toHex()]?.nextRetryAt
+    fun getNextRetryAt(packetId: Uuid): Long? = entries[packetId]?.nextRetryAt
 
-    fun getAttempts(packetId: PacketId): Long = entries[packetId.toHex()]?.attempts ?: 0L
+    fun getAttempts(packetId: Uuid): Long = entries[packetId]?.attempts ?: 0L
 
     private fun StoredEntry.toOutboxEntry(): OutboxEntry =
         OutboxEntry(
@@ -518,7 +494,6 @@ internal fun e2eeRouterUnderTest(
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    allocator: PacketIdAllocator = SequencedPacketIdAllocator(),
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
 ): DefaultRouter =
@@ -526,7 +501,6 @@ internal fun e2eeRouterUnderTest(
         torTransport = tor,
         webRtcTransport = webRtc,
         identityResolver = stack.identity,
-        packetIdAllocator = allocator,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
         envelopeProtectionService = stack.protection,
@@ -546,7 +520,6 @@ internal fun outboxProcessorUnderTest(
     val ctx =
         RoutingContext(
             identityResolver = identity,
-            packetIdAllocator = SequencedPacketIdAllocator(),
             packetDeduplicator = InMemoryPacketDeduplicator(),
             envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
             torTransport = tor,
@@ -565,12 +538,11 @@ internal fun outboxProcessorUnderTest(
 }
 
 internal fun defaultRouterUnderTest(
-    tor: org.yapyap.transport.tor.transport.TorTransport = RecordingTorTransport(),
+    tor: TorTransport = RecordingTorTransport(),
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     identity: FakeIdentityResolverForRouter,
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    allocator: PacketIdAllocator = SequencedPacketIdAllocator(),
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
@@ -579,7 +551,6 @@ internal fun defaultRouterUnderTest(
         torTransport = tor,
         webRtcTransport = webRtc,
         identityResolver = identity,
-        packetIdAllocator = allocator,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
         envelopeProtectionService = envelopeProtectionService,

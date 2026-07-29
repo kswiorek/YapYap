@@ -8,7 +8,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
@@ -22,6 +21,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 /**
  * Exercising [org.yapyap.transport.tor.backend.KmpTorNoExecBackend] and [DefaultTorTransport] against a real local Tor process.
@@ -46,7 +46,7 @@ class TorRealBackendTransportIntegrationTest {
         val remote = PeerId("1".repeat(64))
         val t0 = 1_700_000_000L
         val out = BinaryEnvelope(
-            packetId = PacketId.random(),
+            packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
             createdAtEpochSeconds = t0,
             expiresAtEpochSeconds = t0 + 3_600L,

@@ -4,15 +4,13 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.persistence.db.MessageLifecycleState
-import org.yapyap.persistence.messaging.CausalHoldRepository
-import org.yapyap.persistence.messaging.CausalHoldRow
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.MessageRow
+import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.time.EpochSecondsProvider
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 /**
  * Pure-Kotlin contract tests for [DefaultDagEngine] backed by fake in-memory repositories.
@@ -56,7 +54,7 @@ class DefaultDagEngineTest {
         assertEquals(0L, payload.lamportClock)
         assertNull(payload.prevId)
         assertEquals(roomId, payload.roomId)
-        assertEquals(testAccount.id, payload.senderAccountId)
+        assertEquals(testAccount, payload.senderAccountId)
         assertEquals("first", (payload as MessagePayload.Text).text)
         assertEquals(timeProvider.nowEpochSeconds(), payload.createdAtEpochSeconds)
         assertFalse(messageRepo.findById(payload.messageId)!!.isOrphaned)
@@ -90,9 +88,9 @@ class DefaultDagEngineTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
 
         val remotePayload = MessagePayload.Text(
-            messageId = "remote-msg-1",
+            messageId = Uuid.random(),
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = first.messageId,
@@ -123,13 +121,15 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_missingPrev_returnsBecameOrphan_andCreatesGap() = runTest {
+        val prevUuid = Uuid.random()
+        val msgUuid = Uuid.random()
         val remotePayload = MessagePayload.Text(
-            messageId = "orphan-msg-1",
+            messageId = msgUuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = "nonexistent-prev",
+            prevId = prevUuid,
             lamportClock = 5L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = "i am orphaned",
@@ -138,26 +138,28 @@ class DefaultDagEngineTest {
         val result = dagEngine.ingest(remotePayload)
 
         assertTrue(result is IngestResult.BecameOrphan)
-        assertEquals("nonexistent-prev", result.missingPrevId)
-        assertEquals(emptyList<String>(), result.closedGapMissingPrevIds)
+        assertEquals(prevUuid, result.missingPrevId)
+        assertEquals(emptyList(), result.closedGapMissingPrevIds)
         assertTrue(messageRepo.findById(remotePayload.messageId)!!.isOrphaned)
 
         val gaps = dagEngine.openGaps(roomId)
         assertEquals(1, gaps.size)
-        assertEquals("nonexistent-prev", gaps[0].missingPrevId)
-        assertEquals("orphan-msg-1", gaps[0].orphanedMessageId)
+        assertEquals(prevUuid, gaps[0].missingPrevId)
+        assertEquals(msgUuid, gaps[0].orphanedMessageId)
     }
 
     @Test
     fun ingest_closesGapWhenMissingMessageArrives() = runTest {
+        val prevUuid = Uuid.random()
+        val msgUuid = Uuid.random()
         // 1. Ingest an orphan that references a missing prev.
         val orphan = MessagePayload.Text(
-            messageId = "orphan-msg-1",
+            messageId = msgUuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = "missing-prev-id",
+            prevId = prevUuid,
             lamportClock = 5L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = "waiting for prev",
@@ -168,9 +170,9 @@ class DefaultDagEngineTest {
 
         // 2. Ingest the previously-missing message (prevId = null → not orphaned).
         val missing = MessagePayload.Text(
-            messageId = "missing-prev-id",
+            messageId = prevUuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
@@ -183,7 +185,7 @@ class DefaultDagEngineTest {
         // 3. The arrived message is Inserted; it closed the gap pointing at it.
         assertTrue(missingResult is IngestResult.Inserted)
         assertEquals(1, missingResult.closedGapMissingPrevIds.size)
-        assertEquals("missing-prev-id", missingResult.closedGapMissingPrevIds[0])
+        assertEquals(prevUuid, missingResult.closedGapMissingPrevIds[0])
 
         // Gap closed; orphan no longer flagged.
         assertEquals(0, dagEngine.openGaps(roomId).size)
@@ -192,25 +194,28 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_closesMultipleGapsWaitingOnSameMessage() = runTest {
+        val prevUuid = Uuid.random()
+        val msg1Uuid = Uuid.random()
+        val msg2Uuid = Uuid.random()
         // Two orphans, both waiting for "missing-prev-id".
         val orphan1 = MessagePayload.Text(
-            messageId = "orphan-1",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = "missing-prev-id",
+            prevId = prevUuid,
             lamportClock = 5L,
             createdAtEpochSeconds = 10L,
             text = "a",
         )
         val orphan2 = MessagePayload.Text(
-            messageId = "orphan-2",
+            messageId = msg2Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = "missing-prev-id",
+            prevId = prevUuid,
             lamportClock = 6L,
             createdAtEpochSeconds = 11L,
             text = "b",
@@ -220,9 +225,9 @@ class DefaultDagEngineTest {
         assertEquals(2, dagEngine.openGaps(roomId).size)
 
         val missing = MessagePayload.Text(
-            messageId = "missing-prev-id",
+            messageId = prevUuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
@@ -234,7 +239,7 @@ class DefaultDagEngineTest {
 
         assertTrue(result is IngestResult.Inserted)
         assertEquals(2, result.closedGapMissingPrevIds.size)
-        assertTrue(result.closedGapMissingPrevIds.all { it == "missing-prev-id" })
+        assertTrue(result.closedGapMissingPrevIds.all { it == prevUuid })
 
         assertEquals(0, dagEngine.openGaps(roomId).size)
         assertFalse(messageRepo.findById(orphan1.messageId)!!.isOrphaned)
@@ -254,7 +259,7 @@ class DefaultDagEngineTest {
         assertEquals(m2.messageId, page1[1].messageId)
 
         // Cursor = oldest row in page1.
-        val cursor = MessagePageCursor(
+        val cursor = MessageCursor(
             createdAtEpochSeconds = page1[1].createdAtEpochSeconds,
             lamportClock = page1[1].lamportClock,
             messageId = page1[1].messageId,
@@ -302,14 +307,18 @@ class DefaultDagEngineTest {
 
     @Test
     fun openGaps_byRoom_filtersToRoom() = runTest {
+        val prev1Uuid = Uuid.random()
+        val prev2Uuid = Uuid.random()
+        val msg1Uuid = Uuid.random()
+        val msg2Uuid = Uuid.random()
         // Orphan in roomId.
         val orphan1 = MessagePayload.Text(
-            messageId = "orphan-1",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = "missing-a",
+            prevId = prev1Uuid,
             lamportClock = 1L,
             createdAtEpochSeconds = 0L,
             text = "x",
@@ -319,12 +328,12 @@ class DefaultDagEngineTest {
         // Orphan in a second room.
         val otherRoom = "other-room"
         val orphan2 = MessagePayload.Text(
-            messageId = "orphan-2",
+            messageId = msg2Uuid,
             roomId = otherRoom,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = "missing-b",
+            prevId = prev2Uuid,
             lamportClock = 1L,
             createdAtEpochSeconds = 0L,
             text = "y",
@@ -333,11 +342,11 @@ class DefaultDagEngineTest {
 
         val gapsInRoom = dagEngine.openGaps(roomId)
         assertEquals(1, gapsInRoom.size)
-        assertEquals("orphan-1", gapsInRoom[0].orphanedMessageId)
+        assertEquals(msg1Uuid, gapsInRoom[0].orphanedMessageId)
 
         val gapsInOther = dagEngine.openGaps(otherRoom)
         assertEquals(1, gapsInOther.size)
-        assertEquals("orphan-2", gapsInOther[0].orphanedMessageId)
+        assertEquals(msg2Uuid, gapsInOther[0].orphanedMessageId)
 
         val allGaps = dagEngine.openGaps()
         assertEquals(2, allGaps.size)
@@ -355,10 +364,11 @@ class DefaultDagEngineTest {
 
     @Test
     fun ingest_invalidSignature_returnsNull_doesNotInsert() = runTest {
+        val msgUuid = Uuid.random()
         val remotePayload = MessagePayload.Text(
-            messageId = "invalid-sig-msg",
+            messageId = msgUuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
@@ -379,7 +389,7 @@ class DefaultDagEngineTest {
         val result = rejectingEngine.ingest(remotePayload)
 
         assertNull(result)
-        assertNull(messageRepo.findById("invalid-sig-msg"))
+        assertNull(messageRepo.findById(msgUuid))
     }
 
     @Test
@@ -398,7 +408,7 @@ private class MutableEpochSecondsProvider(var t: Long) : EpochSecondsProvider {
 }
 
 private class FakeMessageRepository : MessageRepository {
-    val byId = mutableMapOf<String, MessageRow>()
+    val byId = mutableMapOf<Uuid, MessageRow>()
 
     override fun insert(
         payload: MessagePayload,
@@ -414,7 +424,7 @@ private class FakeMessageRepository : MessageRepository {
         return true
     }
 
-    override fun findById(messageId: String): MessageRow? = byId[messageId]
+    override fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
     override fun findRoomTail(roomId: String): MessageRow? =
         byId.values
@@ -428,9 +438,7 @@ private class FakeMessageRepository : MessageRepository {
     override fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
-        cursorCreated: Long?,
-        cursorLamport: Long,
-        cursorMessageId: String,
+        cursor: MessageCursor?,
     ): List<MessageRow> {
         val all = byId.values
             .filter { it.payload.roomId == roomId }
@@ -439,7 +447,7 @@ private class FakeMessageRepository : MessageRepository {
                     .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
-        val filtered = if (cursorCreated == null) {
+        val filtered = if (cursor == null) {
             all
         } else {
             // Strictly older than the cursor row (all three key sub-comparisons).
@@ -447,9 +455,9 @@ private class FakeMessageRepository : MessageRepository {
                 val rowCreated = row.payload.createdAtEpochSeconds
                 val rowLamport = row.payload.lamportClock
                 val rowId = row.payload.messageId
-                rowCreated < cursorCreated ||
-                    (rowCreated == cursorCreated && rowLamport < cursorLamport) ||
-                    (rowCreated == cursorCreated && rowLamport == cursorLamport && rowId < cursorMessageId)
+                rowCreated < cursor.createdAtEpochSeconds ||
+                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport < cursor.lamportClock) ||
+                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
             }
         }
         return filtered.take(limit)
@@ -469,12 +477,12 @@ private class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId }
             .maxOfOrNull { it.payload.lamportClock }
 
-    override fun updateOrphanedFlag(messageId: String, isOrphaned: Boolean) {
+    override fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override fun updateLifecycleState(messageId: String, state: MessageLifecycleState) {
+    override fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(lifecycleState = state)
     }
@@ -485,11 +493,11 @@ private class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<CausalHoldRow>()
 
-    override fun insert(gapId: String, missingPrevId: String, orphanedMessageId: String, detectedTimestamp: Long) {
+    override fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
         rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override fun findByMissingPrevId(missingPrevId: String): List<CausalHoldRow> =
+    override fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
         rows.filter { it.missingPrevId == missingPrevId }
 
     override fun findByRoom(roomId: String): List<CausalHoldRow> =
@@ -501,11 +509,11 @@ private class FakeCausalHoldRepository(
 
     override fun findAll(): List<CausalHoldRow> = rows.toList()
 
-    override fun deleteByMissingPrevId(missingPrevId: String) {
+    override fun deleteByMissingPrevId(missingPrevId: Uuid) {
         rows.removeAll { it.missingPrevId == missingPrevId }
     }
 
-    override fun deleteByOrphanedMessageId(orphanedMessageId: String) {
+    override fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
         rows.removeAll { it.orphanedMessageId == orphanedMessageId }
     }
 }

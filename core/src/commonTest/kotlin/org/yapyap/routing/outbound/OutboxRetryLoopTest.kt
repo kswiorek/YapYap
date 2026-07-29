@@ -3,13 +3,13 @@ package org.yapyap.routing.outbound
 import kotlinx.coroutines.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.time.FixedEpochSecondsProvider
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 class OutboxRetryLoopTest {
 
@@ -90,7 +90,7 @@ class OutboxRetryLoopTest {
     private fun seedFutureOutboxEntry(outbox: TrackingPacketOutbox, nextRetryAt: Long) {
         outbox.enqueue(
             envelope = BinaryEnvelope(
-                packetId = PacketId.random(),
+                packetId = Uuid.random(),
                 packetType = PacketType.MESSAGE,
                 createdAtEpochSeconds = 1_000L,
                 expiresAtEpochSeconds = 9_999L,

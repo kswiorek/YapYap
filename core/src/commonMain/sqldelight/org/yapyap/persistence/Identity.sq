@@ -1,10 +1,12 @@
 import kotlin.Boolean;
+import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.persistence.db.AccountStatus;
 import org.yapyap.persistence.db.DeviceType;
 import org.yapyap.persistence.db.OpkStatus;
+import org.yapyap.protocol.PeerId;
 
 CREATE TABLE accounts (
-    account_id TEXT NOT NULL PRIMARY KEY,
+    account_id TEXT AS AccountId NOT NULL PRIMARY KEY,
     is_local_account INTEGER AS Boolean NOT NULL,
     account_pub_key BLOB,
     pub_key_version INTEGER,
@@ -15,7 +17,7 @@ CREATE TABLE accounts (
 );
 
 CREATE TABLE devices (
-    device_id TEXT NOT NULL PRIMARY KEY,
+    device_id TEXT AS PeerId NOT NULL PRIMARY KEY,
     is_local_device INTEGER AS Boolean NOT NULL,
     account_id TEXT NOT NULL,
     device_type TEXT AS DeviceType NOT NULL,
@@ -38,7 +40,7 @@ CREATE TABLE devices (
 
 CREATE TABLE signed_prekeys (
     spk_id TEXT NOT NULL PRIMARY KEY,
-    device_id TEXT NOT NULL,
+    device_id TEXT AS PeerId NOT NULL,
     public_key BLOB NOT NULL,
     signature BLOB NOT NULL,
     is_active INTEGER AS Boolean NOT NULL DEFAULT 0,
@@ -48,7 +50,7 @@ CREATE TABLE signed_prekeys (
 
 CREATE TABLE one_time_prekeys (
     opk_id TEXT NOT NULL PRIMARY KEY,
-    device_id TEXT NOT NULL,
+    device_id TEXT AS PeerId NOT NULL,
     public_key BLOB NOT NULL,
     status TEXT AS OpkStatus NOT NULL DEFAULT 'ALLOCATED',
     created_at_epoch_seconds INTEGER NOT NULL,

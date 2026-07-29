@@ -9,8 +9,12 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
-import org.yapyap.orchestrator.dag.*
+import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.dag.Gap
+import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
+import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomMembershipRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.Router
@@ -227,7 +231,7 @@ internal class DefaultMessagingService(
          * Cursor of the oldest currently-loaded row; the next page is loaded strictly below it.
          * Guarded by [windowMutex].
          */
-        private var oldestCursor: MessagePageCursor? = null
+        private var oldestCursor: MessageCursor? = null
 
         /**
          * Serializes read-modify-write of [_displayItems] / [oldestCursor] between
@@ -250,7 +254,7 @@ internal class DefaultMessagingService(
             val gapsByOrphanId = dagEngine.openGaps(roomId).associateBy { it.orphanedMessageId }
             windowMutex.withLock {
                 val oldest = page.last()
-                oldestCursor = MessagePageCursor(
+                oldestCursor = MessageCursor(
                     createdAtEpochSeconds = oldest.createdAtEpochSeconds,
                     lamportClock = oldest.lamportClock,
                     messageId = oldest.messageId,
@@ -273,7 +277,7 @@ internal class DefaultMessagingService(
             val gapsByOrphanId = dagEngine.openGaps(roomId).associateBy { it.orphanedMessageId }
             return windowMutex.withLock {
                 val oldest = page.last()
-                oldestCursor = MessagePageCursor(
+                oldestCursor = MessageCursor(
                     createdAtEpochSeconds = oldest.createdAtEpochSeconds,
                     lamportClock = oldest.lamportClock,
                     messageId = oldest.messageId,

@@ -4,12 +4,12 @@ import kotlinx.coroutines.runBlocking
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
 
 class TorTransportAndBackendSmokeTest {
 
@@ -60,7 +60,7 @@ class TorTransportAndBackendSmokeTest {
 }
 
 private fun sampleBinaryEnvelope(): BinaryEnvelope {
-    val pid = PacketId.fromHex("11".repeat(PacketId.SIZE_BYTES))
+    val pid = Uuid.random()
     val src = PeerId("srcaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     val dst = PeerId("dstbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     return BinaryEnvelope(

@@ -10,6 +10,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.CausalHoldRepository
+import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.time.EpochSecondsProvider
@@ -173,7 +174,7 @@ class DefaultDagEngine(
 
         // Gap creation: if this message is an orphan, record the causal_hold.
         if (isOrphaned) {
-            val gapId = Uuid.random().toString()
+            val gapId = Uuid.random()
             causalHoldRepository.insert(
                 gapId = gapId,
                 missingPrevId = payload.prevId!!,
@@ -224,14 +225,12 @@ class DefaultDagEngine(
     override suspend fun getMessagesInRoom(
         roomId: String,
         limit: Int,
-        before: MessagePageCursor?,
+        before: MessageCursor?,
     ): List<MessagePayload> {
         return messageRepository.findMessagesInRoomPageDesc(
             roomId = roomId,
             limit = limit,
-            cursorCreated = before?.createdAtEpochSeconds,
-            cursorLamport = before?.lamportClock ?: 0L,
-            cursorMessageId = before?.messageId,
+            cursor = before,
         ).map { it.payload }
     }
 

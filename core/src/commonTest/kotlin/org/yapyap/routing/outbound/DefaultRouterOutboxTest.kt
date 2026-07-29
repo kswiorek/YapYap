@@ -2,15 +2,19 @@ package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
 import org.yapyap.time.FixedEpochSecondsProvider
@@ -24,6 +28,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 class DefaultRouterOutboxTest {
 
@@ -40,7 +46,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload("queued-msg"), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
         router.stop()
 
         assertEquals(1, outbox.enqueued.size)
@@ -58,7 +64,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account, remoteTor = remoteTor)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload("ack-msg"), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
         val packetId = outbox.enqueued.single().packetId
 
         tor.tryEmitIncoming(inboundTorAck(packetId, remoteTor))
@@ -79,7 +85,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account, remoteTor = remoteTor)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload("nack-msg"), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
         val packetId = outbox.enqueued.single().packetId
 
         tor.tryEmitIncoming(
@@ -100,7 +106,7 @@ class DefaultRouterOutboxTest {
     fun dueOutboxEntry_isRedispatchedOnRouterStart() = runBlocking {
         val tor = RecordingTorTransport()
         val outbox = TrackingPacketOutbox()
-        val packetId = PacketId.fromHex("de".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val now = 10_000L
 
         outbox.enqueue(
@@ -126,8 +132,8 @@ class DefaultRouterOutboxTest {
         val tor = RecordingTorTransport()
         val outbox = TrackingPacketOutbox()
         val now = 10_000L
-        val packetId1 = PacketId.fromHex("a1".repeat(PacketId.SIZE_BYTES))
-        val packetId2 = PacketId.fromHex("a2".repeat(PacketId.SIZE_BYTES))
+        val packetId1 = Uuid.random()
+        val packetId2 = Uuid.random()
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId1, source = localPeer, target = remotePeer, now = now),
@@ -145,7 +151,7 @@ class DefaultRouterOutboxTest {
         )
 
         router.start()
-        tor.awaitSendCount(2)
+        withTimeout(10.seconds) {tor.awaitSendCount(2)}
         router.stop()
 
         assertEquals(2, tor.sends.size)
@@ -160,7 +166,7 @@ class DefaultRouterOutboxTest {
         val tor = RecordingTorTransport()
         tor.failNextSend = true
         val outbox = TrackingPacketOutbox()
-        val packetId = PacketId.fromHex("fa".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val now = 10_000L
 
         outbox.enqueue(
@@ -187,7 +193,7 @@ class DefaultRouterOutboxTest {
         val tor = RecordingTorTransport()
         val webRtc = RecordingWebRtcTransport()
         val outbox = TrackingPacketOutbox()
-        val packetId = PacketId.random()
+        val packetId = Uuid.random()
         val now = 10_000L
 
         outbox.enqueue(
@@ -203,11 +209,10 @@ class DefaultRouterOutboxTest {
         )
         router.start()
 
-        webRtc.sessionForPeerResult = "session-1"
+        webRtc.openSession(remotePeer)
 
         webRtc.tryEmitSessionState(
             WebRtcSessionState(
-                sessionId = "session-1",
                 peerId = remotePeer,
                 phase = WebRtcSessionPhase.CONNECTED,
             ),
@@ -252,7 +257,7 @@ class DefaultRouterOutboxTest {
         )
 
     private fun outboxMessageEnvelope(
-        packetId: PacketId,
+        packetId: Uuid,
         source: PeerId,
         target: PeerId,
         now: Long,
@@ -268,13 +273,13 @@ class DefaultRouterOutboxTest {
         )
 
     private fun inboundTorAck(
-        ackForPacketId: PacketId,
+        ackForPacketId: Uuid,
         remoteTor: TorEndpoint,
     ): TorIncomingEnvelope {
         val ackPayload = SystemPayload.PacketAck(ackForPacketId, PacketType.MESSAGE)
         val systemEnvelope =
             SystemEnvelope(
-                systemEnvelopeId = "ack:${ackForPacketId.toHex()}",
+                systemEnvelopeId = Uuid.random(),
                 source = remotePeer,
                 target = localPeer,
                 createdAtEpochSeconds = 10_000L,
@@ -285,7 +290,7 @@ class DefaultRouterOutboxTest {
             )
         val binaryEnvelope =
             BinaryEnvelope(
-                packetId = PacketId.fromHex("a1".repeat(PacketId.SIZE_BYTES)),
+                packetId = Uuid.random(),
                 packetType = PacketType.SYSTEM,
                 createdAtEpochSeconds = 10_000L,
                 expiresAtEpochSeconds = 11_000L,
@@ -297,7 +302,7 @@ class DefaultRouterOutboxTest {
     }
 
     private fun inboundTorNack(
-        nackedPacketId: PacketId,
+        nackedPacketId: Uuid,
         remoteTor: TorEndpoint,
         reason: PacketNackReason,
     ): TorIncomingEnvelope {
@@ -309,7 +314,7 @@ class DefaultRouterOutboxTest {
         )
         val systemEnvelope =
             SystemEnvelope(
-                systemEnvelopeId = "nack:${nackedPacketId.toHex()}",
+                systemEnvelopeId = Uuid.random(),
                 source = remotePeer,
                 target = localPeer,
                 createdAtEpochSeconds = 10_000L,
@@ -320,7 +325,7 @@ class DefaultRouterOutboxTest {
             )
         val binaryEnvelope =
             BinaryEnvelope(
-                packetId = PacketId.fromHex("b2".repeat(PacketId.SIZE_BYTES)),
+                packetId = Uuid.random(),
                 packetType = PacketType.SYSTEM,
                 createdAtEpochSeconds = 10_000L,
                 expiresAtEpochSeconds = 11_000L,
@@ -331,15 +336,3 @@ class DefaultRouterOutboxTest {
         return TorIncomingEnvelope(remoteTor, binaryEnvelope)
     }
 }
-
-private fun sampleTextPayload(id: String): MessagePayload.Text =
-    MessagePayload.Text(
-        messageId = id,
-        roomId = "room-outbox",
-        senderAccountId = "acct-sender",
-        prevId = null,
-        lamportClock = 0L,
-        createdAtEpochSeconds = 0L,
-        text = "hello-outbox",
-        authorDeviceId = PeerId("test-device"),
-    )

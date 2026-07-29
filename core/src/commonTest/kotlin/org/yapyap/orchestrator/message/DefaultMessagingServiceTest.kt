@@ -25,6 +25,7 @@ import org.yapyap.routing.router.SendMessageResult
 import org.yapyap.routing.router.SendMessageStatus
 import org.yapyap.time.EpochSecondsProvider
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 /**
  * Pure-Kotlin contract tests for [DefaultMessagingService] backed by fake in-memory repos.
@@ -105,7 +106,7 @@ class DefaultMessagingServiceTest {
         val messages = dagEngine.getMessagesInRoom(roomId)
         assertEquals(1, messages.size)
         assertEquals("hello from local", (messages[0] as MessagePayload.Text).text)
-        assertEquals(localAccount.id, messages[0].senderAccountId)
+        assertEquals(localAccount, messages[0].senderAccountId)
     }
 
     @Test
@@ -174,14 +175,16 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
+        val msg1Uuid = Uuid.random()
+
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
         val remoteTimestamp = 1_000_500L
         val incoming = MessagePayload.Text(
-            messageId = "incoming-msg-1",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = remoteTimestamp,
@@ -207,14 +210,17 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
+        val msg1Uuid = Uuid.random()
+        val prevUuid = Uuid.random()
+
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
         val orphan = MessagePayload.Text(
-            messageId = "orphan-msg",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
-            prevId = "missing-prev",
+            senderAccountId = remoteAccount,
+            prevId = prevUuid,
             lamportClock = 1L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
             text = "i am orphaned",
@@ -228,7 +234,7 @@ class DefaultMessagingServiceTest {
         assertEquals(2, items.size)
         assertTrue(items[0] is MessageDisplayItem.Text)
         assertTrue(items[1] is MessageDisplayItem.Gap)
-        assertEquals("missing-prev", (items[1] as MessageDisplayItem.Gap).missingPrevId)
+        assertEquals(prevUuid, (items[1] as MessageDisplayItem.Gap).missingPrevId)
     }
 
     @Test
@@ -237,15 +243,18 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
+        val msg1Uuid = Uuid.random()
+        val prevUuid = Uuid.random()
+
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
         // Orphan arrives.
         val orphan = MessagePayload.Text(
-            messageId = "orphan-msg",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
-            prevId = "the-missing-prev",
+            senderAccountId = remoteAccount,
+            prevId = prevUuid,
             lamportClock = 1L,
             createdAtEpochSeconds = 1_000_500L,
             text = "waiting",
@@ -260,9 +269,9 @@ class DefaultMessagingServiceTest {
 
         // The previously-missing message arrives.
         val missing = MessagePayload.Text(
-            messageId = "the-missing-prev",
+            messageId = prevUuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = 1_000_400L,
@@ -289,15 +298,18 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
+        val msg1Uuid = Uuid.random()
+        val msg2Uuid = Uuid.random()
+
         val received = mutableListOf<IncomingMessageEvent>()
         val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
         advanceUntilIdle()
 
         // From remote → emits.
         val remoteIncoming = MessagePayload.Text(
-            messageId = "remote-msg",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -316,9 +328,9 @@ class DefaultMessagingServiceTest {
         // From self → no event.
         received.clear()
         val selfIncoming = MessagePayload.Text(
-            messageId = "self-msg",
+            messageId = msg2Uuid,
             roomId = roomId,
-            senderAccountId = localAccount.id,
+            senderAccountId = localAccount,
             prevId = null,
             lamportClock = 1L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -339,15 +351,17 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
+        val msg1Uuid = Uuid.random()
+
         val received = mutableListOf<IncomingMessageEvent>()
         val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
         advanceUntilIdle()
 
         val longText = "x".repeat(120)
         val remoteIncoming = MessagePayload.Text(
-            messageId = "long-msg",
+            messageId = msg1Uuid,
             roomId = roomId,
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -379,9 +393,9 @@ class DefaultMessagingServiceTest {
         advanceUntilIdle()
 
         val globalEvent = MessagePayload.GlobalEvent(
-            messageId = "ge-1",
+            messageId = Uuid.random(),
             roomId = "GLOBAL",
-            senderAccountId = remoteAccount.id,
+            senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
             createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
@@ -446,7 +460,7 @@ private class FakeRoomMembershipRepository(
 }
 
 private class FakeMessageRepository : MessageRepository {
-    val byId = mutableMapOf<String, MessageRow>()
+    val byId = mutableMapOf<Uuid, MessageRow>()
 
     override fun insert(
         payload: MessagePayload,
@@ -461,7 +475,7 @@ private class FakeMessageRepository : MessageRepository {
         return true
     }
 
-    override fun findById(messageId: String): MessageRow? = byId[messageId]
+    override fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
     override fun findRoomTail(roomId: String): MessageRow? =
         byId.values
@@ -475,9 +489,7 @@ private class FakeMessageRepository : MessageRepository {
     override fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
-        cursorCreated: Long?,
-        cursorLamport: Long,
-        cursorMessageId: String,
+        cursor: MessageCursor?,
     ): List<MessageRow> {
         val all = byId.values
             .filter { it.payload.roomId == roomId }
@@ -486,16 +498,17 @@ private class FakeMessageRepository : MessageRepository {
                     .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
-        val filtered = if (cursorCreated == null) {
+        val filtered = if (cursor == null) {
             all
         } else {
+            // Strictly older than the cursor row (all three key sub-comparisons).
             all.filter { row ->
                 val rowCreated = row.payload.createdAtEpochSeconds
                 val rowLamport = row.payload.lamportClock
                 val rowId = row.payload.messageId
-                rowCreated < cursorCreated ||
-                    (rowCreated == cursorCreated && rowLamport < cursorLamport) ||
-                    (rowCreated == cursorCreated && rowLamport == cursorLamport && rowId < cursorMessageId)
+                rowCreated < cursor.createdAtEpochSeconds ||
+                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport < cursor.lamportClock) ||
+                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
             }
         }
         return filtered.take(limit)
@@ -515,12 +528,12 @@ private class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId }
             .maxOfOrNull { it.payload.lamportClock }
 
-    override fun updateOrphanedFlag(messageId: String, isOrphaned: Boolean) {
+    override fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override fun updateLifecycleState(messageId: String, state: MessageLifecycleState) {
+    override fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(lifecycleState = state)
     }
@@ -531,11 +544,11 @@ private class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<CausalHoldRow>()
 
-    override fun insert(gapId: String, missingPrevId: String, orphanedMessageId: String, detectedTimestamp: Long) {
+    override fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
         rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override fun findByMissingPrevId(missingPrevId: String): List<CausalHoldRow> =
+    override fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
         rows.filter { it.missingPrevId == missingPrevId }
 
     override fun findByRoom(roomId: String): List<CausalHoldRow> =
@@ -546,11 +559,11 @@ private class FakeCausalHoldRepository(
 
     override fun findAll(): List<CausalHoldRow> = rows.toList()
 
-    override fun deleteByMissingPrevId(missingPrevId: String) {
+    override fun deleteByMissingPrevId(missingPrevId: Uuid) {
         rows.removeAll { it.missingPrevId == missingPrevId }
     }
 
-    override fun deleteByOrphanedMessageId(orphanedMessageId: String) {
+    override fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
         rows.removeAll { it.orphanedMessageId == orphanedMessageId }
     }
 }

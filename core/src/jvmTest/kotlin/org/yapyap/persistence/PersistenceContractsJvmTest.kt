@@ -7,15 +7,13 @@ import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
-import org.yapyap.persistence.packet.DefaultPacketIdAllocator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.time.FixedEpochSecondsProvider
-import kotlin.random.Random
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class PersistenceContractsJvmTest {
 
@@ -42,7 +40,7 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
 
         val dedup = DefaultPacketDeduplicator(db)
-        val packetId = PacketId.fromHex("aa".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val source = FixtureDevicePeerId
 
         assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 10L))
@@ -59,7 +57,7 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
 
         val dedup = DefaultPacketDeduplicator(db)
-        val packetId = PacketId.fromHex("bb".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val source = FixtureDevicePeerId
 
         assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 10L))
@@ -68,30 +66,6 @@ class PersistenceContractsJvmTest {
         dedup.markNacked(packetId, source, PacketNackReason.DECODE_FAILED)
         assertEquals(PacketNackReason.DECODE_FAILED, dedup.getNackReason(packetId, source))
         assertTrue(!dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 11L))
-    }
-
-    @Test
-    fun packetIdAllocator_assignLocalDevice_then_allocate_areUnique() {
-        connection = openMemoryDatabase()
-        val db = connection!!.database
-        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
-
-        val allocator = DefaultPacketIdAllocator(
-            database = db,
-            random = Random(12345),
-            maxAttempts = 64,
-        )
-        assertFailsWith<IllegalArgumentException>(
-            message = "allocate() before assignLocalDevice should fail",
-        ) {
-            allocator.allocate(10_000L)
-        }
-
-        allocator.assignLocalDevice(FixtureDevicePeerId)
-
-        val ids = List(12) { allocator.allocate(10_000L) }
-        val distinct = ids.map { it.toHex() }.toSet()
-        assertEquals(ids.size, distinct.size, "allocated PacketIds must be unique (random IDs, not ordered)")
     }
 
     @Test
@@ -249,8 +223,8 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
 
         val outbox = DefaultPacketOutbox(db)
-        val validPacketId = PacketId.fromHex("cc".repeat(PacketId.SIZE_BYTES))
-        val corruptPacketId = PacketId.fromHex("dd".repeat(PacketId.SIZE_BYTES))
+        val validPacketId = Uuid.random()
+        val corruptPacketId = Uuid.random()
         val now = 1_000L
 
         outbox.enqueue(
@@ -262,7 +236,7 @@ class PersistenceContractsJvmTest {
             nextRetryAt = now,
         )
 
-        corruptOutboxBlob(connection!!.driver, corruptPacketId.toHex())
+        corruptOutboxBlob(connection!!.driver, corruptPacketId)
 
         val due = outbox.listDue(now)
         assertEquals(1, due.size)
@@ -277,7 +251,7 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
 
         val outbox = DefaultPacketOutbox(db)
-        val packetId = PacketId.fromHex("ee".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val now = 1_000L
 
         outbox.enqueue(
@@ -303,7 +277,7 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
 
         val outbox = DefaultPacketOutbox(db)
-        val packetId = PacketId.fromHex("ff".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val now = 2_000L
 
         outbox.enqueue(
@@ -325,8 +299,8 @@ class PersistenceContractsJvmTest {
 
         val outbox = DefaultPacketOutbox(db)
         val now = 3_000L
-        val expiredId = PacketId.fromHex("11".repeat(PacketId.SIZE_BYTES))
-        val validId = PacketId.fromHex("22".repeat(PacketId.SIZE_BYTES))
+        val expiredId = Uuid.random()
+        val validId = Uuid.random()
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
@@ -359,8 +333,8 @@ class PersistenceContractsJvmTest {
 
         val outbox = DefaultPacketOutbox(db)
         val now = 4_000L
-        val dueId = PacketId.fromHex("33".repeat(PacketId.SIZE_BYTES))
-        val futureId = PacketId.fromHex("44".repeat(PacketId.SIZE_BYTES))
+        val dueId = Uuid.random()
+        val futureId = Uuid.random()
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(dueId, FixtureDevicePeerId, now = now),
@@ -388,7 +362,7 @@ class PersistenceContractsJvmTest {
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
-                PacketId.fromHex("55".repeat(PacketId.SIZE_BYTES)),
+                Uuid.random(),
                 FixtureDevicePeerId,
                 now = now,
             ),
@@ -396,7 +370,7 @@ class PersistenceContractsJvmTest {
         )
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
-                PacketId.fromHex("66".repeat(PacketId.SIZE_BYTES)),
+                Uuid.random(),
                 FixtureDevicePeerId,
                 now = now,
             ),
@@ -419,7 +393,7 @@ class PersistenceContractsJvmTest {
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
-                packetId = PacketId.fromHex("77".repeat(PacketId.SIZE_BYTES)),
+                packetId = Uuid.random(),
                 target = FixtureDevicePeerId,
                 now = now,
                 payload = relayPayload,
@@ -429,7 +403,7 @@ class PersistenceContractsJvmTest {
         )
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
-                packetId = PacketId.fromHex("88".repeat(PacketId.SIZE_BYTES)),
+                packetId = Uuid.random(),
                 target = FixtureDevicePeerId,
                 now = now,
                 payload = localPayload,
@@ -439,7 +413,7 @@ class PersistenceContractsJvmTest {
         )
 
         val relayEnvelopeSize = sampleOutboxEnvelope(
-            packetId = PacketId.fromHex("77".repeat(PacketId.SIZE_BYTES)),
+            packetId = Uuid.random(),
             target = FixtureDevicePeerId,
             now = now,
             payload = relayPayload,
@@ -459,9 +433,9 @@ class PersistenceContractsJvmTest {
         val relayPayload = ByteArray(500) { 0x01 }
         val localPayload = ByteArray(500) { 0x02 }
 
-        val relaySoon = PacketId.fromHex("99".repeat(PacketId.SIZE_BYTES))
-        val relayLater = PacketId.fromHex("ab".repeat(PacketId.SIZE_BYTES))
-        val localId = PacketId.fromHex("cd".repeat(PacketId.SIZE_BYTES))
+        val relaySoon = Uuid.random()
+        val relayLater = Uuid.random()
+        val localId = Uuid.random()
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(

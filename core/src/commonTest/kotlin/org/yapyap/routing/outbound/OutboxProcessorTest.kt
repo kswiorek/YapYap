@@ -7,7 +7,6 @@ import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.TrackingPacketOutbox
@@ -18,6 +17,7 @@ import org.yapyap.transport.tor.RecordingTorTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
 
 class OutboxProcessorTest {
 
@@ -31,8 +31,8 @@ class OutboxProcessorTest {
         val tor = ConcurrencyTrackingTorTransport(sendDelayMillis = 200)
         val outbox = TrackingPacketOutbox()
         val now = 10_000L
-        val packetId1 = PacketId.fromHex("a1".repeat(PacketId.SIZE_BYTES))
-        val packetId2 = PacketId.fromHex("a2".repeat(PacketId.SIZE_BYTES))
+        val packetId1 = Uuid.random()
+        val packetId2 = Uuid.random()
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId1, source = localPeer, target = remotePeer, now = now),
@@ -69,7 +69,7 @@ class OutboxProcessorTest {
         val tor = RecordingTorTransport()
         tor.failNextSend = true
         val outbox = TrackingPacketOutbox()
-        val packetId = PacketId.fromHex("fa".repeat(PacketId.SIZE_BYTES))
+        val packetId = Uuid.random()
         val now = 10_000L
 
         outbox.enqueue(
@@ -105,7 +105,7 @@ class OutboxProcessorTest {
         )
 
     private fun outboxMessageEnvelope(
-        packetId: PacketId,
+        packetId: Uuid,
         source: PeerId,
         target: PeerId,
         now: Long,

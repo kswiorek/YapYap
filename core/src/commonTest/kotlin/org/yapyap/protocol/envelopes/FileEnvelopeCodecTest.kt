@@ -3,6 +3,7 @@ package org.yapyap.protocol.envelopes
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class FileEnvelopeCodecTest {
 
@@ -102,7 +103,7 @@ class FileEnvelopeCodecTest {
             ),
         )
         val env = FileEnvelope(
-            transferId = "tid-1",
+            transferId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 123L,
@@ -123,7 +124,7 @@ class FileEnvelopeCodecTest {
             chunkCiphertext = ByteArray(16) { 1 },
         )
         val env = FileEnvelope(
-            transferId = "tid-chunk",
+            transferId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 0L,
@@ -139,7 +140,7 @@ class FileEnvelopeCodecTest {
     @Test
     fun fileEnvelope_decode_rejectsWrongMagic() {
         val good = FileEnvelope(
-            transferId = "t",
+            transferId = Uuid.random(),
             source = source,
             target = target,
             createdAtEpochSeconds = 0L,
@@ -152,22 +153,6 @@ class FileEnvelopeCodecTest {
         bad[0] = 0x00
         assertFailsWith<IllegalArgumentException> {
             FileEnvelope.decode(bad)
-        }
-    }
-
-    @Test
-    fun fileEnvelope_init_rejectsBlankTransferId() {
-        assertFailsWith<IllegalArgumentException> {
-            FileEnvelope(
-                transferId = " ",
-                source = source,
-                target = target,
-                createdAtEpochSeconds = 0L,
-                nonce = nonce,
-                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
-                signature = null,
-                payload = FilePayload.Complete(objectHash = byteArrayOf(1)).encode(),
-            )
         }
     }
 

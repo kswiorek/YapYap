@@ -1,16 +1,16 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.uuid.Uuid
 
 class BinaryEnvelopeCodecTest {
 
-    private val sampleId = PacketId.fromHex("01".repeat(PacketId.SIZE_BYTES))
+    private val sampleId = Uuid.random()
     private val source = PeerId("devsourceaaaaaaaaaaaaaaaaaaaaaaaaaa.onion")
     private val target = PeerId("devtargetbbbbbbbbbbbbbbbbbbbbbbbbbb.onion")
 

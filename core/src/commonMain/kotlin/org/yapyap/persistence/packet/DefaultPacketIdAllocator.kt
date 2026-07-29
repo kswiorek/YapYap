@@ -57,7 +57,7 @@ class DefaultPacketIdAllocator(
         val queries = database.dedupQueries
         return queries.transactionWithResult {
             queries.tryReservePacketId(
-                packet_id = packetId.toHexString(),
+                packet_id = packetId,
                 source_device_id = sourceDeviceId.id,
                 received_at = receivedAtEpochSeconds,
             )

@@ -19,7 +19,7 @@ class DefaultPacketOutbox(
     override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
         val envelopeBlob = envelope.encode()
         queries.insertOutbox(
-            packet_id = envelope.packetId.toHexString(),
+            packet_id = envelope.packetId,
             target_device_id = envelope.target.id,
             is_relay = relayMessage,
             retry_count = 0,
@@ -46,7 +46,7 @@ class DefaultPacketOutbox(
     }
 
     override fun markDelivered(packetId: Uuid) {
-        queries.deleteByPacketId(packetId.toHexString())
+        queries.deleteByPacketId(packetId)
         logger.debug(
             component = LogComponent.DATABASE,
             event = LogEvent.OUTBOX_DELIVERED,
@@ -70,7 +70,7 @@ class DefaultPacketOutbox(
 
     override fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
         queries.updateAttempt(
-            packet_id = packetId.toHexString(),
+            packet_id = packetId,
             last_attempt_at = now,
             next_retry_at = nextRetryAt,
         )
@@ -130,7 +130,7 @@ class DefaultPacketOutbox(
             val victims = queries.listRelayEvictionCandidates(200).executeAsList()
 
             var freed = 0L
-            val idsToDelete = mutableListOf<String>()
+            val idsToDelete = mutableListOf<Uuid>()
 
             for (row in victims) {
                 idsToDelete.add(row.packet_id)
@@ -163,25 +163,20 @@ class DefaultPacketOutbox(
     }
 
     private fun mapRowOrDrop(row: Outbox): OutboxEntry? {
-        val packetId = runCatching { Uuid.parseHex(row.packet_id) }.getOrElse { error ->
-            dropRow(
-                packetIdHex = row.packet_id,
-                event = LogEvent.OUTBOX_ROW_INVALID,
-                message = "Dropped outbox row with invalid packet id",
-                isRelay = row.is_relay,
-                error = error,
-            )
-            return null
-        }
+        val packetId = row.packet_id
 
         val envelope = runCatching { BinaryEnvelope.decode(row.envelope_blob) }.getOrElse { error ->
-            dropRow(
-                packetIdHex = row.packet_id,
+            logger.error(
+                component = LogComponent.DATABASE,
                 event = LogEvent.OUTBOX_DECODE_FAILED,
                 message = "Dropped corrupt outbox row",
-                isRelay = row.is_relay,
-                error = error,
+                throwable = error,
+                fields = mapOf(
+                    "packetId" to packetId,
+                    "isRelay" to row.is_relay,
+                ),
             )
+            queries.deleteByPacketId(packetId)
             return null
         }
 
@@ -191,25 +186,5 @@ class DefaultPacketOutbox(
             nextRetryAt = row.next_retry_at,
             attempts = row.retry_count,
         )
-    }
-
-    private fun dropRow(
-        packetIdHex: String,
-        event: LogEvent,
-        message: String,
-        isRelay: Boolean,
-        error: Throwable,
-    ) {
-        logger.error(
-            component = LogComponent.DATABASE,
-            event = event,
-            message = message,
-            throwable = error,
-            fields = mapOf(
-                "packetId" to packetIdHex,
-                "isRelay" to isRelay,
-            ),
-        )
-        queries.deleteByPacketId(packetIdHex)
     }
 }

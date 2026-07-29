@@ -30,18 +30,18 @@ class RecordingWebRtcTransport : WebRtcTransport {
 
     val startCalls = mutableListOf<PeerId>()
     val stopCalls = mutableListOf<Unit>()
-    val openSessionCalls = mutableListOf<Pair<PeerId, String>>()
-    val sendEnvelopeCalls = mutableListOf<Triple<String?, PeerId, BinaryEnvelope>>()
-    val closeSessionCalls = mutableListOf<String>()
+    val openSessionCalls = mutableListOf<PeerId>()
+    val sendEnvelopeCalls = mutableListOf<Pair<PeerId, BinaryEnvelope>>()
+    val closeSessionCalls = mutableListOf<PeerId>()
     val handleBootstrapCalls = mutableListOf<WebRtcSignal>()
-    val getSessionForPeerCalls = mutableListOf<PeerId>()
-    var sessionForPeerResult: String? = null
 
-    val inviteCallCalls = mutableListOf<Triple<PeerId, String, AvSessionOptions>>()
-    val acceptCallCalls = mutableListOf<Pair<String, AvSessionOptions>>()
-    val rejectCallCalls = mutableListOf<Pair<String, String>>()
-    val updateCallOptionsCalls = mutableListOf<Pair<String, AvSessionOptions>>()
-    val endCallCalls = mutableListOf<Pair<String, String?>>()
+    val inviteCallCalls = mutableListOf<Pair<PeerId, AvSessionOptions>>()
+    val acceptCallCalls = mutableListOf<Pair<PeerId, AvSessionOptions>>()
+    val rejectCallCalls = mutableListOf<Pair<PeerId, String>>()
+    val updateCallOptionsCalls = mutableListOf<Pair<PeerId, AvSessionOptions>>()
+    val endCallCalls = mutableListOf<Pair<PeerId, String?>>()
+    val hasSessionCalls = mutableListOf<PeerId>()
+    private val activeSessions = mutableSetOf<PeerId>()
 
     override suspend fun start(deviceId: PeerId) {
         startCalls.add(deviceId)
@@ -51,45 +51,47 @@ class RecordingWebRtcTransport : WebRtcTransport {
         stopCalls.add(Unit)
     }
 
-    override suspend fun openSession(target: PeerId, sessionId: String) {
-        openSessionCalls.add(target to sessionId)
+    override suspend fun openSession(target: PeerId) {
+        openSessionCalls.add(target)
+        activeSessions.add(target)
     }
 
-    override suspend fun sendEnvelope(sessionId: String?, targetId: PeerId, envelope: BinaryEnvelope) {
-        sendEnvelopeCalls.add(Triple(sessionId, targetId, envelope))
+    override suspend fun sendEnvelope(targetId: PeerId, envelope: BinaryEnvelope) {
+        sendEnvelopeCalls.add(targetId to envelope)
     }
 
-    override suspend fun closeSession(sessionId: String) {
-        closeSessionCalls.add(sessionId)
+    override suspend fun closeSession(targetId: PeerId) {
+        closeSessionCalls.add(targetId)
+        activeSessions.remove(targetId)
     }
 
     override suspend fun handleBootstrapSignal(signal: WebRtcSignal) {
         handleBootstrapCalls.add(signal)
     }
 
-    override suspend fun getSessionForPeer(target: PeerId): String? {
-        getSessionForPeerCalls.add(target)
-        return sessionForPeerResult
+    override fun hasSession(peerId: PeerId): Boolean {
+        hasSessionCalls.add(peerId)
+        return peerId in activeSessions
     }
 
-    override suspend fun inviteCall(target: PeerId, sessionId: String, options: AvSessionOptions) {
-        inviteCallCalls.add(Triple(target, sessionId, options))
+    override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
+        inviteCallCalls.add(peer to options)
     }
 
-    override suspend fun acceptCall(sessionId: String, options: AvSessionOptions) {
-        acceptCallCalls.add(sessionId to options)
+    override suspend fun acceptCall(peer: PeerId, options: AvSessionOptions) {
+        acceptCallCalls.add(peer to options)
     }
 
-    override suspend fun rejectCall(sessionId: String, reason: String) {
-        rejectCallCalls.add(sessionId to reason)
+    override suspend fun rejectCall(peer: PeerId, reason: String) {
+        rejectCallCalls.add(peer to reason)
     }
 
-    override suspend fun updateCallOptions(sessionId: String, options: AvSessionOptions) {
-        updateCallOptionsCalls.add(sessionId to options)
+    override suspend fun updateCallOptions(peer: PeerId, options: AvSessionOptions) {
+        updateCallOptionsCalls.add(peer to options)
     }
 
-    override suspend fun endCall(sessionId: String, reason: String?) {
-        endCallCalls.add(sessionId to reason)
+    override suspend fun endCall(peer: PeerId, reason: String?) {
+        endCallCalls.add(peer to reason)
     }
 
     fun tryEmitIncomingEnvelope(e: WebRtcIncomingEnvelope): Boolean = incomingEnvelopesMutable.tryEmit(e)
@@ -112,12 +114,13 @@ class RecordingWebRtcBackend : WebRtcBackend {
 
     val startCalls = mutableListOf<PeerId>()
     val stopCalls = mutableListOf<Unit>()
-    val openSessionCalls = mutableListOf<Pair<PeerId, String>>()
+    val openSessionCalls = mutableListOf<PeerId>()
     val handleRemoteSignalCalls = mutableListOf<WebRtcSignal>()
-    val closeSessionCalls = mutableListOf<String>()
+    val closeSessionCalls = mutableListOf<PeerId>()
     val sendDataCalls = mutableListOf<WebRtcDataFrame>()
-    val addAvChannelCalls = mutableListOf<String>()
-    val removeAvChannelCalls = mutableListOf<String>()
+    val addAvChannelCalls = mutableListOf<PeerId>()
+    val removeAvChannelCalls = mutableListOf<PeerId>()
+    val hasSessionCalls = mutableListOf<PeerId>()
 
     override suspend fun start(localDevice: PeerId) {
         startCalls.add(localDevice)
@@ -127,28 +130,33 @@ class RecordingWebRtcBackend : WebRtcBackend {
         stopCalls.add(Unit)
     }
 
-    override suspend fun openSession(target: PeerId, sessionId: String) {
-        openSessionCalls.add(target to sessionId)
+    override suspend fun openSession(target: PeerId) {
+        openSessionCalls.add(target)
     }
 
     override suspend fun handleRemoteSignal(signal: WebRtcSignal) {
         handleRemoteSignalCalls.add(signal)
     }
 
-    override suspend fun closeSession(sessionId: String) {
-        closeSessionCalls.add(sessionId)
+    override fun hasSession(target: PeerId): Boolean {
+        hasSessionCalls.add(target)
+        return true
+    }
+
+    override suspend fun closeSession(target: PeerId) {
+        closeSessionCalls.add(target)
     }
 
     override suspend fun sendData(dataFrame: WebRtcDataFrame) {
         sendDataCalls.add(dataFrame)
     }
 
-    override suspend fun addAvChannel(sessionId: String) {
-        addAvChannelCalls.add(sessionId)
+    override suspend fun addAvChannel(target: PeerId) {
+        addAvChannelCalls.add(target)
     }
 
-    override suspend fun removeAvChannel(sessionId: String) {
-        removeAvChannelCalls.add(sessionId)
+    override suspend fun removeAvChannel(target: PeerId) {
+        removeAvChannelCalls.add(target)
     }
 
     fun tryEmitOutgoingSignal(s: WebRtcSignal): Boolean = outgoingSignalsMutable.tryEmit(s)

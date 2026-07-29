@@ -1,13 +1,14 @@
 import kotlin.Boolean;
+import kotlin.uuid.Uuid;
 import org.yapyap.persistence.db.MessageLifecycleState;
 import org.yapyap.persistence.db.MessagePayloadType;
 
 CREATE TABLE messages (
-    message_id TEXT NOT NULL PRIMARY KEY,
+    message_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
     sender_account_id TEXT NOT NULL,
     author_device_id TEXT NOT NULL,
-    prev_id TEXT,
+    prev_id TEXT AS Uuid,
     lamport_clock INTEGER NOT NULL,
     created_at_epoch_seconds INTEGER NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
@@ -20,9 +21,9 @@ CREATE TABLE messages (
 );
 
 CREATE TABLE causal_hold (
-    gap_id TEXT NOT NULL PRIMARY KEY,
-    missing_prev_id TEXT NOT NULL,
-    orphaned_message_id TEXT NOT NULL,
+    gap_id TEXT AS Uuid NOT NULL PRIMARY KEY,
+    missing_prev_id TEXT AS Uuid NOT NULL,
+    orphaned_message_id TEXT AS Uuid NOT NULL,
     detected_timestamp INTEGER NOT NULL,
     FOREIGN KEY (orphaned_message_id) REFERENCES messages(message_id)
 );
@@ -44,10 +45,9 @@ CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 selectMessagesInRoomPageDesc :
 SELECT * FROM messages
 WHERE room_id = :roomId
-  AND (:cursorCreated IS NULL
-       OR created_at_epoch_seconds < :cursorCreated
-       OR (created_at_epoch_seconds = :cursorCreated AND lamport_clock < :cursorLamport)
-       OR (created_at_epoch_seconds = :cursorCreated AND lamport_clock = :cursorLamport AND message_id < :cursorMessageId))
+  AND ((:cursorCreated IS NULL AND :cursorLamport IS NULL AND :cursorMessageId IS NULL) OR
+       (created_at_epoch_seconds, lamport_clock, message_id) <
+       (:cursorCreated, :cursorLamport, :cursorMessageId))
 ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
 LIMIT :limit;
 

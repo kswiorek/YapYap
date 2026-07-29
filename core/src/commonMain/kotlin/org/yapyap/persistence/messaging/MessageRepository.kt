@@ -17,6 +17,19 @@ data class MessageRow(
     val isOrphaned: Boolean,
 )
 
+/**
+ * Composite cursor for stable pagination of room messages.
+ *
+ * Display ordering is `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` — a total
+ * order with no ties, so pagination is stable across live inserts and reloads. The cursor captures
+ * the oldest row of the currently-loaded window so the next page begins strictly below it.
+ */
+data class MessageCursor(
+    val createdAtEpochSeconds: Long,
+    val lamportClock: Long,
+    val messageId: Uuid,
+)
+
 interface MessageRepository {
 
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
@@ -30,9 +43,7 @@ interface MessageRepository {
     fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
-        cursorCreated: Long?,
-        cursorLamport: Long,
-        cursorMessageId: Uuid?,
+        cursor: MessageCursor?
     ): List<MessageRow>
 
     fun findAllInRoom(roomId: String): List<MessageRow>
@@ -42,7 +53,7 @@ interface MessageRepository {
 
     fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
 
-    fun updateLifecycleState(messageId: String, state: MessageLifecycleState)
+    fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState)
 }
 
 class DefaultMessageRepository(
@@ -58,11 +69,11 @@ class DefaultMessageRepository(
         isOrphaned: Boolean,
     ): Boolean {
         queries.insertMessage(
-            message_id = payload.messageId.toString(),
+            message_id = payload.messageId,
             room_id = payload.roomId,
             sender_account_id = payload.senderAccountId.id,
             author_device_id = payload.authorDeviceId.id,
-            prev_id = payload.prevId?.toHexString(),
+            prev_id = payload.prevId,
             lamport_clock = payload.lamportClock,
             created_at_epoch_seconds = payload.createdAtEpochSeconds,
             payload_type = payload.payloadType,
@@ -70,11 +81,11 @@ class DefaultMessageRepository(
             lifecycle_state = lifecycleState,
             is_orphaned = isOrphaned,
         )
-        return queries.selectMessageById(payload.messageId.toHexString()).executeAsOneOrNull() != null
+        return queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
     }
 
     override fun findById(messageId: Uuid): MessageRow? =
-        queries.selectMessageById(messageId.toHexString()).executeAsOneOrNull()?.toRow()
+        queries.selectMessageById(messageId).executeAsOneOrNull()?.toRow()
 
     override fun findRoomTail(roomId: String): MessageRow? =
         queries.selectRoomTail(roomId).executeAsOneOrNull()?.toRow()
@@ -82,15 +93,13 @@ class DefaultMessageRepository(
     override fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
-        cursorCreated: Long?,
-        cursorLamport: Long,
-        cursorMessageId: Uuid?,
+        cursor: MessageCursor?
     ): List<MessageRow> =
         queries.selectMessagesInRoomPageDesc(
             roomId = roomId,
-            cursorCreated = cursorCreated,
-            cursorLamport = cursorLamport,
-            cursorMessageId = cursorMessageId?.toHexString()?:"",
+            cursorCreated = cursor?.createdAtEpochSeconds,
+            cursorLamport = cursor?.lamportClock,
+            cursorMessageId = cursor?.messageId,
             limit = limit.toLong(),
         ).executeAsList().map { it.toRow() }
 
@@ -101,10 +110,10 @@ class DefaultMessageRepository(
         queries.selectMaxLamportInRoom(roomId).executeAsOne().MAX
 
     override fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
-        queries.updateMessageOrphanedFlag(isOrphaned, messageId.toHexString())
+        queries.updateMessageOrphanedFlag(isOrphaned, messageId)
     }
 
-    override fun updateLifecycleState(messageId: String, state: MessageLifecycleState) {
+    override fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
         queries.updateMessageLifecycleState(state, messageId)
     }
 

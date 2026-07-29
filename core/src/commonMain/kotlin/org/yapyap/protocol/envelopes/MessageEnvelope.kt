@@ -97,6 +97,36 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
             )
         }
     }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+
+        other as MessageEnvelope
+
+        if (createdAtEpochSeconds != other.createdAtEpochSeconds) return false
+        if (messageEnvelopeId != other.messageEnvelopeId) return false
+        if (source != other.source) return false
+        if (target != other.target) return false
+        if (!nonce.contentEquals(other.nonce)) return false
+        if (securityScheme != other.securityScheme) return false
+        if (!signature.contentEquals(other.signature)) return false
+        if (!payload.contentEquals(other.payload)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = createdAtEpochSeconds.hashCode()
+        result = 31 * result + messageEnvelopeId.hashCode()
+        result = 31 * result + source.hashCode()
+        result = 31 * result + target.hashCode()
+        result = 31 * result + nonce.contentHashCode()
+        result = 31 * result + securityScheme.hashCode()
+        result = 31 * result + (signature?.contentHashCode() ?: 0)
+        result = 31 * result + payload.contentHashCode()
+        return result
+    }
 }
 
 /**
@@ -188,6 +218,40 @@ sealed interface MessagePayload {
                     authorSignature = authorSignature,
                 )
             }
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as Text
+
+            if (lamportClock != other.lamportClock) return false
+            if (createdAtEpochSeconds != other.createdAtEpochSeconds) return false
+            if (messageId != other.messageId) return false
+            if (roomId != other.roomId) return false
+            if (senderAccountId != other.senderAccountId) return false
+            if (authorDeviceId != other.authorDeviceId) return false
+            if (prevId != other.prevId) return false
+            if (text != other.text) return false
+            if (!authorSignature.contentEquals(other.authorSignature)) return false
+            if (payloadType != other.payloadType) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = lamportClock.hashCode()
+            result = 31 * result + createdAtEpochSeconds.hashCode()
+            result = 31 * result + messageId.hashCode()
+            result = 31 * result + roomId.hashCode()
+            result = 31 * result + senderAccountId.hashCode()
+            result = 31 * result + authorDeviceId.hashCode()
+            result = 31 * result + (prevId?.hashCode() ?: 0)
+            result = 31 * result + text.hashCode()
+            result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
+            result = 31 * result + payloadType.hashCode()
+            return result
         }
     }
 

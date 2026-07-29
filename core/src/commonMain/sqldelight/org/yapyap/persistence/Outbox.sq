@@ -1,7 +1,8 @@
 import kotlin.Boolean;
+import kotlin.uuid.Uuid;
 
 CREATE TABLE outbox (
-    packet_id TEXT NOT NULL PRIMARY KEY,
+    packet_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     envelope_blob BLOB NOT NULL,
     blob_size INTEGER NOT NULL,
     target_device_id TEXT NOT NULL,

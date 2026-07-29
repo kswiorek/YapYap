@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
 
 class SystemProtectionTest {
 
@@ -130,32 +131,11 @@ class SystemProtectionTest {
     }
 
     @Test
-    fun signed_protect_setsCorrelationIdFromPayload() = runTest {
-        val (signingKeys, sourcePeer, targetPeer) = samplePeerTriplet(crypto)
-        val encryptionKeys = crypto.generateEncryptionKeyPair()
-        val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
-        val resolver = FakeIdentityResolverForProtection(
-            localSigningPrivateKey = signingKeys.privateKey,
-            peerRecords = mapOf(sourcePeer to record),
-        )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
-
-        val payload = samplePacketAckPayload()
-        val ctx = sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.SIGNED,
-            source = sourcePeer,
-            target = targetPeer,
-        )
-        val envelope = protection.protect(payload, ctx)
-        assertEquals("ack:${payload.packetId.toHex()}", envelope.systemEnvelopeId)
-    }
-
-    @Test
     fun plaintext_open_throwsWhenEnvelopeNotPlaintext() = runTest {
         val protection = PlaintextSystemProtection(crypto)
         val payload = samplePacketAckPayload()
         val envelope = SystemEnvelope(
-            systemEnvelopeId = "ack:${payload.packetId.toHex()}",
+            systemEnvelopeId = Uuid.random(),
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
             createdAtEpochSeconds = 1L,

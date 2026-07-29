@@ -14,6 +14,7 @@ import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.uuid.Uuid
 
 /**
  * If [org.yapyap.protection.envelope.BaseProtection.assertObservabilityContract] regresses and allows cleartext "protected" fields,
@@ -54,7 +55,6 @@ class BaseProtectionObservabilityTest {
     fun protect_rejectsHeaderMapThatExposesWebRtcProtectedPayloadUnderProtectedPolicyKey() = runTest {
         val protection = LeakyPlaintextWebRtcSignalProtection()
         val input = WebRtcSignal(
-            sessionId = "obs-session",
             kind = WebRtcSignalKind.ICE,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
@@ -116,7 +116,7 @@ class BaseProtectionObservabilityTest {
         override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
             require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             return WebRtcSignalEnvelope(
-                signalEnvelopeId = input.sessionId,
+                signalEnvelopeId = Uuid.random(),
                 kind = input.kind,
                 source = context.sourceDeviceId,
                 target = context.targetDeviceId,
@@ -131,7 +131,6 @@ class BaseProtectionObservabilityTest {
         override suspend fun doOpen(envelope: WebRtcSignalEnvelope): WebRtcSignal {
             require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             return WebRtcSignal(
-                sessionId = envelope.signalEnvelopeId,
                 kind = envelope.kind,
                 source = envelope.source,
                 target = envelope.target,

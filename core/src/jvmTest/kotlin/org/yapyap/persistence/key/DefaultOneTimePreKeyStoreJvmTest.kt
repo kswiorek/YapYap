@@ -26,7 +26,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
         val row = fixture.database.identityQueries.selectOneTimePreKeyById(opk.keyId).executeAsOneOrNull()
         assertNotNull(row)
-        assertEquals(FixtureDevicePeerId.id, row.device_id)
+        assertEquals(FixtureDevicePeerId, row.device_id)
         assertEquals(OpkStatus.ALLOCATED, row.status)
         assertEquals(1_000L, row.created_at_epoch_seconds)
         assertNull(row.offered_at_epoch_seconds)

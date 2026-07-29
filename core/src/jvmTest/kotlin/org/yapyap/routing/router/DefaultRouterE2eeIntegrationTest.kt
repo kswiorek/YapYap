@@ -16,6 +16,7 @@ import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 /**
  * Sprint 1 acceptance: two routers deliver a text message with real Double Ratchet
@@ -26,7 +27,7 @@ class DefaultRouterE2eeIntegrationTest {
     @Test
     fun twoRouters_encryptedMessage_deliveredAndDecrypted() = runBlocking {
         val fixture = buildE2eeTwoRouterFixture()
-        val outbound = sampleE2eeTextPayload("e2ee-live-msg")
+        val outbound = sampleE2eeTextPayload()
 
         fixture.use {
             it.aliceRouter.start()
@@ -57,7 +58,7 @@ class DefaultRouterE2eeIntegrationTest {
     @Test
     fun twoRouters_offlineRecipient_encryptedMessage_decryptedWhenDelivered() = runBlocking {
         val fixture = buildE2eeTwoRouterFixture()
-        val outbound = sampleE2eeTextPayload("e2ee-offline-msg")
+        val outbound = sampleE2eeTextPayload()
 
         fixture.use {
             it.aliceRouter.start()
@@ -148,7 +149,7 @@ class DefaultRouterE2eeIntegrationTest {
         val aliceTor: RecordingTorTransport,
         val bobTor: RecordingTorTransport,
         val bobAccount: AccountId,
-        val alicePeerId: org.yapyap.protocol.PeerId,
+        val alicePeerId: PeerId,
     ) {
         fun deliverAliceToBob(binaryEnvelope: org.yapyap.protocol.envelopes.BinaryEnvelope) {
             bobTor.tryEmitIncoming(TorIncomingEnvelope(aliceTor.advertisedEndpoint, binaryEnvelope))
@@ -156,11 +157,11 @@ class DefaultRouterE2eeIntegrationTest {
     }
 }
 
-private fun sampleE2eeTextPayload(messageId: String): MessagePayload.Text =
+private fun sampleE2eeTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
-        messageId = messageId,
+        messageId = Uuid.random(),
         roomId = "room-e2ee-integration",
-        senderAccountId = "alice-e2ee-account",
+        senderAccountId = AccountId("alice-e2ee-account"),
         prevId = null,
         lamportClock = 1L,
         createdAtEpochSeconds = 0L,

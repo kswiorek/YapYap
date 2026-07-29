@@ -4,7 +4,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketId
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
@@ -13,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 /**
  * Two JVM peer stacks exchange OFFER/ANSWER/ICE via in-memory forwarding (no Tor/signaling server).
@@ -26,7 +26,6 @@ class WebRtcInMemorySignalingIntegrationTest {
     fun defaultWebRtcTransport_twoPeers_relayBootstrapSignals_andDeliverEnvelope() = runBlocking {
         val peerA = PeerId("a".repeat(64))
         val peerB = PeerId("b".repeat(64))
-        val sessionId = "signaling-it-${System.nanoTime()}"
 
         val backendA = JvmWebRtcBackend()
         val backendB = JvmWebRtcBackend()
@@ -54,23 +53,23 @@ class WebRtcInMemorySignalingIntegrationTest {
                 withTimeout(180_000L.milliseconds) {
                     coroutineScope {
                         val inbound = async {
-                            bob.incomingEnvelopes.first { it.sessionId == sessionId }
+                            bob.incomingEnvelopes.first { it.source == peerA }
                         }
                         yield()
 
-                        alice.openSession(peerB, sessionId)
+                        alice.openSession(peerB)
 
                         alice.sessionStates.first {
-                            it.sessionId == sessionId && it.phase == WebRtcSessionPhase.CONNECTED
+                            it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
                         }
                         bob.sessionStates.first {
-                            it.sessionId == sessionId && it.phase == WebRtcSessionPhase.CONNECTED
+                            it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
                         }
 
                         val t0 = 1_800_000_000L
                         val out =
                             BinaryEnvelope(
-                                packetId = PacketId.random(),
+                                packetId = Uuid.random(),
                                 packetType = PacketType.MESSAGE,
                                 createdAtEpochSeconds = t0,
                                 expiresAtEpochSeconds = t0 + 3_600L,
@@ -79,13 +78,12 @@ class WebRtcInMemorySignalingIntegrationTest {
                                 payload = byteArrayOf(0x01, 0x02, 0x03, 0x04),
                             )
 
-                        sendEnvelopeWhenChannelReady(alice, sessionId, peerB, out)
+                        sendEnvelopeWhenChannelReady(alice, peerB, out)
 
                         Pair(inbound.await(), out)
                     }
                 }
 
-            assertEquals(sessionId, received.sessionId)
             assertEquals(peerA, received.source)
             assertEquals(envelope.packetId, received.envelope.packetId)
             assertEquals(envelope.packetType, received.envelope.packetType)
@@ -103,7 +101,6 @@ class WebRtcInMemorySignalingIntegrationTest {
      */
     private suspend fun sendEnvelopeWhenChannelReady(
         transport: DefaultWebRtcTransport,
-        sessionId: String,
         target: PeerId,
         envelope: BinaryEnvelope,
     ) {
@@ -111,7 +108,7 @@ class WebRtcInMemorySignalingIntegrationTest {
             var last: Exception? = null
             repeat(300) {
                 try {
-                    transport.sendEnvelope(sessionId, target, envelope)
+                    transport.sendEnvelope(target, envelope)
                     return@withTimeout
                 } catch (e: IllegalStateException) {
                     last = e
