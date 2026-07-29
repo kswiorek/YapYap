@@ -6,7 +6,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
@@ -119,7 +119,7 @@ internal class SessionBootstrap(
         persist(peerDeviceId, sessionEpoch = 2, session, meta)
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
+            event = LoggingTypes.ENVELOPE_OPENED,
             message = "Created epoch-2 crypto session from OPK offer",
             fields = mapOf("peerDeviceId" to peerDeviceId, "opkId" to offer.opkId),
         )

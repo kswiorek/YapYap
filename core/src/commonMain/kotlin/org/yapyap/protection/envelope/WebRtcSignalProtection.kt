@@ -7,7 +7,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
@@ -61,7 +61,7 @@ class PlaintextWebRtcSignalProtection(
         }
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
+            event = LoggingTypes.ENVELOPE_OPENED,
             message = "Opened plaintext WebRTC signal envelope",
             fields = mapOf("sessionId" to envelope.signalEnvelopeId, "kind" to envelope.kind.name),
         )
@@ -122,7 +122,7 @@ class SignedWebRtcSignalProtection(
 
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
+            event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed WebRTC signal envelope",
             fields = mapOf("sessionId" to envelope.signalEnvelopeId, "source" to envelope.source, "kind" to envelope.kind.name),
         )
@@ -197,7 +197,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
         } catch (e: Exception) {
             logger.error(
                 component = LogComponent.CRYPTO,
-                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode SessionWireFrame from encrypted WebRTC signal envelope",
                 throwable = e,
             )
@@ -212,7 +212,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
         } catch (e: Exception) {
             logger.error(
                 component = LogComponent.CRYPTO,
-                event = LogEvent.DECRYPTION_FAILED,
+                event = LoggingTypes.DECRYPTION_FAILED,
                 message = "Failed to decrypt WebRTC signal",
                 throwable = e,
             )
@@ -228,7 +228,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
 
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
+            event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed and encrypted Signal envelope",
             fields = mapOf("sessionId" to envelope.signalEnvelopeId, "source" to envelope.source, "kind" to envelope.kind.name),
         )

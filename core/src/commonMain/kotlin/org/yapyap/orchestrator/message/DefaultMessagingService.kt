@@ -7,7 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.Gap
@@ -85,7 +85,7 @@ internal class DefaultMessagingService(
         if (members.isEmpty()) {
             logger.debug(
                 component = LogComponent.MESSAGING,
-                event = LogEvent.MESSAGE_NO_PEERS,
+                event = LoggingTypes.MESSAGE_NO_PEERS,
                 message = "No room members to send to",
                 fields = mapOf(
                     "roomId" to roomId,
@@ -110,7 +110,7 @@ internal class DefaultMessagingService(
 
         logger.info(
             component = LogComponent.MESSAGING,
-            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+            event = LoggingTypes.OUTBOX_MESSAGE_QUEUED,
             message = "Outbound message sent to room members",
             fields = mapOf(
                 "roomId" to roomId,

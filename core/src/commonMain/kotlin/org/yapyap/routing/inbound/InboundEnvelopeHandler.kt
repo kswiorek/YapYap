@@ -1,7 +1,7 @@
 package org.yapyap.routing.inbound
 
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PeerId
@@ -25,7 +25,7 @@ internal fun RoutingContext.logInboundProtectionFailure(
 ) {
     logger.warn(
         component = LogComponent.ROUTER,
-        event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+        event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
         message = message,
         fields = mapOf(
             "packetId" to packetId,

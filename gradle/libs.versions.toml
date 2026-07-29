@@ -21,6 +21,9 @@ material3 = "1.10.0-alpha05"
 runtime = "2.6.0"
 sqliteJdbc = "3.51.2.0"
 webrtcJava = "0.14.0"
+ktor = "3.4.2"
+kmpTorResource = "409.5.0"
+napier = "2.7.1"
 
 [libraries]
 android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "androidDriver" }
@@ -54,6 +57,12 @@ runtime = { module = "io.matthewnelson.kmp-tor:runtime", version.ref = "runtime"
 sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "androidDriver" }
 sqlite-jdbc = { module = "io.github.willena:sqlite-jdbc", version.ref = "sqliteJdbc" }
 webrtc-java = { module = "dev.onvoid.webrtc:webrtc-java", version.ref = "webrtcJava" }
+ktor-network = { module = "io.ktor:ktor-network", version.ref = "ktor"}
+ktor-io = { module = "io.ktor:ktor-io", version.ref = "ktor"}
+tor-resource-exec-tor = { module = "io.matthewnelson.kmp-tor:resource-exec-tor", version.ref = "kmpTorResource"}
+tor-resource-noexec-tor = { module = "io.matthewnelson.kmp-tor:resource-noexec-tor", version.ref = "kmpTorResource"}
+napier = { module = "io.github.aakira:napier", version.ref = "napier"}
+
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

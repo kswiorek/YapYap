@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.IngestResult
@@ -39,7 +39,7 @@ class DefaultInboundMessagePipeline(
                     if (e is CancellationException) throw e
                     logger.error(
                         component = LogComponent.MESSAGING,
-                        event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                        event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
                         message = "Failed to ingest inbound message",
                         fields = mapOf(
                             "messageId" to payload.messageId,

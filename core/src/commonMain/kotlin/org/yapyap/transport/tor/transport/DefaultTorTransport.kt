@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -38,13 +38,13 @@ class DefaultTorTransport(
                 val envelope = runCatching { BinaryEnvelope.decode(frame.payload) }.getOrElse { error ->
                     logger.warn(
                         component = LogComponent.TOR_TRANSPORT,
-                        event = LogEvent.ENVELOPE_DECODE_FAILED,
+                        event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                         message = "Failed to decode inbound Tor envelope",
                         fields = mapOf("source" to frame.source.onionAddress, "sourcePort" to frame.source.port),
                     )
                     logger.error(
                         component = LogComponent.TOR_TRANSPORT,
-                        event = LogEvent.ENVELOPE_DECODE_FAILED,
+                        event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                         message = "Inbound Tor envelope decode error",
                         throwable = error,
                     )
@@ -58,7 +58,7 @@ class DefaultTorTransport(
                 )
                 logger.debug(
                     component = LogComponent.TOR_TRANSPORT,
-                    event = LogEvent.INBOUND_ENVELOPE_RECEIVED,
+                    event = LoggingTypes.INBOUND_ENVELOPE_RECEIVED,
                     message = "Received inbound Tor envelope",
                     fields = mapOf("packetType" to envelope.packetType.name, "source" to frame.source.onionAddress),
                 )
@@ -68,7 +68,7 @@ class DefaultTorTransport(
         started = true
         logger.info(
             component = LogComponent.TOR_TRANSPORT,
-            event = LogEvent.STARTED,
+            event = LoggingTypes.STARTED,
             message = "Tor transport started",
             fields = mapOf("localEndpoint" to localEndpoint.onionAddress, "port" to localEndpoint.port),
         )
@@ -85,7 +85,7 @@ class DefaultTorTransport(
         started = false
         logger.info(
             component = LogComponent.TOR_TRANSPORT,
-            event = LogEvent.STOPPED,
+            event = LoggingTypes.STOPPED,
             message = "Tor transport stopped",
         )
     }
@@ -95,7 +95,7 @@ class DefaultTorTransport(
         backend.send(target = target, payload = envelope.encode())
         logger.debug(
             component = LogComponent.TOR_TRANSPORT,
-            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            event = LoggingTypes.SIGNAL_OUTBOUND_EMITTED,
             message = "Sent Tor envelope",
             fields = mapOf("packetType" to envelope.packetType.name, "target" to target.onionAddress, "targetPort" to target.port),
         )

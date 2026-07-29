@@ -1,7 +1,7 @@
 package org.yapyap.routing.inbound
 
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
@@ -46,7 +46,7 @@ internal class InboundEnvelopeProcessor(
         ) {
             ctx.logger.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.PACKET_DUPLICATED,
+                event = LoggingTypes.PACKET_DUPLICATED,
                 message = "Packet ignored due to duplicate",
                 fields = mapOf(
                     "packetId" to inbound.packetId,
@@ -69,7 +69,7 @@ internal class InboundEnvelopeProcessor(
         if (inbound.expiresAtEpochSeconds < receivedAtEpochSeconds) {
             ctx.logger.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_EXPIRED,
+                event = LoggingTypes.ENVELOPE_EXPIRED,
                 message = "Envelope expired",
                 fields = mapOf(
                     "expiresAtEpochSeconds" to inbound.expiresAtEpochSeconds,
@@ -83,7 +83,7 @@ internal class InboundEnvelopeProcessor(
         if (inbound.target != ctx.localDeviceId) {
             ctx.logger.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
+                event = LoggingTypes.ENVELOPE_WRONG_TARGET,
                 message = "Envelope ignored due to target mismatch",
                 fields = mapOf(
                     "sourceDeviceId" to inbound.source,
@@ -109,7 +109,7 @@ internal class InboundEnvelopeProcessor(
         } else {
             ctx.logger.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
+                event = LoggingTypes.ENVELOPE_UNKNOWN_TYPE,
                 message = "Envelope ignored due to unknown packet type",
                 fields = mapOf(
                     "packetType" to inbound.packetType,
@@ -123,7 +123,7 @@ internal class InboundEnvelopeProcessor(
             InboundHandleResult.Deferred -> {
                 ctx.logger.info(
                     component = LogComponent.ROUTER,
-                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                    event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
                     message = "Deferred inbound envelope until session prerequisites are met",
                     fields = mapOf(
                         "packetId" to inbound.packetId,

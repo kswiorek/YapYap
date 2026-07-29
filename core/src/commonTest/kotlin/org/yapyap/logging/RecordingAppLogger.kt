@@ -8,7 +8,7 @@ class RecordingAppLogger : AppLogger {
     data class Entry(
         val level: LogLevel,
         val component: LogComponent,
-        val event: LogEvent,
+        val event: LoggingTypes,
         val message: String,
         val fields: Map<String, Any?>,
         val throwable: Throwable?,
@@ -22,7 +22,7 @@ class RecordingAppLogger : AppLogger {
 
     override fun debug(
         component: LogComponent,
-        event: LogEvent,
+        event: LoggingTypes,
         message: String,
         fields: Map<String, Any?>,
     ) {
@@ -31,7 +31,7 @@ class RecordingAppLogger : AppLogger {
 
     override fun info(
         component: LogComponent,
-        event: LogEvent,
+        event: LoggingTypes,
         message: String,
         fields: Map<String, Any?>,
     ) {
@@ -40,7 +40,7 @@ class RecordingAppLogger : AppLogger {
 
     override fun warn(
         component: LogComponent,
-        event: LogEvent,
+        event: LoggingTypes,
         message: String,
         fields: Map<String, Any?>,
     ) {
@@ -49,7 +49,7 @@ class RecordingAppLogger : AppLogger {
 
     override fun error(
         component: LogComponent,
-        event: LogEvent,
+        event: LoggingTypes,
         message: String,
         throwable: Throwable?,
         fields: Map<String, Any?>,

@@ -2,7 +2,7 @@ package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.*
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protocol.PeerId
@@ -28,7 +28,7 @@ internal class OutboxProcessor(
         onProcessFailed = { error ->
             ctx.logger.error(
                 component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESS_FAILED,
+                event = LoggingTypes.OUTBOX_PROCESS_FAILED,
                 message = "Outbox processing failed",
                 throwable = error,
             )
@@ -61,7 +61,7 @@ internal class OutboxProcessor(
         wake()
         ctx.logger.info(
             component = LogComponent.ROUTER,
-            event = LogEvent.OUTBOX_WEBRTC_DUE_SET,
+            event = LoggingTypes.OUTBOX_WEBRTC_DUE_SET,
             message = "WebRTC session connected; accelerated outbox retries for peer",
             fields = mapOf(
                 "peerId" to peerId,
@@ -76,7 +76,7 @@ internal class OutboxProcessor(
         } catch (e: Exception) {
             ctx.logger.error(
                 component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PRUNE_FAILED,
+                event = LoggingTypes.OUTBOX_PRUNE_FAILED,
                 message = "Failed to prune outbox for relay over capacity",
                 throwable = e,
             )
@@ -90,7 +90,7 @@ internal class OutboxProcessor(
         if (dueEntries.isNotEmpty() || pruned > 0) {
             ctx.logger.debug(
                 component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESSED,
+                event = LoggingTypes.OUTBOX_PROCESSED,
                 message = "Processing due outbox entries",
                 fields = mapOf(
                     "dueCount" to dueEntries.size,
@@ -109,7 +109,7 @@ internal class OutboxProcessor(
         if (dueEntries.isNotEmpty()) {
             ctx.logger.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESSED,
+                event = LoggingTypes.OUTBOX_PROCESSED,
                 message = "Processed outbox for due envelopes",
                 fields = mapOf("dueCount" to dueEntries.size),
             )
@@ -130,7 +130,7 @@ internal class OutboxProcessor(
             packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
             ctx.logger.debug(
                 component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_RETRY_DISPATCHED,
+                event = LoggingTypes.OUTBOX_RETRY_DISPATCHED,
                 message = "Dispatched due outbox envelope",
                 fields = mapOf(
                     "packetId" to envelope.packetId,
@@ -145,7 +145,7 @@ internal class OutboxProcessor(
             if (error is CancellationException) throw error
             ctx.logger.error(
                 component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_DISPATCH_FAILED,
+                event = LoggingTypes.OUTBOX_DISPATCH_FAILED,
                 message = "Failed to dispatch outbox envelope",
                 throwable = error,
                 fields = mapOf(

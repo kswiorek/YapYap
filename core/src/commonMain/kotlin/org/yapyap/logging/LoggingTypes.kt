@@ -1,6 +1,6 @@
 package org.yapyap.logging
 
-enum class LogEvent {
+enum class LoggingTypes {
     STARTED,
     STOPPED,
     INBOUND_ENVELOPE_RECEIVED,
@@ -82,3 +82,22 @@ enum class LogEvent {
     AUTHOR_SIGNATURE_VERIFICATION_FAILED,
     MESSAGE_REJECTED_INVALID_SIGNATURE,
 }
+
+enum class LogComponent {
+    ROUTER,
+    WEBRTC_TRANSPORT,
+    WEBRTC_BACKEND,
+    TOR_TRANSPORT,
+    TOR_BACKEND,
+    CRYPTO,
+    DATABASE,
+    MESSAGING,
+    DAG,
+}
+
+//enum class LogLevel {
+//    DEBUG,
+//    INFO,
+//    WARN,
+//    ERROR,
+//}

@@ -2,7 +2,7 @@ package org.yapyap.persistence.packet
 
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.Outbox
 import org.yapyap.persistence.YapYapDatabase
@@ -31,7 +31,7 @@ class DefaultPacketOutbox(
         )
         logger.debug(
             component = LogComponent.DATABASE,
-            event = LogEvent.OUTBOX_ENQUEUED,
+            event = LoggingTypes.OUTBOX_ENQUEUED,
             message = "Enqueued packet to outbox",
             fields = mapOf(
                 "packetId" to envelope.packetId,
@@ -49,7 +49,7 @@ class DefaultPacketOutbox(
         queries.deleteByPacketId(packetId)
         logger.debug(
             component = LogComponent.DATABASE,
-            event = LogEvent.OUTBOX_DELIVERED,
+            event = LoggingTypes.OUTBOX_DELIVERED,
             message = "Removed delivered packet from outbox",
             fields = mapOf("packetId" to packetId),
         )
@@ -59,7 +59,7 @@ class DefaultPacketOutbox(
         queries.setNextRetry(nextRetryAt, target.id)
         logger.debug(
             component = LogComponent.DATABASE,
-            event = LogEvent.OUTBOX_DUE_SET,
+            event = LoggingTypes.OUTBOX_DUE_SET,
             message = "Accelerated pending outbox retries for target",
             fields = mapOf(
                 "target" to target,
@@ -76,7 +76,7 @@ class DefaultPacketOutbox(
         )
         logger.debug(
             component = LogComponent.DATABASE,
-            event = LogEvent.OUTBOX_ATTEMPT_RECORDED,
+            event = LoggingTypes.OUTBOX_ATTEMPT_RECORDED,
             message = "Recorded outbox dispatch attempt",
             fields = mapOf(
                 "packetId" to packetId,
@@ -99,7 +99,7 @@ class DefaultPacketOutbox(
         if (removed > 0) {
             logger.info(
                 component = LogComponent.DATABASE,
-                event = LogEvent.OUTBOX_EXPIRED_PRUNED,
+                event = LoggingTypes.OUTBOX_EXPIRED_PRUNED,
                 message = "Pruned expired outbox rows",
                 fields = mapOf(
                     "removedCount" to removed,
@@ -149,7 +149,7 @@ class DefaultPacketOutbox(
         if (evicted > 0) {
             logger.info(
                 component = LogComponent.DATABASE,
-                event = LogEvent.OUTBOX_RELAY_EVICTED,
+                event = LoggingTypes.OUTBOX_RELAY_EVICTED,
                 message = "Evicted relay cache rows over capacity",
                 fields = mapOf(
                     "evictedCount" to evicted,
@@ -168,7 +168,7 @@ class DefaultPacketOutbox(
         val envelope = runCatching { BinaryEnvelope.decode(row.envelope_blob) }.getOrElse { error ->
             logger.error(
                 component = LogComponent.DATABASE,
-                event = LogEvent.OUTBOX_DECODE_FAILED,
+                event = LoggingTypes.OUTBOX_DECODE_FAILED,
                 message = "Dropped corrupt outbox row",
                 throwable = error,
                 fields = mapOf(

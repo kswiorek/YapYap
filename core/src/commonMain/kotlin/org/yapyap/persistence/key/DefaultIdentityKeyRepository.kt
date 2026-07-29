@@ -3,7 +3,7 @@ package org.yapyap.persistence.key
 import org.yapyap.crypto.identity.*
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.AccountStatus
@@ -24,7 +24,7 @@ class DefaultIdentityKeyRepository(
         return (if (account == null) {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
+                event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_MISSING,
                 message = "Account identity record not found",
                 fields = mapOf("accountId" to accountId, "found" to false),
             )
@@ -38,7 +38,7 @@ class DefaultIdentityKeyRepository(
         } else {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_FOUND,
                 message = "Account identity record found",
                 fields = mapOf("accountId" to accountId, "found" to true),
             )
@@ -62,7 +62,7 @@ class DefaultIdentityKeyRepository(
         return if (device == null) {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_NOT_FOUND,
+                event = LoggingTypes.IDENTITY_DEVICE_RECORD_NOT_FOUND,
                 message = "Device identity record not found",
                 fields = mapOf("deviceId" to deviceId, "found" to false),
             )
@@ -70,7 +70,7 @@ class DefaultIdentityKeyRepository(
         } else {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_FOUND,
+                event = LoggingTypes.IDENTITY_DEVICE_RECORD_FOUND,
                 message = "Device identity record found",
                 fields = mapOf("deviceId" to deviceId, "found" to true),
             )
@@ -101,14 +101,14 @@ class DefaultIdentityKeyRepository(
         return if (device == null) {
             logger.warn(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_NOT_FOUND,
+                event = LoggingTypes.IDENTITY_DEVICE_RECORD_NOT_FOUND,
                 message = "Local device identity record not found",
             )
             null
         } else {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_FOUND,
+                event = LoggingTypes.IDENTITY_DEVICE_RECORD_FOUND,
                 message = "Local device identity record found",
             )
             DeviceIdentityRecord(
@@ -138,14 +138,14 @@ class DefaultIdentityKeyRepository(
         return (if (account == null) {
             logger.warn(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
+                event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_MISSING,
                 message = "Account local identity record not found",
             )
             null
         } else if (account.pub_key_id == null || account.pub_key_version == null || account.account_pub_key == null) {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_FOUND,
                 message = "Account local identity record found",
             )
             AccountIdentityRecord(
@@ -156,7 +156,7 @@ class DefaultIdentityKeyRepository(
         } else {
             logger.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
+                event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_FOUND,
                 message = "Account local identity record found",
             )
             AccountIdentityRecord(
@@ -207,7 +207,7 @@ class DefaultIdentityKeyRepository(
         }
         logger.info(
             component = LogComponent.DATABASE,
-            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+            event = LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Inserted/updated local device identity record",
             fields = mapOf("deviceId" to identity.deviceId, "accountId" to accountId),
         )
@@ -227,7 +227,7 @@ class DefaultIdentityKeyRepository(
         )
         logger.info(
             component = LogComponent.DATABASE,
-            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+            event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Inserted/updated local account identity record",
             fields = mapOf("accountId" to identity.accountId, "displayName" to identity.displayName),
         )
@@ -386,7 +386,7 @@ class DefaultIdentityKeyRepository(
         }
         logger.info(
             component = LogComponent.DATABASE,
-            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+            event = LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Updated device signed prekey",
             fields = mapOf("deviceId" to spk.deviceId, "signedPreKeyId" to spk.keyId),
         )

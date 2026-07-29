@@ -2,7 +2,7 @@ package org.yapyap.crypto.e2ee
 
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
@@ -43,7 +43,7 @@ class DefaultCryptoHousekeeping(
         } catch (error: Exception) {
             logger.error(
                 component = LogComponent.CRYPTO,
-                event = LogEvent.CRYPTO_MAINTENANCE_FAILED,
+                event = LoggingTypes.CRYPTO_MAINTENANCE_FAILED,
                 message = "Crypto housekeeping failed",
                 throwable = error,
             )

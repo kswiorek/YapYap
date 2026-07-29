@@ -3,7 +3,7 @@ package org.yapyap.protection.envelope
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
@@ -36,7 +36,7 @@ class PlaintextFileProtection(
         )
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
+            event = LoggingTypes.ENVELOPE_OPENED,
             message = "Protected file envelope",
             fields = mapOf(
                 "transferId" to envelope.transferId,
@@ -57,7 +57,7 @@ class PlaintextFileProtection(
         } catch (e: Exception) {
             logger.error(
                 component = LogComponent.CRYPTO,
-                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode plaintext file envelope",
                 throwable = e,
             )
@@ -65,7 +65,7 @@ class PlaintextFileProtection(
         }
         logger.debug(
             component = LogComponent.CRYPTO,
-            event = LogEvent.ENVELOPE_OPENED,
+            event = LoggingTypes.ENVELOPE_OPENED,
             message = "Opened plaintext file envelope",
             fields = mapOf(
                 "transferId" to input.transferId,

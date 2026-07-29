@@ -1,7 +1,7 @@
 package org.yapyap.routing.inbound.handlers
 
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -19,7 +19,7 @@ internal class SystemInboundHandler(
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode message envelope",
                 fields = mapOf("error" to "decode_failed"),
             )
@@ -29,7 +29,7 @@ internal class SystemInboundHandler(
         if (systemEnvelope.target != ctx.localDeviceId) {
             ctx.logger.error(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
+                event = LoggingTypes.ENVELOPE_WRONG_TARGET,
                 message = "System envelope received for peer ${systemEnvelope.target}",
                 fields = mapOf(
                     "sourceDeviceId" to systemEnvelope.source,
@@ -58,7 +58,7 @@ internal class SystemInboundHandler(
             is SystemPayload.PacketAck -> {
                 ctx.logger.debug(
                     component = LogComponent.ROUTER,
-                    event = LogEvent.OUTBOX_ACK_RECEIVED,
+                    event = LoggingTypes.OUTBOX_ACK_RECEIVED,
                     message = "Removed acknowledged packet from outbox",
                     fields = mapOf(
                         "packetId" to payload.packetId,
@@ -73,7 +73,7 @@ internal class SystemInboundHandler(
                     PacketNackReason.EXPIRED -> {
                         ctx.logger.info(
                             component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            event = LoggingTypes.OUTBOX_NACK_RECEIVED,
                             message = "Stopped retrying expired packet after NACK",
                             fields = mapOf(
                                 "packetId" to payload.packetId,
@@ -87,7 +87,7 @@ internal class SystemInboundHandler(
                     PacketNackReason.PROTECTION_FAILED -> {
                         ctx.logger.warn(
                             component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            event = LoggingTypes.OUTBOX_NACK_RECEIVED,
                             message = "Received NACK for outbox packet due to protection failure; will retry",
                             fields = mapOf(
                                 "packetId" to payload.packetId,
@@ -101,7 +101,7 @@ internal class SystemInboundHandler(
                     else -> {
                         ctx.logger.debug(
                             component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            event = LoggingTypes.OUTBOX_NACK_RECEIVED,
                             message = "Received NACK for outbox packet; keeping retry schedule",
                             fields = mapOf(
                                 "packetId" to payload.packetId,

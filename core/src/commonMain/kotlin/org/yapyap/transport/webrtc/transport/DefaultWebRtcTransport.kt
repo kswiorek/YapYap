@@ -4,7 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
@@ -79,7 +79,7 @@ class DefaultWebRtcTransport(
                             )
                         logger.debug(
                             component = LogComponent.WEBRTC_TRANSPORT,
-                            event = LogEvent.SESSION_STATE_CHANGED,
+                            event = LoggingTypes.SESSION_STATE_CHANGED,
                             message = "WebRTC session negotiating",
                             fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.NEGOTIATING.name),
                         )
@@ -92,7 +92,7 @@ class DefaultWebRtcTransport(
                             )
                         logger.info(
                             component = LogComponent.WEBRTC_TRANSPORT,
-                            event = LogEvent.SESSION_STATE_CHANGED,
+                            event = LoggingTypes.SESSION_STATE_CHANGED,
                             message = "WebRTC session connected",
                             fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.CONNECTED.name),
                         )
@@ -105,7 +105,7 @@ class DefaultWebRtcTransport(
                             )
                         logger.info(
                             component = LogComponent.WEBRTC_TRANSPORT,
-                            event = LogEvent.SESSION_STATE_CHANGED,
+                            event = LoggingTypes.SESSION_STATE_CHANGED,
                             message = "WebRTC session closed",
                             fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.CLOSED.name),
                         )
@@ -119,7 +119,7 @@ class DefaultWebRtcTransport(
                             )
                         logger.warn(
                             component = LogComponent.WEBRTC_TRANSPORT,
-                            event = LogEvent.SESSION_FAILED,
+                            event = LoggingTypes.SESSION_FAILED,
                             message = "WebRTC session failed",
                             fields = mapOf("peer" to event.peer, "reason" to event.reason),
                         )
@@ -171,7 +171,7 @@ class DefaultWebRtcTransport(
         started = true
         logger.info(
             component = LogComponent.WEBRTC_TRANSPORT,
-            event = LogEvent.STARTED,
+            event = LoggingTypes.STARTED,
             message = "WebRTC transport started",
             fields = mapOf("deviceId" to deviceId),
         )
@@ -200,7 +200,7 @@ class DefaultWebRtcTransport(
         started = false
         logger.info(
             component = LogComponent.WEBRTC_TRANSPORT,
-            event = LogEvent.STOPPED,
+            event = LoggingTypes.STOPPED,
             message = "WebRTC transport stopped",
         )
     }
@@ -308,7 +308,7 @@ class DefaultWebRtcTransport(
                     )
                 logger.debug(
                     component = LogComponent.WEBRTC_TRANSPORT,
-                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
                     message = "Handled inbound OFFER signal",
                     fields = mapOf("source" to signal.source),
                 )
@@ -325,7 +325,7 @@ class DefaultWebRtcTransport(
             else -> {
                 logger.debug(
                     component = LogComponent.WEBRTC_TRANSPORT,
-                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
                     message = "Handled inbound WebRTC signal",
                     fields = mapOf("kind" to signal.kind.name, "source" to signal.source),
                 )
@@ -430,7 +430,7 @@ class DefaultWebRtcTransport(
         }
         logger.debug(
             component = LogComponent.WEBRTC_TRANSPORT,
-            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
             message = "Handled inbound AV control frame",
             fields = mapOf("peer" to frame.source, "kind" to message.kindName),
         )

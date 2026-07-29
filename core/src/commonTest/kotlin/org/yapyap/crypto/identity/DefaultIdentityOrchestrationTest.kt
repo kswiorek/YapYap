@@ -3,7 +3,7 @@ package org.yapyap.crypto.identity
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.RecordingAppLogger
 import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
@@ -62,13 +62,13 @@ class DefaultIdentityOrchestrationTest {
         assertTrue(
             logger.entries.any {
                 it.component == LogComponent.CRYPTO &&
-                    it.event == LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED
+                    it.event == LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED
             },
         )
         assertTrue(
             logger.entries.any {
                 it.component == LogComponent.CRYPTO &&
-                    it.event == LogEvent.IDENTITY_DEVICE_RECORD_CREATED
+                    it.event == LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED
             },
         )
     }
@@ -93,13 +93,13 @@ class DefaultIdentityOrchestrationTest {
         assertTrue(
             logger.entries.any {
                 it.component == LogComponent.CRYPTO &&
-                    it.event == LogEvent.IDENTITY_DEVICE_RECORD_MISSING
+                    it.event == LoggingTypes.IDENTITY_DEVICE_RECORD_MISSING
             },
         )
         assertTrue(
             logger.entries.any {
                 it.component == LogComponent.CRYPTO &&
-                    it.event == LogEvent.IDENTITY_DEVICE_RECORD_CREATED
+                    it.event == LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED
             },
         )
     }
@@ -142,13 +142,13 @@ class DefaultIdentityOrchestrationTest {
         assertTrue(
             logger.entries.any {
                 it.component == LogComponent.CRYPTO &&
-                    it.event == LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING
+                    it.event == LoggingTypes.IDENTITY_ACCOUNT_RECORD_MISSING
             },
         )
         assertTrue(
             logger.entries.any {
                 it.component == LogComponent.CRYPTO &&
-                    it.event == LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED
+                    it.event == LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED
             },
         )
     }

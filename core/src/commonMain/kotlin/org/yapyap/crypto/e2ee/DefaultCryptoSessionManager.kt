@@ -2,11 +2,11 @@ package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
@@ -147,7 +147,7 @@ class DefaultCryptoSessionManager(
             }
             logger.debug(
                 component = LogComponent.CRYPTO,
-                event = LogEvent.EPOCH_2_BOOTSTRAP_FAIL,
+                event = LoggingTypes.EPOCH_2_BOOTSTRAP_FAIL,
                 message = "Deferred epoch-2 bootstrap; continuing on epoch-1",
                 fields = mapOf(
                     "peerDeviceId" to remoteDeviceId,

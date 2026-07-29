@@ -2,7 +2,7 @@ package org.yapyap.persistence.packet
 
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
@@ -24,7 +24,7 @@ class DefaultPacketIdAllocator(
         localDeviceId = deviceId
         logger.info(
             component = LogComponent.DATABASE,
-            event = LogEvent.PACKET_ALLOCATOR_DEVICE_ASSIGNED,
+            event = LoggingTypes.PACKET_ALLOCATOR_DEVICE_ASSIGNED,
             message = "Assigned local device for packet ID allocation",
             fields = mapOf("deviceId" to deviceId),
         )
@@ -37,7 +37,7 @@ class DefaultPacketIdAllocator(
             if (tryReserve(sourceDeviceId = localDeviceId!!, packetId = candidate, receivedAtEpochSeconds = now)) {
                 logger.debug(
                     component = LogComponent.DATABASE,
-                    event = LogEvent.PACKET_ID_ALLOCATED,
+                    event = LoggingTypes.PACKET_ID_ALLOCATED,
                     message = "Allocated packet ID",
                     fields = mapOf("packetId" to candidate, "attempt" to it + 1),
                 )
@@ -46,7 +46,7 @@ class DefaultPacketIdAllocator(
         }
         logger.error(
             component = LogComponent.DATABASE,
-            event = LogEvent.PACKET_ID_ALLOCATION_FAILED,
+            event = LoggingTypes.PACKET_ID_ALLOCATION_FAILED,
             message = "Failed to allocate unique packet ID after $maxAttempts",
             fields = mapOf("maxAttempts" to maxAttempts, "deviceId" to localDeviceId),
         )

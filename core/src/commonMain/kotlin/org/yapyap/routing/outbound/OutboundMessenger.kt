@@ -6,7 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -38,7 +38,7 @@ internal class OutboundMessenger(
         if (peers.isEmpty()) {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,
-                event = LogEvent.MESSAGE_NO_PEERS,
+                event = LoggingTypes.MESSAGE_NO_PEERS,
                 message = "No peer devices found for target account",
                 fields = mapOf("targetAccountId" to target),
             )
@@ -139,7 +139,7 @@ internal class OutboundMessenger(
         outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
         ctx.logger.debug(
             component = LogComponent.ROUTER,
-            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+            event = LoggingTypes.OUTBOX_MESSAGE_QUEUED,
             message = "Queued outbound message in outbox",
             fields = mapOf(
                 "packetId" to binaryEnvelope.packetId,
@@ -155,7 +155,7 @@ internal class OutboundMessenger(
         } catch (e: TransportException) {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
+                event = LoggingTypes.ENVELOPE_DISPATCH_FAILED,
                 message = "Envelope dispatch failed: TransportException",
                 fields = mapOf(
                     "packetId" to binaryEnvelope.packetId,
@@ -167,7 +167,7 @@ internal class OutboundMessenger(
         } catch (e: CryptoException) {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
+                event = LoggingTypes.ENVELOPE_DISPATCH_FAILED,
                 message = "Envelope dispatch failed: CryptoException",
                 fields = mapOf(
                     "packetId" to binaryEnvelope.packetId,
@@ -199,7 +199,7 @@ internal class OutboundMessenger(
             ProtectionDisposition.PERMANENT -> {
                 ctx.logger.error(
                     component = LogComponent.ROUTER,
-                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                    event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
                     message = "Message protection failed",
                     fields = fields,
                     throwable = exception,
@@ -211,7 +211,7 @@ internal class OutboundMessenger(
                 -> {
                 ctx.logger.warn(
                     component = LogComponent.ROUTER,
-                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
+                    event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
                     message = "Message protection failed",
                     fields = fields + ("error" to exception.message),
                 )

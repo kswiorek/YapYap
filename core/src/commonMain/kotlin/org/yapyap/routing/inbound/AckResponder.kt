@@ -1,7 +1,7 @@
 package org.yapyap.routing.inbound
 
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -56,7 +56,7 @@ internal class AckResponder(
         sendSystemEnvelope(ackPayload, transport, ackContext)
         ctx.logger.info(
             LogComponent.ROUTER,
-            LogEvent.ACK_SENT,
+            LoggingTypes.ACK_SENT,
             "ACK sent for packet $packetId",
             mapOf(
                 "packetId" to packetId,
@@ -95,7 +95,7 @@ internal class AckResponder(
         sendSystemEnvelope(ackPayload, transport, ackContext)
         ctx.logger.info(
             LogComponent.ROUTER,
-            LogEvent.NACK_SENT,
+            LoggingTypes.NACK_SENT,
             "NACK sent for packet $packetId",
             mapOf(
                 "packetId" to packetId,

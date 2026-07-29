@@ -9,7 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
 import org.yapyap.transport.webrtc.types.*
@@ -46,7 +46,7 @@ class JvmWebRtcBackend(
         this.scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         logger.info(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.STARTED,
+            event = LoggingTypes.STARTED,
             message = "JVM WebRTC backend started",
             fields = mapOf("deviceId" to localDevice),
         )
@@ -62,7 +62,7 @@ class JvmWebRtcBackend(
         localDevice = null
         logger.info(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.STOPPED,
+            event = LoggingTypes.STOPPED,
             message = "JVM WebRTC backend stopped",
         )
     }
@@ -92,7 +92,7 @@ class JvmWebRtcBackend(
 
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SESSION_STATE_CHANGED,
+            event = LoggingTypes.SESSION_STATE_CHANGED,
             message = "Opened outbound session (offerer); awaiting renegotiation callback",
             fields = mapOf("peer" to target),
         )
@@ -102,7 +102,7 @@ class JvmWebRtcBackend(
         val local = requireNotNull(localDevice) { "WebRTC backend must be started before applying remote signal" }
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
             message = "Applying inbound WebRTC signal",
             fields = mapOf("kind" to signal.kind.name, "source" to signal.source),
         )
@@ -146,7 +146,7 @@ class JvmWebRtcBackend(
         openChannel.send(RTCDataChannelBuffer(ByteBuffer.wrap(dataFrame.payload), true))
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            event = LoggingTypes.SIGNAL_OUTBOUND_EMITTED,
             message = "Sent WebRTC data frame",
             fields = mapOf(
                 "target" to dataFrame.target,
@@ -176,7 +176,7 @@ class JvmWebRtcBackend(
             emitAvChannelEvent(WebRtcAvChannelEvent.Adding(peer = target))
             logger.debug(
                 component = LogComponent.WEBRTC_BACKEND,
-                event = LogEvent.SESSION_STATE_CHANGED,
+                event = LoggingTypes.SESSION_STATE_CHANGED,
                 message = "Added AV data channel; renegotiation pending",
                 fields = mapOf("peer" to target),
             )
@@ -198,7 +198,7 @@ class JvmWebRtcBackend(
             emitAvChannelEvent(WebRtcAvChannelEvent.Removed(peer = target))
             logger.debug(
                 component = LogComponent.WEBRTC_BACKEND,
-                event = LogEvent.SESSION_STATE_CHANGED,
+                event = LoggingTypes.SESSION_STATE_CHANGED,
                 message = "AV data channel removed; renegotiation pending",
                 fields = mapOf("peer" to target),
             )
@@ -224,7 +224,7 @@ class JvmWebRtcBackend(
                 if (!polite) {
                     logger.info(
                         component = LogComponent.WEBRTC_BACKEND,
-                        event = LogEvent.SESSION_STATE_CHANGED,
+                        event = LoggingTypes.SESSION_STATE_CHANGED,
                         message = "Glare: impolite, ignoring inbound offer",
                         fields = mapOf("peer" to remote, "local" to local, "state" to state.name),
                     )
@@ -232,7 +232,7 @@ class JvmWebRtcBackend(
                 }
                 logger.info(
                     component = LogComponent.WEBRTC_BACKEND,
-                    event = LogEvent.SESSION_STATE_CHANGED,
+                    event = LoggingTypes.SESSION_STATE_CHANGED,
                     message = "Glare: polite, rolling back local offer",
                     fields = mapOf("peer" to remote, "local" to local),
                 )
@@ -249,7 +249,7 @@ class JvmWebRtcBackend(
             } else if (isNew) {
                 logger.debug(
                     component = LogComponent.WEBRTC_BACKEND,
-                    event = LogEvent.SESSION_STATE_CHANGED,
+                    event = LoggingTypes.SESSION_STATE_CHANGED,
                     message = "Accepting inbound offer as answerer",
                     fields = mapOf("peer" to remote),
                 )
@@ -300,7 +300,7 @@ class JvmWebRtcBackend(
             if (state != RTCSignalingState.HAVE_LOCAL_OFFER) {
                 logger.warn(
                     component = LogComponent.WEBRTC_BACKEND,
-                    event = LogEvent.SESSION_FAILED,
+                    event = LoggingTypes.SESSION_FAILED,
                     message = "Received ANSWER in unexpected signaling state; ignoring",
                     fields = mapOf("peer" to remote, "state" to state.name),
                 )
@@ -331,7 +331,7 @@ class JvmWebRtcBackend(
                 session.pendingIceCandidates.add(candidate)
                 logger.debug(
                     component = LogComponent.WEBRTC_BACKEND,
-                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
                     message = "Buffered ICE candidate (no remote description yet)",
                     fields = mapOf("peer" to remote, "buffered" to session.pendingIceCandidates.size),
                 )
@@ -347,7 +347,7 @@ class JvmWebRtcBackend(
         }
         logger.info(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SESSION_STATE_CHANGED,
+            event = LoggingTypes.SESSION_STATE_CHANGED,
             message = "Tore down session",
             fields = mapOf("peer" to remote, "reason" to reason),
         )
@@ -358,7 +358,7 @@ class JvmWebRtcBackend(
         if (pending.isEmpty()) return
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SIGNAL_INBOUND_HANDLED,
+            event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
             message = "Draining buffered ICE candidates",
             fields = mapOf("peer" to session.remotePeer, "count" to pending.size),
         )
@@ -401,7 +401,7 @@ class JvmWebRtcBackend(
         )
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            event = LoggingTypes.SIGNAL_OUTBOUND_EMITTED,
             message = "Emitted renegotiation offer",
             fields = mapOf("peer" to session.remotePeer),
         )
@@ -484,7 +484,7 @@ class JvmWebRtcBackend(
                     val dataType = inferDataTypeFromLabel(channel.label)
                     logger.debug(
                         component = LogComponent.WEBRTC_BACKEND,
-                        event = LogEvent.SESSION_STATE_CHANGED,
+                        event = LoggingTypes.SESSION_STATE_CHANGED,
                         message = "Attached inbound data channel",
                         fields = mapOf("peer" to session.remotePeer, "dataType" to dataType.name, "label" to channel.label),
                     )
@@ -545,7 +545,7 @@ class JvmWebRtcBackend(
                     buffer.data.get(bytes)
                     logger.debug(
                         component = LogComponent.WEBRTC_BACKEND,
-                        event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                        event = LoggingTypes.SIGNAL_INBOUND_HANDLED,
                         message = "Received WebRTC data frame",
                         fields = mapOf(
                             "peer" to session.remotePeer,
@@ -590,7 +590,7 @@ class JvmWebRtcBackend(
     private fun emitSignal(signal: WebRtcSignal) {
         logger.debug(
             component = LogComponent.WEBRTC_BACKEND,
-            event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+            event = LoggingTypes.SIGNAL_OUTBOUND_EMITTED,
             message = "Emitting outbound WebRTC signal",
             fields = mapOf("kind" to signal.kind.name, "target" to signal.target),
         )
@@ -605,14 +605,14 @@ class JvmWebRtcBackend(
         when (event) {
             is WebRtcSessionEvent.Failed -> logger.warn(
                 component = LogComponent.WEBRTC_BACKEND,
-                event = LogEvent.SESSION_FAILED,
+                event = LoggingTypes.SESSION_FAILED,
                 message = "WebRTC backend session failed",
                 fields = mapOf("peer" to event.peer, "reason" to event.reason),
             )
 
             else -> logger.debug(
                 component = LogComponent.WEBRTC_BACKEND,
-                event = LogEvent.SESSION_STATE_CHANGED,
+                event = LoggingTypes.SESSION_STATE_CHANGED,
                 message = "WebRTC backend session event",
                 fields = mapOf("type" to event::class.simpleName),
             )

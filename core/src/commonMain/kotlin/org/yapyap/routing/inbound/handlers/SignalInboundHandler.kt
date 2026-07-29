@@ -1,7 +1,7 @@
 package org.yapyap.routing.inbound.handlers
 
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -20,7 +20,7 @@ internal class SignalInboundHandler(
         val signalEnvelope = runCatching { WebRtcSignalEnvelope.decode(env.payload) }.getOrNull() ?: run {
             ctx.logger.warn(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DECODE_FAILED,
+                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode signal envelope",
                 fields = mapOf("error" to "decode_failed"),
             )
@@ -29,7 +29,7 @@ internal class SignalInboundHandler(
         if (signalEnvelope.target != ctx.localDeviceId) {
             ctx.logger.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_WRONG_TARGET,
+                event = LoggingTypes.ENVELOPE_WRONG_TARGET,
                 message = "Signal envelope ignored due to target mismatch",
                 fields = mapOf(
                     "sourceDeviceId" to signalEnvelope.source,

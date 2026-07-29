@@ -9,7 +9,7 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protection.service.EnvelopeProtectionService
@@ -132,7 +132,7 @@ class DefaultRouter(
                         if (e is CancellationException) throw e
                         logger.error(
                             component = LogComponent.ROUTER,
-                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                            event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
                             message = "Failed to handle inbound Tor envelope",
                             fields = mapOf("error" to e.toString()),
                         )
@@ -147,7 +147,7 @@ class DefaultRouter(
                         if (e is CancellationException) throw e
                         logger.error(
                             component = LogComponent.ROUTER,
-                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                            event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
                             message = "Failed to handle inbound WebRTC envelope",
                             fields = mapOf("error" to e.toString()),
                         )
@@ -177,7 +177,7 @@ class DefaultRouter(
 
         logger.info(
             component = LogComponent.ROUTER,
-            event = LogEvent.STARTED,
+            event = LoggingTypes.STARTED,
             message = "Router started",
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )
@@ -205,7 +205,7 @@ class DefaultRouter(
 
         logger.info(
             component = LogComponent.ROUTER,
-            event = LogEvent.STOPPED,
+            event = LoggingTypes.STOPPED,
             message = "Router stopped",
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )

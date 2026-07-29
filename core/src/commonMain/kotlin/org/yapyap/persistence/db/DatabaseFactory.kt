@@ -7,7 +7,7 @@ import org.yapyap.crypto.e2ee.X3dhMode
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
@@ -27,7 +27,7 @@ class DatabaseFactory(
         initializer.initialize(driver)
         logger.info(
             component = LogComponent.DATABASE,
-            event = LogEvent.DATABASE_INITIALIZED,
+            event = LoggingTypes.DATABASE_INITIALIZED,
             message = "Database connection created",
         )
 

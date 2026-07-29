@@ -75,19 +75,17 @@ kotlin {
     }
 
     sourceSets {
-        val ktor_version: String by project
-        val vKmpTorResource: String by project
-
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutinesCore)
             implementation(libs.runtime)
-            implementation("io.matthewnelson.kmp-tor:resource-exec-tor:$vKmpTorResource")
-            implementation("io.matthewnelson.kmp-tor:resource-noexec-tor:$vKmpTorResource")
-            implementation("io.ktor:ktor-network:$ktor_version")
-            implementation("io.ktor:ktor-io:$ktor_version")
+            implementation(libs.tor.resource.exec.tor)
+            implementation(libs.tor.resource.noexec.tor)
+            implementation(libs.ktor.network)
+            implementation(libs.ktor.io)
             implementation(libs.coroutines.extensions)
             implementation(libs.cryptography.core)
             implementation(libs.cryptography.provider.optimal)
+            implementation(libs.napier)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

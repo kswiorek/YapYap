@@ -4,7 +4,7 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.logging.LoggingTypes
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.db.DriverFactory
 
@@ -19,7 +19,7 @@ class JvmEncryptedDriverFactory(
         val url = "jdbc:sqlite:file:$databasePath?cipher=sqlcipher&key=$masterKeyHex&foreign_keys=on"
         logger.info(
             component = LogComponent.DATABASE,
-            event = LogEvent.DATABASE_INITIALIZED,
+            event = LoggingTypes.DATABASE_INITIALIZED,
             message = "Creating encrypted JDBC SQLite driver",
             fields = mapOf("databasePath" to databasePath),
         )
