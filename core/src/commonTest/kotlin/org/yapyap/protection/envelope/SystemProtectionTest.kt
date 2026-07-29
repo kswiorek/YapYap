@@ -1,7 +1,7 @@
 package org.yapyap.protection.envelope
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.*
 import org.yapyap.protocol.SignalSecurityScheme
@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
 
 class SystemProtectionTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun plaintext_protectThenOpen_packetAck_roundTrip() = runTest {

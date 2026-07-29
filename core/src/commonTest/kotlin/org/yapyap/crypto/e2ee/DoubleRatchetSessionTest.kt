@@ -1,12 +1,12 @@
 package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import kotlin.test.*
 
 class DoubleRatchetSessionTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
     private val x3dh = X3dhHandshake(crypto)
 
     @Test

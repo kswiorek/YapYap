@@ -4,7 +4,7 @@ import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.crypto.CryptoSessionStore
@@ -24,7 +24,6 @@ internal class SessionBootstrap(
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
     private val timeProvider: EpochSecondsProvider,
-    private val logger: AppLogger,
 ) {
 
     suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId, sessionGeneration: Int): LoadedSession {
@@ -117,7 +116,7 @@ internal class SessionBootstrap(
             updatedAtEpochSeconds = now,
         )
         persist(peerDeviceId, sessionEpoch = 2, session, meta)
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Created epoch-2 crypto session from OPK offer",

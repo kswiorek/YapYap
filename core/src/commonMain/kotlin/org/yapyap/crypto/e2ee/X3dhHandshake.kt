@@ -1,10 +1,10 @@
 package org.yapyap.crypto.e2ee
 
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
-import org.yapyap.crypto.primitives.KmpCryptoProvider
 
-private const val SHARED_SECRET_SIZE = KmpCryptoProvider.AEAD_KEY_SIZE_BYTES
+private const val SHARED_SECRET_SIZE = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 private val X3DH_KDF_INFO = "YapYapX3DH".encodeToByteArray()
 
 enum class X3dhMode(val wireValue: Byte) {

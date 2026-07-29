@@ -2,7 +2,7 @@ package org.yapyap.persistence.key
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.*
 import org.yapyap.time.EpochSecondsProvider
@@ -146,7 +146,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
         val store = DefaultOpkRepository(
             database = database,
             keyStore = keyStore,
-            crypto = KmpCryptoProvider(),
+            crypto = DefaultCryptoProvider(),
             localDeviceId = FixtureDevicePeerId,
             timeProvider = timeProvider,
         )

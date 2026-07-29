@@ -2,7 +2,6 @@ package org.yapyap.orchestrator
 
 import kotlinx.coroutines.CoroutineScope
 import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.logging.AppLogger
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.message.DefaultMessagingService
 import org.yapyap.orchestrator.message.MessagingService
@@ -23,7 +22,6 @@ internal class DefaultOrchestratorRuntime(
     private val pipeline: InboundMessagePipeline,
     private val database: YapYapDatabase,
     private val identityResolver: IdentityResolver,
-    private val logger: AppLogger,
 ) : OrchestratorRuntime {
 
     private lateinit var _messaging: DefaultMessagingService
@@ -37,7 +35,6 @@ internal class DefaultOrchestratorRuntime(
             roomMembershipRepository = DefaultRoomMembershipRepository(database),
             identityResolver = identityResolver,
             timeProvider = SystemEpochSecondsProvider,
-            logger = logger,
         )
         _messaging.start(scope)
     }

@@ -3,14 +3,12 @@ package org.yapyap.persistence.db
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.db.SqlSchema
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 
 class DatabaseInitializer(
     private val schema: SqlSchema<QueryResult.Value<Unit>>,
-    private val logger: AppLogger = NoopAppLogger,
 ) {
     fun initialize(driver: SqlDriver) {
         enableForeignKeys(driver)
@@ -22,7 +20,7 @@ class DatabaseInitializer(
             currentVersion == 0L -> {
                 schema.create(driver)
                 setUserVersion(driver, targetVersion)
-                logger.info(
+                AppLog.info(
                     component = LogComponent.DATABASE,
                     event = LoggingTypes.DATABASE_INITIALIZED,
                     message = "Database schema created",
@@ -32,14 +30,14 @@ class DatabaseInitializer(
             currentVersion < targetVersion -> {
                 schema.migrate(driver, currentVersion, targetVersion)
                 setUserVersion(driver, targetVersion)
-                logger.info(
+                AppLog.info(
                     component = LogComponent.DATABASE,
                     event = LoggingTypes.DATABASE_MIGRATED,
                     message = "Database schema migrated",
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
             }
-            else -> logger.debug(
+            else -> AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LoggingTypes.DATABASE_INITIALIZED,
                 message = "Database schema already up to date",

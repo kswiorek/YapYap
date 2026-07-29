@@ -1,7 +1,7 @@
 package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertFailsWith
@@ -30,7 +30,7 @@ class CryptoWireLimitsTest {
 
     @Test
     fun ratchetCiphertext_decode_rejectsOversizedBodyLength() = runTest {
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val x3dh = X3dhHandshake(crypto)
         val (aliceBootstrap, bobBootstrap) = DoubleRatchetSessionTestBootstraps.create(crypto, x3dh)
         val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
@@ -54,7 +54,7 @@ class CryptoWireLimitsTest {
 
     @Test
     fun sessionWireFrame_roundTrip_stillWorks() = runTest {
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val x3dh = X3dhHandshake(crypto)
         val (aliceBootstrap, bobBootstrap) = DoubleRatchetSessionTestBootstraps.create(crypto, x3dh)
         val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
@@ -73,7 +73,7 @@ class CryptoWireLimitsTest {
 
 private object DoubleRatchetSessionTestBootstraps {
     suspend fun create(
-        crypto: KmpCryptoProvider,
+        crypto: DefaultCryptoProvider,
         x3dh: X3dhHandshake,
     ): Pair<RatchetBootstrap, RatchetBootstrap> {
         val aliceIk = crypto.generateEncryptionKeyPair()

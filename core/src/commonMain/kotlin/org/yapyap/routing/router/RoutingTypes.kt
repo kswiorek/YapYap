@@ -2,7 +2,6 @@ package org.yapyap.routing.router
 
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.logging.AppLogger
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
@@ -10,7 +9,6 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
-import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 enum class RouterTransport {
@@ -46,7 +44,7 @@ internal sealed interface InboundHandleResult {
 
 internal sealed interface SystemInboundResult {
     data object Ignored : SystemInboundResult
-    data class RemoveFromOutbox @OptIn(ExperimentalUuidApi::class) constructor(val packetId: Uuid) : SystemInboundResult
+    data class RemoveFromOutbox(val packetId: Uuid) : SystemInboundResult
 }
 
 internal sealed interface PeerSendOutcome {
@@ -62,7 +60,6 @@ internal class RoutingContext(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val timeProvider: EpochSecondsProvider,
-    val logger: AppLogger,
     val routerConfig: RouterConfig,
 ) {
     lateinit var localDeviceIdentity: DeviceIdentityRecord

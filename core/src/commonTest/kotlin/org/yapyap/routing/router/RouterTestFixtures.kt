@@ -7,9 +7,8 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.*
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -377,7 +376,7 @@ internal class E2eeIdentityResolverForRouter(
     private val peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
     private val torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
-    private val crypto: CryptoProvider = KmpCryptoProvider(),
+    private val crypto: CryptoProvider = DefaultCryptoProvider(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
@@ -457,7 +456,7 @@ internal fun buildE2eeRouterStack(
     peersByAccount: Map<AccountId, List<PeerId>>,
     torByPeer: MutableMap<PeerId, TorEndpoint>,
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
-    crypto: CryptoProvider = KmpCryptoProvider(),
+    crypto: CryptoProvider = DefaultCryptoProvider(),
 ): E2eeRouterTestStack {
     val identity = E2eeIdentityResolverForRouter(
         local = local,
@@ -505,7 +504,6 @@ internal fun e2eeRouterUnderTest(
         packetOutbox = outbox,
         envelopeProtectionService = stack.protection,
         timeProvider = time,
-        logger = NoopAppLogger,
         routerConfig = routerConfig,
     )
 
@@ -525,7 +523,6 @@ internal fun outboxProcessorUnderTest(
             torTransport = tor,
             webRtcTransport = webRtc,
             timeProvider = time,
-            logger = NoopAppLogger,
             routerConfig = routerConfig,
         )
     return OutboxProcessor(
@@ -555,6 +552,5 @@ internal fun defaultRouterUnderTest(
         packetOutbox = outbox,
         envelopeProtectionService = envelopeProtectionService,
         timeProvider = time,
-        logger = NoopAppLogger,
         routerConfig = routerConfig,
     )

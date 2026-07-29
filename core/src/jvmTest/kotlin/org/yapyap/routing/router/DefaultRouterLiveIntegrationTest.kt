@@ -7,7 +7,6 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -110,7 +109,6 @@ class DefaultRouterLiveIntegrationTest {
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
-                logger = NoopAppLogger,
                 routerConfig = RouterConfig(),
             )
         val bobRouter =
@@ -122,7 +120,6 @@ class DefaultRouterLiveIntegrationTest {
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
-                logger = NoopAppLogger,
                 routerConfig = RouterConfig(),
             )
 

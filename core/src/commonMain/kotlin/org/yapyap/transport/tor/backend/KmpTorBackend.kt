@@ -18,10 +18,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
@@ -37,7 +36,6 @@ class KmpTorBackend(
     private val torStateRootPath: File = defaultTorStateRootPath(),
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
     private val config: TorBackendConfig = TorBackendConfig(),
-    private val logger: AppLogger = NoopAppLogger,
 ) : TorBackend {
 
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
@@ -104,7 +102,7 @@ class KmpTorBackend(
                 acceptInboundConnections(listener)
             }
             started = true
-            logger.info(
+            AppLog.info(
                 component = LogComponent.TOR_BACKEND,
                 event = LoggingTypes.STARTED,
                 message = "KMP Tor backend started",
@@ -112,7 +110,7 @@ class KmpTorBackend(
             )
             return resolvedEndpoint
         } catch (error: Throwable) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.TOR_BACKEND,
                 event = LoggingTypes.SESSION_FAILED,
                 message = "Failed to start KMP Tor backend",
@@ -142,7 +140,7 @@ class KmpTorBackend(
         publishedLocalEndpoint = null
         socksPort = null
         started = false
-        logger.info(
+        AppLog.info(
             component = LogComponent.TOR_BACKEND,
             event = LoggingTypes.STOPPED,
             message = "KMP Tor backend stopped",
@@ -178,7 +176,7 @@ class KmpTorBackend(
                     error.code in config.socksTransientFailureCodes &&
                         TimeSource.Monotonic.markNow() < deadline
                 if (!shouldRetry) {
-                    logger.error(
+                    AppLog.error(
                         component = LogComponent.TOR_BACKEND,
                         event = LoggingTypes.SESSION_FAILED,
                         message = "SOCKS connect failed for Tor send",
@@ -238,12 +236,12 @@ class KmpTorBackend(
                 try {
                     val input = client.openReadChannel()
                     val frame = runCatching { readTransportFrame(input) }.getOrElse { error ->
-                        logger.warn(
+                        AppLog.warn(
                             component = LogComponent.TOR_BACKEND,
                             event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                             message = "Failed to read inbound Tor transport frame",
                         )
-                        logger.error(
+                        AppLog.error(
                             component = LogComponent.TOR_BACKEND,
                             event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                             message = "Inbound Tor transport frame parse error",

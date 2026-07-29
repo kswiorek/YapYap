@@ -1,9 +1,8 @@
 package org.yapyap.crypto.e2ee
 
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
@@ -20,7 +19,6 @@ class DefaultCryptoHousekeeping(
     private val opkRepository: OpkRepository,
     private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
     private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : CryptoHousekeeping {
 
     override suspend fun run(nowEpochSeconds: Long?) {
@@ -41,7 +39,7 @@ class DefaultCryptoHousekeeping(
                 )
             }
         } catch (error: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.CRYPTO_MAINTENANCE_FAILED,
                 message = "Crypto housekeeping failed",

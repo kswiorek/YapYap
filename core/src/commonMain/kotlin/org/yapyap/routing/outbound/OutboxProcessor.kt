@@ -1,6 +1,7 @@
 package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.*
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.packet.OutboxEntry
@@ -26,7 +27,7 @@ internal class OutboxProcessor(
         processDue = { processDue() },
         maxIdlePollSeconds = maxIdlePollSeconds,
         onProcessFailed = { error ->
-            ctx.logger.error(
+            AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.OUTBOX_PROCESS_FAILED,
                 message = "Outbox processing failed",
@@ -59,7 +60,7 @@ internal class OutboxProcessor(
         val now = ctx.timeProvider.nowEpochSeconds()
         packetOutbox.setDueForTarget(peerId, now)
         wake()
-        ctx.logger.info(
+        AppLog.info(
             component = LogComponent.ROUTER,
             event = LoggingTypes.OUTBOX_WEBRTC_DUE_SET,
             message = "WebRTC session connected; accelerated outbox retries for peer",
@@ -74,7 +75,7 @@ internal class OutboxProcessor(
         try {
             packetOutbox.pruneRelayOverCapacity(ctx.routerConfig.outboxMaxSizeBytes)
         } catch (e: Exception) {
-            ctx.logger.error(
+            AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.OUTBOX_PRUNE_FAILED,
                 message = "Failed to prune outbox for relay over capacity",
@@ -88,7 +89,7 @@ internal class OutboxProcessor(
         val pruned = packetOutbox.pruneExpired(now)
         val dueEntries = packetOutbox.listDue(now)
         if (dueEntries.isNotEmpty() || pruned > 0) {
-            ctx.logger.debug(
+            AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.OUTBOX_PROCESSED,
                 message = "Processing due outbox entries",
@@ -107,7 +108,7 @@ internal class OutboxProcessor(
         }
         wake()
         if (dueEntries.isNotEmpty()) {
-            ctx.logger.info(
+            AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.OUTBOX_PROCESSED,
                 message = "Processed outbox for due envelopes",
@@ -128,7 +129,7 @@ internal class OutboxProcessor(
             dispatcher.dispatch(envelope, outbound.transport)
         }.onSuccess {
             packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-            ctx.logger.debug(
+            AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.OUTBOX_RETRY_DISPATCHED,
                 message = "Dispatched due outbox envelope",
@@ -143,7 +144,7 @@ internal class OutboxProcessor(
             )
         }.onFailure { error ->
             if (error is CancellationException) throw error
-            ctx.logger.error(
+            AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.OUTBOX_DISPATCH_FAILED,
                 message = "Failed to dispatch outbox envelope",

@@ -1,9 +1,9 @@
 package org.yapyap.crypto.e2ee
 
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 
-private const val KEY_SIZE = KmpCryptoProvider.AEAD_KEY_SIZE_BYTES
+private const val KEY_SIZE = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 private const val MAX_SKIP = 256
 private val ZERO_SALT = ByteArray(KEY_SIZE)
 

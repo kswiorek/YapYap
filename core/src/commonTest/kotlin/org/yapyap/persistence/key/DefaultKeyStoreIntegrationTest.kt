@@ -2,8 +2,7 @@ package org.yapyap.persistence.key
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.primitives.KmpCryptoProvider
-import org.yapyap.logging.NoopAppLogger
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -68,13 +67,13 @@ class DefaultKeyStoreIntegrationTest {
         val store = defaultStore(serviceName = "yapyap.test.mk", backing = backing)
         val provider = DefaultMasterKeyProvider(
             keyStore = store,
-            crypto = KmpCryptoProvider(random = Random(1)),
+            crypto = DefaultCryptoProvider(random = Random(1)),
         )
 
         val first = provider.getOrCreate()
         val second = DefaultMasterKeyProvider(
             keyStore = store,
-            crypto = KmpCryptoProvider(random = Random(2)),
+            crypto = DefaultCryptoProvider(random = Random(2)),
         ).getOrCreate()
 
         assertEquals(DefaultMasterKeyProvider.DEFAULT_KEY_SIZE_BYTES, first.size)
@@ -87,11 +86,11 @@ class DefaultKeyStoreIntegrationTest {
         val store = defaultStore(serviceName = "yapyap.test.mk.det")
         val seed = 0xA5
         val keySize = 16
-        val expected = KmpCryptoProvider(random = Random(seed)).randomBytes(keySize)
+        val expected = DefaultCryptoProvider(random = Random(seed)).randomBytes(keySize)
 
         val key = DefaultMasterKeyProvider(
             keyStore = store,
-            crypto = KmpCryptoProvider(random = Random(seed)),
+            crypto = DefaultCryptoProvider(random = Random(seed)),
             keyId = "slot",
             keySizeBytes = keySize,
         ).getOrCreate()
@@ -107,6 +106,5 @@ class DefaultKeyStoreIntegrationTest {
         DefaultKeyStore(
             serviceName = serviceName,
             sessionFactory = MapBackedKeyringSessionFactory(backing),
-            logger = NoopAppLogger,
         )
 }

@@ -2,10 +2,9 @@ package org.yapyap.protection.envelope
 
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -22,7 +21,6 @@ interface SystemProtection {
 
 class PlaintextSystemProtection(
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
     override suspend fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
@@ -47,7 +45,7 @@ class PlaintextSystemProtection(
         val systemPayload = try {
             SystemPayload.decode(envelope.payload)
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode plaintext system envelope",
@@ -55,7 +53,7 @@ class PlaintextSystemProtection(
             )
             throw ProtectionException.InvalidEnvelope(e)
         }
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Opened plaintext system envelope",
@@ -74,7 +72,6 @@ class PlaintextSystemProtection(
 class SignedSystemProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
     override suspend fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
@@ -113,7 +110,7 @@ class SignedSystemProtection(
         val systemPayload = try {
             SystemPayload.decode(envelope.payload)
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode signed system envelope",
@@ -121,7 +118,7 @@ class SignedSystemProtection(
             )
             throw ProtectionException.InvalidEnvelope(e)
         }
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed system envelope",

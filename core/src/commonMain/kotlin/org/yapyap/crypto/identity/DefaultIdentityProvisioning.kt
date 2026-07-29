@@ -1,10 +1,9 @@
 package org.yapyap.crypto.identity
 
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
@@ -22,10 +21,9 @@ class DefaultIdentityProvisioning(
     private val config: IdentityKeyServiceConfig,
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochSecondsProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : IdentityProvisioning {
     override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord {
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.STARTED,
             message = "Creating new local device identity",
@@ -92,7 +90,7 @@ class DefaultIdentityProvisioning(
 
         keyStore.putKey(spkRef, signedPreKey.privateKey!!)
 
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Created and persisted new local device identity",
@@ -144,7 +142,7 @@ class DefaultIdentityProvisioning(
     }
 
     override suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.STARTED,
             message = "Creating new local account identity",
@@ -168,7 +166,7 @@ class DefaultIdentityProvisioning(
 
         val accountRecord = AccountIdentityRecord(accountId, displayName, key = accountKeyRecord)
         publicKeyRepository.insertLocalAccount(accountRecord)
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Created and persisted new local account identity",
@@ -180,7 +178,7 @@ class DefaultIdentityProvisioning(
     override suspend fun createPlaceholderAccountIdentity(): AccountIdentityRecord {
         val accountRecord = AccountIdentityRecord(AccountId("placeholder"), "placeholder")
         publicKeyRepository.insertLocalAccount(accountRecord)
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Created and persisted placeholder local account identity",
@@ -199,7 +197,7 @@ class DefaultIdentityProvisioning(
 
     override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord {
         val material = AccountRecoveryKeyCodec.decode(recoveryKey)
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.STARTED,
             message = "Importing local account identity from recovery key",
@@ -225,7 +223,7 @@ class DefaultIdentityProvisioning(
 
         val accountRecord = AccountIdentityRecord(accountId, material.displayName, key = accountKeyRecord)
         publicKeyRepository.insertLocalAccount(accountRecord)
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Imported and persisted local account identity from recovery key",
@@ -241,7 +239,7 @@ class DefaultIdentityProvisioning(
         torEndpoint: TorEndpoint
     ) {
         publicKeyRepository.insertPeerDevice(accountId, deviceType, deviceIdentity, torEndpoint)
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Provisioned local device identity",
@@ -251,7 +249,7 @@ class DefaultIdentityProvisioning(
 
     override fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
         publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, accountIdentity.displayName)
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED,
             message = "Provisioned local account identity",

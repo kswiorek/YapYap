@@ -2,7 +2,7 @@ package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
@@ -162,7 +162,7 @@ class PersistenceContractsJvmTest {
         val db = connection!!.database
         val repo = DefaultIdentityKeyRepository(db)
         val store = InMemoryKeyStore()
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val config = IdentityKeyServiceConfig(
             defaultOnionAddress = "keysig-test.onion",
             defaultOnionPort = 443L,
@@ -189,7 +189,7 @@ class PersistenceContractsJvmTest {
         val db = connection!!.database
         val repo = DefaultIdentityKeyRepository(db)
         val store = InMemoryKeyStore()
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val config = IdentityKeyServiceConfig(
             defaultOnionAddress = "spk-test.onion",
             defaultOnionPort = 443L,

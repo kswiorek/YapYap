@@ -5,10 +5,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.Gap
 import org.yapyap.orchestrator.dag.IngestResult
@@ -32,7 +31,6 @@ internal class DefaultMessagingService(
     private val roomMembershipRepository: RoomMembershipRepository,
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochSecondsProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
@@ -83,7 +81,7 @@ internal class DefaultMessagingService(
         notifyWindowsNewItem(IngestResult.Inserted(payload))
 
         if (members.isEmpty()) {
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.MESSAGING,
                 event = LoggingTypes.MESSAGE_NO_PEERS,
                 message = "No room members to send to",
@@ -108,7 +106,7 @@ internal class DefaultMessagingService(
             }.awaitAll()
         }
 
-        logger.info(
+        AppLog.info(
             component = LogComponent.MESSAGING,
             event = LoggingTypes.OUTBOX_MESSAGE_QUEUED,
             message = "Outbound message sent to room members",

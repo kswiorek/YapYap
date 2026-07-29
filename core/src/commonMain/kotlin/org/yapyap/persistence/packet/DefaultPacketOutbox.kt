@@ -1,9 +1,8 @@
 package org.yapyap.persistence.packet
 
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.Outbox
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
@@ -12,7 +11,6 @@ import kotlin.uuid.Uuid
 
 class DefaultPacketOutbox(
     private val database: YapYapDatabase,
-    private val logger: AppLogger = NoopAppLogger,
 ) : PacketOutbox {
     val queries = database.outboxQueries
 
@@ -29,7 +27,7 @@ class DefaultPacketOutbox(
             blob_size = envelopeBlob.size.toLong(),
             next_retry_at = nextRetryAt,
         )
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.DATABASE,
             event = LoggingTypes.OUTBOX_ENQUEUED,
             message = "Enqueued packet to outbox",
@@ -47,7 +45,7 @@ class DefaultPacketOutbox(
 
     override fun markDelivered(packetId: Uuid) {
         queries.deleteByPacketId(packetId)
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.DATABASE,
             event = LoggingTypes.OUTBOX_DELIVERED,
             message = "Removed delivered packet from outbox",
@@ -57,7 +55,7 @@ class DefaultPacketOutbox(
 
     override fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
         queries.setNextRetry(nextRetryAt, target.id)
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.DATABASE,
             event = LoggingTypes.OUTBOX_DUE_SET,
             message = "Accelerated pending outbox retries for target",
@@ -74,7 +72,7 @@ class DefaultPacketOutbox(
             last_attempt_at = now,
             next_retry_at = nextRetryAt,
         )
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.DATABASE,
             event = LoggingTypes.OUTBOX_ATTEMPT_RECORDED,
             message = "Recorded outbox dispatch attempt",
@@ -97,7 +95,7 @@ class DefaultPacketOutbox(
     override fun pruneExpired(now: Long): Int {
         val removed = queries.deleteExpired(now).value.toInt()
         if (removed > 0) {
-            logger.info(
+            AppLog.info(
                 component = LogComponent.DATABASE,
                 event = LoggingTypes.OUTBOX_EXPIRED_PRUNED,
                 message = "Pruned expired outbox rows",
@@ -147,7 +145,7 @@ class DefaultPacketOutbox(
         }
 
         if (evicted > 0) {
-            logger.info(
+            AppLog.info(
                 component = LogComponent.DATABASE,
                 event = LoggingTypes.OUTBOX_RELAY_EVICTED,
                 message = "Evicted relay cache rows over capacity",
@@ -166,7 +164,7 @@ class DefaultPacketOutbox(
         val packetId = row.packet_id
 
         val envelope = runCatching { BinaryEnvelope.decode(row.envelope_blob) }.getOrElse { error ->
-            logger.error(
+            AppLog.error(
                 component = LogComponent.DATABASE,
                 event = LoggingTypes.OUTBOX_DECODE_FAILED,
                 message = "Dropped corrupt outbox row",

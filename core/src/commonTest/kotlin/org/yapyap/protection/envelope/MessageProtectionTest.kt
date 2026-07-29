@@ -2,7 +2,7 @@ package org.yapyap.protection.envelope
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 
 class MessageProtectionTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun plaintext_protectThenOpen_roundTrip() = runTest {
@@ -191,7 +191,7 @@ class MessageProtectionTest {
 
     @Test
     fun signed_open_failsWhenPeerEncryptionKeyAttestationInvalid() = runTest {
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
         val config = IdentityKeyServiceConfig()

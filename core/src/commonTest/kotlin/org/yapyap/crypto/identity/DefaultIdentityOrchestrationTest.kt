@@ -1,10 +1,7 @@
 package org.yapyap.crypto.identity
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.primitives.KmpCryptoProvider
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.RecordingAppLogger
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.*
@@ -22,24 +19,24 @@ class DefaultIdentityOrchestrationTest {
             defaultOnionPort = 443L,
         )
 
-    private fun stack(logger: RecordingAppLogger = RecordingAppLogger()): Triple<
+    private fun stack(): Triple<
         InMemoryIdentityKeyRepository,
         InMemoryKeyStore,
-        Triple<DefaultIdentityResolver, DefaultIdentityProvisioning, RecordingAppLogger>,
+        Pair<DefaultIdentityResolver, DefaultIdentityProvisioning>,
         > {
         val repo = InMemoryIdentityKeyRepository(defaultLocalTor = fixedTor)
         val store = InMemoryKeyStore()
-        val crypto = KmpCryptoProvider()
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config, logger)
+        val crypto = DefaultCryptoProvider()
+        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
         val timeProvider = FixedEpochSecondsProvider(0L)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider, logger)
-        return Triple(repo, store, Triple(resolver, provisioning, logger))
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
+        return Triple(repo, store, Pair(resolver, provisioning))
     }
 
     @Test
     fun provisioning_createAccount_then_createDevice_resolver_roundTrip() = runTest {
         val (_, _, triple) = stack()
-        val (resolver, provisioning, logger) = triple
+        val (resolver, provisioning) = triple
 
         val account = provisioning.createNewAccountIdentity(displayName = "Local User")
         val device = provisioning.createNewDeviceIdentity()
@@ -58,25 +55,12 @@ class DefaultIdentityOrchestrationTest {
         assertContentEquals(resolvedDevice.signedPreKey.publicKey, localSpk.publicKey)
 
         assertEquals(fixedTor, resolver.resolveTorEndpointForDevice(device.deviceId))
-
-        assertTrue(
-            logger.entries.any {
-                it.component == LogComponent.CRYPTO &&
-                    it.event == LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED
-            },
-        )
-        assertTrue(
-            logger.entries.any {
-                it.component == LogComponent.CRYPTO &&
-                    it.event == LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED
-            },
-        )
     }
 
     @Test
     fun resolver_recoversDeviceRecordFromKeystoreWhenDbRowMissing() = runTest {
         val (repo, store, triple) = stack()
-        val (resolver, provisioning, logger) = triple
+        val (resolver, provisioning) = triple
 
         provisioning.createNewAccountIdentity(displayName = "Recovery User")
         val device = provisioning.createNewDeviceIdentity()
@@ -89,25 +73,12 @@ class DefaultIdentityOrchestrationTest {
         assertContentEquals(device.encryption.publicKey, recovered.encryption.publicKey)
         assertContentEquals(device.keySignature, recovered.keySignature)
         assertNotNull(resolver.resolvePeerIdentityRecord(device.deviceId))
-
-        assertTrue(
-            logger.entries.any {
-                it.component == LogComponent.CRYPTO &&
-                    it.event == LoggingTypes.IDENTITY_DEVICE_RECORD_MISSING
-            },
-        )
-        assertTrue(
-            logger.entries.any {
-                it.component == LogComponent.CRYPTO &&
-                    it.event == LoggingTypes.IDENTITY_DEVICE_RECORD_CREATED
-            },
-        )
     }
 
     @Test
     fun resolver_recoversDeviceRecordFromPrivateKeysOnlyWhenPublicKeysMissing() = runTest {
         val (repo, store, triple) = stack()
-        val (resolver, provisioning, _) = triple
+        val (resolver, provisioning) = triple
 
         provisioning.createNewAccountIdentity(displayName = "Private-only recovery")
         val device = provisioning.createNewDeviceIdentity()
@@ -128,7 +99,7 @@ class DefaultIdentityOrchestrationTest {
     @Test
     fun resolver_recoversAccountRecordFromKeystoreWhenDbRowMissing() = runTest {
         val (repo, store, triple) = stack()
-        val (resolver, provisioning, logger) = triple
+        val (resolver, provisioning) = triple
 
         val account = provisioning.createNewAccountIdentity(displayName = "Recovery User")
         repo.accounts.remove(account.accountId.id)
@@ -138,31 +109,18 @@ class DefaultIdentityOrchestrationTest {
         val recovered = resolver.getLocalAccountIdentityRecord()
         assertEquals(account.accountId, recovered.accountId)
         assertContentEquals(account.key!!.publicKey, recovered.key!!.publicKey)
-
-        assertTrue(
-            logger.entries.any {
-                it.component == LogComponent.CRYPTO &&
-                    it.event == LoggingTypes.IDENTITY_ACCOUNT_RECORD_MISSING
-            },
-        )
-        assertTrue(
-            logger.entries.any {
-                it.component == LogComponent.CRYPTO &&
-                    it.event == LoggingTypes.IDENTITY_ACCOUNT_RECORD_CREATED
-            },
-        )
     }
 
     @Test
     fun provisioning_provisionPeerDevice_then_resolveTor_and_listPeers() = runTest {
         val (repo, _, triple) = stack()
-        val (resolver, provisioning, _) = triple
+        val (resolver, provisioning) = triple
 
         val account = provisioning.createNewAccountIdentity("Acc")
         val localDevice = provisioning.createNewDeviceIdentity()
 
-        val remoteSigning = KmpCryptoProvider().generateSigningKeyPair()
-        val remoteEncryption = KmpCryptoProvider().generateEncryptionKeyPair()
+        val remoteSigning = DefaultCryptoProvider().generateSigningKeyPair()
+        val remoteEncryption = DefaultCryptoProvider().generateEncryptionKeyPair()
         val remotePeer =
             DeviceIdentityRecord(
                 deviceId = PeerId("peerdevidaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
@@ -188,9 +146,9 @@ class DefaultIdentityOrchestrationTest {
     @Test
     fun provisioning_provisionPeerAccount_persistsInRepository() = runTest {
         val (repo, _, triple) = stack()
-        val (_, provisioning, _) = triple
+        val (_, provisioning) = triple
 
-        val signing = KmpCryptoProvider().generateSigningKeyPair()
+        val signing = DefaultCryptoProvider().generateSigningKeyPair()
         val acc =
             AccountIdentityRecord(
                 accountId = AccountId("external-acc-id"),
@@ -210,13 +168,13 @@ class DefaultIdentityOrchestrationTest {
     @Test
     fun provisioning_exportThenImportRecoveryKey_roundTripsAccount() = runTest {
         val (_, _, source) = stack()
-        val (_, sourceProvisioning, _) = source
+        val (_, sourceProvisioning) = source
 
         val original = sourceProvisioning.createNewAccountIdentity(displayName = "Recover Me")
         val recoveryKey = sourceProvisioning.exportLocalAccountRecoveryKey()
 
         val (_, _, target) = stack()
-        val (targetResolver, targetProvisioning, _) = target
+        val (targetResolver, targetProvisioning) = target
         val imported = targetProvisioning.importLocalAccountFromRecovery(recoveryKey)
 
         assertEquals(original.accountId, imported.accountId)
@@ -241,7 +199,7 @@ class DefaultIdentityOrchestrationTest {
 
     @Test
     fun oneTimePreKeyStore_allocateThenConsume_onceOnly() = runTest {
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val store = InMemoryOpkRepository(crypto)
 
         val opk = store.allocate()

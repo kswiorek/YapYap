@@ -1,7 +1,7 @@
 package org.yapyap.protection.service
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.*
 import org.yapyap.protection.envelope.*
@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 
 class DefaultEnvelopeProtectionServiceTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun defaultService_signal_file_message_roundTrip_tableDriven() = runTest {

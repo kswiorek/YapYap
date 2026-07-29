@@ -12,10 +12,8 @@ import org.yapyap.crypto.e2ee.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.X3dhHandshake
 import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.logging.AppLogger
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.persistence.YapYapDatabase
@@ -26,7 +24,6 @@ import org.yapyap.persistence.key.*
 import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
-import org.yapyap.persistence.packet.DefaultPacketIdAllocator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.protection.envelope.PlaintextFileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -46,7 +43,6 @@ class DefaultOrchestrator(
     private val createDriverFactory: (masterKey: ByteArray) -> DriverFactory,
     private val torBackend: TorBackend,
     private val webRtcBackend: WebRtcBackend,
-    private val logger: AppLogger = NoopAppLogger,
 ) : Orchestrator {
 
     private val _state = MutableStateFlow(OrchestratorState.Created)
@@ -62,7 +58,7 @@ class DefaultOrchestrator(
     private lateinit var cryptoSessionManager: DefaultCryptoSessionManager
     private lateinit var database: YapYapDatabase
     private lateinit var keyStore: DefaultKeyStore
-    private lateinit var cryptoProvider: KmpCryptoProvider
+    private lateinit var cryptoProvider: DefaultCryptoProvider
     private lateinit var identityRepo: DefaultIdentityKeyRepository
     private lateinit var identityProvisioning: DefaultIdentityProvisioning
     private lateinit var dagEngine: DefaultDagEngine
@@ -78,24 +74,22 @@ class DefaultOrchestrator(
         _state.value = OrchestratorState.Starting
         _lastError.value = null
         try {
-            keyStore = DefaultKeyStore(config.keyringServiceName, keyringSessionFactory, logger = logger)
-            cryptoProvider = KmpCryptoProvider(logger = logger)
+            keyStore = DefaultKeyStore(config.keyringServiceName, keyringSessionFactory)
+            cryptoProvider = DefaultCryptoProvider()
             val masterKey = DefaultMasterKeyProvider(keyStore, cryptoProvider).getOrCreate()
-            val dbConnection = DatabaseFactory(createDriverFactory(masterKey), logger = logger).createConnection()
-            identityRepo = DefaultIdentityKeyRepository(dbConnection.database, logger = logger)
+            val dbConnection = DatabaseFactory(createDriverFactory(masterKey)).createConnection()
+            identityRepo = DefaultIdentityKeyRepository(dbConnection.database)
             database = dbConnection.database
             identityResolver = DefaultIdentityResolver(
                 cryptoProvider = cryptoProvider,
                 publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
                 privateKeyStore = keyStore,                 // DefaultKeyStore
                 config = config.identityKeyServiceConfig,        // use defaults or derive from config
-                logger = logger,
             )
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
                 config.identityKeyServiceConfig, identityResolver,
                 SystemEpochSecondsProvider,
-                logger,
             )
             try {
                 identityResolver.getLocalDeviceIdentityRecord()
@@ -171,12 +165,11 @@ class DefaultOrchestrator(
     }
 
     private suspend fun init() {
-        torTransport = DefaultTorTransport(torBackend, logger)
-        webRtcTransport = DefaultWebRtcTransport(webRtcBackend, logger)
+        torTransport = DefaultTorTransport(torBackend)
+        webRtcTransport = DefaultWebRtcTransport(webRtcBackend)
 
-        val packetIdAllocator = DefaultPacketIdAllocator(database, logger = logger)
-        val packetDeduplicator = DefaultPacketDeduplicator(database, logger = logger)
-        val packetOutbox = DefaultPacketOutbox(database, logger = logger)
+        val packetDeduplicator = DefaultPacketDeduplicator(database)
+        val packetOutbox = DefaultPacketOutbox(database)
 
         val cryptoSessionStore = DefaultCryptoSessionStore(database)
         val x3dhHandshake = X3dhHandshake(cryptoProvider)
@@ -197,26 +190,23 @@ class DefaultOrchestrator(
             sessionStore = cryptoSessionStore,
             identityResolver = identityResolver,
             opkRepository = opkRepository,
-            logger = logger,
         )
 
-        val signatureProvider = DefaultSignatureProvider(identityResolver, cryptoProvider, logger)
+        val signatureProvider = DefaultSignatureProvider(identityResolver, cryptoProvider)
 
         val envelopeProtectionService = DefaultEnvelopeProtectionService(
             webRtcSignalProtection = SignedAndEncryptedWebRtcSignalProtection(
                 signatureProvider,
                 cryptoSessionManager,
                 cryptoProvider,
-                logger
             ),
-            fileProtection = PlaintextFileProtection(cryptoProvider, logger), //TODO file protection
+            fileProtection = PlaintextFileProtection(cryptoProvider), //TODO file protection
             messageProtection = SignedAndEncryptedMessageProtection(
                 signatureProvider,
                 cryptoSessionManager,
                 cryptoProvider,
-                logger
             ),
-            systemProtection = SignedSystemProtection(signatureProvider, cryptoProvider, logger),
+            systemProtection = SignedSystemProtection(signatureProvider, cryptoProvider),
         )
 
         router = DefaultRouter(
@@ -226,7 +216,6 @@ class DefaultOrchestrator(
             packetDeduplicator = packetDeduplicator,
             packetOutbox = packetOutbox,
             envelopeProtectionService = envelopeProtectionService,
-            logger = logger,
             routerConfig = config.routerConfig,
         )
 
@@ -240,9 +229,8 @@ class DefaultOrchestrator(
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
             timeProvider = SystemEpochSecondsProvider,
-            logger = logger,
         )
-        pipeline = DefaultInboundMessagePipeline(router, dagEngine, logger)
+        pipeline = DefaultInboundMessagePipeline(router, dagEngine)
         pipeline.start(orchestratorScope)
 
         if (config.mode == NodeMode.FULL_CLIENT) {
@@ -252,7 +240,6 @@ class DefaultOrchestrator(
                 pipeline = pipeline,
                 database = database,
                 identityResolver = identityResolver,
-                logger = logger,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

@@ -1,10 +1,8 @@
 package org.yapyap.orchestrator
 
-import io.github.aakira.napier.DebugAntilog
-import io.github.aakira.napier.Napier
 import io.matthewnelson.kmp.file.File
 import org.yapyap.crypto.JavaKeyringSessionFactory
-import org.yapyap.logging.FileAntilog
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.JvmAppLogger
 import org.yapyap.persistence.JvmEncryptedDriverFactory
 import org.yapyap.transport.tor.backend.KmpTorBackend
@@ -22,9 +20,7 @@ actual class OrchestratorFactory actual constructor(
         Files.createDirectories(Path.of(config.logDirectory))
 
         val logger = JvmAppLogger(logDirectory = Path.of(config.logDirectory))
-
-        Napier.base(DebugAntilog())
-        Napier.base(FileAntilog(Path.of(config.logDirectory)))
+        AppLog.init(logger)
 
         val databasePath = config.databasePath.replace('\\', '/')
 
@@ -35,16 +31,13 @@ actual class OrchestratorFactory actual constructor(
                 JvmEncryptedDriverFactory(
                     databasePath = databasePath,
                     masterKey = masterKey,
-                    logger = logger,
                 )
             },
             torBackend = KmpTorBackend(
                 torStateRootPath = File(config.torStateRootPath),
                 config = config.torBackendConfig,
-                logger = logger,
             ),
-            webRtcBackend = JvmWebRtcBackend(logger = logger, config = config.webRtcBackendConfig),
-            logger = logger,
+            webRtcBackend = JvmWebRtcBackend(config = config.webRtcBackendConfig),
         )
     }
 }

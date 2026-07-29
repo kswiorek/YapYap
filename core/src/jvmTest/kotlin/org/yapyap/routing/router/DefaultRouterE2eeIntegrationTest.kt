@@ -4,7 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
@@ -104,7 +104,7 @@ class DefaultRouterE2eeIntegrationTest {
     }
 
     private suspend fun buildE2eeTwoRouterFixture(): E2eeTwoRouterFixture {
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val alicePeer = buildTestPeerIdentity(crypto, "router-e2ee-alice")
         val bobPeer = buildTestPeerIdentity(crypto, "router-e2ee-bob")
         val bobAccount = AccountId("bob-e2ee-account")

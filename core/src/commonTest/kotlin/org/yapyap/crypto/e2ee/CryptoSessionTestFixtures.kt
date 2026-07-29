@@ -2,7 +2,7 @@ package org.yapyap.crypto.e2ee
 
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
@@ -20,7 +20,7 @@ internal data class TestPeerIdentity(
 internal class TestIdentityResolver(
     private val local: TestPeerIdentity,
     private val peers: Map<PeerId, TestPeerIdentity>,
-    private val cryptoProvider: CryptoProvider = KmpCryptoProvider(),
+    private val cryptoProvider: CryptoProvider = DefaultCryptoProvider(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device

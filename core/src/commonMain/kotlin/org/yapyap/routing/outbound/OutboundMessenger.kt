@@ -5,6 +5,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionDisposition
@@ -36,7 +37,7 @@ internal class OutboundMessenger(
         val peers = ctx.identityResolver.getAllPeerDevicesForAccount(target)
             .filter { it != ctx.localDeviceId }   // skip originating device only
         if (peers.isEmpty()) {
-            ctx.logger.warn(
+            AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.MESSAGE_NO_PEERS,
                 message = "No peer devices found for target account",
@@ -137,7 +138,7 @@ internal class OutboundMessenger(
         )
         val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
         outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
-        ctx.logger.debug(
+        AppLog.debug(
             component = LogComponent.ROUTER,
             event = LoggingTypes.OUTBOX_MESSAGE_QUEUED,
             message = "Queued outbound message in outbox",
@@ -153,7 +154,7 @@ internal class OutboundMessenger(
         } catch (e: CancellationException) {
             throw e
         } catch (e: TransportException) {
-            ctx.logger.warn(
+            AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_DISPATCH_FAILED,
                 message = "Envelope dispatch failed: TransportException",
@@ -165,7 +166,7 @@ internal class OutboundMessenger(
                 ),
             )
         } catch (e: CryptoException) {
-            ctx.logger.warn(
+            AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_DISPATCH_FAILED,
                 message = "Envelope dispatch failed: CryptoException",
@@ -197,7 +198,7 @@ internal class OutboundMessenger(
         )
         return when (exception.disposition) {
             ProtectionDisposition.PERMANENT -> {
-                ctx.logger.error(
+                AppLog.error(
                     component = LogComponent.ROUTER,
                     event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
                     message = "Message protection failed",
@@ -209,7 +210,7 @@ internal class OutboundMessenger(
             ProtectionDisposition.RETRYABLE,
             ProtectionDisposition.DEFER,
                 -> {
-                ctx.logger.warn(
+                AppLog.warn(
                     component = LogComponent.ROUTER,
                     event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
                     message = "Message protection failed",

@@ -4,23 +4,21 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.PeerId
 
 class DefaultSignatureProvider(
     private val identityResolver: IdentityResolver,
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : SignatureProvider {
 
     override suspend fun sign(message: ByteArray): ByteArray {
         val privateKey = identityResolver.getLocalDevicePrivateKey(
             purpose = IdentityKeyPurpose.SIGNING,
         )
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.SIGNATURE_SIGNED,
             message = "Signing detached payload",
@@ -34,14 +32,14 @@ class DefaultSignatureProvider(
 
         val verified = cryptoProvider.verifyDetached(publicKey, message, signature)
         if (!verified) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.SIGNATURE_VERIFICATION_FAILED,
                 message = "Detached signature verification failed",
                 fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
             )
         } else {
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.SIGNATURE_VERIFIED,
                 message = "Detached signature verification succeeded",
@@ -59,7 +57,7 @@ class DefaultSignatureProvider(
     ): Boolean {
         val verified = verify(authorDeviceId, signedBytes, signature)
         if (!verified) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
                 message = "Author signature verification failed",
@@ -74,7 +72,7 @@ class DefaultSignatureProvider(
         val peerCandidates = identityResolver.getAllPeerDevicesForAccount(accountId)
 
         if (authorDeviceId !in peerCandidates) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
                 message = "Author device not found in account's roster",
@@ -89,7 +87,7 @@ class DefaultSignatureProvider(
         // TODO Sprint 4: Verify device belongs to account via signed roster (global events DAG).
         // For now, the signature proves the message was signed by the claimed device key.
         // The account→device binding will be verified once the typed global events are implemented.
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.AUTHOR_SIGNATURE_VERIFIED,
             message = "Author signature verified",

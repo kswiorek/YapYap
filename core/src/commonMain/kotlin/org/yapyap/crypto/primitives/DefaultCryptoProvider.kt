@@ -6,10 +6,9 @@ import dev.whyoleg.cryptography.algorithms.*
 import dev.whyoleg.cryptography.random.CryptographyRandom
 import org.kotlincrypto.error.SignatureException
 import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.random.Random
 
@@ -19,10 +18,9 @@ import kotlin.random.Random
  * On JVM and Android, depend on `cryptography-provider-jdk-bc` so Ed25519/X25519 public keys can be
  * derived from private key material (stock JDK JCA does not support this).
  */
-class KmpCryptoProvider(
+class DefaultCryptoProvider(
     private val provider: CryptographyProvider = CryptographyProvider.Default,
     private val random: Random = CryptographyRandom.Default,
-    private val logger: AppLogger = NoopAppLogger,
 ) : CryptoProvider {
     private val edDsa: EdDSA by lazy { provider.get(EdDSA) }
     private val xdh: XDH by lazy { provider.get(XDH) }
@@ -110,7 +108,7 @@ class KmpCryptoProvider(
 
     override suspend fun generateSigningKeyPair(): SigningKeyPair {
         val keyPair = edDsa.keyPairGenerator(EdDSA.Curve.Ed25519).generateKey()
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.CRYPTO_KEYPAIR_GENERATED,
             message = "Generated signing key pair",
@@ -124,7 +122,7 @@ class KmpCryptoProvider(
 
     override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair {
         val keyPair = xdh.keyPairGenerator(XDH.Curve.X25519).generateKey()
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.CRYPTO_KEYPAIR_GENERATED,
             message = "Generated encryption key pair",
@@ -152,7 +150,7 @@ class KmpCryptoProvider(
         return try {
             publicKey.signatureVerifier().tryVerifySignature(message, signature)
         } catch (e: SignatureException) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.SIGNATURE_VERIFICATION_FAILED,
                 message = "Detached signature verification failed with exception",

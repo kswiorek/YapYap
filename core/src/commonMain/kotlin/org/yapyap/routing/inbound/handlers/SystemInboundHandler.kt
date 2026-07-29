@@ -1,5 +1,6 @@
 package org.yapyap.routing.inbound.handlers
 
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionException
@@ -17,7 +18,7 @@ internal class SystemInboundHandler(
 ) {
     suspend fun handle(env: BinaryEnvelope): SystemInboundResult {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
-            ctx.logger.warn(
+            AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode message envelope",
@@ -27,7 +28,7 @@ internal class SystemInboundHandler(
         }
 
         if (systemEnvelope.target != ctx.localDeviceId) {
-            ctx.logger.error(
+            AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_WRONG_TARGET,
                 message = "System envelope received for peer ${systemEnvelope.target}",
@@ -56,7 +57,7 @@ internal class SystemInboundHandler(
 
         return when (payload) {
             is SystemPayload.PacketAck -> {
-                ctx.logger.debug(
+                AppLog.debug(
                     component = LogComponent.ROUTER,
                     event = LoggingTypes.OUTBOX_ACK_RECEIVED,
                     message = "Removed acknowledged packet from outbox",
@@ -71,7 +72,7 @@ internal class SystemInboundHandler(
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
                     PacketNackReason.EXPIRED -> {
-                        ctx.logger.info(
+                        AppLog.info(
                             component = LogComponent.ROUTER,
                             event = LoggingTypes.OUTBOX_NACK_RECEIVED,
                             message = "Stopped retrying expired packet after NACK",
@@ -85,7 +86,7 @@ internal class SystemInboundHandler(
                         SystemInboundResult.RemoveFromOutbox(payload.packetId)
                     }
                     PacketNackReason.PROTECTION_FAILED -> {
-                        ctx.logger.warn(
+                        AppLog.warn(
                             component = LogComponent.ROUTER,
                             event = LoggingTypes.OUTBOX_NACK_RECEIVED,
                             message = "Received NACK for outbox packet due to protection failure; will retry",
@@ -99,7 +100,7 @@ internal class SystemInboundHandler(
                         SystemInboundResult.Ignored
                     }
                     else -> {
-                        ctx.logger.debug(
+                        AppLog.debug(
                             component = LogComponent.ROUTER,
                             event = LoggingTypes.OUTBOX_NACK_RECEIVED,
                             message = "Received NACK for outbox packet; keeping retry schedule",

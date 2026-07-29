@@ -1,9 +1,8 @@
 package org.yapyap.persistence.packet
 
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -11,7 +10,6 @@ import kotlin.uuid.Uuid
 
 class DefaultPacketDeduplicator(
     database: YapYapDatabase,
-    private val logger: AppLogger = NoopAppLogger,
 ) : PacketDeduplicator {
     private val queries = database.dedupQueries
     override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
@@ -22,7 +20,7 @@ class DefaultPacketDeduplicator(
                 packet_id = packetHex,
             ).executeAsOneOrNull()
             if (existing != null) {
-                logger.debug(
+                AppLog.debug(
                     component = LogComponent.DATABASE,
                     event = LoggingTypes.DEDUP_CACHE_HIT,
                     message = "Deduplicator hit existing packet",
@@ -35,7 +33,7 @@ class DefaultPacketDeduplicator(
                     source_device_id = sourceDeviceId.id,
                     received_at = receivedAtEpochSeconds,
                 )
-                logger.debug(
+                AppLog.debug(
                     component = LogComponent.DATABASE,
                     event = LoggingTypes.DEDUP_CACHE_MISS,
                     message = "Deduplicator recorded new packet",
@@ -66,7 +64,7 @@ class DefaultPacketDeduplicator(
 
     override fun prune(receivedBeforeEpochSeconds: Long) {
         queries.deleteDedupReceivedBefore(receivedBeforeEpochSeconds)
-        logger.info(
+        AppLog.info(
             component = LogComponent.DATABASE,
             event = LoggingTypes.DEDUP_PRUNED,
             message = "Pruned old deduplicator records",

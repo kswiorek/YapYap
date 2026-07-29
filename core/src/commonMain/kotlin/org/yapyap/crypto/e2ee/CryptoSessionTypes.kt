@@ -1,6 +1,6 @@
 package org.yapyap.crypto.e2ee
 
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
@@ -32,7 +32,7 @@ object CryptoWireLimits {
     const val MAX_SESSION_BINDING_BYTES: Int = OpkOfferBinding.BINDING_LENGTH
     const val MAX_SKIPPED_KEYS_BLOB_BYTES: Int = 512 * 1024
     const val MAX_SKIPPED_KEYS_COUNT: Int = 256
-    const val MAX_MESSAGE_KEY_BYTES: Int = KmpCryptoProvider.AEAD_KEY_SIZE_BYTES
+    const val MAX_MESSAGE_KEY_BYTES: Int = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 
     fun requireSessionWireFrameSize(size: Int) {
         require(size in 0..MAX_SESSION_WIRE_FRAME_BYTES) {

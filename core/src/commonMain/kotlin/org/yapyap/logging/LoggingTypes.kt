@@ -95,9 +95,9 @@ enum class LogComponent {
     DAG,
 }
 
-//enum class LogLevel {
-//    DEBUG,
-//    INFO,
-//    WARN,
-//    ERROR,
-//}
+enum class LogLevel {
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR,
+}

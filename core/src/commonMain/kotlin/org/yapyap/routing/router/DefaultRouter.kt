@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -44,7 +44,6 @@ class DefaultRouter(
     val packetOutbox: PacketOutbox,
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
-    val logger: AppLogger,
     val routerConfig: RouterConfig,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
 ): Router {
@@ -55,7 +54,6 @@ class DefaultRouter(
         torTransport = torTransport,
         webRtcTransport = webRtcTransport,
         timeProvider = timeProvider,
-        logger = logger,
         routerConfig = routerConfig,
     )
     private val envelopeDispatcher = EnvelopeDispatcher(routingContext)
@@ -130,7 +128,7 @@ class DefaultRouter(
                 runCatching { inboundEnvelopeProcessor.handleTorInbound(inbound) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
-                        logger.error(
+                        AppLog.error(
                             component = LogComponent.ROUTER,
                             event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
                             message = "Failed to handle inbound Tor envelope",
@@ -145,7 +143,7 @@ class DefaultRouter(
                 runCatching { inboundEnvelopeProcessor.handleWebRtcInbound(inbound) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
-                        logger.error(
+                        AppLog.error(
                             component = LogComponent.ROUTER,
                             event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
                             message = "Failed to handle inbound WebRTC envelope",
@@ -175,7 +173,7 @@ class DefaultRouter(
         outboxRetryJob = outboxProcessor.runIn(s)
         outboxProcessor.pruneRelayOverCapacityOnBoot()
 
-        logger.info(
+        AppLog.info(
             component = LogComponent.ROUTER,
             event = LoggingTypes.STARTED,
             message = "Router started",
@@ -203,7 +201,7 @@ class DefaultRouter(
         scope?.cancel()
         scope = null
 
-        logger.info(
+        AppLog.info(
             component = LogComponent.ROUTER,
             event = LoggingTypes.STOPPED,
             message = "Router stopped",

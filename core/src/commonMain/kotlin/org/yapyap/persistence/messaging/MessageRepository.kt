@@ -1,7 +1,5 @@
 package org.yapyap.persistence.messaging
 
-import org.yapyap.logging.AppLogger
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -58,9 +56,8 @@ interface MessageRepository {
 
 class DefaultMessageRepository(
     private val database: YapYapDatabase,
-    private val logger: AppLogger = NoopAppLogger, //TODO add logging
 ) : MessageRepository {
-
+    //TODO add logging
     private val queries = database.messageQueries
 
     override fun insert(

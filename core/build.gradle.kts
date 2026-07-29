@@ -85,7 +85,6 @@ kotlin {
             implementation(libs.coroutines.extensions)
             implementation(libs.cryptography.core)
             implementation(libs.cryptography.provider.optimal)
-            implementation(libs.napier)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

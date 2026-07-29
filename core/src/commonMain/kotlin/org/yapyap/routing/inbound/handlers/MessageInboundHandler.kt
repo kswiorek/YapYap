@@ -1,6 +1,7 @@
 package org.yapyap.routing.inbound.handlers
 
 import kotlinx.coroutines.flow.MutableSharedFlow
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.protection.ProtectionException
@@ -21,7 +22,7 @@ internal class MessageInboundHandler(
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val messageEnvelope = runCatching { MessageEnvelope.decode(env.payload) }.getOrNull() ?: run {
-            ctx.logger.warn(
+            AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode message envelope",
@@ -31,7 +32,7 @@ internal class MessageInboundHandler(
         }
 
         if (messageEnvelope.target != ctx.localDeviceId) {
-            ctx.logger.info(
+            AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_WRONG_TARGET,
                 message = "Message envelope received for peer ${messageEnvelope.target}",

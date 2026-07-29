@@ -1,10 +1,9 @@
 package org.yapyap.protection.envelope
 
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.FieldSensitivity
@@ -17,7 +16,6 @@ import kotlin.uuid.Uuid
 //  Sprint 5 tasks: FileEnvelope lifecycle, chunk scheduler, E2EE for file payloads.
 class PlaintextFileProtection(
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : FileProtection {
 
     override suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope {
@@ -34,7 +32,7 @@ class PlaintextFileProtection(
             signature = null,
             payload = input.encode(),
         )
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Protected file envelope",
@@ -55,7 +53,7 @@ class PlaintextFileProtection(
         val payload = try {
             input.decodePayload()
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode plaintext file envelope",
@@ -63,7 +61,7 @@ class PlaintextFileProtection(
             )
             throw org.yapyap.protection.ProtectionException.InvalidEnvelope(e)
         }
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Opened plaintext file envelope",

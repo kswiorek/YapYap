@@ -1,7 +1,7 @@
 package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.key.FailingAllocateOpkRepository
 import org.yapyap.persistence.key.InMemoryOpkRepository
@@ -10,7 +10,7 @@ import kotlin.test.*
 
 class SessionWireTypesTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun sessionWireFrame_encodeDecode_roundTrip() = runTest {
@@ -112,7 +112,7 @@ class SessionWireTypesTest {
 
 class DefaultCryptoSessionManagerTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun epoch1_aliceFirstMessage_bobDecrypts() = runTest {

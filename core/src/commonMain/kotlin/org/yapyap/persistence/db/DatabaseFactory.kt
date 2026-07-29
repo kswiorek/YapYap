@@ -5,10 +5,9 @@ import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.SqlDriver
 import org.yapyap.crypto.e2ee.X3dhMode
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
 import kotlin.uuid.Uuid
@@ -20,12 +19,11 @@ interface DriverFactory {
 class DatabaseFactory(
     private val driverFactory: DriverFactory,
     private val initializer: DatabaseInitializer = DatabaseInitializer(YapYapDatabase.Schema),
-    private val logger: AppLogger = NoopAppLogger,
 ) {
     fun createConnection(): DatabaseConnection {
         val driver = driverFactory.createDriver()
         initializer.initialize(driver)
-        logger.info(
+        AppLog.info(
             component = LogComponent.DATABASE,
             event = LoggingTypes.DATABASE_INITIALIZED,
             message = "Database connection created",

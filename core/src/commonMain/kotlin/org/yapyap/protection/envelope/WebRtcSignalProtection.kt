@@ -5,10 +5,9 @@ import org.yapyap.crypto.e2ee.CryptoWireLimits
 import org.yapyap.crypto.e2ee.SessionWireFrame
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -34,7 +33,6 @@ interface WebRtcSignalProtection {
  */
 class PlaintextWebRtcSignalProtection(
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) :
     BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(),
     WebRtcSignalProtection {
@@ -59,7 +57,7 @@ class PlaintextWebRtcSignalProtection(
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Opened plaintext WebRTC signal envelope",
@@ -83,7 +81,6 @@ class PlaintextWebRtcSignalProtection(
 class SignedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
     override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
@@ -120,7 +117,7 @@ class SignedWebRtcSignalProtection(
             throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed WebRTC signal envelope",
@@ -145,7 +142,6 @@ class SignedAndEncryptedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
     override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
         require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
@@ -195,7 +191,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
         val encryptedInput = try {
             SessionWireFrame.decode(envelope.payload)
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode SessionWireFrame from encrypted WebRTC signal envelope",
@@ -210,7 +206,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
                 frame = encryptedInput,
             )
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.DECRYPTION_FAILED,
                 message = "Failed to decrypt WebRTC signal",
@@ -226,7 +222,7 @@ class SignedAndEncryptedWebRtcSignalProtection(
             payload = decryptedInput,
         )
 
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed and encrypted Signal envelope",

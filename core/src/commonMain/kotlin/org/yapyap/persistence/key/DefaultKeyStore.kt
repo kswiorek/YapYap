@@ -3,17 +3,15 @@ package org.yapyap.persistence.key
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 class DefaultKeyStore(
     private val serviceName: String,
     private val sessionFactory: KeyringSessionFactory,
-    private val logger: AppLogger = NoopAppLogger,
 ) : KeyStore {
 
     override suspend fun putKey(ref: KeyReference, key: ByteArray) {
@@ -26,7 +24,7 @@ class DefaultKeyStore(
                 )
             }
         }
-        logger.info(
+        AppLog.info(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.KEY_STORED,
             message = "Stored key in keyring",
@@ -43,7 +41,7 @@ class DefaultKeyStore(
             }
         }
         if (encoded.isNullOrBlank()) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.KEY_LOOKUP_MISS,
                 message = "Key lookup returned empty value",
@@ -64,7 +62,7 @@ class DefaultKeyStore(
             }
         }
         if (deleted) {
-            logger.info(
+            AppLog.info(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.KEY_DELETED,
                 message = "Deleted key from keyring",

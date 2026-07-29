@@ -4,10 +4,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
@@ -23,7 +22,6 @@ class DefaultCryptoSessionManager(
     private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     private val upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    private val logger: AppLogger = NoopAppLogger,
 ) : CryptoSessionManager {
 
     private val peerLocks = PeerLockRegistry()
@@ -35,7 +33,6 @@ class DefaultCryptoSessionManager(
         identityResolver = identityResolver,
         opkRepository = opkRepository,
         timeProvider = timeProvider,
-        logger = logger,
     )
 
     private val epoch2Upgrade = Epoch2Upgrade(
@@ -46,7 +43,6 @@ class DefaultCryptoSessionManager(
         sessionBootstrap = sessionBootstrap,
         timeProvider = timeProvider,
         upgradePolicy = upgradePolicy,
-        logger = logger,
     )
 
     override suspend fun encryptMessage(
@@ -145,7 +141,7 @@ class DefaultCryptoSessionManager(
             if (!epoch2Upgrade.isEpoch2OpkBootstrapFailure(frame, error)) {
                 throw error
             }
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.EPOCH_2_BOOTSTRAP_FAIL,
                 message = "Deferred epoch-2 bootstrap; continuing on epoch-1",

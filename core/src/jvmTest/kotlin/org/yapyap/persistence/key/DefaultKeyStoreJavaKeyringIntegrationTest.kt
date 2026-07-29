@@ -3,7 +3,6 @@ package org.yapyap.persistence.key
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.logging.NoopAppLogger
 import java.util.*
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -38,7 +37,6 @@ class DefaultKeyStoreJavaKeyringIntegrationTest {
         val activeStore = DefaultKeyStore(
             serviceName = "yapyap.it.keyring.${UUID.randomUUID()}",
             sessionFactory = JavaKeyringSessionFactory,
-            logger = NoopAppLogger,
         )
         store = activeStore
         ref = keyRef

@@ -6,10 +6,9 @@ import org.yapyap.crypto.e2ee.CryptoWireLimits
 import org.yapyap.crypto.e2ee.SessionWireFrame
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -25,7 +24,6 @@ interface MessageProtection {
 
 class PlaintextMessageProtection(
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
@@ -50,7 +48,7 @@ class PlaintextMessageProtection(
         val messagePayload = try {
             envelope.decodePayload()
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode plaintext message envelope",
@@ -58,7 +56,7 @@ class PlaintextMessageProtection(
             )
             throw ProtectionException.InvalidEnvelope(e)
         }
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Opened plaintext message envelope",
@@ -77,7 +75,6 @@ class PlaintextMessageProtection(
 class SignedMessageProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
@@ -116,7 +113,7 @@ class SignedMessageProtection(
         val messagePayload = try {
             envelope.decodePayload()
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode signed message envelope",
@@ -125,7 +122,7 @@ class SignedMessageProtection(
             throw ProtectionException.InvalidEnvelope(e)
         }
 
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed message envelope",
@@ -145,7 +142,6 @@ class SignedAndEncryptedMessageProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
@@ -158,7 +154,7 @@ class SignedAndEncryptedMessageProtection(
                 bytes = input.encode(),
             )
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENCRYPTION_FAILED,
                 message = "Failed to encrypt message",
@@ -182,7 +178,7 @@ class SignedAndEncryptedMessageProtection(
         val signature = try {
             signatureProvider.sign(unsigned.encodeForSigning())
         } catch (e: CryptoException) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.SIGNATURE_SIGN_FAILED,
                 message = "Failed to sign message envelope",
@@ -214,7 +210,7 @@ class SignedAndEncryptedMessageProtection(
         val encryptedInput = try {
             SessionWireFrame.decode(envelope.payload)
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode SessionWireFrame from encrypted message envelope",
@@ -229,7 +225,7 @@ class SignedAndEncryptedMessageProtection(
                 frame = encryptedInput,
             )
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.DECRYPTION_FAILED,
                 message = "Failed to decrypt message",
@@ -241,7 +237,7 @@ class SignedAndEncryptedMessageProtection(
         val messagePayload = try {
             MessagePayload.decode(decryptedInput)
         } catch (e: Exception) {
-            logger.error(
+            AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode MessagePayload from decrypted message",
@@ -250,7 +246,7 @@ class SignedAndEncryptedMessageProtection(
             throw ProtectionException.InvalidEnvelope(e)
         }
 
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Verified signed and encrypted message envelope",

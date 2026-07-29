@@ -2,7 +2,7 @@ package org.yapyap.crypto.identity
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
@@ -25,7 +25,7 @@ class DeviceIdentityAttestationTest {
     > {
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
         val timeProvider = FixedEpochSecondsProvider(0L)
         val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
@@ -52,7 +52,7 @@ class DeviceIdentityAttestationTest {
 
     @Test
     fun resolvePeerX3dhRemoteKeys_rejectsTamperedAttestation() = runTest {
-        val crypto = KmpCryptoProvider()
+        val crypto = DefaultCryptoProvider()
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)

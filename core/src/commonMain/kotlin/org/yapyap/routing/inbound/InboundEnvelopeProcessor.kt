@@ -1,5 +1,6 @@
 package org.yapyap.routing.inbound
 
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -44,7 +45,7 @@ internal class InboundEnvelopeProcessor(
                 receivedAtEpochSeconds = receivedAtEpochSeconds,
             )
         ) {
-            ctx.logger.info(
+            AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.PACKET_DUPLICATED,
                 message = "Packet ignored due to duplicate",
@@ -67,7 +68,7 @@ internal class InboundEnvelopeProcessor(
         }
 
         if (inbound.expiresAtEpochSeconds < receivedAtEpochSeconds) {
-            ctx.logger.info(
+            AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_EXPIRED,
                 message = "Envelope expired",
@@ -81,7 +82,7 @@ internal class InboundEnvelopeProcessor(
         }
 
         if (inbound.target != ctx.localDeviceId) {
-            ctx.logger.info(
+            AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_WRONG_TARGET,
                 message = "Envelope ignored due to target mismatch",
@@ -107,7 +108,7 @@ internal class InboundEnvelopeProcessor(
         val handleResult = if (handler != null) {
             handler.handle(inbound)
         } else {
-            ctx.logger.info(
+            AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LoggingTypes.ENVELOPE_UNKNOWN_TYPE,
                 message = "Envelope ignored due to unknown packet type",
@@ -121,7 +122,7 @@ internal class InboundEnvelopeProcessor(
         when (handleResult) {
             InboundHandleResult.Success -> ackResponder.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
             InboundHandleResult.Deferred -> {
-                ctx.logger.info(
+                AppLog.info(
                     component = LogComponent.ROUTER,
                     event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
                     message = "Deferred inbound envelope until session prerequisites are met",

@@ -3,7 +3,7 @@ package org.yapyap.crypto.e2ee
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.identity.LocalOneTimePreKey
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
 import org.yapyap.persistence.crypto.CryptoSessionStore
@@ -19,7 +19,6 @@ internal class Epoch2Upgrade(
     private val sessionBootstrap: SessionBootstrap,
     private val timeProvider: EpochSecondsProvider,
     private val upgradePolicy: SessionUpgradePolicy,
-    private val logger: AppLogger,
 ) {
 
     fun isEpoch2OpkBootstrapFailure(frame: SessionWireFrame, error: Exception): Boolean {
@@ -76,7 +75,7 @@ internal class Epoch2Upgrade(
                 ),
             )
         } catch (error: Exception) {
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_OPENED,
                 message = "Skipped OPK offer; continuing on epoch-1 3-DH",
@@ -128,7 +127,7 @@ internal class Epoch2Upgrade(
             initiatorEphemeralPublicKey = initiatorEphemeral,
         )
         if (!expectedBinding.contentEquals(offer.sessionBinding)) {
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.CRYPTO,
                 event = LoggingTypes.ENVELOPE_OPENED,
                 message = "Ignored OPK offer with invalid session binding",
@@ -193,7 +192,7 @@ internal class Epoch2Upgrade(
                 ),
             ),
         )
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LoggingTypes.ENVELOPE_OPENED,
             message = "Promoted pending epoch-2 session for outbound encrypt",

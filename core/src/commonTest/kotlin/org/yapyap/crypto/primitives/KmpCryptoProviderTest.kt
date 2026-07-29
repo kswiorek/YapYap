@@ -5,11 +5,11 @@ import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.test.*
 
 /**
- * Black-box tests for [org.yapyap.crypto.primitives.KmpCryptoProvider] as the reference [org.yapyap.crypto.primitives.CryptoProvider] implementation.
+ * Black-box tests for [org.yapyap.crypto.primitives.DefaultCryptoProvider] as the reference [org.yapyap.crypto.primitives.CryptoProvider] implementation.
  */
 class KmpCryptoProviderTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun sha256_empty_matchesKnownVector() = runTest {
@@ -177,7 +177,7 @@ class KmpCryptoProviderTest {
             ikm = byteArrayOf(1, 2, 3),
             salt = null,
             info = "message-key".encodeToByteArray(),
-            outputLength = KmpCryptoProvider.AEAD_KEY_SIZE_BYTES,
+            outputLength = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES,
         )
         val plaintext = "secret payload".encodeToByteArray()
 
@@ -191,7 +191,7 @@ class KmpCryptoProviderTest {
 
     @Test
     fun decryptAead_failsWhenCiphertextTampered() = runTest {
-        val key = crypto.randomBytes(KmpCryptoProvider.AEAD_KEY_SIZE_BYTES)
+        val key = crypto.randomBytes(DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES)
         val ciphertext = crypto.encryptAead(key, byteArrayOf(42),).copyOf()
         ciphertext[ciphertext.lastIndex] = (ciphertext.last().toInt() xor 0xff).toByte()
 

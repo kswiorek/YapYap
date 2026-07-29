@@ -6,8 +6,8 @@ import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.e2ee.managerForPeer
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
-import org.yapyap.crypto.primitives.KmpCryptoProvider
 import org.yapyap.crypto.primitives.SigningKeyPair
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.key.InMemoryOpkRepository
@@ -104,7 +104,7 @@ internal fun sampleFileOfferPayload(): FilePayload.Offer =
 /**
  * Local signing key plus two distinct [PeerId]s for source/target roles.
  */
-internal suspend fun samplePeerTriplet(crypto: KmpCryptoProvider): Triple<SigningKeyPair, PeerId, PeerId> {
+internal suspend fun samplePeerTriplet(crypto: DefaultCryptoProvider): Triple<SigningKeyPair, PeerId, PeerId> {
     val localSigning = crypto.generateSigningKeyPair()
     val sourcePeer = crypto.peerIdFromPublicKey(localSigning.publicKey)
     val remoteSigning = crypto.generateSigningKeyPair()
@@ -120,7 +120,7 @@ internal data class SignedAndEncryptedProtectionPair(
 )
 
 internal suspend fun sampleSignedAndEncryptedProtectionPair(
-    crypto: KmpCryptoProvider,
+    crypto: DefaultCryptoProvider,
 ): SignedAndEncryptedProtectionPair {
     val senderPeer = buildTestPeerIdentity(crypto, "sae-sender")
     val receiverPeer = buildTestPeerIdentity(crypto, "sae-receiver")
@@ -161,7 +161,7 @@ internal suspend fun sampleSignedAndEncryptedProtectionPair(
 }
 
 internal suspend fun deviceRecordFor(
-    crypto: KmpCryptoProvider,
+    crypto: DefaultCryptoProvider,
     signingKeys: SigningKeyPair,
     encryptionKeys: EncryptionKeyPair,
 ): DeviceIdentityRecord {

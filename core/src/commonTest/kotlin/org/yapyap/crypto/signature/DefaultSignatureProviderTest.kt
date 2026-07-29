@@ -4,7 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.primitives.KmpCryptoProvider
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import kotlin.test.Test
@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
  */
 class DefaultSignatureProviderTest {
 
-    private val crypto = KmpCryptoProvider()
+    private val crypto = DefaultCryptoProvider()
 
     @Test
     fun signDetached_thenVerifyDetached_withRegisteredPeer_succeeds() = runTest {

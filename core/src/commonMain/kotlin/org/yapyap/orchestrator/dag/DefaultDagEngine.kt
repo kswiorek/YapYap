@@ -4,17 +4,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.logging.AppLogger
+import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LoggingTypes
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.CausalHoldRepository
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.time.EpochSecondsProvider
-import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
@@ -32,14 +30,12 @@ import kotlin.uuid.Uuid
  * later arrives, all causal_hold rows pointing at it are deleted and the
  * corresponding orphans are marked non-orphaned (`closedGapMissingPrevIds`).
  */
-@OptIn(ExperimentalUuidApi::class)
 class DefaultDagEngine(
     private val messageRepository: MessageRepository,
     private val causalHoldRepository: CausalHoldRepository,
     private val identityResolver: IdentityResolver,
     private val signatureProvider: SignatureProvider,
     private val timeProvider: EpochSecondsProvider,
-    private val logger: AppLogger = NoopAppLogger,
 ) : DagEngine {
 
     /**
@@ -89,7 +85,7 @@ class DefaultDagEngine(
 
         val inserted = messageRepository.insert(payload, MessageLifecycleState.CREATED, isOrphaned = false)
         if (!inserted) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.DAG,
                 event = LoggingTypes.MESSAGE_INSERT_CONFLICT,
                 message = "Message insert ignored — duplicate message_id",
@@ -97,7 +93,7 @@ class DefaultDagEngine(
             )
         }
 
-        logger.debug(
+        AppLog.debug(
             component = LogComponent.DAG,
             event = LoggingTypes.MESSAGE_APPENDED,
             message = "Message appended to room DAG",
@@ -116,7 +112,7 @@ class DefaultDagEngine(
         // Verify author signature before processing
         val signature = payload.authorSignature
         if (signature == null) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.DAG,
                 event = LoggingTypes.MESSAGE_REJECTED_INVALID_SIGNATURE,
                 message = "Message rejected — missing author signature",
@@ -138,7 +134,7 @@ class DefaultDagEngine(
             signature = signature,
         )
         if (!signatureValid) {
-            logger.warn(
+            AppLog.warn(
                 component = LogComponent.DAG,
                 event = LoggingTypes.MESSAGE_REJECTED_INVALID_SIGNATURE,
                 message = "Message rejected — invalid author signature",
@@ -154,7 +150,7 @@ class DefaultDagEngine(
 
         // Dedup: if we already have this message, treat as already-inserted (no new gaps closed).
         if (messageRepository.findById(payload.messageId) != null) {
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.DAG,
                 event = LoggingTypes.MESSAGE_DEDUPED,
                 message = "Ingested duplicate message — already present",
@@ -181,7 +177,7 @@ class DefaultDagEngine(
                 orphanedMessageId = payload.messageId,
                 detectedTimestamp = timeProvider.nowEpochSeconds(),
             )
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.DAG,
                 event = LoggingTypes.GAP_DETECTED,
                 message = "Message ingested as orphan — gap recorded",
@@ -192,7 +188,7 @@ class DefaultDagEngine(
                 ),
             )
         } else {
-            logger.debug(
+            AppLog.debug(
                 component = LogComponent.DAG,
                 event = LoggingTypes.MESSAGE_INGESTED,
                 message = "Message ingested successfully",
@@ -283,7 +279,7 @@ class DefaultDagEngine(
         }
         causalHoldRepository.deleteByMissingPrevId(arrivedMessageId)
 
-        logger.info(
+        AppLog.info(
             component = LogComponent.DAG,
             event = LoggingTypes.GAP_CLOSED,
             message = "Gaps closed by arriving message",
