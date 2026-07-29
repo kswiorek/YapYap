@@ -51,6 +51,15 @@ WHERE room_id = :roomId
 ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
 LIMIT :limit;
 
+selectMessagesInRoomPageAsc :
+SELECT * FROM messages
+WHERE room_id = :roomId
+  AND ((:cursorCreated IS NULL AND :cursorLamport IS NULL AND :cursorMessageId IS NULL) OR
+       (created_at_epoch_seconds, lamport_clock, message_id) >
+       (:cursorCreated, :cursorLamport, :cursorMessageId))
+ORDER BY created_at_epoch_seconds ASC, lamport_clock ASC, message_id ASC
+LIMIT :limit;
+
 -- ---- message CRUD ----
 
 insertMessage:
