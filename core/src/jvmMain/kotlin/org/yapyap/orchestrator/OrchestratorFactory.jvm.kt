@@ -4,7 +4,7 @@ import io.matthewnelson.kmp.file.File
 import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.logging.JvmAppLogger
 import org.yapyap.persistence.JvmEncryptedDriverFactory
-import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
+import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import java.nio.file.Files
 import java.nio.file.Path
@@ -31,7 +31,7 @@ actual class OrchestratorFactory actual constructor(
                     logger = logger,
                 )
             },
-            torBackend = KmpTorNoExecBackend(
+            torBackend = KmpTorBackend(
                 torStateRootPath = File(config.torStateRootPath),
                 config = config.torBackendConfig,
                 logger = logger,

@@ -6,7 +6,6 @@ import io.ktor.utils.io.*
 import io.matthewnelson.kmp.file.File
 import io.matthewnelson.kmp.file.SysTempDir
 import io.matthewnelson.kmp.file.resolve
-import io.matthewnelson.kmp.tor.resource.noexec.tor.ResourceLoaderTorNoExec
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.startDaemonAsync
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.stopDaemonAsync
 import io.matthewnelson.kmp.tor.runtime.TorRuntime
@@ -34,7 +33,7 @@ import kotlin.time.TimeSource
 /**
  * Tor backend powered by kmp-tor runtime using noexec resources.
  */
-class KmpTorNoExecBackend(
+class KmpTorBackend(
     private val torStateRootPath: File = defaultTorStateRootPath(),
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
     private val config: TorBackendConfig = TorBackendConfig(),
@@ -203,7 +202,7 @@ class KmpTorNoExecBackend(
             workDirectory = workDirectory,
             cacheDirectory = cacheDirectory,
             loader = { resourceDir ->
-                ResourceLoaderTorNoExec.getOrCreate(resourceDir)
+                createResourceLoader(resourceDir)
             },
         )
 

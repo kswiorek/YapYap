@@ -12,7 +12,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.time.FixedEpochSecondsProvider
-import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
+import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
@@ -28,7 +28,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
 /**
- * Two [org.yapyap.routing.router.DefaultRouter] instances over real [DefaultTorTransport]/[KmpTorNoExecBackend] and real WebRTC stacks.
+ * Two [org.yapyap.routing.router.DefaultRouter] instances over real [DefaultTorTransport]/[KmpTorBackend] and real WebRTC stacks.
  * Verifies a text message from Alice → Bob over **Tor** through the full router encode/decode path.
  *
  * Opt-in: `./gradlew :composeApp:jvmTest -PintegrationTests=true`
@@ -69,12 +69,12 @@ class DefaultRouterLiveIntegrationTest {
         val torConfig = TorBackendConfig(startupTimeoutMillis = 180_000L)
 
         val aliceTorBackend =
-            KmpTorNoExecBackend(
+            KmpTorBackend(
                 torStateRootPath = File(aliceTorDir.absolutePathString()),
                 config = torConfig,
             )
         val bobTorBackend =
-            KmpTorNoExecBackend(
+            KmpTorBackend(
                 torStateRootPath = File(bobTorDir.absolutePathString()),
                 config = torConfig,
             )

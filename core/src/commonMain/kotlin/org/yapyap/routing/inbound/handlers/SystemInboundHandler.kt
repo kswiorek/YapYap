@@ -116,6 +116,7 @@ internal class SystemInboundHandler(
             }
             // TODO Sprint 4: SystemPayload.Ping/Pong -> SystemInboundResult.PeerHeartbeat(...)
             // TODO Sprint 2: gap sync request payload -> SystemInboundResult.GapSyncRequested(...)
+            else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}
         }
     }
 }

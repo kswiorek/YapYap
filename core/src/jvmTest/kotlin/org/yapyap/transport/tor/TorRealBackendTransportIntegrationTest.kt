@@ -9,7 +9,7 @@ import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
-import org.yapyap.transport.tor.backend.KmpTorNoExecBackend
+import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import java.nio.file.Files
@@ -24,7 +24,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
 /**
- * Exercising [org.yapyap.transport.tor.backend.KmpTorNoExecBackend] and [DefaultTorTransport] against a real local Tor process.
+ * Exercising [org.yapyap.transport.tor.backend.KmpTorBackend] and [DefaultTorTransport] against a real local Tor process.
  * These tests are **opt-in** (see `composeApp` Gradle: `-PintegrationTests=true`) because they are
  * slow and need a working Tor download/bootstrap on the host.
  */
@@ -35,7 +35,7 @@ class TorRealBackendTransportIntegrationTest {
     fun defaultTorTransport_withKmpTorNoExecBackend_sendsToSelfAndDecodesIncoming() = runBlocking {
         val tempDir = Files.createTempDirectory("yapyap-tor-it")
         val torStateRoot = File(tempDir.absolutePathString())
-        val backend = KmpTorNoExecBackend(
+        val backend = KmpTorBackend(
             torStateRootPath = torStateRoot,
             config = TorBackendConfig(
                 startupTimeoutMillis = 180_000L,

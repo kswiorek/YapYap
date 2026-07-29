@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -50,7 +51,7 @@ class WebRtcInMemorySignalingIntegrationTest {
             }
 
             val (received, envelope) =
-                withTimeout(180_000L.milliseconds) {
+                withTimeout(30L.seconds) {
                     coroutineScope {
                         val inbound = async {
                             bob.incomingEnvelopes.first { it.source == peerA }
@@ -60,10 +61,10 @@ class WebRtcInMemorySignalingIntegrationTest {
                         alice.openSession(peerB)
 
                         alice.sessionStates.first {
-                            it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
+                            it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
                         }
                         bob.sessionStates.first {
-                            it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
+                            it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
                         }
 
                         val t0 = 1_800_000_000L
