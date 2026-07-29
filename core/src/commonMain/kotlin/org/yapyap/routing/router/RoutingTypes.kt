@@ -1,7 +1,9 @@
 package org.yapyap.routing.router
 
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
@@ -66,4 +68,24 @@ internal class RoutingContext(
 
     val localDeviceId: PeerId
         get() = localDeviceIdentity.deviceId
+}
+
+sealed interface SyncIntent {
+    val roomId: String
+    val candidateAccounts: List<AccountId>
+
+    data class Gap(
+        override val roomId: String,
+        val missingPrevId: Uuid,
+        val orphanedMessageId: Uuid,   // stop-walk sentinel for responder
+        val maxAncestors: Int,
+        override val candidateAccounts: List<AccountId>,
+    ) : SyncIntent
+
+    data class Range(
+        override val roomId: String,
+        val sinceCursor: MessageCursor,
+        val maxMessages: Int,
+        override val candidateAccounts: List<AccountId>,
+    ) : SyncIntent
 }

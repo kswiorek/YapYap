@@ -17,5 +17,6 @@ interface Router {
         forceTransport: RouterTransport? = null,
     ): SendMessageResult
 
+    suspend fun requestSync(intent: SyncIntent)
 
 }
