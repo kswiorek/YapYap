@@ -19,6 +19,7 @@ import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.SendMessageResult
@@ -609,6 +610,13 @@ private class RecordingRouter : Router {
             peersQueued = 1,
             failureKind = null,
         )
+    }
+
+    override suspend fun requestSync(
+        syncRequest: SystemPayload.SyncRequest,
+        candidateAccounts: List<AccountId>
+    ) {
+        TODO("Not yet implemented")
     }
 
     suspend fun emitIncoming(payload: MessagePayload) {

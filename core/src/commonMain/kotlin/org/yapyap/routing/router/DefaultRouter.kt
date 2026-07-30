@@ -16,6 +16,7 @@ import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.AckResponder
@@ -219,6 +220,13 @@ class DefaultRouter(
     ): SendMessageResult {
         check(started) { "Router must be started before sending messages" }
         return outboundMessenger.sendMessage(target, payload, forceTransport)
+    }
+
+    override suspend fun requestSync(
+        syncRequest: SystemPayload.SyncRequest,
+        candidateAccounts: List<AccountId>
+    ) {
+        TODO("Not yet implemented")
     }
 
     suspend fun testOpenWebRtcSession(target: PeerId) {

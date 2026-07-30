@@ -65,6 +65,11 @@ internal class OutboundMessenger(
         return aggregateSendResults(outcomes)
     }
 
+    suspend fun sendMessage(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport?): SendMessageResult{
+        val outcome = sendMessageToPeer(target, payload, forceTransport)
+        return aggregateSendResults(listOf(outcome))
+    }
+
     private fun aggregateSendResults(outcomes: List<PeerSendOutcome>): SendMessageResult {
         val peersTotal = outcomes.size
         val peersQueued = outcomes.count { it is PeerSendOutcome.Queued }

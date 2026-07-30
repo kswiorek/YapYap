@@ -1,5 +1,6 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.packet.PacketType
@@ -90,6 +91,53 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
+    fun systemEnvelope_full_encodeDecode_gapSyncRequest_roundTrip() {
+        val syncRequest = SystemPayload.SyncRequest.GapSyncRequest(
+            roomId = "room-a",
+            maxMessages = 100,
+            missingPrevId = Uuid.random(),
+            orphanedMessageId = Uuid.random(),
+        )
+        val env = SystemEnvelope(
+            systemEnvelopeId = Uuid.random(),
+            source = source,
+            target = target,
+            createdAtEpochSeconds = 42L,
+            nonce = nonce,
+            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            signature = null,
+            payload = syncRequest.encode(),
+        )
+        val round = SystemEnvelope.decode(env.encode())
+        assertSystemEnvelopeEquals(env, round)
+    }
+
+    @Test
+    fun systemEnvelope_full_encodeDecode_rangeSyncRequest_roundTrip() {
+        val syncRequest = SystemPayload.SyncRequest.RangeSyncRequest(
+            roomId = "room-a",
+            maxMessages = 100,
+            sinceCursor = MessageCursor(
+                1234567890L,
+                 1234567890L,
+                Uuid.random()
+            )
+        )
+        val env = SystemEnvelope(
+            systemEnvelopeId = Uuid.random(),
+            source = source,
+            target = target,
+            createdAtEpochSeconds = 42L,
+            nonce = nonce,
+            securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            signature = null,
+            payload = syncRequest.encode(),
+        )
+        val round = SystemEnvelope.decode(env.encode())
+        assertSystemEnvelopeEquals(env, round)
+    }
+
+    @Test
     fun systemEnvelopeKind_enum_wireValuesDistinct() {
         val wires = SystemEnvelopeKind.entries.map { it.wireValue }.toSet()
         assertEquals(SystemEnvelopeKind.entries.size, wires.size)
@@ -122,6 +170,8 @@ class SystemEnvelopeCodecTest {
                 assertPacketAckEquals(expected, actual)
             expected is SystemPayload.PacketNack && actual is SystemPayload.PacketNack ->
                 assertPacketNackEquals(expected, actual)
+            expected is SystemPayload.SyncRequest && actual is SystemPayload.SyncRequest ->
+                assertSyncRequestEquals(expected, actual)
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }
@@ -136,5 +186,25 @@ class SystemEnvelopeCodecTest {
         assertEquals(expected.packetType, actual.packetType)
         assertEquals(expected.reason, actual.reason)
         assertEquals(expected.reasonText, actual.reasonText)
+    }
+    private fun assertSyncRequestEquals(expected: SystemPayload.SyncRequest, actual: SystemPayload.SyncRequest) {
+        when {
+            expected is SystemPayload.SyncRequest.GapSyncRequest && actual is SystemPayload.SyncRequest.GapSyncRequest ->
+                assertGapSyncRequestEquals(expected, actual)
+            expected is SystemPayload.SyncRequest.RangeSyncRequest && actual is SystemPayload.SyncRequest.RangeSyncRequest ->
+                assertRangeSyncRequestEquals(expected, actual)
+            else -> fail("SyncRequest kinds differ: ${expected::class} vs ${actual::class}")
+        }
+    }
+    private fun assertGapSyncRequestEquals(expected: SystemPayload.SyncRequest.GapSyncRequest, actual: SystemPayload.SyncRequest.GapSyncRequest) {
+        assertEquals(expected.maxMessages, actual.maxMessages)
+        assertEquals(expected.roomId, actual.roomId)
+        assertEquals(expected.missingPrevId, actual.missingPrevId)
+        assertEquals(expected.orphanedMessageId, actual.orphanedMessageId)
+    }
+    private fun assertRangeSyncRequestEquals(expected: SystemPayload.SyncRequest.RangeSyncRequest, actual: SystemPayload.SyncRequest.RangeSyncRequest) {
+        assertEquals(expected.maxMessages, actual.maxMessages)
+        assertEquals(expected.roomId, actual.roomId)
+        assertEquals(expected.sinceCursor, actual.sinceCursor)
     }
 }

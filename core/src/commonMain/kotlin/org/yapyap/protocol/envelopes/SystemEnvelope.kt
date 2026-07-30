@@ -174,78 +174,107 @@ sealed interface SystemPayload {
             }
         }
     }
-    data class GapSyncRequest(
-        val roomId: String,
-        val missingPrevId: String,          // the message id we're missing
-        val orphanedMessageId: String,      // our orphan that's waiting (lets responder stop walking once it sees this)
-        val maxAncestors: Int,              // cap, e.g. 32; prevents runaway streams
-    ) : SystemPayload {
+    sealed interface SyncRequest: SystemPayload {
+        val roomId: String
+        val maxMessages: Int
+        val syncRequestKind: SyncRequestKind
+        override val kind: SystemEnvelopeKind
+            get() = SystemEnvelopeKind.SYNC_REQUEST
 
-        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.GAP_SYNC_REQUEST
-        override fun encode(): ByteArray {
-            val writer = ByteWriter(128 + roomId.length + missingPrevId.length + orphanedMessageId.length)
-            writer.writeByte(kind.wireValue.toInt())
-            writer.writeString(roomId)
-            writer.writeString(missingPrevId)
-            writer.writeString(orphanedMessageId)
-            writer.writeInt(maxAncestors)
-            return writer.toByteArray()
-        }
-        companion object {
-            fun decode(bytes: ByteArray): GapSyncRequest {
-                val reader = ByteReader(bytes)
-                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.GAP_SYNC_REQUEST) {
-                    "Expected GAP_SYNC_REQUEST payload kind"
+        data class GapSyncRequest(
+            override val roomId: String,
+            override val maxMessages: Int,
+            val missingPrevId: Uuid,
+            val orphanedMessageId: Uuid,
+        ) : SyncRequest {
+            override val syncRequestKind: SyncRequestKind = SyncRequestKind.GAP
+
+            override fun encode(): ByteArray {
+                val writer = ByteWriter(128 + roomId.length + Uuid.SIZE_BYTES * 2 + 4)
+                writer.writeByte(kind.wireValue.toInt())
+                writer.writeByte(syncRequestKind.wireValue.toInt())
+                writer.writeString(roomId)
+                writer.writeUuid(missingPrevId)
+                writer.writeUuid(orphanedMessageId)
+                writer.writeInt(maxMessages)
+                return writer.toByteArray()
+            }
+
+            companion object {
+                fun decode(bytes: ByteArray): GapSyncRequest {
+                    val reader = ByteReader(bytes)
+                    require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
+                        "Expected SYNC_REQUEST payload kind"
+                    }
+                    require(SyncRequestKind.fromWireValue(reader.readByte()) == SyncRequestKind.GAP) {
+                        "Expected GAP sync request kind"
+                    }
+                    val roomId = reader.readString()
+                    val missingPrevId = reader.readUuid()
+                    val orphanedMessageId = reader.readUuid()
+                    val maxMessages = reader.readInt()
+                    reader.requireFullyRead()
+                    return GapSyncRequest(
+                        roomId = roomId,
+                        missingPrevId = missingPrevId,
+                        orphanedMessageId = orphanedMessageId,
+                        maxMessages = maxMessages,
+                    )
                 }
-                val roomId = reader.readString()
-                val missingPrevId = reader.readString()
-                val orphanedMessageId = reader.readString()
-                val maxAncestors = reader.readInt()
-                reader.requireFullyRead()
-                return GapSyncRequest(
-                    roomId = roomId,
-                    missingPrevId = missingPrevId,
-                    orphanedMessageId = orphanedMessageId,
-                    maxAncestors = maxAncestors,
-                )
             }
         }
-    }
 
-    data class RangeSyncRequest(
-        val roomId: String,
-        val sinceCursor: MessageCursor,      // what we believe is our newest known message in the room
-        val maxMessages: Int,              // cap, e.g. 64
-    ) : SystemPayload {
-        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.RANGE_SYNC_REQUEST
-        override fun encode(): ByteArray {
-            val writer = ByteWriter(128 + roomId.length + 2*64+128 + 32)
-            writer.writeByte(kind.wireValue.toInt())
-            writer.writeString(roomId)
-            writer.writeLong(sinceCursor.createdAtEpochSeconds)
-            writer.writeLong(sinceCursor.lamportClock)
-            writer.writeUuid(sinceCursor.messageId)
-            writer.writeInt(maxMessages)
-            return writer.toByteArray()
+        data class RangeSyncRequest(
+            override val roomId: String,
+            override val maxMessages: Int,
+            val sinceCursor: MessageCursor,
+        ) : SyncRequest {
+            override val syncRequestKind: SyncRequestKind = SyncRequestKind.RANGE
+            override fun encode(): ByteArray {
+                val writer = ByteWriter(128 + roomId.length + 2 * 64 + 128 + 32)
+                writer.writeByte(kind.wireValue.toInt())
+                writer.writeByte(syncRequestKind.wireValue.toInt())
+                writer.writeString(roomId)
+                writer.writeLong(sinceCursor.createdAtEpochSeconds)
+                writer.writeLong(sinceCursor.lamportClock)
+                writer.writeUuid(sinceCursor.messageId)
+                writer.writeInt(maxMessages)
+                return writer.toByteArray()
+            }
+
+            companion object {
+                fun decode(bytes: ByteArray): RangeSyncRequest {
+                    val reader = ByteReader(bytes)
+                    require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
+                        "Expected SYNC_REQUEST payload kind"
+                    }
+                    require(SyncRequestKind.fromWireValue(reader.readByte()) == SyncRequestKind.RANGE) {
+                        "Expected RANGE sync request kind"
+                    }
+                    val roomId = reader.readString()
+                    val sinceCursor = MessageCursor(
+                        createdAtEpochSeconds = reader.readLong(),
+                        lamportClock = reader.readLong(),
+                        messageId = reader.readUuid(),
+                    )
+                    val maxMessages = reader.readInt()
+                    return RangeSyncRequest(
+                        roomId = roomId,
+                        sinceCursor = sinceCursor,
+                        maxMessages = maxMessages,
+                    )
+                }
+            }
         }
         companion object {
-            fun decode(bytes: ByteArray): RangeSyncRequest {
+            fun decode(bytes: ByteArray): SystemPayload {
                 val reader = ByteReader(bytes)
-                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.RANGE_SYNC_REQUEST) {
-                    "Expected RANGE_SYNC_REQUEST payload kind"
+                reader.readByte()
+                val syncRequestKind = SyncRequestKind.fromWireValue(reader.readByte())
+                return when (syncRequestKind) {
+                    SyncRequestKind.RANGE -> RangeSyncRequest.decode(bytes)
+                    SyncRequestKind.GAP -> GapSyncRequest.decode(bytes)
                 }
-                val roomId = reader.readString()
-                val sinceCursor = MessageCursor(
-                    createdAtEpochSeconds = reader.readLong(),
-                    lamportClock = reader.readLong(),
-                    messageId = reader.readUuid(),
-                )
-                val maxMessages = reader.readLong()
-                return RangeSyncRequest(
-                    roomId = roomId,
-                    sinceCursor = sinceCursor,
-                    maxMessages = maxMessages.toInt(),
-                )
             }
         }
     }
@@ -256,8 +285,7 @@ sealed interface SystemPayload {
             return when (kind) {
                 SystemEnvelopeKind.PACKET_ACK -> PacketAck.decode(bytes)
                 SystemEnvelopeKind.PACKET_NACK -> PacketNack.decode(bytes)
-                SystemEnvelopeKind.GAP_SYNC_REQUEST -> GapSyncRequest.decode(bytes)
-                SystemEnvelopeKind.RANGE_SYNC_REQUEST -> RangeSyncRequest.decode(bytes)
+                SystemEnvelopeKind.SYNC_REQUEST -> SyncRequest.decode(bytes)
             }
         }
     }
@@ -266,12 +294,21 @@ sealed interface SystemPayload {
 enum class SystemEnvelopeKind(val wireValue: Byte) {
     PACKET_ACK(1),
     PACKET_NACK(2),
-    GAP_SYNC_REQUEST(3),
-    RANGE_SYNC_REQUEST(4);
+    SYNC_REQUEST(3);
 
     companion object {
         fun fromWireValue(value: Byte): SystemEnvelopeKind =
             entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported system envelope kind wire value: $value")
+    }
+}
+
+enum class SyncRequestKind(val wireValue: Byte) {
+    RANGE(1),
+    GAP(2);
+    companion object {
+        fun fromWireValue(value: Byte): SyncRequestKind =
+            SyncRequestKind.entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported system envelope kind wire value: $value")
     }
 }

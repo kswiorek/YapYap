@@ -8,8 +8,8 @@ import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.RoomMembershipRepository
+import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.SyncIntent
 import kotlin.concurrent.Volatile
 
 class DefaultSyncCoordinator(
@@ -44,13 +44,12 @@ class DefaultSyncCoordinator(
 
     private suspend fun processOrphan(result: IngestResult.BecameOrphan){
         val candidateAccounts = roomMembershipRepository.membersOfRoom(result.payload.roomId).filter { it != identityResolver.getLocalAccountId() }
-        val intent = SyncIntent.Gap(
+        val syncRequest = SyncRequest.GapSyncRequest(
             missingPrevId = result.missingPrevId,
             roomId = result.payload.roomId,
             orphanedMessageId = result.payload.messageId,
-            maxAncestors = 16,
-            candidateAccounts = candidateAccounts,
+            maxMessages = 16,
         )
-        router.requestSync(intent)
+        router.requestSync(syncRequest, candidateAccounts)
     }
 }

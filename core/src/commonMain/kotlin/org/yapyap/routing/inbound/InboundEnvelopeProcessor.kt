@@ -148,7 +148,10 @@ internal class InboundEnvelopeProcessor(
         when (result) {
             is SystemInboundResult.RemoveFromOutbox ->
                 outboxProcessor.onOutboundPacketDelivered(result.packetId)
-            SystemInboundResult.Ignored -> Unit
+            is SystemInboundResult.Ignored -> Unit
+            is SystemInboundResult.SyncRequested -> {
+                // Get message payload from SyncCoordinator and send it to peer
+            }
             // TODO Sprint 4: is SystemInboundResult.PeerHeartbeat -> peerPresenceService.record(result)
             // TODO Sprint 2: is SystemInboundResult.GapSyncRequested -> gapSyncCoordinator.onRequest(result)
         }

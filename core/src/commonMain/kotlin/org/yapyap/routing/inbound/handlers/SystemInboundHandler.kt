@@ -115,6 +115,19 @@ internal class SystemInboundHandler(
                     }
                 }
             }
+            is SystemPayload.SyncRequest -> {
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LoggingTypes.SYNC_REQUEST_RECEIVED,
+                    message = "Received sync request",
+                    fields = mapOf(
+                        "source" to systemEnvelope.source,
+                        "roomId" to payload.roomId,
+                        "kind" to payload.syncRequestKind,
+                    )
+                )
+                SystemInboundResult.SyncRequested(systemEnvelope.source, payload)
+            }
             // TODO Sprint 4: SystemPayload.Ping/Pong -> SystemInboundResult.PeerHeartbeat(...)
             // TODO Sprint 2: gap sync request payload -> SystemInboundResult.GapSyncRequested(...)
             //callback from SyncCoordinator to return requested message IDs
