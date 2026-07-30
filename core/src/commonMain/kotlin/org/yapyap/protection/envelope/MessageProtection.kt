@@ -8,7 +8,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -50,7 +50,7 @@ class PlaintextMessageProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode plaintext message envelope",
                 throwable = e,
             )
@@ -58,7 +58,7 @@ class PlaintextMessageProtection(
         }
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.ENVELOPE_OPENED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext message envelope",
             fields = mapOf("messageId" to envelope.messageEnvelopeId, "payloadType" to messagePayload.payloadType.name),
         )
@@ -115,7 +115,7 @@ class SignedMessageProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode signed message envelope",
                 throwable = e,
             )
@@ -124,7 +124,7 @@ class SignedMessageProtection(
 
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.ENVELOPE_OPENED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed message envelope",
             fields = mapOf("messageId" to envelope.messageEnvelopeId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
         )
@@ -156,7 +156,7 @@ class SignedAndEncryptedMessageProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENCRYPTION_FAILED,
+                event = LogEvent.ENCRYPTION_FAILED,
                 message = "Failed to encrypt message",
                 throwable = e,
             )
@@ -180,7 +180,7 @@ class SignedAndEncryptedMessageProtection(
         } catch (e: CryptoException) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.SIGNATURE_SIGN_FAILED,
+                event = LogEvent.SIGNATURE_SIGN_FAILED,
                 message = "Failed to sign message envelope",
                 throwable = e,
             )
@@ -212,7 +212,7 @@ class SignedAndEncryptedMessageProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode SessionWireFrame from encrypted message envelope",
                 throwable = e,
             )
@@ -227,7 +227,7 @@ class SignedAndEncryptedMessageProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.DECRYPTION_FAILED,
+                event = LogEvent.DECRYPTION_FAILED,
                 message = "Failed to decrypt message",
                 throwable = e,
             )
@@ -239,7 +239,7 @@ class SignedAndEncryptedMessageProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode MessagePayload from decrypted message",
                 throwable = e,
             )
@@ -248,7 +248,7 @@ class SignedAndEncryptedMessageProtection(
 
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.ENVELOPE_OPENED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed and encrypted message envelope",
             fields = mapOf("messageId" to envelope.messageEnvelopeId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
         )

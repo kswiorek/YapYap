@@ -258,6 +258,7 @@ sealed interface SystemPayload {
                         messageId = reader.readUuid(),
                     )
                     val maxMessages = reader.readInt()
+                    reader.requireFullyRead()
                     return RangeSyncRequest(
                         roomId = roomId,
                         sinceCursor = sinceCursor,

@@ -8,7 +8,7 @@ import org.kotlincrypto.error.SignatureException
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.random.Random
 
@@ -110,7 +110,7 @@ class DefaultCryptoProvider(
         val keyPair = edDsa.keyPairGenerator(EdDSA.Curve.Ed25519).generateKey()
         AppLog.info(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.CRYPTO_KEYPAIR_GENERATED,
+            event = LogEvent.CRYPTO_KEYPAIR_GENERATED,
             message = "Generated signing key pair",
             fields = mapOf("keyPurpose" to IdentityKeyPurpose.SIGNING.name),
         )
@@ -124,7 +124,7 @@ class DefaultCryptoProvider(
         val keyPair = xdh.keyPairGenerator(XDH.Curve.X25519).generateKey()
         AppLog.info(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.CRYPTO_KEYPAIR_GENERATED,
+            event = LogEvent.CRYPTO_KEYPAIR_GENERATED,
             message = "Generated encryption key pair",
             fields = mapOf("keyPurpose" to IdentityKeyPurpose.ENCRYPTION.name),
         )
@@ -152,7 +152,7 @@ class DefaultCryptoProvider(
         } catch (e: SignatureException) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.SIGNATURE_VERIFICATION_FAILED,
+                event = LogEvent.SIGNATURE_VERIFICATION_FAILED,
                 message = "Detached signature verification failed with exception",
                 fields = mapOf("messageLength" to message.size, "exception" to e.toString()),
             )

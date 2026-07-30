@@ -9,7 +9,7 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protection.service.EnvelopeProtectionService
@@ -30,6 +30,8 @@ import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
+import org.yapyap.routing.sync.SyncHandler
+import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.SystemEpochSecondsProvider
 import org.yapyap.transport.tor.transport.TorTransport
@@ -47,6 +49,7 @@ class DefaultRouter(
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     val routerConfig: RouterConfig,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
+    val syncPayloadProvider: SyncPayloadProvider,
 ): Router {
     private val routingContext = RoutingContext(
         identityResolver = identityResolver,
@@ -77,6 +80,7 @@ class DefaultRouter(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
     )
+    private val syncHandler = SyncHandler(outboundMessenger, syncPayloadProvider)
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         ackResponder = ackResponder,
@@ -87,6 +91,7 @@ class DefaultRouter(
         ),
         systemHandler = SystemInboundHandler(ctx = routingContext),
         outboxProcessor = outboxProcessor,
+        syncHandler = syncHandler,
     )
 
     private var started = false
@@ -131,7 +136,7 @@ class DefaultRouter(
                         if (e is CancellationException) throw e
                         AppLog.error(
                             component = LogComponent.ROUTER,
-                            event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
+                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
                             message = "Failed to handle inbound Tor envelope",
                             fields = mapOf("error" to e.toString()),
                         )
@@ -146,7 +151,7 @@ class DefaultRouter(
                         if (e is CancellationException) throw e
                         AppLog.error(
                             component = LogComponent.ROUTER,
-                            event = LoggingTypes.ENVELOPE_HANDLE_FAILED,
+                            event = LogEvent.ENVELOPE_HANDLE_FAILED,
                             message = "Failed to handle inbound WebRTC envelope",
                             fields = mapOf("error" to e.toString()),
                         )
@@ -176,7 +181,7 @@ class DefaultRouter(
 
         AppLog.info(
             component = LogComponent.ROUTER,
-            event = LoggingTypes.STARTED,
+            event = LogEvent.STARTED,
             message = "Router started",
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )
@@ -204,7 +209,7 @@ class DefaultRouter(
 
         AppLog.info(
             component = LogComponent.ROUTER,
-            event = LoggingTypes.STOPPED,
+            event = LogEvent.STOPPED,
             message = "Router stopped",
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )

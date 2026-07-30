@@ -7,7 +7,7 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -39,7 +39,7 @@ internal class OutboundMessenger(
         if (peers.isEmpty()) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.MESSAGE_NO_PEERS,
+                event = LogEvent.MESSAGE_NO_PEERS,
                 message = "No peer devices found for target account",
                 fields = mapOf("targetAccountId" to target),
             )
@@ -63,11 +63,6 @@ internal class OutboundMessenger(
             }.awaitAll()
         }
         return aggregateSendResults(outcomes)
-    }
-
-    suspend fun sendMessage(target: PeerId, payload: MessagePayload, forceTransport: RouterTransport?): SendMessageResult{
-        val outcome = sendMessageToPeer(target, payload, forceTransport)
-        return aggregateSendResults(listOf(outcome))
     }
 
     private fun aggregateSendResults(outcomes: List<PeerSendOutcome>): SendMessageResult {
@@ -104,7 +99,7 @@ internal class OutboundMessenger(
         )
     }
 
-    private suspend fun sendMessageToPeer(
+    internal suspend fun sendMessageToPeer(
         target: PeerId,
         payload: MessagePayload,
         forceTransport: RouterTransport?,
@@ -145,7 +140,7 @@ internal class OutboundMessenger(
         outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
         AppLog.debug(
             component = LogComponent.ROUTER,
-            event = LoggingTypes.OUTBOX_MESSAGE_QUEUED,
+            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
             message = "Queued outbound message in outbox",
             fields = mapOf(
                 "packetId" to binaryEnvelope.packetId,
@@ -161,7 +156,7 @@ internal class OutboundMessenger(
         } catch (e: TransportException) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.ENVELOPE_DISPATCH_FAILED,
+                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
                 message = "Envelope dispatch failed: TransportException",
                 fields = mapOf(
                     "packetId" to binaryEnvelope.packetId,
@@ -173,7 +168,7 @@ internal class OutboundMessenger(
         } catch (e: CryptoException) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.ENVELOPE_DISPATCH_FAILED,
+                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
                 message = "Envelope dispatch failed: CryptoException",
                 fields = mapOf(
                     "packetId" to binaryEnvelope.packetId,
@@ -205,7 +200,7 @@ internal class OutboundMessenger(
             ProtectionDisposition.PERMANENT -> {
                 AppLog.error(
                     component = LogComponent.ROUTER,
-                    event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
+                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
                     message = "Message protection failed",
                     fields = fields,
                     throwable = exception,
@@ -217,7 +212,7 @@ internal class OutboundMessenger(
                 -> {
                 AppLog.warn(
                     component = LogComponent.ROUTER,
-                    event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
+                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
                     message = "Message protection failed",
                     fields = fields + ("error" to exception.message),
                 )

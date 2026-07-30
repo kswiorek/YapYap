@@ -6,7 +6,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.CausalHoldRepository
 import org.yapyap.persistence.messaging.MessageCursor
@@ -87,7 +87,7 @@ class DefaultDagEngine(
         if (!inserted) {
             AppLog.warn(
                 component = LogComponent.DAG,
-                event = LoggingTypes.MESSAGE_INSERT_CONFLICT,
+                event = LogEvent.MESSAGE_INSERT_CONFLICT,
                 message = "Message insert ignored — duplicate message_id",
                 fields = mapOf("messageId" to messageId, "roomId" to roomId),
             )
@@ -95,7 +95,7 @@ class DefaultDagEngine(
 
         AppLog.debug(
             component = LogComponent.DAG,
-            event = LoggingTypes.MESSAGE_APPENDED,
+            event = LogEvent.MESSAGE_APPENDED,
             message = "Message appended to room DAG",
             fields = mapOf(
                 "messageId" to messageId,
@@ -114,7 +114,7 @@ class DefaultDagEngine(
         if (signature == null) {
             AppLog.warn(
                 component = LogComponent.DAG,
-                event = LoggingTypes.MESSAGE_REJECTED_INVALID_SIGNATURE,
+                event = LogEvent.MESSAGE_REJECTED_INVALID_SIGNATURE,
                 message = "Message rejected — missing author signature",
                 fields = mapOf(
                     "messageId" to payload.messageId,
@@ -136,7 +136,7 @@ class DefaultDagEngine(
         if (!signatureValid) {
             AppLog.warn(
                 component = LogComponent.DAG,
-                event = LoggingTypes.MESSAGE_REJECTED_INVALID_SIGNATURE,
+                event = LogEvent.MESSAGE_REJECTED_INVALID_SIGNATURE,
                 message = "Message rejected — invalid author signature",
                 fields = mapOf(
                     "messageId" to payload.messageId,
@@ -152,7 +152,7 @@ class DefaultDagEngine(
         if (messageRepository.findById(payload.messageId) != null) {
             AppLog.debug(
                 component = LogComponent.DAG,
-                event = LoggingTypes.MESSAGE_DEDUPED,
+                event = LogEvent.MESSAGE_DEDUPED,
                 message = "Ingested duplicate message — already present",
                 fields = mapOf("messageId" to payload.messageId, "roomId" to payload.roomId),
             )
@@ -179,7 +179,7 @@ class DefaultDagEngine(
             )
             AppLog.debug(
                 component = LogComponent.DAG,
-                event = LoggingTypes.GAP_DETECTED,
+                event = LogEvent.GAP_DETECTED,
                 message = "Message ingested as orphan — gap recorded",
                 fields = mapOf(
                     "messageId" to payload.messageId,
@@ -190,7 +190,7 @@ class DefaultDagEngine(
         } else {
             AppLog.debug(
                 component = LogComponent.DAG,
-                event = LoggingTypes.MESSAGE_INGESTED,
+                event = LogEvent.MESSAGE_INGESTED,
                 message = "Message ingested successfully",
                 fields = mapOf(
                     "messageId" to payload.messageId,
@@ -281,7 +281,7 @@ class DefaultDagEngine(
 
         AppLog.info(
             component = LogComponent.DAG,
-            event = LoggingTypes.GAP_CLOSED,
+            event = LogEvent.GAP_CLOSED,
             message = "Gaps closed by arriving message",
             fields = mapOf(
                 "arrivedMessageId" to arrivedMessageId,

@@ -2,21 +2,20 @@ package org.yapyap.routing.inbound
 
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.router.InboundHandleResult
-import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
 
 internal fun interface InboundEnvelopeHandler {
     suspend fun handle(env: BinaryEnvelope): InboundHandleResult
 }
 
-internal fun RoutingContext.logInboundProtectionFailure(
+internal fun logInboundProtectionFailure(
     message: String,
     packetId: Uuid,
     source: PeerId,
@@ -24,7 +23,7 @@ internal fun RoutingContext.logInboundProtectionFailure(
 ) {
     AppLog.warn(
         component = LogComponent.ROUTER,
-        event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
+        event = LogEvent.ENVELOPE_PROTECTION_FAILED,
         message = message,
         fields = mapOf(
             "packetId" to packetId,

@@ -1,6 +1,6 @@
 package org.yapyap.logging
 
-enum class LoggingTypes {
+enum class LogEvent {
     STARTED,
     STOPPED,
     INBOUND_ENVELOPE_RECEIVED,
@@ -82,6 +82,7 @@ enum class LoggingTypes {
     AUTHOR_SIGNATURE_VERIFICATION_FAILED,
     MESSAGE_REJECTED_INVALID_SIGNATURE,
     SYNC_REQUEST_RECEIVED,
+    SYNC_NO_MESSAGES_FOUND,
 }
 
 enum class LogComponent {

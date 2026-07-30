@@ -6,7 +6,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
 
 class DefaultSignatureProvider(
@@ -20,7 +20,7 @@ class DefaultSignatureProvider(
         )
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.SIGNATURE_SIGNED,
+            event = LogEvent.SIGNATURE_SIGNED,
             message = "Signing detached payload",
             fields = mapOf("messageLength" to message.size),
         )
@@ -34,14 +34,14 @@ class DefaultSignatureProvider(
         if (!verified) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.SIGNATURE_VERIFICATION_FAILED,
+                event = LogEvent.SIGNATURE_VERIFICATION_FAILED,
                 message = "Detached signature verification failed",
                 fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
             )
         } else {
             AppLog.debug(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.SIGNATURE_VERIFIED,
+                event = LogEvent.SIGNATURE_VERIFIED,
                 message = "Detached signature verification succeeded",
                 fields = mapOf("deviceId" to deviceId, "messageLength" to message.size),
             )
@@ -59,7 +59,7 @@ class DefaultSignatureProvider(
         if (!verified) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
+                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
                 message = "Author signature verification failed",
                 fields = mapOf(
                     "accountId" to accountId,
@@ -74,7 +74,7 @@ class DefaultSignatureProvider(
         if (authorDeviceId !in peerCandidates) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
+                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
                 message = "Author device not found in account's roster",
                 fields = mapOf(
                     "accountId" to accountId,
@@ -89,7 +89,7 @@ class DefaultSignatureProvider(
         // The account→device binding will be verified once the typed global events are implemented.
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.AUTHOR_SIGNATURE_VERIFIED,
+            event = LogEvent.AUTHOR_SIGNATURE_VERIFIED,
             message = "Author signature verified",
             fields = mapOf(
                 "accountId" to accountId,

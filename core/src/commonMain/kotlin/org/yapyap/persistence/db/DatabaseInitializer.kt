@@ -5,7 +5,7 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.db.SqlSchema
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 
 class DatabaseInitializer(
     private val schema: SqlSchema<QueryResult.Value<Unit>>,
@@ -22,7 +22,7 @@ class DatabaseInitializer(
                 setUserVersion(driver, targetVersion)
                 AppLog.info(
                     component = LogComponent.DATABASE,
-                    event = LoggingTypes.DATABASE_INITIALIZED,
+                    event = LogEvent.DATABASE_INITIALIZED,
                     message = "Database schema created",
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
@@ -32,14 +32,14 @@ class DatabaseInitializer(
                 setUserVersion(driver, targetVersion)
                 AppLog.info(
                     component = LogComponent.DATABASE,
-                    event = LoggingTypes.DATABASE_MIGRATED,
+                    event = LogEvent.DATABASE_MIGRATED,
                     message = "Database schema migrated",
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
             }
             else -> AppLog.debug(
                 component = LogComponent.DATABASE,
-                event = LoggingTypes.DATABASE_INITIALIZED,
+                event = LogEvent.DATABASE_INITIALIZED,
                 message = "Database schema already up to date",
                 fields = mapOf("version" to currentVersion),
             )

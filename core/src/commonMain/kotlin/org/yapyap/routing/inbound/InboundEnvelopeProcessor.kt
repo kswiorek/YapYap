@@ -2,7 +2,7 @@ package org.yapyap.routing.inbound
 
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
@@ -12,6 +12,7 @@ import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.SystemInboundResult
+import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 
@@ -21,6 +22,7 @@ internal class InboundEnvelopeProcessor(
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
     private val systemHandler: SystemInboundHandler,
     private val outboxProcessor: OutboxProcessor,
+    private val syncHandler: SyncHandler
 ) {
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
         if (inbound.source != ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)) {
@@ -47,7 +49,7 @@ internal class InboundEnvelopeProcessor(
         ) {
             AppLog.info(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.PACKET_DUPLICATED,
+                event = LogEvent.PACKET_DUPLICATED,
                 message = "Packet ignored due to duplicate",
                 fields = mapOf(
                     "packetId" to inbound.packetId,
@@ -70,7 +72,7 @@ internal class InboundEnvelopeProcessor(
         if (inbound.expiresAtEpochSeconds < receivedAtEpochSeconds) {
             AppLog.info(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.ENVELOPE_EXPIRED,
+                event = LogEvent.ENVELOPE_EXPIRED,
                 message = "Envelope expired",
                 fields = mapOf(
                     "expiresAtEpochSeconds" to inbound.expiresAtEpochSeconds,
@@ -84,7 +86,7 @@ internal class InboundEnvelopeProcessor(
         if (inbound.target != ctx.localDeviceId) {
             AppLog.info(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.ENVELOPE_WRONG_TARGET,
+                event = LogEvent.ENVELOPE_WRONG_TARGET,
                 message = "Envelope ignored due to target mismatch",
                 fields = mapOf(
                     "sourceDeviceId" to inbound.source,
@@ -110,7 +112,7 @@ internal class InboundEnvelopeProcessor(
         } else {
             AppLog.info(
                 component = LogComponent.ROUTER,
-                event = LoggingTypes.ENVELOPE_UNKNOWN_TYPE,
+                event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
                 message = "Envelope ignored due to unknown packet type",
                 fields = mapOf(
                     "packetType" to inbound.packetType,
@@ -124,7 +126,7 @@ internal class InboundEnvelopeProcessor(
             InboundHandleResult.Deferred -> {
                 AppLog.info(
                     component = LogComponent.ROUTER,
-                    event = LoggingTypes.ENVELOPE_PROTECTION_FAILED,
+                    event = LogEvent.ENVELOPE_PROTECTION_FAILED,
                     message = "Deferred inbound envelope until session prerequisites are met",
                     fields = mapOf(
                         "packetId" to inbound.packetId,
@@ -144,14 +146,12 @@ internal class InboundEnvelopeProcessor(
         }
     }
 
-    private fun applySystemInboundResult(result: SystemInboundResult) {
+    private suspend fun applySystemInboundResult(result: SystemInboundResult) {
         when (result) {
             is SystemInboundResult.RemoveFromOutbox ->
                 outboxProcessor.onOutboundPacketDelivered(result.packetId)
             is SystemInboundResult.Ignored -> Unit
-            is SystemInboundResult.SyncRequested -> {
-                // Get message payload from SyncCoordinator and send it to peer
-            }
+            is SystemInboundResult.SyncRequested -> syncHandler.onSyncRequested(result.sync, result.peerId)
             // TODO Sprint 4: is SystemInboundResult.PeerHeartbeat -> peerPresenceService.record(result)
             // TODO Sprint 2: is SystemInboundResult.GapSyncRequested -> gapSyncCoordinator.onRequest(result)
         }

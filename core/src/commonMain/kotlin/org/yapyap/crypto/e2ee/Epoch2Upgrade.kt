@@ -5,7 +5,7 @@ import org.yapyap.crypto.identity.LocalOneTimePreKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
@@ -77,7 +77,7 @@ internal class Epoch2Upgrade(
         } catch (error: Exception) {
             AppLog.debug(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_OPENED,
+                event = LogEvent.ENVELOPE_OPENED,
                 message = "Skipped OPK offer; continuing on epoch-1 3-DH",
                 fields = mapOf(
                     "peerDeviceId" to peerDeviceId,
@@ -129,7 +129,7 @@ internal class Epoch2Upgrade(
         if (!expectedBinding.contentEquals(offer.sessionBinding)) {
             AppLog.debug(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_OPENED,
+                event = LogEvent.ENVELOPE_OPENED,
                 message = "Ignored OPK offer with invalid session binding",
                 fields = mapOf("peerDeviceId" to remoteDeviceId, "opkId" to offer.opkId),
             )
@@ -194,7 +194,7 @@ internal class Epoch2Upgrade(
         )
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.ENVELOPE_OPENED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Promoted pending epoch-2 session for outbound encrypt",
             fields = mapOf("peerDeviceId" to peerDeviceId),
         )

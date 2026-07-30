@@ -5,7 +5,6 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.time.EpochSecondsProvider
@@ -54,10 +53,6 @@ internal sealed interface PeerSendOutcome {
     data object Queued : PeerSendOutcome
     data object NotReady : PeerSendOutcome
     data object PermanentFailure : PeerSendOutcome
-}
-
-interface SyncPayloadProvider {
-    suspend fun getMessages(syncRequest: SyncRequest): List<MessagePayload>
 }
 
 internal class RoutingContext(

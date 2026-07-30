@@ -4,7 +4,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -47,7 +47,7 @@ class PlaintextSystemProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode plaintext system envelope",
                 throwable = e,
             )
@@ -55,7 +55,7 @@ class PlaintextSystemProtection(
         }
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.ENVELOPE_OPENED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext system envelope",
             fields = mapOf("correlationId" to envelope.systemEnvelopeId, "kind" to systemPayload.kind.name),
         )
@@ -112,7 +112,7 @@ class SignedSystemProtection(
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode signed system envelope",
                 throwable = e,
             )
@@ -120,7 +120,7 @@ class SignedSystemProtection(
         }
         AppLog.debug(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.ENVELOPE_OPENED,
+            event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed system envelope",
             fields = mapOf(
                 "correlationId" to envelope.systemEnvelopeId,

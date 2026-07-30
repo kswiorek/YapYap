@@ -31,6 +31,7 @@ import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.routing.router.DefaultRouter
+import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.time.SystemEpochSecondsProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.transport.DefaultTorTransport
@@ -209,6 +210,10 @@ class DefaultOrchestrator(
             systemProtection = SignedSystemProtection(signatureProvider, cryptoProvider),
         )
 
+        val messageRepo = DefaultMessageRepository(database)
+
+        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo)
+
         router = DefaultRouter(
             torTransport = torTransport,
             webRtcTransport = webRtcTransport,
@@ -217,11 +222,11 @@ class DefaultOrchestrator(
             packetOutbox = packetOutbox,
             envelopeProtectionService = envelopeProtectionService,
             routerConfig = config.routerConfig,
+            syncPayloadProvider = syncPayloadProvider,
         )
 
         router.start()
 
-        val messageRepo = DefaultMessageRepository(database)
         val causalHoldRepo = DefaultCausalHoldRepository(database)
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,

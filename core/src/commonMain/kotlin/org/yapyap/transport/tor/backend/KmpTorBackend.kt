@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
@@ -104,7 +104,7 @@ class KmpTorBackend(
             started = true
             AppLog.info(
                 component = LogComponent.TOR_BACKEND,
-                event = LoggingTypes.STARTED,
+                event = LogEvent.STARTED,
                 message = "KMP Tor backend started",
                 fields = mapOf("onionAddress" to onionAddress, "port" to effectivePort),
             )
@@ -112,7 +112,7 @@ class KmpTorBackend(
         } catch (error: Throwable) {
             AppLog.error(
                 component = LogComponent.TOR_BACKEND,
-                event = LoggingTypes.SESSION_FAILED,
+                event = LogEvent.SESSION_FAILED,
                 message = "Failed to start KMP Tor backend",
                 throwable = error,
             )
@@ -142,7 +142,7 @@ class KmpTorBackend(
         started = false
         AppLog.info(
             component = LogComponent.TOR_BACKEND,
-            event = LoggingTypes.STOPPED,
+            event = LogEvent.STOPPED,
             message = "KMP Tor backend stopped",
         )
     }
@@ -178,7 +178,7 @@ class KmpTorBackend(
                 if (!shouldRetry) {
                     AppLog.error(
                         component = LogComponent.TOR_BACKEND,
-                        event = LoggingTypes.SESSION_FAILED,
+                        event = LogEvent.SESSION_FAILED,
                         message = "SOCKS connect failed for Tor send",
                         throwable = error,
                         fields = mapOf("targetHost" to target.onionAddress, "targetPort" to target.port, "code" to error.code),
@@ -238,12 +238,12 @@ class KmpTorBackend(
                     val frame = runCatching { readTransportFrame(input) }.getOrElse { error ->
                         AppLog.warn(
                             component = LogComponent.TOR_BACKEND,
-                            event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                            event = LogEvent.ENVELOPE_DECODE_FAILED,
                             message = "Failed to read inbound Tor transport frame",
                         )
                         AppLog.error(
                             component = LogComponent.TOR_BACKEND,
-                            event = LoggingTypes.ENVELOPE_DECODE_FAILED,
+                            event = LogEvent.ENVELOPE_DECODE_FAILED,
                             message = "Inbound Tor transport frame parse error",
                             throwable = error,
                         )

@@ -30,6 +30,7 @@ data class MessageCursor(
 
 interface MessageRepository {
 
+    //TODO Make all suspends
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
     fun insert(payload: MessagePayload, lifecycleState: MessageLifecycleState, isOrphaned: Boolean): Boolean
 
@@ -39,6 +40,12 @@ interface MessageRepository {
     fun findRoomTail(roomId: String): MessageRow?
 
     fun findMessagesInRoomPageDesc(
+        roomId: String,
+        limit: Int,
+        cursor: MessageCursor?
+    ): List<MessageRow>
+
+    fun findMessagesInRoomPageAsc(
         roomId: String,
         limit: Int,
         cursor: MessageCursor?
@@ -93,6 +100,19 @@ class DefaultMessageRepository(
         cursor: MessageCursor?
     ): List<MessageRow> =
         queries.selectMessagesInRoomPageDesc(
+            roomId = roomId,
+            cursorCreated = cursor?.createdAtEpochSeconds,
+            cursorLamport = cursor?.lamportClock,
+            cursorMessageId = cursor?.messageId,
+            limit = limit.toLong(),
+        ).executeAsList().map { it.toRow() }
+
+    override fun findMessagesInRoomPageAsc(
+        roomId: String,
+        limit: Int,
+        cursor: MessageCursor?
+    ): List<MessageRow> =
+        queries.selectMessagesInRoomPageAsc(
             roomId = roomId,
             cursorCreated = cursor?.createdAtEpochSeconds,
             cursorLamport = cursor?.lamportClock,

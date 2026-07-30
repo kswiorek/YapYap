@@ -5,7 +5,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -26,7 +26,7 @@ class DefaultKeyStore(
         }
         AppLog.info(
             component = LogComponent.CRYPTO,
-            event = LoggingTypes.KEY_STORED,
+            event = LogEvent.KEY_STORED,
             message = "Stored key in keyring",
             fields = mapOf("keyId" to ref.keyId, "purpose" to ref.purpose.name, "type" to ref.type.name),
         )
@@ -43,7 +43,7 @@ class DefaultKeyStore(
         if (encoded.isNullOrBlank()) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.KEY_LOOKUP_MISS,
+                event = LogEvent.KEY_LOOKUP_MISS,
                 message = "Key lookup returned empty value",
                 fields = mapOf("keyId" to ref.keyId, "purpose" to ref.purpose.name, "type" to ref.type.name),
             )
@@ -64,7 +64,7 @@ class DefaultKeyStore(
         if (deleted) {
             AppLog.info(
                 component = LogComponent.CRYPTO,
-                event = LoggingTypes.KEY_DELETED,
+                event = LogEvent.KEY_DELETED,
                 message = "Deleted key from keyring",
                 fields = mapOf("keyId" to ref.keyId, "purpose" to ref.purpose.name, "type" to ref.type.name),
             )

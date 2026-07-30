@@ -7,7 +7,7 @@ import org.yapyap.crypto.e2ee.X3dhMode
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
 import kotlin.uuid.Uuid
@@ -25,7 +25,7 @@ class DatabaseFactory(
         initializer.initialize(driver)
         AppLog.info(
             component = LogComponent.DATABASE,
-            event = LoggingTypes.DATABASE_INITIALIZED,
+            event = LogEvent.DATABASE_INITIALIZED,
             message = "Database connection created",
         )
 

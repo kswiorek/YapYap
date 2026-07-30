@@ -28,21 +28,21 @@ class JvmAppLogger(
         }
     }
 
-    override fun debug(component: LogComponent, event: LoggingTypes, message: String, fields: Map<String, Any?>) {
+    override fun debug(component: LogComponent, event: LogEvent, message: String, fields: Map<String, Any?>) {
         log(LogLevel.DEBUG, component, event, message, null, fields)
     }
 
-    override fun info(component: LogComponent, event: LoggingTypes, message: String, fields: Map<String, Any?>) {
+    override fun info(component: LogComponent, event: LogEvent, message: String, fields: Map<String, Any?>) {
         log(LogLevel.INFO, component, event, message, null, fields)
     }
 
-    override fun warn(component: LogComponent, event: LoggingTypes, message: String, fields: Map<String, Any?>) {
+    override fun warn(component: LogComponent, event: LogEvent, message: String, fields: Map<String, Any?>) {
         log(LogLevel.WARN, component, event, message, null, fields)
     }
 
     override fun error(
         component: LogComponent,
-        event: LoggingTypes,
+        event: LogEvent,
         message: String,
         throwable: Throwable?,
         fields: Map<String, Any?>,
@@ -53,7 +53,7 @@ class JvmAppLogger(
     private fun log(
         level: LogLevel,
         component: LogComponent,
-        event: LoggingTypes,
+        event: LogEvent,
         message: String,
         throwable: Throwable?,
         fields: Map<String, Any?>,

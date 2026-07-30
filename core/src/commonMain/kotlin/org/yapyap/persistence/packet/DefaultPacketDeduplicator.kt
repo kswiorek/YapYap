@@ -2,7 +2,7 @@ package org.yapyap.persistence.packet
 
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LoggingTypes
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -22,7 +22,7 @@ class DefaultPacketDeduplicator(
             if (existing != null) {
                 AppLog.debug(
                     component = LogComponent.DATABASE,
-                    event = LoggingTypes.DEDUP_CACHE_HIT,
+                    event = LogEvent.DEDUP_CACHE_HIT,
                     message = "Deduplicator hit existing packet",
                     fields = mapOf("packetId" to packetHex, "sourceDeviceId" to sourceDeviceId),
                 )
@@ -35,7 +35,7 @@ class DefaultPacketDeduplicator(
                 )
                 AppLog.debug(
                     component = LogComponent.DATABASE,
-                    event = LoggingTypes.DEDUP_CACHE_MISS,
+                    event = LogEvent.DEDUP_CACHE_MISS,
                     message = "Deduplicator recorded new packet",
                     fields = mapOf("packetId" to packetHex, "sourceDeviceId" to sourceDeviceId),
                 )
@@ -66,7 +66,7 @@ class DefaultPacketDeduplicator(
         queries.deleteDedupReceivedBefore(receivedBeforeEpochSeconds)
         AppLog.info(
             component = LogComponent.DATABASE,
-            event = LoggingTypes.DEDUP_PRUNED,
+            event = LogEvent.DEDUP_PRUNED,
             message = "Pruned old deduplicator records",
             fields = mapOf("receivedBeforeEpochSeconds" to receivedBeforeEpochSeconds),
         )
