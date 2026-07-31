@@ -8,13 +8,13 @@ interface PacketDeduplicator {
     /**
      * Marks packet as seen and returns whether it is first time seen.
      */
-    fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean
+    suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean
 
-    fun clearPacket(packetId: Uuid, sourceDeviceId: PeerId)
+    suspend fun clearPacket(packetId: Uuid, sourceDeviceId: PeerId)
 
-    fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason)
+    suspend fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason)
 
-    fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason?
+    suspend fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason?
 
-    fun prune(receivedBeforeEpochSeconds: Long)
+    suspend fun prune(receivedBeforeEpochSeconds: Long)
 }

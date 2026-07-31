@@ -232,7 +232,7 @@ class DefaultIdentityProvisioning(
         return accountRecord
     }
 
-    override fun provisionDeviceIdentity(
+    override suspend fun provisionDeviceIdentity(
         accountId: AccountId,
         deviceType: DeviceType,
         deviceIdentity: DeviceIdentityRecord,
@@ -247,7 +247,7 @@ class DefaultIdentityProvisioning(
         )
     }
 
-    override fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
+    override suspend fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
         publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, accountIdentity.displayName)
         AppLog.info(
             component = LogComponent.CRYPTO,

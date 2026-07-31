@@ -42,21 +42,21 @@ internal class OutboxProcessor(
         retryLoop.notifyChanged()
     }
 
-    fun onOutboundPacketDelivered(packetId: Uuid) {
+    suspend fun onOutboundPacketDelivered(packetId: Uuid) {
         packetOutbox.markDelivered(packetId)
         wake()
     }
 
-    fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Long) {
+    suspend fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Long) {
         packetOutbox.enqueue(envelope, nextRetryAt)
         wake()
     }
 
-    fun recordSendAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
+    suspend fun recordSendAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
         packetOutbox.recordAttempt(packetId, nextRetryAt, now)
     }
 
-    fun onWebRtcSessionConnected(peerId: PeerId) {
+    suspend fun onWebRtcSessionConnected(peerId: PeerId) {
         val now = ctx.timeProvider.nowEpochSeconds()
         packetOutbox.setDueForTarget(peerId, now)
         wake()
@@ -71,7 +71,7 @@ internal class OutboxProcessor(
         )
     }
 
-    fun pruneRelayOverCapacityOnBoot() {
+    suspend fun pruneRelayOverCapacityOnBoot() {
         try {
             packetOutbox.pruneRelayOverCapacity(ctx.routerConfig.outboxMaxSizeBytes)
         } catch (e: Exception) {

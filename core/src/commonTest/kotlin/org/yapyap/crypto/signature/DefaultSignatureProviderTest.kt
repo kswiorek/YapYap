@@ -182,11 +182,11 @@ class DefaultSignatureProviderTest {
         override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
             peerRecords[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-        override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used in test")
+        override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used in test")
 
-        override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used in test")
+        override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used in test")
 
-        override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used in test")
+        override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used in test")
 
         override suspend fun resolvePeerX3dhRemoteKeys(
             deviceId: PeerId,

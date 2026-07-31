@@ -5,17 +5,17 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import kotlin.uuid.Uuid
 
 interface PacketOutbox {
-    fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean = false)
-    fun markDelivered(packetId: Uuid)
-    fun setDueForTarget(target: PeerId, nextRetryAt: Long)
-    fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long)
-    fun listAllForTarget(target: PeerId): List<OutboxEntry>
+    suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean = false)
+    suspend fun markDelivered(packetId: Uuid)
+    suspend fun setDueForTarget(target: PeerId, nextRetryAt: Long)
+    suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long)
+    suspend fun listAllForTarget(target: PeerId): List<OutboxEntry>
 
-    fun listDue(now: Long): List<OutboxEntry>
-    fun pruneExpired(now: Long): Int
-    fun earliestPendingRetryAt(): Long?
-    fun relayCacheBytes(): Long
-    fun pruneRelayOverCapacity(maxBytes: Long): Int
+    suspend fun listDue(now: Long): List<OutboxEntry>
+    suspend fun pruneExpired(now: Long): Int
+    suspend fun earliestPendingRetryAt(): Long?
+    suspend fun relayCacheBytes(): Long
+    suspend fun pruneRelayOverCapacity(maxBytes: Long): Int
 }
 
 data class OutboxEntry(

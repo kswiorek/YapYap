@@ -3,6 +3,9 @@ package org.yapyap.persistence.db
 import app.cash.sqldelight.ColumnAdapter
 import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.SqlDriver
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import org.yapyap.crypto.e2ee.X3dhMode
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
@@ -11,6 +14,16 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
 import kotlin.uuid.Uuid
+
+/**
+ * Single shared dispatcher that confines all SQLDelight/SQLite access to a single thread.
+ *
+ * All repositories in the persistence package share one SQLDelight connection (created in
+ * [DatabaseFactory.createConnection]), and JDBC connections are not thread-safe. Serializing every
+ * DB call onto one thread matches SQLite's single-writer model and avoids `SQLITE_BUSY`/corruption
+ * when operations are issued concurrently from many coroutines.
+ */
+val databaseDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
 
 interface DriverFactory {
     fun createDriver(): SqlDriver

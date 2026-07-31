@@ -270,7 +270,7 @@ class DefaultDagEngine(
      * and returns the list of closed `missingPrevId`s (all equal to [arrivedMessageId],
      * one per closed orphan — the UI uses a Set to deduplicate).
      */
-    private fun closeGapsFor(arrivedMessageId: Uuid): List<Uuid> {
+    private suspend fun closeGapsFor(arrivedMessageId: Uuid): List<Uuid> {
         val holds = causalHoldRepository.findByMissingPrevId(arrivedMessageId)
         if (holds.isEmpty()) return emptyList()
 

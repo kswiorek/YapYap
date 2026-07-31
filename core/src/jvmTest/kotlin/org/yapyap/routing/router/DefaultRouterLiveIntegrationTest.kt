@@ -110,6 +110,7 @@ class DefaultRouterLiveIntegrationTest {
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 routerConfig = RouterConfig(),
+                syncPayloadProvider = FakeSyncPayloadProvider(),
             )
         val bobRouter =
             DefaultRouter(
@@ -121,6 +122,7 @@ class DefaultRouterLiveIntegrationTest {
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 routerConfig = RouterConfig(),
+                syncPayloadProvider = FakeSyncPayloadProvider(),
             )
 
         try {

@@ -207,11 +207,11 @@ internal class FakeIdentityResolverForProtection(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         peerRecords[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")
 
-    override fun getAllPeerDevicesForAccount(accountId: AccountId) = error("not used")
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId) = error("not used")
 
-    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
+    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
 
     override suspend fun resolvePeerX3dhRemoteKeys(
         deviceId: PeerId,

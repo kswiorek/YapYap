@@ -23,7 +23,7 @@ internal fun openMemoryDatabase(): DatabaseConnection =
 /**
  * Minimal account + local device rows satisfying FK from [dedup] → [devices].
  */
-internal fun seedLocalAccountAndDevice(
+internal suspend fun seedLocalAccountAndDevice(
     database: YapYapDatabase,
     accountId: AccountId,
     deviceId: PeerId,
@@ -79,41 +79,7 @@ internal fun seedRoom(
     database.roomQueries.insertRoom(roomId, null, RoomType.TEXT_CHANNEL, name, localSeqN)
 }
 
-/**
- * Add an account as a member of a room. Account + room must already exist.
- */
-internal fun seedRoomMember(
-    database: YapYapDatabase,
-    roomId: String,
-    accountId: AccountId,
-    role: RoomMemberRole = RoomMemberRole.MEMBER,
-    joinedTimestamp: Long = 0L,
-) {
-    database.roomQueries.insertRoomMember(roomId, accountId.id, role, joinedTimestamp)
-}
-
-/**
- * Insert a bare peer account row (no device, no keys) satisfying FK from room_members/messages.
- */
-internal fun seedPeerAccount(
-    database: YapYapDatabase,
-    accountId: AccountId,
-    displayName: String = "Peer Account",
-) {
-    val repo = DefaultIdentityKeyRepository(database)
-    repo.insertPeerAccount(
-        identity = AccountIdentityRecord(
-            accountId = accountId,
-            displayName = displayName,
-            key = null,
-        ),
-        admin = false,
-        status = AccountStatus.ACTIVE,
-        displayName = displayName,
-    )
-}
-
-internal fun seedPeerDevice(
+internal suspend fun seedPeerDevice(
     database: YapYapDatabase,
     accountId: AccountId,
     deviceId: PeerId,
@@ -143,7 +109,7 @@ internal fun seedPeerDevice(
     )
 }
 
-internal fun seedLocalAndRemoteDevices(database: YapYapDatabase) {
+internal suspend fun seedLocalAndRemoteDevices(database: YapYapDatabase) {
     seedLocalAccountAndDevice(database, FixtureAccountId, FixtureDevicePeerId)
     seedPeerDevice(database, FixtureAccountId, FixtureRemotePeerId, FixtureTorEndpoint)
 }

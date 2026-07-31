@@ -34,7 +34,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetDeduplicator_firstSeen_thenDuplicate_thenPruneRestoresFirstSeen() {
+    fun packetDeduplicator_firstSeen_thenDuplicate_thenPruneRestoresFirstSeen() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -51,7 +51,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetDeduplicator_markNacked_thenGetNackReason_roundTrip() {
+    fun packetDeduplicator_markNacked_thenGetNackReason_roundTrip() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -69,7 +69,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun identityPublicKeyRepository_insertLocal_then_get_resolve_tor_and_peers() {
+    fun identityPublicKeyRepository_insertLocal_then_get_resolve_tor_and_peers() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         val repo = DefaultIdentityKeyRepository(db)
@@ -128,7 +128,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun identityPublicKeyRepository_insertPeerAccount_and_lookup() {
+    fun identityPublicKeyRepository_insertPeerAccount_and_lookup() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         val repo = DefaultIdentityKeyRepository(db)
@@ -217,7 +217,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_listDue_dropsCorruptRow_andKeepsValidRows() {
+    fun packetOutbox_listDue_dropsCorruptRow_andKeepsValidRows() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -245,7 +245,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_enqueue_listDue_markDelivered_roundTrip() {
+    fun packetOutbox_enqueue_listDue_markDelivered_roundTrip() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -271,7 +271,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_recordAttempt_reschedulesRow() {
+    fun packetOutbox_recordAttempt_reschedulesRow() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -292,7 +292,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_pruneExpired_removesExpiredRowsOnly() {
+    fun packetOutbox_pruneExpired_removesExpiredRowsOnly() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -326,7 +326,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_setDueForTarget_acceleratesOnlyFutureRetries() {
+    fun packetOutbox_setDueForTarget_acceleratesOnlyFutureRetries() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -352,7 +352,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_earliestPendingRetryAt_returnsMinimum() {
+    fun packetOutbox_earliestPendingRetryAt_returnsMinimum() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -381,7 +381,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_relayCacheBytes_countsRelayOnly() {
+    fun packetOutbox_relayCacheBytes_countsRelayOnly() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
@@ -423,7 +423,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun packetOutbox_pruneRelayOverCapacity_evictsRelayRowsAndKeepsLocalRows() {
+    fun packetOutbox_pruneRelayOverCapacity_evictsRelayRowsAndKeepsLocalRows() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)

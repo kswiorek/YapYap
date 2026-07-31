@@ -14,7 +14,7 @@ class JvmEncryptedDriverFactory(
     private val masterKeyHex = masterKey.toHexString()
 
     override fun createDriver(): SqlDriver {
-        val url = "jdbc:sqlite:file:$databasePath?cipher=sqlcipher&key=$masterKeyHex&foreign_keys=on"
+        val url = "jdbc:sqlite:file:$databasePath?cipher=sqlcipher&key=$masterKeyHex&foreign_keys=on&journal_mode=WAL"
         AppLog.info(
             component = LogComponent.DATABASE,
             event = LogEvent.DATABASE_INITIALIZED,

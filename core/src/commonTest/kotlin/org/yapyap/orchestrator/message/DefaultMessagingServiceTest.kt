@@ -457,13 +457,13 @@ private class MutableEpochSecondsProvider(var t: Long) : EpochSecondsProvider {
 private class FakeRoomMembershipRepository(
     val members: MutableMap<String, List<AccountId>>,
 ) : RoomMembershipRepository {
-    override fun membersOfRoom(roomId: String): List<AccountId> = members[roomId] ?: emptyList()
+    override suspend fun membersOfRoom(roomId: String): List<AccountId> = members[roomId] ?: emptyList()
 }
 
 private class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()
 
-    override fun insert(
+    override suspend fun insert(
         payload: MessagePayload,
         lifecycleState: MessageLifecycleState,
         isOrphaned: Boolean,
@@ -476,9 +476,9 @@ private class FakeMessageRepository : MessageRepository {
         return true
     }
 
-    override fun findById(messageId: Uuid): MessageRow? = byId[messageId]
+    override suspend fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
-    override fun findRoomTail(roomId: String): MessageRow? =
+    override suspend fun findRoomTail(roomId: String): MessageRow? =
         byId.values
             .filter { it.payload.roomId == roomId }
             .maxWithOrNull(
@@ -487,7 +487,7 @@ private class FakeMessageRepository : MessageRepository {
                     .thenBy { it.payload.messageId }
             )
 
-    override fun findMessagesInRoomPageDesc(
+    override suspend fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
         cursor: MessageCursor?,
@@ -515,7 +515,36 @@ private class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override fun findAllInRoom(roomId: String): List<MessageRow> =
+    override suspend fun findMessagesInRoomPageAsc(
+        roomId: String,
+        limit: Int,
+        cursor: MessageCursor?
+    ): List<MessageRow> {
+        val all = byId.values
+            .filter { it.payload.roomId == roomId }
+            .sortedWith(
+                compareBy<MessageRow> { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.lamportClock }
+                    .thenBy { it.payload.messageId }
+            )
+        val filtered = if (cursor == null) {
+            all
+        } else {
+            // Strictly NEWER than the cursor row (all three key sub-comparisons).
+            all.filter { row ->
+                val rowCreated = row.payload.createdAtEpochSeconds
+                val rowLamport = row.payload.lamportClock
+                val rowId = row.payload.messageId
+                rowCreated > cursor.createdAtEpochSeconds ||
+                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport > cursor.lamportClock) ||
+                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock &&
+                                cursor.messageId.let { rowId > it })
+            }
+        }
+        return filtered.take(limit)
+    }
+
+    override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
         byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
@@ -524,17 +553,17 @@ private class FakeMessageRepository : MessageRepository {
                     .thenByDescending { it.payload.messageId }
             )
 
-    override fun maxLamportInRoom(roomId: String): Long? =
+    override suspend fun maxLamportInRoom(roomId: String): Long? =
         byId.values
             .filter { it.payload.roomId == roomId }
             .maxOfOrNull { it.payload.lamportClock }
 
-    override fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
+    override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
+    override suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(lifecycleState = state)
     }
@@ -545,26 +574,26 @@ private class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<CausalHoldRow>()
 
-    override fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
+    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
         rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
+    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
         rows.filter { it.missingPrevId == missingPrevId }
 
-    override fun findByRoom(roomId: String): List<CausalHoldRow> =
+    override suspend fun findByRoom(roomId: String): List<CausalHoldRow> =
         // Mirror the SQL JOIN: causal_hold belongs to the room of its orphaned message.
         rows.filter { row ->
             messageRepo.findById(row.orphanedMessageId)?.payload?.roomId == roomId
         }
 
-    override fun findAll(): List<CausalHoldRow> = rows.toList()
+    override suspend fun findAll(): List<CausalHoldRow> = rows.toList()
 
-    override fun deleteByMissingPrevId(missingPrevId: Uuid) {
+    override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
         rows.removeAll { it.missingPrevId == missingPrevId }
     }
 
-    override fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
+    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
         rows.removeAll { it.orphanedMessageId == orphanedMessageId }
     }
 }
@@ -580,9 +609,9 @@ private class FakeIdentityResolver(
     override suspend fun getLocalDeviceId(): PeerId = localDeviceId
     override suspend fun getLocalAccountId(): AccountId = localAccountId
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
-    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
-    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
+    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
     override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")
     override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used")

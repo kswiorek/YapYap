@@ -44,17 +44,17 @@ internal class InMemoryIdentityKeyRepository(
     private val peersForAccount = mutableMapOf<String, MutableSet<String>>()
     private val torForDevice = mutableMapOf<String, TorEndpoint>()
 
-    override fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
+    override suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
         accounts[accountId.id]
 
-    override fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
+    override suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
         devices[deviceId.id]?.let { device ->
             val activeSpkId = activeSignedPreKeyByDevice[deviceId.id]
             val activeSpk = activeSpkId?.let { signedPreKeys[it] } ?: device.signedPreKey
             if (activeSpk == device.signedPreKey) device else device.copy(signedPreKey = activeSpk)
         }
 
-    override fun insertLocalDevice(
+    override suspend fun insertLocalDevice(
         accountId: AccountId,
         identity: DeviceIdentityRecord,
     ) {
@@ -73,14 +73,14 @@ internal class InMemoryIdentityKeyRepository(
         }
     }
 
-    override fun getLocalDeviceRecord(): DeviceIdentityRecord? = localDevice
-    override fun getLocalAccountRecord(): AccountIdentityRecord? = localAccount
+    override suspend fun getLocalDeviceRecord(): DeviceIdentityRecord? = localDevice
+    override suspend fun getLocalAccountRecord(): AccountIdentityRecord? = localAccount
 
     fun clearLocalDeviceRecord() {
         localDevice = null
     }
 
-    override fun insertPeerDevice(
+    override suspend fun insertPeerDevice(
         accountId: AccountId,
         deviceType: DeviceType,
         identity: DeviceIdentityRecord,
@@ -100,12 +100,12 @@ internal class InMemoryIdentityKeyRepository(
         }
     }
 
-    override fun insertLocalAccount(identity: AccountIdentityRecord) {
+    override suspend fun insertLocalAccount(identity: AccountIdentityRecord) {
         localAccount = identity
         accounts[identity.accountId.id] = identity
     }
 
-    override fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
+    override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
         val d = devices[deviceId.id] ?: return null
         return when (purpose) {
             IdentityKeyPurpose.SIGNING -> d.signing
@@ -121,11 +121,11 @@ internal class InMemoryIdentityKeyRepository(
         }
     }
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? =
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? =
         torForDevice[deviceId.id]
             ?: return null
 
-    override fun insertPeerAccount(
+    override suspend fun insertPeerAccount(
         identity: AccountIdentityRecord,
         admin: Boolean,
         status: AccountStatus,
@@ -134,26 +134,26 @@ internal class InMemoryIdentityKeyRepository(
         accounts[identity.accountId.id] = identity
     }
 
-    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersForAccount[accountId.id]?.map { PeerId(it) }?.sortedBy { it.id }.orEmpty()
 
-    override fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torForDevice[deviceId.id] = torEndpoint
     }
 
-    override fun getSignedPreKey(spkId: String): SignedPreKeyRecord = signedPreKeys[spkId]!!
+    override suspend fun getSignedPreKey(spkId: String): SignedPreKeyRecord = signedPreKeys[spkId]!!
 
-    override fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
+    override suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
         activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it]!! }
 
-    override fun insertSignedPreKey(spk: SignedPreKeyRecord) {
+    override suspend fun insertSignedPreKey(spk: SignedPreKeyRecord) {
         signedPreKeys[spk.keyId] = spk
         if (spk.isActive) {
             activeSignedPreKeyByDevice[spk.deviceId.id] = spk.keyId
         }
     }
 
-    override fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord) {
+    override suspend fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord) {
         val deviceId = spk.deviceId
         val existing = devices[deviceId.id] ?: error("Device not found: $deviceId")
         signedPreKeys.values

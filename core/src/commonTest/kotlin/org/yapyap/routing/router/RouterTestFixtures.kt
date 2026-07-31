@@ -27,6 +27,7 @@ import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.SessionOrTorPolicy
+import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.FixedEpochSecondsProvider
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -159,31 +160,38 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
         delegate.openSystem(envelope)
 }
 
+internal class FakeSyncPayloadProvider : SyncPayloadProvider{
+    override suspend fun getMessages(syncRequest: SystemPayload.SyncRequest): List<MessagePayload> {
+        error("not used in router transport tests")
+    }
+
+}
+
 
 internal class InMemoryPacketDeduplicator : PacketDeduplicator {
     private val seen = mutableSetOf<Pair<PeerId, Uuid>>()
     private val nackReasons = mutableMapOf<Pair<PeerId, Uuid>, PacketNackReason>()
 
-    override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
+    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         val key = sourceDeviceId to packetId
         return seen.add(key)
     }
 
-    override fun clearPacket(
+    override suspend fun clearPacket(
         packetId: Uuid,
         sourceDeviceId: PeerId
     ) {
         seen.remove(sourceDeviceId to packetId)
     }
 
-    override fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+    override suspend fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
         nackReasons[sourceDeviceId to packetId] = nackReason
     }
 
-    override fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
+    override suspend fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
         nackReasons[sourceDeviceId to packetId]
 
-    override fun prune(receivedBeforeEpochSeconds: Long) {
+    override suspend fun prune(receivedBeforeEpochSeconds: Long) {
         // No-op for router contract tests
     }
 }
@@ -193,14 +201,14 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
     val firstSeenResults = mutableListOf<Boolean>()
     val markNackedCalls = mutableListOf<Triple<Uuid, PeerId, PacketNackReason>>()
 
-    override fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
+    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
         firstSeenCalls.add(Triple(packetId, sourceDeviceId, receivedAtEpochSeconds))
         val result = delegate.firstSeen(packetId, sourceDeviceId, receivedAtEpochSeconds)
         firstSeenResults.add(result)
         return result
     }
 
-    override fun clearPacket(
+    override suspend fun clearPacket(
         packetId: Uuid,
         sourceDeviceId: PeerId
     ) {
@@ -210,15 +218,15 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
         )
     }
 
-    override fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
+    override suspend fun markNacked(packetId: Uuid, sourceDeviceId: PeerId, nackReason: PacketNackReason) {
         markNackedCalls.add(Triple(packetId, sourceDeviceId, nackReason))
         delegate.markNacked(packetId, sourceDeviceId, nackReason)
     }
 
-    override fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
+    override suspend fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
         delegate.getNackReason(packetId, sourceDeviceId)
 
-    override fun prune(receivedBeforeEpochSeconds: Long) {
+    override suspend fun prune(receivedBeforeEpochSeconds: Long) {
         delegate.prune(receivedBeforeEpochSeconds)
     }
 }
@@ -247,13 +255,13 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
         torByPeer[deviceId] ?: TorEndpoint(onionAddress = "missing.onion", port = 80)
 
-    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
-    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torUpdates.add(deviceId to torEndpoint)
         torByPeer[deviceId] = torEndpoint
     }
@@ -286,7 +294,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
     val recordAttemptCalls = mutableListOf<Triple<Uuid, Long, Long>>()
     val setDueForTargetCalls = mutableListOf<Pair<PeerId, Long>>()
 
-    override fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
+    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
         val blobSize = envelope.encode().size.toLong()
         entries[envelope.packetId] = StoredEntry(
             envelope = envelope,
@@ -299,12 +307,12 @@ internal class TrackingPacketOutbox : PacketOutbox {
         enqueued.add(envelope)
     }
 
-    override fun markDelivered(packetId: Uuid) {
+    override suspend fun markDelivered(packetId: Uuid) {
         markDeliveredCalls.add(packetId)
         entries.remove(packetId)
     }
 
-    override fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
+    override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
         setDueForTargetCalls.add(target to nextRetryAt)
         for (entry in entries.values) {
             if (entry.envelope.target == target && entry.nextRetryAt > nextRetryAt) {
@@ -313,36 +321,36 @@ internal class TrackingPacketOutbox : PacketOutbox {
         }
     }
 
-    override fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
+    override suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
         recordAttemptCalls.add(Triple(packetId, nextRetryAt, now))
         val entry = entries[packetId] ?: return
         entry.attempts += 1
         entry.nextRetryAt = nextRetryAt
     }
 
-    override fun listAllForTarget(target: PeerId): List<OutboxEntry> =
+    override suspend fun listAllForTarget(target: PeerId): List<OutboxEntry> =
         entries.values
             .filter { it.envelope.target == target }
             .map { it.toOutboxEntry() }
 
-    override fun listDue(now: Long): List<OutboxEntry> =
+    override suspend fun listDue(now: Long): List<OutboxEntry> =
         entries.values
             .filter { it.nextRetryAt <= now }
             .map { it.toOutboxEntry() }
 
-    override fun pruneExpired(now: Long): Int {
+    override suspend fun pruneExpired(now: Long): Int {
         val expiredKeys = entries.filterValues { it.expiresAtEpochSeconds <= now }.keys
         expiredKeys.forEach { entries.remove(it) }
         return expiredKeys.size
     }
 
-    override fun earliestPendingRetryAt(): Long? =
+    override suspend fun earliestPendingRetryAt(): Long? =
         entries.values.minOfOrNull { it.nextRetryAt }
 
-    override fun relayCacheBytes(): Long =
+    override suspend fun relayCacheBytes(): Long =
         entries.values.filter { it.relayMessage }.sumOf { it.blobSize }
 
-    override fun pruneRelayOverCapacity(maxBytes: Long): Int {
+    override suspend fun pruneRelayOverCapacity(maxBytes: Long): Int {
         var evicted = 0
         while (relayCacheBytes() > maxBytes) {
             val victim = entries.values
@@ -400,13 +408,13 @@ internal class E2eeIdentityResolverForRouter(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         peers[deviceId]?.device ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
         torByPeer[deviceId] ?: TorEndpoint(onionAddress = "missing.onion", port = 80)
 
-    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
-    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torUpdates.add(deviceId to torEndpoint)
         torByPeer[deviceId] = torEndpoint
     }
@@ -495,6 +503,7 @@ internal fun e2eeRouterUnderTest(
     outbox: PacketOutbox = TrackingPacketOutbox(),
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
+    syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -505,6 +514,7 @@ internal fun e2eeRouterUnderTest(
         envelopeProtectionService = stack.protection,
         timeProvider = time,
         routerConfig = routerConfig,
+        syncPayloadProvider = syncPayloadProvider,
     )
 
 internal fun outboxProcessorUnderTest(
@@ -543,6 +553,7 @@ internal fun defaultRouterUnderTest(
     time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
+    syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -553,4 +564,5 @@ internal fun defaultRouterUnderTest(
         envelopeProtectionService = envelopeProtectionService,
         timeProvider = time,
         routerConfig = routerConfig,
+        syncPayloadProvider = syncPayloadProvider,
     )

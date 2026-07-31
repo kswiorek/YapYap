@@ -19,11 +19,11 @@ interface IdentityResolver {
 
     suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord
 
-    fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint
+    suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint
 
-    fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
+    suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
 
-    fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
+    suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
     suspend fun resolvePeerX3dhRemoteKeys(
         deviceId: PeerId,

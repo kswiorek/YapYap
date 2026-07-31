@@ -259,7 +259,7 @@ class DefaultIdentityResolver(
         return device
     }
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint {
         val torEndpoint = publicKeyRepository.resolveTorEndpointForDevice(deviceId)
 
         if (torEndpoint == null) {
@@ -276,11 +276,11 @@ class DefaultIdentityResolver(
         return torEndpoint
     }
 
-    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> {
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> {
         return publicKeyRepository.getAllPeerDevicesForAccount(accountId)
     }
 
-    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         publicKeyRepository.upsertPeerTorEndpoint(deviceId, torEndpoint)
     }
 

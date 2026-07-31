@@ -41,7 +41,7 @@ internal class OutboxRetryLoop(
             }
     }
 
-    private fun computeSleepSeconds(): Long {
+    private suspend fun computeSleepSeconds(): Long {
         val now = time.nowEpochSeconds()
         val next = outbox.earliestPendingRetryAt() ?: return maxIdlePollSeconds
         return (next - now).coerceAtLeast(0).coerceAtMost(maxIdlePollSeconds)

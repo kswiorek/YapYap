@@ -7,35 +7,35 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 
 interface IdentityKeyRepository {
-    fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
+    suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
 
-    fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord?
+    suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord?
 
-    fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord)
+    suspend fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord)
 
-    fun getLocalDeviceRecord(): DeviceIdentityRecord?
+    suspend fun getLocalDeviceRecord(): DeviceIdentityRecord?
 
-    fun getLocalAccountRecord(): AccountIdentityRecord?
+    suspend fun getLocalAccountRecord(): AccountIdentityRecord?
 
-    fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
+    suspend fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
-    fun insertLocalAccount(identity: AccountIdentityRecord)
+    suspend fun insertLocalAccount(identity: AccountIdentityRecord)
 
-    fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
+    suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
 
-    fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint?
+    suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint?
 
-    fun insertPeerAccount(identity: AccountIdentityRecord, admin: Boolean, status: AccountStatus, displayName: String)
+    suspend fun insertPeerAccount(identity: AccountIdentityRecord, admin: Boolean, status: AccountStatus, displayName: String)
 
-    fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
+    suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
 
-    fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
+    suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
-    fun getSignedPreKey(spkId: String): SignedPreKeyRecord?
+    suspend fun getSignedPreKey(spkId: String): SignedPreKeyRecord?
 
-    fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord?
+    suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord?
 
-    fun insertSignedPreKey(spk: SignedPreKeyRecord)
+    suspend fun insertSignedPreKey(spk: SignedPreKeyRecord)
 
-    fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord)
+    suspend fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord)
 }

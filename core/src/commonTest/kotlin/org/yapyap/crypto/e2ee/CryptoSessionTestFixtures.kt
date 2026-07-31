@@ -43,13 +43,13 @@ internal class TestIdentityResolver(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         peers[deviceId]?.device ?: error("Missing peer identity record for deviceId=$deviceId")
 
-    override fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
         TorEndpoint(onionAddress = "peer.onion", port = 80)
 
-    override fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
+    override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         error("not used in crypto session tests")
 
-    override fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
+    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
         error("not used in crypto session tests")
 
     override suspend fun resolvePeerX3dhRemoteKeys(

@@ -87,7 +87,7 @@ class OutboxRetryLoopTest {
         assertTrue(calls >= 2, "expected loop to wake near earliest retry time, calls=$calls")
     }
 
-    private fun seedFutureOutboxEntry(outbox: TrackingPacketOutbox, nextRetryAt: Long) {
+    private suspend fun seedFutureOutboxEntry(outbox: TrackingPacketOutbox, nextRetryAt: Long) {
         outbox.enqueue(
             envelope = BinaryEnvelope(
                 packetId = Uuid.random(),

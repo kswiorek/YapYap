@@ -135,7 +135,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
         assertEquals(null, fixture.store.loadOffered(opk.keyId))
     }
 
-    private fun openStore(
+    private suspend fun openStore(
         nowEpochSeconds: Long = 0L,
         timeProvider: EpochSecondsProvider = MutableEpochSecondsProvider(nowEpochSeconds),
     ): StoreFixture {

@@ -47,6 +47,9 @@ val webrtcNativeClassifier: String? = run {
 }
 
 kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
     if (enableAndroid) {
         androidTarget {
             compilerOptions {

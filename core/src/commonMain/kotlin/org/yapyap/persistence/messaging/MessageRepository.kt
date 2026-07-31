@@ -1,7 +1,10 @@
-package org.yapyap.persistence.messaging
+﻿package org.yapyap.persistence.messaging
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.MessageLifecycleState
+import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.uuid.Uuid
 
@@ -18,7 +21,7 @@ data class MessageRow(
 /**
  * Composite cursor for stable pagination of room messages.
  *
- * Display ordering is `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` — a total
+ * Display ordering is `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` â€” a total
  * order with no ties, so pagination is stable across live inserts and reloads. The cursor captures
  * the oldest row of the currently-loaded window so the next page begins strictly below it.
  */
@@ -32,46 +35,47 @@ interface MessageRepository {
 
     //TODO Make all suspends
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
-    fun insert(payload: MessagePayload, lifecycleState: MessageLifecycleState, isOrphaned: Boolean): Boolean
+    suspend fun insert(payload: MessagePayload, lifecycleState: MessageLifecycleState, isOrphaned: Boolean): Boolean
 
-    fun findById(messageId: Uuid): MessageRow?
+    suspend fun findById(messageId: Uuid): MessageRow?
 
     /** Highest-lamport message in the room; tie-break by createdAt DESC, messageId DESC. Null if room is empty. */
-    fun findRoomTail(roomId: String): MessageRow?
+    suspend fun findRoomTail(roomId: String): MessageRow?
 
-    fun findMessagesInRoomPageDesc(
+    suspend fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow>
 
-    fun findMessagesInRoomPageAsc(
+    suspend fun findMessagesInRoomPageAsc(
         roomId: String,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow>
 
-    fun findAllInRoom(roomId: String): List<MessageRow>
+    suspend fun findAllInRoom(roomId: String): List<MessageRow>
 
-    /** Max lamport_clock in the room (null if empty) — used to reconstruct rooms.local_seq_n on boot. */
-    fun maxLamportInRoom(roomId: String): Long?
+    /** Max lamport_clock in the room (null if empty) â€” used to reconstruct rooms.local_seq_n on boot. */
+    suspend fun maxLamportInRoom(roomId: String): Long?
 
-    fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
+    suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
 
-    fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState)
+    suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState)
 }
 
 class DefaultMessageRepository(
     private val database: YapYapDatabase,
+    private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : MessageRepository {
     //TODO add logging
     private val queries = database.messageQueries
 
-    override fun insert(
+    override suspend fun insert(
         payload: MessagePayload,
         lifecycleState: MessageLifecycleState,
         isOrphaned: Boolean,
-    ): Boolean {
+    ): Boolean = withContext(dbDispatcher) {
         queries.insertMessage(
             message_id = payload.messageId,
             room_id = payload.roomId,
@@ -85,53 +89,69 @@ class DefaultMessageRepository(
             lifecycle_state = lifecycleState,
             is_orphaned = isOrphaned,
         )
-        return queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
+        queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
     }
 
-    override fun findById(messageId: Uuid): MessageRow? =
-        queries.selectMessageById(messageId).executeAsOneOrNull()?.toRow()
+    override suspend fun findById(messageId: Uuid): MessageRow? =
+        withContext(dbDispatcher) {
+            queries.selectMessageById(messageId).executeAsOneOrNull()?.toRow()
+        }
 
-    override fun findRoomTail(roomId: String): MessageRow? =
-        queries.selectRoomTail(roomId).executeAsOneOrNull()?.toRow()
+    override suspend fun findRoomTail(roomId: String): MessageRow? =
+        withContext(dbDispatcher) {
+            queries.selectRoomTail(roomId).executeAsOneOrNull()?.toRow()
+        }
 
-    override fun findMessagesInRoomPageDesc(
+    override suspend fun findMessagesInRoomPageDesc(
         roomId: String,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow> =
-        queries.selectMessagesInRoomPageDesc(
-            roomId = roomId,
-            cursorCreated = cursor?.createdAtEpochSeconds,
-            cursorLamport = cursor?.lamportClock,
-            cursorMessageId = cursor?.messageId,
-            limit = limit.toLong(),
-        ).executeAsList().map { it.toRow() }
+        withContext(dbDispatcher) {
+            queries.selectMessagesInRoomPageDesc(
+                roomId = roomId,
+                cursorCreated = cursor?.createdAtEpochSeconds,
+                cursorLamport = cursor?.lamportClock,
+                cursorMessageId = cursor?.messageId,
+                limit = limit.toLong(),
+            ).executeAsList().map { it.toRow() }
+        }
 
-    override fun findMessagesInRoomPageAsc(
+    override suspend fun findMessagesInRoomPageAsc(
         roomId: String,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow> =
-        queries.selectMessagesInRoomPageAsc(
-            roomId = roomId,
-            cursorCreated = cursor?.createdAtEpochSeconds,
-            cursorLamport = cursor?.lamportClock,
-            cursorMessageId = cursor?.messageId,
-            limit = limit.toLong(),
-        ).executeAsList().map { it.toRow() }
+        withContext(dbDispatcher) {
+            queries.selectMessagesInRoomPageAsc(
+                roomId = roomId,
+                cursorCreated = cursor?.createdAtEpochSeconds,
+                cursorLamport = cursor?.lamportClock,
+                cursorMessageId = cursor?.messageId,
+                limit = limit.toLong(),
+            ).executeAsList().map { it.toRow() }
+        }
 
-    override fun findAllInRoom(roomId: String): List<MessageRow> =
-        queries.selectAllMessagesInRoom(roomId).executeAsList().map { it.toRow() }
+    override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
+        withContext(dbDispatcher) {
+            queries.selectAllMessagesInRoom(roomId).executeAsList().map { it.toRow() }
+        }
 
-    override fun maxLamportInRoom(roomId: String): Long? =
-        queries.selectMaxLamportInRoom(roomId).executeAsOne().MAX
+    override suspend fun maxLamportInRoom(roomId: String): Long? =
+        withContext(dbDispatcher) {
+            queries.selectMaxLamportInRoom(roomId).executeAsOne().MAX
+        }
 
-    override fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
-        queries.updateMessageOrphanedFlag(isOrphaned, messageId)
+    override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
+        withContext(dbDispatcher) {
+            queries.updateMessageOrphanedFlag(isOrphaned, messageId)
+        }
     }
 
-    override fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
-        queries.updateMessageLifecycleState(state, messageId)
+    override suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
+        withContext(dbDispatcher) {
+            queries.updateMessageLifecycleState(state, messageId)
+        }
     }
 
     private fun org.yapyap.persistence.Messages.toRow(): MessageRow {
