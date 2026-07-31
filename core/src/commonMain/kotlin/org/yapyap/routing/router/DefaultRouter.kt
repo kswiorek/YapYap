@@ -12,11 +12,11 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.AckResponder
@@ -28,10 +28,12 @@ import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
+import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
+import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.time.EpochSecondsProvider
 import org.yapyap.time.SystemEpochSecondsProvider
 import org.yapyap.transport.tor.transport.TorTransport
@@ -45,6 +47,7 @@ class DefaultRouter(
     val identityResolver: IdentityResolver,
     val packetDeduplicator: PacketDeduplicator,
     val packetOutbox: PacketOutbox,
+    val syncRepository: PendingSyncRepository,
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
     val routerConfig: RouterConfig,
@@ -68,8 +71,9 @@ class DefaultRouter(
         dispatcher = envelopeDispatcher,
         transportPolicy = transportPolicy,
         packetOutbox = packetOutbox,
-        maxIdlePollSeconds = routerConfig.outboxMaxIdlePollSeconds,
+        maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
     )
+
     private val outboundMessenger = OutboundMessenger(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
@@ -81,6 +85,7 @@ class DefaultRouter(
         dispatcher = envelopeDispatcher,
     )
     private val syncHandler = SyncHandler(outboundMessenger, syncPayloadProvider)
+    private val peerAvailabilityRegistry = PeerAvailabilityRegistry()
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         ackResponder = ackResponder,
@@ -92,6 +97,18 @@ class DefaultRouter(
         systemHandler = SystemInboundHandler(ctx = routingContext),
         outboxProcessor = outboxProcessor,
         syncHandler = syncHandler,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+    )
+
+    private val peerPolicy = DefaultSyncPeerPolicy(peerAvailabilityRegistry)
+
+    private val syncProcessor = SyncRetryProcessor(
+        ctx = routingContext,
+        pendingSyncs = syncRepository,
+        syncHandler = syncHandler,
+        peerPolicy = peerPolicy,
+        time = timeProvider,
+        maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
     )
 
     private var started = false
@@ -104,6 +121,7 @@ class DefaultRouter(
     private var webRtcOutgoingJob: Job? = null
     private var webRtcSessionJob: Job? = null
     private var outboxRetryJob: Job? = null
+    private var syncRetryJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
@@ -179,6 +197,8 @@ class DefaultRouter(
         outboxRetryJob = outboxProcessor.runIn(s)
         outboxProcessor.pruneRelayOverCapacityOnBoot()
 
+        syncRetryJob = syncProcessor.runIn(s)
+
         AppLog.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STARTED,
@@ -225,13 +245,6 @@ class DefaultRouter(
     ): SendMessageResult {
         check(started) { "Router must be started before sending messages" }
         return outboundMessenger.sendMessage(target, payload, forceTransport)
-    }
-
-    override suspend fun requestSync(
-        syncRequest: SystemPayload.SyncRequest,
-        candidateAccounts: List<AccountId>
-    ) {
-        TODO("Not yet implemented")
     }
 
     suspend fun testOpenWebRtcSession(target: PeerId) {

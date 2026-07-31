@@ -12,15 +12,6 @@ CREATE TABLE spaces (
     avatar_url TEXT
 );
 
-CREATE TABLE pending_syncs (
-    sync_id TEXT NOT NULL PRIMARY KEY,
-    room_id TEXT NOT NULL,
-    target_device_id TEXT NOT NULL,
-    missing_ancestor_of TEXT NOT NULL,
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
-);
-
 CREATE TABLE file_transfers (
     transfer_id TEXT NOT NULL PRIMARY KEY,
     message_id TEXT NOT NULL,

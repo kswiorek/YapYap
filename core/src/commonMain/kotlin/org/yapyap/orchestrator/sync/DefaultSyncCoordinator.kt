@@ -8,6 +8,7 @@ import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.RoomMembershipRepository
+import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.router.Router
 import kotlin.concurrent.Volatile
@@ -18,6 +19,7 @@ class DefaultSyncCoordinator(
     private val pipeline: InboundMessagePipeline,
     private val roomMembershipRepository: RoomMembershipRepository,
     private val identityResolver: IdentityResolver,
+    private val pendingSyncRepository: PendingSyncRepository,
 ): SyncCoordinator {
 
     @Volatile
@@ -29,7 +31,11 @@ class DefaultSyncCoordinator(
         serviceScope = scope
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
-                if (result is IngestResult.BecameOrphan) processOrphan(result)
+                when (result) {
+                    is IngestResult.BecameOrphan -> processOrphan(result)       // INSERT intent
+                    is IngestResult.Inserted -> if (result.closedGapMissingPrevIds.isNotEmpty())
+                        pendingSyncRepository.deleteByMissingAncestorIds(result.closedGapMissingPrevIds)
+                }
             }
         }
 
@@ -50,6 +56,6 @@ class DefaultSyncCoordinator(
             orphanedMessageId = result.payload.messageId,
             maxMessages = 16,
         )
-        router.requestSync(syncRequest, candidateAccounts)
+        pendingSyncRepository.insertSync(syncRequest, candidateAccounts)
     }
 }

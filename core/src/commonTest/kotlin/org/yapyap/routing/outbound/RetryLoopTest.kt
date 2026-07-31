@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.time.FixedEpochSecondsProvider
 import kotlin.test.Test
@@ -11,7 +12,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
-class OutboxRetryLoopTest {
+class RetryLoopTest {
 
     private val targetPeer =
         PeerId("outboxlooptargetcccccccccccccccccccccccccccccccccccccccccccccccccc")
@@ -20,8 +21,8 @@ class OutboxRetryLoopTest {
     fun runIn_processDueFailure_doesNotStopLoop() = runBlocking {
         var calls = 0
         val outbox = TrackingPacketOutbox()
-        val loop = OutboxRetryLoop(
-            outbox = outbox,
+        val loop = RetryLoop(
+            earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochSecondsProvider(1_000L),
             processDue = {
                 calls++
@@ -47,8 +48,8 @@ class OutboxRetryLoopTest {
         val outbox = TrackingPacketOutbox()
         seedFutureOutboxEntry(outbox, nextRetryAt = 99_999L)
 
-        val loop = OutboxRetryLoop(
-            outbox = outbox,
+        val loop = RetryLoop(
+            earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochSecondsProvider(1_000L),
             processDue = { calls++ },
             maxIdlePollSeconds = 60,
@@ -71,8 +72,8 @@ class OutboxRetryLoopTest {
         val outbox = TrackingPacketOutbox()
         seedFutureOutboxEntry(outbox, nextRetryAt = 1_003L)
 
-        val loop = OutboxRetryLoop(
-            outbox = outbox,
+        val loop = RetryLoop(
+            earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochSecondsProvider(1_000L),
             processDue = { calls++ },
             maxIdlePollSeconds = 60,

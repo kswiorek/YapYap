@@ -26,4 +26,9 @@ internal class SyncHandler(
             outboundMessenger.sendMessageToPeer(sourceDevice, msg, forceTransport = null)
         }
     }
+
+    suspend fun sendSyncRequest(target: PeerId, request: SyncRequest) { //Possibly returns outcome
+        // mirror AckResponder.sendSystemEnvelope: protectSystem -> BinaryEnvelope(SYSTEM) -> dispatch
+        // securityScheme = SIGNED (sync requests are routing-level, like ACKs)
+    }
 }

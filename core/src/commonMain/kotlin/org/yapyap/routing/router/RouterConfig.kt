@@ -7,7 +7,7 @@ data class RouterConfig(
     val torRetryDelaySeconds: Long = 60,
     val webRtcRetryDelaySeconds: Long = 10,
     val standbyRetryDelaySeconds: Long = 3600,
-    val outboxMaxIdlePollSeconds: Long = 60,
+    val retryLoopMaxIdlePollSeconds: Long = 60,
     val outboxMaxSizeBytes: Long = 1024 * 1024 * 10,
 ) {
     init {
@@ -16,7 +16,7 @@ data class RouterConfig(
         require(torRetryDelaySeconds > 0) { "torRetryDelaySeconds must be > 0" }
         require(webRtcRetryDelaySeconds > 0) { "webRtcRetryDelaySeconds must be > 0" }
         require(standbyRetryDelaySeconds > 0) { "standbyRetryDelaySeconds must be > 0" }
-        require(outboxMaxIdlePollSeconds > 0) { "outboxMaxIdlePollSeconds must be > 0" }
+        require(retryLoopMaxIdlePollSeconds > 0) { "outboxMaxIdlePollSeconds must be > 0" }
         require(ackLifetimeSeconds > 0) { "ackLifetimeSeconds must be > 0" }
         require(outboxMaxSizeBytes > 0) { "outboxMaxSizeBytes must be > 0" }
     }

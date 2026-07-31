@@ -245,7 +245,7 @@ class DefaultRouterOutboxTest {
             identity = identity,
             outbox = outbox,
             time = FixedEpochSecondsProvider(10_000L),
-            routerConfig = RouterConfig(outboxMaxIdlePollSeconds = 1),
+            routerConfig = RouterConfig(retryLoopMaxIdlePollSeconds = 1),
         )
     }
 

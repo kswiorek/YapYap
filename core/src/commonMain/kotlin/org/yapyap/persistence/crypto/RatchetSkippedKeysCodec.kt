@@ -6,7 +6,7 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 
 internal object RatchetSkippedKeysCodec {
-
+    //TODO remove codec, add table
     fun encode(skipped: Map<RatchetSkippedKeyId, ByteArray>): ByteArray {
         val writer = ByteWriter(4 + skipped.size * 32)
         writer.writeInt(skipped.size)

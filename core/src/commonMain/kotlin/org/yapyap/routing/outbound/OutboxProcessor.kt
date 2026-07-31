@@ -10,6 +10,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
+import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
@@ -21,8 +22,8 @@ internal class OutboxProcessor(
     private val packetOutbox: PacketOutbox,
     maxIdlePollSeconds: Long,
 ) {
-    private val retryLoop = OutboxRetryLoop(
-        outbox = packetOutbox,
+    private val retryLoop = RetryLoop(
+        earliestPendingRetryAt = { packetOutbox.earliestPendingRetryAt() },
         time = ctx.timeProvider,
         processDue = { processDue() },
         maxIdlePollSeconds = maxIdlePollSeconds,

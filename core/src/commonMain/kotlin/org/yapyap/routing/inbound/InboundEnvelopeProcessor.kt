@@ -8,10 +8,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.router.InboundHandleResult
-import org.yapyap.routing.router.RouterTransport
-import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.SystemInboundResult
+import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
@@ -22,7 +19,8 @@ internal class InboundEnvelopeProcessor(
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
     private val systemHandler: SystemInboundHandler,
     private val outboxProcessor: OutboxProcessor,
-    private val syncHandler: SyncHandler
+    private val syncHandler: SyncHandler,
+    private val peerAvailabilityRegistry: PeerAvailabilityRegistry
 ) {
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
         if (inbound.source != ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)) {
@@ -40,7 +38,7 @@ internal class InboundEnvelopeProcessor(
 
     suspend fun handle(inbound: BinaryEnvelope, transport: RouterTransport) {
         val receivedAtEpochSeconds = ctx.timeProvider.nowEpochSeconds()
-
+        peerAvailabilityRegistry.markReachable(inbound.source, receivedAtEpochSeconds)
         if (!ctx.packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
                 sourceDeviceId = inbound.source,
