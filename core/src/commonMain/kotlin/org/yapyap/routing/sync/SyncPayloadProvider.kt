@@ -36,10 +36,10 @@ class DefaultSyncPayloadProvider(
 
     private suspend fun getPayloadsForRange(syncRequest: SyncRequest.RangeSyncRequest): List<MessagePayload>{
         val maxMessages = if (syncRequest.maxMessages > 16) 16 else syncRequest.maxMessages
-        val messages = messageRepository.findMessagesInRoomPageAsc(
+        val messages = messageRepository.findMessagesInRoomAfterLamport(
             syncRequest.roomId,
             maxMessages,
-            syncRequest.sinceCursor)
+            syncRequest.sinceLamport)
         return messages.map { it.payload }
     }
 

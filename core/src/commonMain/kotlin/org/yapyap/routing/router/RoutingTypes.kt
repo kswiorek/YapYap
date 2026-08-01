@@ -47,6 +47,7 @@ internal sealed interface SystemInboundResult {
     data object Ignored : SystemInboundResult
     data class RemoveFromOutbox(val packetId: Uuid) : SystemInboundResult
     data class SyncRequested(val peerId: PeerId, val sync: SyncRequest) : SystemInboundResult
+    data class MarkPeerAttempted(val peerId: PeerId, val syncId: Uuid) : SystemInboundResult
 }
 
 internal sealed interface PeerSendOutcome {

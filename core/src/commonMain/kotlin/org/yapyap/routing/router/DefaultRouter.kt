@@ -19,7 +19,6 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.inbound.AckResponder
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.inbound.handlers.MessageInboundHandler
@@ -27,6 +26,7 @@ import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.OutboundPolicy
@@ -64,7 +64,10 @@ class DefaultRouter(
         routerConfig = routerConfig,
     )
     private val envelopeDispatcher = EnvelopeDispatcher(routingContext)
-    private val ackResponder = AckResponder(routingContext, envelopeDispatcher)
+    private val systemSender = SystemSender(
+        routingContext,
+        transportPolicy,
+        envelopeDispatcher)
     private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
@@ -84,11 +87,15 @@ class DefaultRouter(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
     )
-    private val syncHandler = SyncHandler(outboundMessenger, syncPayloadProvider)
+    private val syncHandler = SyncHandler(
+        outboundMessenger,
+        syncPayloadProvider,
+        syncRepository,
+        systemSender)
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry()
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
-        ackResponder = ackResponder,
+        systemSender = systemSender,
         handlers = mapOf(
             PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
@@ -105,8 +112,9 @@ class DefaultRouter(
     private val syncProcessor = SyncRetryProcessor(
         ctx = routingContext,
         pendingSyncs = syncRepository,
-        syncHandler = syncHandler,
+        systemSender = systemSender,
         peerPolicy = peerPolicy,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
         time = timeProvider,
         maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
     )

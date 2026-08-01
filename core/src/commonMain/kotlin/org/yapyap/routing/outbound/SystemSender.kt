@@ -1,4 +1,4 @@
-package org.yapyap.routing.inbound
+package org.yapyap.routing.outbound
 
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -9,14 +9,17 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
+import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
 
-internal class AckResponder(
+internal class SystemSender(
     private val ctx: RoutingContext,
+    private val transportPolicy: OutboundPolicy,
     private val dispatcher: EnvelopeDispatcher,
 ) {
     suspend fun sendDispositionForDuplicate(
@@ -106,6 +109,35 @@ internal class AckResponder(
                 "reason" to reason,
             ),
         )
+    }
+
+    suspend fun sendSyncRequest(target: PeerId, request: SyncRequest) { //Possibly returns outcome
+        val context = EnvelopeProtectContext(
+            sourceDeviceId = ctx.localDeviceId,
+            targetDeviceId = target,
+            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+        )
+        val transport = transportPolicy.resolve(
+            target,
+            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
+            retries = 0).transport
+        sendSystemEnvelope(request, transport, context)
+    }
+
+    suspend fun sendSyncNack(target: PeerId, payload: SystemPayload.SyncNack) {
+        val context = EnvelopeProtectContext(
+            sourceDeviceId = ctx.localDeviceId,
+            targetDeviceId = target,
+            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+        )
+        val transport = transportPolicy.resolve(
+            target,
+            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
+            retries = 0
+        ).transport
+        sendSystemEnvelope(payload, transport, context)
     }
 
     private suspend fun sendSystemEnvelope(

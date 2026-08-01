@@ -35,13 +35,6 @@ enum class MessagePayloadType(val wireValue: Byte) {
     }
 }
 
-enum class MessageLifecycleState {
-    CREATED,
-    SENT,
-    ACKED,
-    ARCHIVED,
-}
-
 enum class FileTransferStatus {
     IN_FLIGHT,
     PAUSED,

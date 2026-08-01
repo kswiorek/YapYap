@@ -1,10 +1,5 @@
-import kotlin.Boolean;
 import org.yapyap.persistence.db.FileChunkStatus;
 import org.yapyap.persistence.db.FileTransferStatus;
-import org.yapyap.persistence.db.MessageLifecycleState;
-import org.yapyap.persistence.db.MessagePayloadType;
-import org.yapyap.persistence.db.RoomMemberRole;
-import org.yapyap.persistence.db.RoomType;
 
 CREATE TABLE spaces (
     space_id TEXT NOT NULL PRIMARY KEY,
@@ -35,7 +30,6 @@ CREATE TABLE file_chunk_tracker (
     FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
 );
 
-CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
-CREATE INDEX pending_syncs_device_idx ON pending_syncs(target_device_id);
+
 CREATE INDEX file_transfers_message_idx ON file_transfers(message_id);
 CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status);

@@ -41,7 +41,7 @@ class DefaultMessagingServiceTest {
     private lateinit var identityResolver: FakeIdentityResolver
     private lateinit var timeProvider: MutableEpochSecondsProvider
     private lateinit var router: RecordingRouter
-    private lateinit var roomMembershipRepo: FakeRoomMembershipRepository
+    private lateinit var roomMembershipRepo: FakeRoomRepository
 
     private val localAccount = AccountId("msg-local-account")
     private val remoteAccount = AccountId("msg-remote-account")
@@ -61,7 +61,7 @@ class DefaultMessagingServiceTest {
             signatureProvider = FakeSignatureProvider(),
         )
         router = RecordingRouter()
-        roomMembershipRepo = FakeRoomMembershipRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
+        roomMembershipRepo = FakeRoomRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
     }
 
     private fun startStack(
@@ -84,7 +84,7 @@ class DefaultMessagingServiceTest {
         dagEngine = dagEngine,
         router = router,
         pipeline = pipeline,
-        roomMembershipRepository = roomMembershipRepo,
+        roomRepository = roomMembershipRepo,
         identityResolver = identityResolver,
         timeProvider = timeProvider,
     )
@@ -454,9 +454,9 @@ private class MutableEpochSecondsProvider(var t: Long) : EpochSecondsProvider {
     override fun nowEpochSeconds(): Long = t
 }
 
-private class FakeRoomMembershipRepository(
+private class FakeRoomRepository(
     val members: MutableMap<String, List<AccountId>>,
-) : RoomMembershipRepository {
+) : RoomRepository {
     override suspend fun membersOfRoom(roomId: String): List<AccountId> = members[roomId] ?: emptyList()
 }
 

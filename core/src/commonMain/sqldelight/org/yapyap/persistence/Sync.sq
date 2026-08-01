@@ -1,18 +1,77 @@
 import kotlin.uuid.Uuid;
+import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.protocol.PeerId;
 import org.yapyap.protocol.envelopes.SyncRequestKind;
 
 CREATE TABLE pending_syncs(
-    sync_id TEXT AS Uuid PRIMARY KEY,
+    sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
-    sync_request_kind TEXT AS SyncRequestKind NOT NULL,        -- GAP | RANGE
-    request_payload BLOB NOT NULL,           -- encoded SyncRequest bytes
-    missing_ancestor_of TEXT AS Uuid,                -- nullable; GAP only, for fulfillment matching
-    candidate_accounts TEXT NOT NULL,        -- JSON/CSV of AccountId (coordinator's input)
-    status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | IN_FLIGHT | FULFILLED | ABANDONED
+    request_payload BLOB NOT NULL,          -- encoded SyncRequest bytes
+    sync_request_kind TEXT AS SyncRequestKind NOT NULL,
+    missing_ancestor_of TEXT AS Uuid,       -- for gap syncs: the orphanedMessageId (null for range)
     attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at INTEGER NOT NULL,        -- epoch seconds; drives the loop
-    target_device_id TEXT AS PeerId,                    -- nullable; set by loop during IN_FLIGHT
-    created_at INTEGER NOT NULL,
+    next_attempt_at INTEGER NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id)
 );
+
+CREATE TABLE pending_sync_candidate_accounts(
+    sync_id TEXT AS Uuid NOT NULL,
+    account_id TEXT AS AccountId NOT NULL,
+    PRIMARY KEY (sync_id, account_id),
+    FOREIGN KEY (sync_id) REFERENCES pending_syncs(sync_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pending_sync_attempted_peers(
+    sync_id TEXT AS Uuid NOT NULL,
+    device_id TEXT AS PeerId NOT NULL,
+    PRIMARY KEY (sync_id, device_id),
+    FOREIGN KEY (sync_id) REFERENCES pending_syncs(sync_id) ON DELETE CASCADE
+);
+
+insertPendingSync:
+INSERT INTO pending_syncs (sync_id, room_id, request_payload, sync_request_kind, missing_ancestor_of, attempts, next_attempt_at)
+VALUES (?, ?, ?, ?, ?, 0, ?);
+
+insertPendingSyncCandidateAccount:
+INSERT OR IGNORE INTO pending_sync_candidate_accounts (sync_id, account_id)
+VALUES (?, ?);
+
+deleteByMissingAncestorIds:
+DELETE FROM pending_syncs WHERE missing_ancestor_of IN ?;
+
+selectEarliestDueAt:
+SELECT MIN(next_attempt_at) FROM pending_syncs;
+
+selectDueSyncs:
+SELECT * FROM pending_syncs WHERE next_attempt_at <= ? LIMIT ?;
+
+selectCandidateAccountsForSync:
+SELECT account_id FROM pending_sync_candidate_accounts WHERE sync_id = ?;
+
+selectAttemptedPeersForSync:
+SELECT device_id FROM pending_sync_attempted_peers WHERE sync_id = ?;
+
+recordAttempt:
+UPDATE pending_syncs SET attempts = attempts + 1, next_attempt_at = ? WHERE sync_id = ?;
+
+updateNextAttemptAt:
+UPDATE pending_syncs SET next_attempt_at = ? WHERE sync_id = ?;
+
+insertAttemptedPeer:
+INSERT OR IGNORE INTO pending_sync_attempted_peers (sync_id, device_id) VALUES (?, ?);
+
+accelerateForOnlinePeer:
+UPDATE pending_syncs
+SET next_attempt_at = :now
+WHERE next_attempt_at > :now
+  AND sync_id IN (
+    SELECT psca.sync_id
+    FROM pending_sync_candidate_accounts psca
+    JOIN devices d ON d.account_id = psca.account_id
+    WHERE d.device_id = :deviceId
+  );
+
+CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
+CREATE INDEX pending_syncs_due_idx ON pending_syncs(next_attempt_at);
+CREATE INDEX pending_syncs_ancestor_idx ON pending_syncs(missing_ancestor_of);
+CREATE INDEX pending_sync_attempted_peers_device_idx ON pending_sync_attempted_peers(device_id);

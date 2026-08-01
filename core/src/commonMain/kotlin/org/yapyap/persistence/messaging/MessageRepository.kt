@@ -3,7 +3,6 @@
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.uuid.Uuid
@@ -14,7 +13,6 @@ import kotlin.uuid.Uuid
  */
 data class MessageRow(
     val payload: MessagePayload,
-    val lifecycleState: MessageLifecycleState,
     val isOrphaned: Boolean,
 )
 
@@ -35,7 +33,7 @@ interface MessageRepository {
 
     //TODO Make all suspends
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
-    suspend fun insert(payload: MessagePayload, lifecycleState: MessageLifecycleState, isOrphaned: Boolean): Boolean
+    suspend fun insert(payload: MessagePayload, isOrphaned: Boolean): Boolean
 
     suspend fun findById(messageId: Uuid): MessageRow?
 
@@ -48,10 +46,10 @@ interface MessageRepository {
         cursor: MessageCursor?
     ): List<MessageRow>
 
-    suspend fun findMessagesInRoomPageAsc(
+    suspend fun findMessagesInRoomAfterLamport(
         roomId: String,
         limit: Int,
-        cursor: MessageCursor?
+        lamportClock: Long,
     ): List<MessageRow>
 
     suspend fun findAllInRoom(roomId: String): List<MessageRow>
@@ -60,8 +58,6 @@ interface MessageRepository {
     suspend fun maxLamportInRoom(roomId: String): Long?
 
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
-
-    suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState)
 }
 
 class DefaultMessageRepository(
@@ -73,7 +69,6 @@ class DefaultMessageRepository(
 
     override suspend fun insert(
         payload: MessagePayload,
-        lifecycleState: MessageLifecycleState,
         isOrphaned: Boolean,
     ): Boolean = withContext(dbDispatcher) {
         queries.insertMessage(
@@ -86,7 +81,6 @@ class DefaultMessageRepository(
             created_at_epoch_seconds = payload.createdAtEpochSeconds,
             payload_type = payload.payloadType,
             message_payload = payload.encode(),
-            lifecycle_state = lifecycleState,
             is_orphaned = isOrphaned,
         )
         queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
@@ -117,17 +111,15 @@ class DefaultMessageRepository(
             ).executeAsList().map { it.toRow() }
         }
 
-    override suspend fun findMessagesInRoomPageAsc(
+    override suspend fun findMessagesInRoomAfterLamport(
         roomId: String,
         limit: Int,
-        cursor: MessageCursor?
+        lamportClock: Long
     ): List<MessageRow> =
         withContext(dbDispatcher) {
-            queries.selectMessagesInRoomPageAsc(
+            queries.selectMessagesInRoomAfterLamport(
                 roomId = roomId,
-                cursorCreated = cursor?.createdAtEpochSeconds,
-                cursorLamport = cursor?.lamportClock,
-                cursorMessageId = cursor?.messageId,
+                sinceLamport = lamportClock,
                 limit = limit.toLong(),
             ).executeAsList().map { it.toRow() }
         }
@@ -148,17 +140,10 @@ class DefaultMessageRepository(
         }
     }
 
-    override suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
-        withContext(dbDispatcher) {
-            queries.updateMessageLifecycleState(state, messageId)
-        }
-    }
-
     private fun org.yapyap.persistence.Messages.toRow(): MessageRow {
         val payload = MessagePayload.decode(this.message_payload)
         return MessageRow(
             payload = payload,
-            lifecycleState = this.lifecycle_state,
             isOrphaned = this.is_orphaned,
         )
     }

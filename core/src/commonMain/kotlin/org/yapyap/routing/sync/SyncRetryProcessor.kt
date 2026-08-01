@@ -8,6 +8,7 @@ import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
+import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.PeerAvailabilityRegistry
@@ -18,7 +19,7 @@ import kotlin.coroutines.cancellation.CancellationException
 internal class SyncRetryProcessor(
     private val ctx: RoutingContext,
     private val pendingSyncs: PendingSyncRepository,
-    private val syncHandler: SyncHandler,
+    private val systemSender: SystemSender,
     private val peerPolicy: SyncPeerPolicy,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
     private val time: EpochSecondsProvider,
@@ -92,8 +93,7 @@ internal class SyncRetryProcessor(
             ctx.identityResolver.getAllPeerDevicesForAccount(accountId)
         }.filter { it != ctx.localDeviceId }.distinct() //TODO: batch query
 
-        val attempted = pendingSyncs.getAttemptedDevices(row.syncId)  // NACKed only
-        val nextDevice = peerPolicy.pickNextDevice(candidateDevices, attempted)
+        val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.attemptedDevices)
 
         if (nextDevice == null) {
             pendingSyncs.updateAttemptAt(row.syncId, now + 60) // TODO: config
@@ -102,7 +102,7 @@ internal class SyncRetryProcessor(
 
         val request = SyncRequest.decode(row.requestPayload) as SyncRequest
         try {
-            syncHandler.sendSyncRequest(nextDevice, request)
+            systemSender.sendSyncRequest(nextDevice, request)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

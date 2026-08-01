@@ -1,6 +1,5 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
@@ -176,6 +175,7 @@ sealed interface SystemPayload {
     }
     sealed interface SyncRequest: SystemPayload {
         val roomId: String
+        val syncId: Uuid
         val maxMessages: Int
         val syncRequestKind: SyncRequestKind
         override val kind: SystemEnvelopeKind
@@ -183,6 +183,7 @@ sealed interface SystemPayload {
 
         data class GapSyncRequest(
             override val roomId: String,
+            override val syncId: Uuid,
             override val maxMessages: Int,
             val missingPrevId: Uuid,
             val orphanedMessageId: Uuid,
@@ -194,6 +195,7 @@ sealed interface SystemPayload {
                 writer.writeByte(kind.wireValue.toInt())
                 writer.writeByte(syncRequestKind.wireValue.toInt())
                 writer.writeString(roomId)
+                writer.writeUuid(syncId)
                 writer.writeUuid(missingPrevId)
                 writer.writeUuid(orphanedMessageId)
                 writer.writeInt(maxMessages)
@@ -210,12 +212,14 @@ sealed interface SystemPayload {
                         "Expected GAP sync request kind"
                     }
                     val roomId = reader.readString()
+                    val syncId = reader.readUuid()
                     val missingPrevId = reader.readUuid()
                     val orphanedMessageId = reader.readUuid()
                     val maxMessages = reader.readInt()
                     reader.requireFullyRead()
                     return GapSyncRequest(
                         roomId = roomId,
+                        syncId = syncId,
                         missingPrevId = missingPrevId,
                         orphanedMessageId = orphanedMessageId,
                         maxMessages = maxMessages,
@@ -226,8 +230,9 @@ sealed interface SystemPayload {
 
         data class RangeSyncRequest(
             override val roomId: String,
+            override val syncId: Uuid,
             override val maxMessages: Int,
-            val sinceCursor: MessageCursor,
+            val sinceLamport: Long,
         ) : SyncRequest {
             override val syncRequestKind: SyncRequestKind = SyncRequestKind.RANGE
             override fun encode(): ByteArray {
@@ -235,9 +240,8 @@ sealed interface SystemPayload {
                 writer.writeByte(kind.wireValue.toInt())
                 writer.writeByte(syncRequestKind.wireValue.toInt())
                 writer.writeString(roomId)
-                writer.writeLong(sinceCursor.createdAtEpochSeconds)
-                writer.writeLong(sinceCursor.lamportClock)
-                writer.writeUuid(sinceCursor.messageId)
+                writer.writeUuid(syncId)
+                writer.writeLong(sinceLamport)
                 writer.writeInt(maxMessages)
                 return writer.toByteArray()
             }
@@ -252,16 +256,14 @@ sealed interface SystemPayload {
                         "Expected RANGE sync request kind"
                     }
                     val roomId = reader.readString()
-                    val sinceCursor = MessageCursor(
-                        createdAtEpochSeconds = reader.readLong(),
-                        lamportClock = reader.readLong(),
-                        messageId = reader.readUuid(),
-                    )
+                    val syncId = reader.readUuid()
+                    val sinceLamport = reader.readLong()
                     val maxMessages = reader.readInt()
                     reader.requireFullyRead()
                     return RangeSyncRequest(
                         roomId = roomId,
-                        sinceCursor = sinceCursor,
+                        syncId = syncId,
+                        sinceLamport = sinceLamport,
                         maxMessages = maxMessages,
                     )
                 }
@@ -280,6 +282,36 @@ sealed interface SystemPayload {
         }
     }
 
+    //TODO add test
+    data class SyncNack(
+        val syncId: Uuid,
+        val reason: String,
+    ) : SystemPayload {
+        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_NACK
+        override fun encode(): ByteArray {
+            val writer = ByteWriter(32 + reason.length + Uuid.SIZE_BYTES)
+            writer.writeByte(kind.wireValue.toInt())
+            writer.writeUuid(syncId)
+            writer.writeString(reason)
+            return writer.toByteArray()
+        }
+        companion object {
+            fun decode(bytes: ByteArray): SyncNack {
+                val reader = ByteReader(bytes)
+                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_NACK) {
+                    "Expected SYNC_NACK payload kind"
+                }
+                val syncId = reader.readUuid()
+                val reason = reader.readString()
+                reader.requireFullyRead()
+                return SyncNack(
+                    syncId = syncId,
+                    reason = reason,
+                )
+            }
+        }
+    }
+
     companion object {
         fun decode(bytes: ByteArray): SystemPayload {
             val kind = SystemEnvelopeKind.fromWireValue(ByteReader(bytes).readByte())
@@ -287,6 +319,7 @@ sealed interface SystemPayload {
                 SystemEnvelopeKind.PACKET_ACK -> PacketAck.decode(bytes)
                 SystemEnvelopeKind.PACKET_NACK -> PacketNack.decode(bytes)
                 SystemEnvelopeKind.SYNC_REQUEST -> SyncRequest.decode(bytes)
+                SystemEnvelopeKind.SYNC_NACK -> SyncNack.decode(bytes)
             }
         }
     }
@@ -295,7 +328,8 @@ sealed interface SystemPayload {
 enum class SystemEnvelopeKind(val wireValue: Byte) {
     PACKET_ACK(1),
     PACKET_NACK(2),
-    SYNC_REQUEST(3);
+    SYNC_REQUEST(3),
+    SYNC_NACK(4);
 
     companion object {
         fun fromWireValue(value: Byte): SystemEnvelopeKind =

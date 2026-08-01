@@ -7,7 +7,7 @@ import org.yapyap.orchestrator.message.DefaultMessagingService
 import org.yapyap.orchestrator.message.MessagingService
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.messaging.DefaultRoomMembershipRepository
+import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.routing.router.Router
 import org.yapyap.time.SystemEpochSecondsProvider
 
@@ -32,7 +32,7 @@ internal class DefaultOrchestratorRuntime(
             dagEngine = dagEngine,
             router = router,
             pipeline = pipeline,
-            roomMembershipRepository = DefaultRoomMembershipRepository(database),
+            roomRepository = DefaultRoomRepository(database),
             identityResolver = identityResolver,
             timeProvider = SystemEpochSecondsProvider,
         )

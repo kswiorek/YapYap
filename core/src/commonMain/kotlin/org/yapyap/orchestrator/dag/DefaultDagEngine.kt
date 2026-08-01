@@ -7,10 +7,10 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.CausalHoldRepository
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.time.EpochSecondsProvider
 import kotlin.uuid.Uuid
@@ -33,6 +33,7 @@ import kotlin.uuid.Uuid
 class DefaultDagEngine(
     private val messageRepository: MessageRepository,
     private val causalHoldRepository: CausalHoldRepository,
+    private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val signatureProvider: SignatureProvider,
     private val timeProvider: EpochSecondsProvider,
@@ -83,7 +84,7 @@ class DefaultDagEngine(
         // Sign the bytes and create the final payload
         val payload = unsignedPayload.withSignature(signatureProvider.sign(bytesToSign))
 
-        val inserted = messageRepository.insert(payload, MessageLifecycleState.CREATED, isOrphaned = false)
+        val inserted = messageRepository.insert(payload, isOrphaned = false)
         if (!inserted) {
             AppLog.warn(
                 component = LogComponent.DAG,
@@ -92,6 +93,7 @@ class DefaultDagEngine(
                 fields = mapOf("messageId" to messageId, "roomId" to roomId),
             )
         }
+        else roomRepository.updateLocalSeq(roomId, lamport)
 
         AppLog.debug(
             component = LogComponent.DAG,
@@ -163,7 +165,17 @@ class DefaultDagEngine(
         val isOrphaned = payload.prevId != null && messageRepository.findById(payload.prevId!!) == null
 
         // Insert the message.
-        messageRepository.insert(payload, MessageLifecycleState.CREATED, isOrphaned)
+        val inserted = messageRepository.insert(payload, isOrphaned)
+        if (!inserted) {
+            AppLog.warn(
+                component = LogComponent.DAG,
+                event = LogEvent.MESSAGE_INSERT_CONFLICT,
+                message = "Message ingest ignored — duplicate message_id",
+                fields = mapOf("messageId" to payload.messageId, "roomId" to payload.roomId),
+            )
+            return@withLock null
+        }
+        roomRepository.updateLocalSeq(payload.roomId, payload.lamportClock)
 
         // Gap closure: check if any existing orphans were waiting for THIS message as their prev.
         val closedGaps = closeGapsFor(payload.messageId)

@@ -128,6 +128,19 @@ internal class SystemInboundHandler(
                 )
                 SystemInboundResult.SyncRequested(systemEnvelope.source, payload)
             }
+            is SystemPayload.SyncNack -> {
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.SYNC_NACK_RECEIVED,
+                    message = "Received sync NACK",
+                    fields = mapOf(
+                        "source" to systemEnvelope.source,
+                        "syncId" to payload.syncId,
+                        "reason" to payload.reason,
+                    ),
+                )
+                SystemInboundResult.MarkPeerAttempted(systemEnvelope.source, payload.syncId)
+            }
             // TODO Sprint 4: SystemPayload.Ping/Pong -> SystemInboundResult.PeerHeartbeat(...)
             // TODO Sprint 2: gap sync request payload -> SystemInboundResult.GapSyncRequested(...)
             //callback from SyncCoordinator to return requested message IDs

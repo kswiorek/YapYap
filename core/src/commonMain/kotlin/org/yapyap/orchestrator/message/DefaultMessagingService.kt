@@ -14,7 +14,7 @@ import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageCursor
-import org.yapyap.persistence.messaging.RoomMembershipRepository
+import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.SendFailureKind
@@ -28,7 +28,7 @@ internal class DefaultMessagingService(
     private val dagEngine: DagEngine,
     private val router: Router,
     private val pipeline: InboundMessagePipeline,
-    private val roomMembershipRepository: RoomMembershipRepository,
+    private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochSecondsProvider,
 ) : MessagingService {
@@ -76,7 +76,7 @@ internal class DefaultMessagingService(
     ): SendMessageResult {
         val payload = dagEngine.append(roomId, MessageDraft.Text(text))
 
-        val members = roomMembershipRepository.membersOfRoom(roomId)
+        val members = roomRepository.membersOfRoom(roomId)
 
         notifyWindowsNewItem(IngestResult.Inserted(payload))
 

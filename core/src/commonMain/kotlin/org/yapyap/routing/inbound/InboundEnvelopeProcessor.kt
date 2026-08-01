@@ -8,6 +8,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
@@ -15,7 +16,7 @@ import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 
 internal class InboundEnvelopeProcessor(
     private val ctx: RoutingContext,
-    private val ackResponder: AckResponder,
+    private val systemSender: SystemSender,
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
     private val systemHandler: SystemInboundHandler,
     private val outboxProcessor: OutboxProcessor,
@@ -58,7 +59,7 @@ internal class InboundEnvelopeProcessor(
             )
             when (inbound.packetType) {
                 PacketType.SYSTEM -> return
-                else -> ackResponder.sendDispositionForDuplicate(
+                else -> systemSender.sendDispositionForDuplicate(
                     inbound,
                     transport,
                     ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
@@ -77,7 +78,7 @@ internal class InboundEnvelopeProcessor(
                     "receivedAtEpochSeconds" to receivedAtEpochSeconds,
                 ),
             )
-            ackResponder.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
+            systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
             return
         }
 
@@ -92,7 +93,7 @@ internal class InboundEnvelopeProcessor(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
-            ackResponder.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
+            systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
             return
         }
 
@@ -120,7 +121,7 @@ internal class InboundEnvelopeProcessor(
         }
 
         when (handleResult) {
-            InboundHandleResult.Success -> ackResponder.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+            InboundHandleResult.Success -> systemSender.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
             InboundHandleResult.Deferred -> {
                 AppLog.info(
                     component = LogComponent.ROUTER,
@@ -134,7 +135,7 @@ internal class InboundEnvelopeProcessor(
                 )
                 ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
             }
-            is InboundHandleResult.Rejected -> ackResponder.sendNack(
+            is InboundHandleResult.Rejected -> systemSender.sendNack(
                 inbound.packetId,
                 inbound.source,
                 inbound.packetType,
@@ -150,6 +151,7 @@ internal class InboundEnvelopeProcessor(
                 outboxProcessor.onOutboundPacketDelivered(result.packetId)
             is SystemInboundResult.Ignored -> Unit
             is SystemInboundResult.SyncRequested -> syncHandler.onSyncRequested(result.sync, result.peerId)
+            is SystemInboundResult.MarkPeerAttempted -> syncHandler.onMarkPeerAttempted(result.syncId, result.peerId)
             // TODO Sprint 4: is SystemInboundResult.PeerHeartbeat -> peerPresenceService.record(result)
             // TODO Sprint 2: is SystemInboundResult.GapSyncRequested -> gapSyncCoordinator.onRequest(result)
         }
