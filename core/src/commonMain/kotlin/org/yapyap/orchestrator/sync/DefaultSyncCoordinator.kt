@@ -9,7 +9,6 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
-import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.time.EpochSecondsProvider
 import kotlin.concurrent.Volatile
 import kotlin.uuid.Uuid
@@ -150,14 +149,15 @@ class DefaultSyncCoordinator(
         val L = result.payload.lamportClock
         val roomId = result.payload.roomId
 
-        val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, L)
-        //TODO: Fix
-        if (sync != null) {
-            pendingSyncRepository.deleteSync(sync.syncId)
-            val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, sync.orphanLamport)
-            if (L != sync.orphanLamport || orphanStillOpen) {
-                insertNewGapSync(roomId, L, sync.orphanLamport)
-            }
+        val computedAnchor = messageRepository.maxLamportBelow(roomId, L) ?: -1L
+
+        val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, computedAnchor)?: return
+
+        pendingSyncRepository.deleteSync(sync.syncId)
+        val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, sync.orphanLamport)
+        val noMessageAtOrphan = messageRepository.countAtLamport(roomId, sync.orphanLamport) == 0L
+        if (orphanStillOpen || noMessageAtOrphan) {
+            insertNewGapSync(roomId, L, sync.orphanLamport)
         }
     }
 

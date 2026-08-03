@@ -49,21 +49,15 @@ WHERE room_id = :roomId
 ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
 LIMIT :limit;
 
-selectMessagesInRoomAfterLamport:
-SELECT * FROM messages
-WHERE room_id = :roomId AND lamport_clock >= :sinceLamport
-ORDER BY lamport_clock ASC, created_at_epoch_seconds ASC, message_id ASC
-LIMIT :limit;
-
 selectIsOrphanAtLamport:
 SELECT EXISTS(
     SELECT 1 FROM messages
     WHERE room_id = :roomId AND lamport_clock = :lamport AND is_orphaned = 1
 ) AS result;
 
-selectMaxNonOrphanedLamportBelow:
+selectMaxLamportBelow:
 SELECT MAX(lamport_clock) FROM messages
-WHERE room_id = :roomId AND is_orphaned = 0 AND lamport_clock < :lamport;
+WHERE room_id = :roomId AND lamport_clock < :lamport;
 
 selectMessagesInLamportRange:
 SELECT * FROM messages

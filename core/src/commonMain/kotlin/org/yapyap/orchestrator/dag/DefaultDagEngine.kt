@@ -215,7 +215,7 @@ class DefaultDagEngine(
         }
 
         if (isOrphaned) {
-            val anchorLamport = messageRepository.maxNonOrphanedLamportBelow(payload.roomId, payload.lamportClock)
+            val anchorLamport = messageRepository.maxLamportBelow(payload.roomId, payload.lamportClock)
             IngestResult.BecameOrphan(
                 payload = payload,
                 closedGapMissingPrevIds = closedGaps,

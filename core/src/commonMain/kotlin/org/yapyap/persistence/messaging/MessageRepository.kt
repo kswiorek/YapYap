@@ -31,7 +31,6 @@ data class MessageCursor(
 
 interface MessageRepository {
 
-    //TODO Make all suspends
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
     suspend fun insert(payload: MessagePayload, isOrphaned: Boolean): Boolean
 
@@ -46,22 +45,16 @@ interface MessageRepository {
         cursor: MessageCursor?
     ): List<MessageRow>
 
-    suspend fun findMessagesInRoomAfterLamport(
-        roomId: String,
-        limit: Int,
-        lamportClock: Long,
-    ): List<MessageRow>
-
     suspend fun findAllInRoom(roomId: String): List<MessageRow>
 
-    /** Max lamport_clock in the room (null if empty) â€” used to reconstruct rooms.local_seq_n on boot. */
+    /** Max lamport_clock in the room (null if empty) used to reconstruct rooms.local_seq_n on boot. */
     suspend fun maxLamportInRoom(roomId: String): Long?
 
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
 
     suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean
 
-    suspend fun maxNonOrphanedLamportBelow(roomId: String, lamport: Long): Long?
+    suspend fun maxLamportBelow(roomId: String, lamport: Long): Long?
 
     suspend fun findMessagesInLamportRange(
         roomId: String,
@@ -125,19 +118,6 @@ class DefaultMessageRepository(
             ).executeAsList().map { it.toRow() }
         }
 
-    override suspend fun findMessagesInRoomAfterLamport(
-        roomId: String,
-        limit: Int,
-        lamportClock: Long
-    ): List<MessageRow> =
-        withContext(dbDispatcher) {
-            queries.selectMessagesInRoomAfterLamport(
-                roomId = roomId,
-                sinceLamport = lamportClock,
-                limit = limit.toLong(),
-            ).executeAsList().map { it.toRow() }
-        }
-
     override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
         withContext(dbDispatcher) {
             queries.selectAllMessagesInRoom(roomId).executeAsList().map { it.toRow() }
@@ -159,9 +139,9 @@ class DefaultMessageRepository(
             queries.selectIsOrphanAtLamport(roomId, lamport).executeAsOne()
         }
 
-    override suspend fun maxNonOrphanedLamportBelow(roomId: String, lamport: Long): Long? =
+    override suspend fun maxLamportBelow(roomId: String, lamport: Long): Long? =
         withContext(dbDispatcher) {
-            queries.selectMaxNonOrphanedLamportBelow(roomId, lamport).executeAsOne().MAX
+            queries.selectMaxLamportBelow(roomId, lamport).executeAsOne().MAX
         }
 
     override suspend fun findMessagesInLamportRange(
