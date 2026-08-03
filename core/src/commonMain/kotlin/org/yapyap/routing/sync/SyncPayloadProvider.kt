@@ -18,27 +18,15 @@ class DefaultSyncPayloadProvider(
         val orphan = syncRequest.orphanLamport
         val limit = syncRequest.maxMessages.coerceAtMost(MAX_MESSAGES)
 
-        // Range sync (orphanLamport == -1 sentinel): everything >= anchor.
-        // No boundary-skip — we can't assume what the requester has.
-        if (orphan < 0) {
-            return messageRepository.findMessagesInLamportRange(
-                roomId = roomId,
-                lowerExclusive = anchor - 1,      // >= anchor
-                upperExclusive = null,  // no upper bound
-                limit = limit,
-            ).map { it.payload }
-        }
-
         // Gap sync: [anchor, orphan] inclusive to catch branching, but skip a
         // boundary lamport when there's exactly one message at it — the requester
         // already has that message (they knew the lamport value).
         val singleAtAnchor = messageRepository.countAtLamport(roomId, anchor) == 1L
-        val singleAtOrphan = messageRepository.countAtLamport(roomId, orphan) == 1L
 
         return messageRepository.findMessagesInLamportRange(
             roomId = roomId,
-            lowerExclusive = if (singleAtAnchor) anchor else anchor - 1,
-            upperExclusive = if (singleAtOrphan) orphan else orphan + 1,
+            lowerInclusive = if (singleAtAnchor) anchor+1 else anchor,
+            upperInclusive = orphan,
             limit = limit,
         ).map { it.payload }
     }

@@ -272,16 +272,6 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
     }
 }
 
-enum class SyncRequestKind(val wireValue: Byte) {
-    RANGE(1),
-    GAP(2);
-    companion object {
-        fun fromWireValue(value: Byte): SyncRequestKind =
-            SyncRequestKind.entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported system envelope kind wire value: $value")
-    }
-}
-
 enum class PacketNackReason(val wireValue: Byte) {
     WRONG_TARGET(1),
     PROTECTION_FAILED(2),

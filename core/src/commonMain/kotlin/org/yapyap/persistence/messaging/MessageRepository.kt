@@ -65,8 +65,8 @@ interface MessageRepository {
 
     suspend fun findMessagesInLamportRange(
         roomId: String,
-        lowerExclusive: Long,
-        upperExclusive: Long?,
+        lowerInclusive: Long,
+        upperInclusive: Long,
         limit: Int,
     ): List<MessageRow>
 
@@ -165,9 +165,9 @@ class DefaultMessageRepository(
         }
 
     override suspend fun findMessagesInLamportRange(
-        roomId: String, lowerExclusive: Long, upperExclusive: Long?, limit: Int,
+        roomId: String, lowerInclusive: Long, upperInclusive: Long, limit: Int,
     ): List<MessageRow> = withContext(dbDispatcher) {
-        queries.selectMessagesInLamportRange(roomId, lowerExclusive, upperExclusive, limit.toLong())
+        queries.selectMessagesInLamportRange(roomId, lowerInclusive, upperInclusive, limit.toLong())
             .executeAsList().map { it.toRow() }
     }
 

@@ -5,18 +5,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload
 import kotlin.uuid.Uuid
 
-/**
- * A pending sync request stored in the DB.
- *
- * The sync covers an inclusive lamport range [anchorLamport, orphanLamport].
- * - **Gap sync** (orphanLamport >= 0): requests messages in
- *   [anchorLamport, orphanLamport] to close a gap caused by an orphaned message.
- * - **Range sync** (orphanLamport == -1): requests all messages with
- *   lamport > anchorLamport (ping/pong-triggered catch-up).
- *
- * The wire [SyncRequest] is reconstructed from these columns at send time by
- * [org.yapyap.routing.sync.SyncRetryProcessor] — no payload BLOB is stored.
- */
 data class PendingSyncRow(
     val syncId: Uuid,
     val roomId: String,
@@ -52,24 +40,11 @@ interface PendingSyncRepository {
         nextAttemptAt: Long,
     )
 
-    /**
-     * Returns all pending **gap** syncs (orphanLamport >= 0) in [roomId] whose
-     * inclusive range [anchorLamport, orphanLamport] contains [lamport].
-     * Range syncs (orphanLamport == -1) are excluded.
-     */
-    suspend fun findGapSyncsContaining(roomId: String, lamport: Long): List<PendingSyncRow>
-
-    /** Shrinks the anchor (lower bound) of a gap sync up to [anchorLamport]. */
-    suspend fun updateAnchorLamport(syncId: Uuid, anchorLamport: Long)
-
-    /** Shrinks the orphan (upper bound) of a gap sync down to [orphanLamport]. */
+    /** updates  the [orphanLamport] for a sync with [syncId]. */
     suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long)
 
     /** Deletes a pending sync by its [syncId]. Cascades to candidate/attempted tables. */
     suspend fun deleteSync(syncId: Uuid)
-
-    /** Returns true if a range sync (orphanLamport == -1) already exists for [roomId]. */
-    suspend fun hasRangeSyncForRoom(roomId: String): Boolean
 
     // ---- retained for SyncRetryProcessor ----
 
@@ -80,7 +55,9 @@ interface PendingSyncRepository {
     suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long)
     suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long)
     suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId)
-    suspend fun findGapSyncsByAnchor(roomId: String, anchorLamport: Long): List<PendingSyncRow>
+
+    // Finds the sync with the given [anchorLamport] in the given [roomId].
+    suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow?
 }
 
 class DefaultPendingSyncRepository(
@@ -99,23 +76,11 @@ class DefaultPendingSyncRepository(
         TODO("Not yet implemented")
     }
 
-    override suspend fun findGapSyncsContaining(roomId: String, lamport: Long): List<PendingSyncRow> {
-        TODO("Not yet implemented")
-    }
-
-    override suspend fun updateAnchorLamport(syncId: Uuid, anchorLamport: Long) {
-        TODO("Not yet implemented")
-    }
-
     override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
         TODO("Not yet implemented")
     }
 
     override suspend fun deleteSync(syncId: Uuid) {
-        TODO("Not yet implemented")
-    }
-
-    override suspend fun hasRangeSyncForRoom(roomId: String): Boolean {
         TODO("Not yet implemented")
     }
 
@@ -147,7 +112,10 @@ class DefaultPendingSyncRepository(
         TODO("Not yet implemented")
     }
 
-    override suspend fun findGapSyncsByAnchor(roomId: String, anchorLamport: Long): List<PendingSyncRow> {
+    override suspend fun findGapSyncByAnchor(
+        roomId: String,
+        anchorLamport: Long
+    ): PendingSyncRow? {
         TODO("Not yet implemented")
     }
 }

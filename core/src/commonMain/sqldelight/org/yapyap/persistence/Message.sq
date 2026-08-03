@@ -68,8 +68,8 @@ WHERE room_id = :roomId AND is_orphaned = 0 AND lamport_clock < :lamport;
 selectMessagesInLamportRange:
 SELECT * FROM messages
 WHERE room_id = :roomId
-  AND lamport_clock > :lowerExclusive
-  AND (:upperExclusive IS NULL OR lamport_clock < :upperExclusive)
+  AND lamport_clock >= :lowerInclusive
+  AND lamport_clock <= :upperInclusive
 ORDER BY lamport_clock ASC, created_at_epoch_seconds ASC, message_id ASC
 LIMIT :limit;
 
