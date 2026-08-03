@@ -24,5 +24,6 @@ sealed interface IngestResult {
         override val payload: MessagePayload,
         override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
         val missingPrevId: Uuid,
+        val anchorLamport: Long,
     ) : IngestResult
 }

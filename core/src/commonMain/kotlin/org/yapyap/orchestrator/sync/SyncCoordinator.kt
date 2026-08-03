@@ -5,4 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 interface SyncCoordinator {
     fun start(scope: CoroutineScope)
     suspend fun stop()
+
+    fun requestRangeSync(roomId: String)
 }

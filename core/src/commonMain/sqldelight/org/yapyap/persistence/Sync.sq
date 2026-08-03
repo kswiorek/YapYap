@@ -6,9 +6,9 @@ import org.yapyap.protocol.envelopes.SyncRequestKind;
 CREATE TABLE pending_syncs(
     sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
-    request_payload BLOB NOT NULL,          -- encoded SyncRequest bytes
-    sync_request_kind TEXT AS SyncRequestKind NOT NULL,
-    missing_ancestor_of TEXT AS Uuid,       -- for gap syncs: the orphanedMessageId (null for range)
+    max_messages INTEGER NOT NULL DEFAULT 16,
+    anchor_lamport INTEGER NOT NULL,
+    orphan_lamport INTEGER NOT NULL,          -- -1 = range sync (ping-triggered)
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id)
@@ -35,6 +35,10 @@ VALUES (?, ?, ?, ?, ?, 0, ?);
 insertPendingSyncCandidateAccount:
 INSERT OR IGNORE INTO pending_sync_candidate_accounts (sync_id, account_id)
 VALUES (?, ?);
+
+findGapSyncsByAnchor:
+SELECT * FROM pending_syncs
+WHERE room_id = :roomId AND anchor_lamport = :anchor AND orphan_lamport >= 0;
 
 deleteByMissingAncestorIds:
 DELETE FROM pending_syncs WHERE missing_ancestor_of IN ?;

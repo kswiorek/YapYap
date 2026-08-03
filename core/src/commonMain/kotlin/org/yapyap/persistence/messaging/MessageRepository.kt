@@ -58,6 +58,20 @@ interface MessageRepository {
     suspend fun maxLamportInRoom(roomId: String): Long?
 
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
+
+    suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean
+
+    suspend fun maxNonOrphanedLamportBelow(roomId: String, lamport: Long): Long?
+
+    suspend fun findMessagesInLamportRange(
+        roomId: String,
+        lowerExclusive: Long,
+        upperExclusive: Long?,
+        limit: Int,
+    ): List<MessageRow>
+
+    /** Number of messages in [roomId] at exactly [lamport] (branching detection). */
+    suspend fun countAtLamport(roomId: String, lamport: Long): Long
 }
 
 class DefaultMessageRepository(
@@ -139,6 +153,28 @@ class DefaultMessageRepository(
             queries.updateMessageOrphanedFlag(isOrphaned, messageId)
         }
     }
+
+    override suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean =
+        withContext(dbDispatcher) {
+            queries.selectIsOrphanAtLamport(roomId, lamport).executeAsOne()
+        }
+
+    override suspend fun maxNonOrphanedLamportBelow(roomId: String, lamport: Long): Long? =
+        withContext(dbDispatcher) {
+            queries.selectMaxNonOrphanedLamportBelow(roomId, lamport).executeAsOne().MAX
+        }
+
+    override suspend fun findMessagesInLamportRange(
+        roomId: String, lowerExclusive: Long, upperExclusive: Long?, limit: Int,
+    ): List<MessageRow> = withContext(dbDispatcher) {
+        queries.selectMessagesInLamportRange(roomId, lowerExclusive, upperExclusive, limit.toLong())
+            .executeAsList().map { it.toRow() }
+    }
+
+    override suspend fun countAtLamport(roomId: String, lamport: Long): Long =
+        withContext(dbDispatcher) {
+            queries.selectMessageCountAtLamport(roomId, lamport).executeAsOne()
+        }
 
     private fun org.yapyap.persistence.Messages.toRow(): MessageRow {
         val payload = MessagePayload.decode(this.message_payload)

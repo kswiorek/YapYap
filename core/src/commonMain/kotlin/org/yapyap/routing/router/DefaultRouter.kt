@@ -115,7 +115,6 @@ class DefaultRouter(
         systemSender = systemSender,
         peerPolicy = peerPolicy,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
-        time = timeProvider,
         maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
     )
 

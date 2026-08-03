@@ -173,114 +173,48 @@ sealed interface SystemPayload {
             }
         }
     }
-    sealed interface SyncRequest: SystemPayload {
-        val roomId: String
-        val syncId: Uuid
-        val maxMessages: Int
-        val syncRequestKind: SyncRequestKind
-        override val kind: SystemEnvelopeKind
-            get() = SystemEnvelopeKind.SYNC_REQUEST
-
-        data class GapSyncRequest(
-            override val roomId: String,
-            override val syncId: Uuid,
-            override val maxMessages: Int,
-            val missingPrevId: Uuid,
-            val orphanedMessageId: Uuid,
-        ) : SyncRequest {
-            override val syncRequestKind: SyncRequestKind = SyncRequestKind.GAP
+        data class SyncRequest(
+            val roomId: String,
+            val syncId: Uuid,
+            val maxMessages: Int,
+            val anchorLamport: Long,
+            val orphanLamport: Long,
+        ): SystemPayload {
+            override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
 
             override fun encode(): ByteArray {
-                val writer = ByteWriter(128 + roomId.length + Uuid.SIZE_BYTES * 2 + 4)
+                val writer = ByteWriter(32 + roomId.length + Uuid.SIZE_BYTES + 4 + 8 + 8)
                 writer.writeByte(kind.wireValue.toInt())
-                writer.writeByte(syncRequestKind.wireValue.toInt())
                 writer.writeString(roomId)
                 writer.writeUuid(syncId)
-                writer.writeUuid(missingPrevId)
-                writer.writeUuid(orphanedMessageId)
                 writer.writeInt(maxMessages)
+                writer.writeLong(anchorLamport)
+                writer.writeLong(orphanLamport)
                 return writer.toByteArray()
             }
 
             companion object {
-                fun decode(bytes: ByteArray): GapSyncRequest {
+                fun decode(bytes: ByteArray): SyncRequest {
                     val reader = ByteReader(bytes)
                     require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
                         "Expected SYNC_REQUEST payload kind"
                     }
-                    require(SyncRequestKind.fromWireValue(reader.readByte()) == SyncRequestKind.GAP) {
-                        "Expected GAP sync request kind"
-                    }
                     val roomId = reader.readString()
                     val syncId = reader.readUuid()
-                    val missingPrevId = reader.readUuid()
-                    val orphanedMessageId = reader.readUuid()
                     val maxMessages = reader.readInt()
+                    val anchorLamport = reader.readLong()
+                    val orphanLamport = reader.readLong()
                     reader.requireFullyRead()
-                    return GapSyncRequest(
+                    return SyncRequest(
                         roomId = roomId,
                         syncId = syncId,
-                        missingPrevId = missingPrevId,
-                        orphanedMessageId = orphanedMessageId,
                         maxMessages = maxMessages,
+                        anchorLamport = anchorLamport,
+                        orphanLamport = orphanLamport,
                     )
                 }
             }
         }
-
-        data class RangeSyncRequest(
-            override val roomId: String,
-            override val syncId: Uuid,
-            override val maxMessages: Int,
-            val sinceLamport: Long,
-        ) : SyncRequest {
-            override val syncRequestKind: SyncRequestKind = SyncRequestKind.RANGE
-            override fun encode(): ByteArray {
-                val writer = ByteWriter(128 + roomId.length + 2 * 64 + 128 + 32)
-                writer.writeByte(kind.wireValue.toInt())
-                writer.writeByte(syncRequestKind.wireValue.toInt())
-                writer.writeString(roomId)
-                writer.writeUuid(syncId)
-                writer.writeLong(sinceLamport)
-                writer.writeInt(maxMessages)
-                return writer.toByteArray()
-            }
-
-            companion object {
-                fun decode(bytes: ByteArray): RangeSyncRequest {
-                    val reader = ByteReader(bytes)
-                    require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
-                        "Expected SYNC_REQUEST payload kind"
-                    }
-                    require(SyncRequestKind.fromWireValue(reader.readByte()) == SyncRequestKind.RANGE) {
-                        "Expected RANGE sync request kind"
-                    }
-                    val roomId = reader.readString()
-                    val syncId = reader.readUuid()
-                    val sinceLamport = reader.readLong()
-                    val maxMessages = reader.readInt()
-                    reader.requireFullyRead()
-                    return RangeSyncRequest(
-                        roomId = roomId,
-                        syncId = syncId,
-                        sinceLamport = sinceLamport,
-                        maxMessages = maxMessages,
-                    )
-                }
-            }
-        }
-        companion object {
-            fun decode(bytes: ByteArray): SystemPayload {
-                val reader = ByteReader(bytes)
-                reader.readByte()
-                val syncRequestKind = SyncRequestKind.fromWireValue(reader.readByte())
-                return when (syncRequestKind) {
-                    SyncRequestKind.RANGE -> RangeSyncRequest.decode(bytes)
-                    SyncRequestKind.GAP -> GapSyncRequest.decode(bytes)
-                }
-            }
-        }
-    }
 
     //TODO add test
     data class SyncNack(

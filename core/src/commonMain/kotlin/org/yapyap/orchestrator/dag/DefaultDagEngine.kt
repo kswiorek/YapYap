@@ -175,7 +175,9 @@ class DefaultDagEngine(
             )
             return@withLock null
         }
-        roomRepository.updateLocalSeq(payload.roomId, payload.lamportClock)
+        else {
+            roomRepository.updateLocalSeq(payload.roomId, payload.lamportClock)
+        }
 
         // Gap closure: check if any existing orphans were waiting for THIS message as their prev.
         val closedGaps = closeGapsFor(payload.messageId)
@@ -213,10 +215,12 @@ class DefaultDagEngine(
         }
 
         if (isOrphaned) {
+            val anchorLamport = messageRepository.maxNonOrphanedLamportBelow(payload.roomId, payload.lamportClock)
             IngestResult.BecameOrphan(
                 payload = payload,
                 closedGapMissingPrevIds = closedGaps,
                 missingPrevId = payload.prevId!!,
+                anchorLamport = anchorLamport?:-1L
             )
         } else {
             IngestResult.Inserted(

@@ -223,6 +223,9 @@ class DefaultOrchestrator(
             envelopeProtectionService = envelopeProtectionService,
             routerConfig = config.routerConfig,
             syncPayloadProvider = syncPayloadProvider,
+            syncRepository = TODO(),
+            timeProvider = TODO(),
+            transportPolicy = TODO(),
         )
 
         router.start()

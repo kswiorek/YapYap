@@ -51,9 +51,31 @@ LIMIT :limit;
 
 selectMessagesInRoomAfterLamport:
 SELECT * FROM messages
-WHERE room_id = :roomId AND lamport_clock > :sinceLamport
+WHERE room_id = :roomId AND lamport_clock >= :sinceLamport
 ORDER BY lamport_clock ASC, created_at_epoch_seconds ASC, message_id ASC
 LIMIT :limit;
+
+selectIsOrphanAtLamport:
+SELECT EXISTS(
+    SELECT 1 FROM messages
+    WHERE room_id = :roomId AND lamport_clock = :lamport AND is_orphaned = 1
+) AS result;
+
+selectMaxNonOrphanedLamportBelow:
+SELECT MAX(lamport_clock) FROM messages
+WHERE room_id = :roomId AND is_orphaned = 0 AND lamport_clock < :lamport;
+
+selectMessagesInLamportRange:
+SELECT * FROM messages
+WHERE room_id = :roomId
+  AND lamport_clock > :lowerExclusive
+  AND (:upperExclusive IS NULL OR lamport_clock < :upperExclusive)
+ORDER BY lamport_clock ASC, created_at_epoch_seconds ASC, message_id ASC
+LIMIT :limit;
+
+-- Branching detection at a sync boundary: how many messages sit at exactly :lamport?
+selectMessageCountAtLamport:
+SELECT COUNT(*) FROM messages WHERE room_id = ? AND lamport_clock = ?;
 
 -- ---- message CRUD ----
 

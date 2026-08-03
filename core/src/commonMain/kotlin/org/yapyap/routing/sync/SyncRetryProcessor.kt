@@ -22,12 +22,11 @@ internal class SyncRetryProcessor(
     private val systemSender: SystemSender,
     private val peerPolicy: SyncPeerPolicy,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
-    private val time: EpochSecondsProvider,
     maxIdlePollSeconds: Long,
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { pendingSyncs.earliestDueAt() },
-        time = time,
+        time = ctx.timeProvider,
         processDue = { processDue() },
         maxIdlePollSeconds = maxIdlePollSeconds,
         onProcessFailed = { error ->
@@ -54,13 +53,13 @@ internal class SyncRetryProcessor(
     }
 
     private suspend fun onPeerOnline(deviceId: PeerId) {
-        val now = time.nowEpochSeconds()
+        val now = ctx.timeProvider.nowEpochSeconds()
         pendingSyncs.accelerateForOnlinePeer(deviceId, now)
         wake()
     }
 
     private suspend fun processDue() {
-        val now = time.nowEpochSeconds()
+        val now = ctx.timeProvider.nowEpochSeconds()
         val dueRows = pendingSyncs.findDue(now, limit = 10)
         if (dueRows.isNotEmpty()) {
             AppLog.debug(
@@ -100,7 +99,7 @@ internal class SyncRetryProcessor(
             return
         }
 
-        val request = SyncRequest.decode(row.requestPayload) as SyncRequest
+        val request = row.toSyncRequest()
         try {
             systemSender.sendSyncRequest(nextDevice, request)
         } catch (e: CancellationException) {

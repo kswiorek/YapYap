@@ -123,7 +123,7 @@ internal class SystemInboundHandler(
                     fields = mapOf(
                         "source" to systemEnvelope.source,
                         "roomId" to payload.roomId,
-                        "kind" to payload.syncRequestKind,
+                        "syncId" to payload.syncId,
                     )
                 )
                 SystemInboundResult.SyncRequested(systemEnvelope.source, payload)
