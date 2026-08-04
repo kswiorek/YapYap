@@ -1,14 +1,13 @@
 import kotlin.uuid.Uuid;
 import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.protocol.PeerId;
-import org.yapyap.protocol.envelopes.SyncRequestKind;
 
 CREATE TABLE pending_syncs(
     sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     room_id TEXT NOT NULL,
     max_messages INTEGER NOT NULL DEFAULT 16,
     anchor_lamport INTEGER NOT NULL,
-    orphan_lamport INTEGER NOT NULL,          -- -1 = range sync (ping-triggered)
+    orphan_lamport INTEGER NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id)
@@ -29,7 +28,7 @@ CREATE TABLE pending_sync_attempted_peers(
 );
 
 insertPendingSync:
-INSERT INTO pending_syncs (sync_id, room_id, request_payload, sync_request_kind, missing_ancestor_of, attempts, next_attempt_at)
+INSERT INTO pending_syncs (sync_id, room_id, max_messages, anchor_lamport, orphan_lamport, attempts, next_attempt_at)
 VALUES (?, ?, ?, ?, ?, 0, ?);
 
 insertPendingSyncCandidateAccount:
@@ -40,8 +39,11 @@ findGapSyncsByAnchor:
 SELECT * FROM pending_syncs
 WHERE room_id = :roomId AND anchor_lamport = :anchor AND orphan_lamport >= 0;
 
-deleteByMissingAncestorIds:
-DELETE FROM pending_syncs WHERE missing_ancestor_of IN ?;
+updateOrphanLamport:
+UPDATE pending_syncs SET orphan_lamport = ? WHERE sync_id = ?;
+
+deleteSync:
+DELETE FROM pending_syncs WHERE sync_id = ?;
 
 selectEarliestDueAt:
 SELECT MIN(next_attempt_at) FROM pending_syncs;
@@ -77,5 +79,4 @@ WHERE next_attempt_at > :now
 
 CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
 CREATE INDEX pending_syncs_due_idx ON pending_syncs(next_attempt_at);
-CREATE INDEX pending_syncs_ancestor_idx ON pending_syncs(missing_ancestor_of);
 CREATE INDEX pending_sync_attempted_peers_device_idx ON pending_sync_attempted_peers(device_id);

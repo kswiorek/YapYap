@@ -42,7 +42,6 @@ internal class MessageInboundHandler(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
-            // TODO relay logic
             return InboundHandleResult.Success
         }
 

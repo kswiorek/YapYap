@@ -13,7 +13,6 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.envelopes.SyncRequestKind
 import kotlin.uuid.Uuid
 
 /**
@@ -53,6 +52,7 @@ class DatabaseFactory(
                 devicesAdapter = Devices.Adapter(
                     device_typeAdapter = EnumColumnAdapter(),
                     device_idAdapter = PeerIdAdapter(),
+                    account_idAdapter = AccountIdAdapter(),
                 ),
                 dedupAdapter = Dedup.Adapter(
                     nack_reasonAdapter = EnumColumnAdapter(),
@@ -88,8 +88,6 @@ class DatabaseFactory(
                 ),
                 pending_syncsAdapter = Pending_syncs.Adapter(
                     sync_idAdapter = UuidAdapter(),
-                    sync_request_kindAdapter = EnumColumnAdapter<SyncRequestKind>(),
-                    missing_ancestor_ofAdapter = UuidAdapter(),
                 ),
                 pending_sync_attempted_peersAdapter = Pending_sync_attempted_peers.Adapter(
                     sync_idAdapter = UuidAdapter(),

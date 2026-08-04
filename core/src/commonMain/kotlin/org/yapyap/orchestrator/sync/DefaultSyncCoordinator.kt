@@ -3,6 +3,8 @@ package org.yapyap.orchestrator.sync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
@@ -10,6 +12,7 @@ import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.SystemEpochSecondsProvider
 import kotlin.concurrent.Volatile
 import kotlin.uuid.Uuid
 
@@ -19,12 +22,14 @@ class DefaultSyncCoordinator(
     private val messageRepository: MessageRepository,
     private val identityResolver: IdentityResolver,
     private val pendingSyncRepository: PendingSyncRepository,
-    private val timeProvider: EpochSecondsProvider,
+    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    private val syncConfig: SyncConfig
 ) : SyncCoordinator {
 
     @Volatile
     private var serviceScope: CoroutineScope? = null
     private var subscriptionJob: Job? = null
+    private val syncMutex = Mutex()
 
     override fun start(scope: CoroutineScope) {
         check(subscriptionJob == null) { "SyncCoordinator already started" }
@@ -60,15 +65,16 @@ class DefaultSyncCoordinator(
      */
 
     override suspend fun requestRangeSync(roomId: String, pingLamport: Long) {
-        val localSeqN = roomRepository.getLocalSeq(roomId)?: error("unknown room $roomId")
-        if (localSeqN >= pingLamport) return
-        val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, localSeqN)
+        syncMutex.withLock {
+            val localSeqN = roomRepository.getLocalSeq(roomId) ?: error("unknown room $roomId")
+            if (localSeqN >= pingLamport) return
+            val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, localSeqN)
 
-        if (sync == null) {
-            insertNewGapSync(roomId, localSeqN, pingLamport)
-        }
-        else if (pingLamport > sync.orphanLamport) {
-            pendingSyncRepository.updateOrphanLamport(sync.syncId, pingLamport)
+            if (sync == null) {
+                insertNewGapSync(roomId, localSeqN, pingLamport)
+            } else if (pingLamport > sync.orphanLamport) {
+                pendingSyncRepository.updateOrphanLamport(sync.syncId, pingLamport)
+            }
         }
     }
 
@@ -101,34 +107,38 @@ class DefaultSyncCoordinator(
      * a new sync be created from the previous orphan to L.
      */
     private suspend fun processBecameOrphan(result: IngestResult.BecameOrphan) {
-        val L = result.payload.lamportClock
-        val roomId = result.payload.roomId
-        val anchor = result.anchorLamport
+        syncMutex.withLock {
+            val L = result.payload.lamportClock
+            val roomId = result.payload.roomId
+            val anchor = result.anchorLamport
 
-        val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, anchor)
-        if (sync == null) {
-            insertNewGapSync(roomId, anchor, L)
-            return
-        }
-
-        // One sync per (anchor, room) expected; take the highest orphan.
-        val orphan = sync.orphanLamport
-
-        when {
-            L > orphan -> {
-                pendingSyncRepository.updateOrphanLamport(sync.syncId, L)
+            val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, anchor)
+            if (sync == null) {
+                insertNewGapSync(roomId, anchor, L)
+                return
             }
-            L == orphan -> {
-                // No-op: sync already targets this lamport (branching twin).
-            }
-            L < orphan -> {
-                pendingSyncRepository.updateOrphanLamport(sync.syncId, L)
 
-                val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, orphan)
-                val messageAtOrphan = messageRepository.countAtLamport(roomId, orphan) == 0L
+            // One sync per (anchor, room) expected; take the highest orphan.
+            val orphan = sync.orphanLamport
 
-                if (orphanStillOpen || messageAtOrphan) {
-                    insertNewGapSync(roomId, L, orphan)                        // [anchor, L]
+            when {
+                L > orphan -> {
+                    pendingSyncRepository.updateOrphanLamport(sync.syncId, L)
+                }
+
+                L == orphan -> {
+                    // No-op: sync already targets this lamport (branching twin).
+                }
+
+                L < orphan -> {
+                    pendingSyncRepository.updateOrphanLamport(sync.syncId, L)
+
+                    val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, orphan)
+                    val messageAtOrphan = messageRepository.countAtLamport(roomId, orphan) == 0L
+
+                    if (orphanStillOpen || messageAtOrphan) {
+                        insertNewGapSync(roomId, L, orphan)                        // [anchor, L]
+                    }
                 }
             }
         }
@@ -146,18 +156,20 @@ class DefaultSyncCoordinator(
      * we can assume it will arrive at some point or its child (orphan will arrive)
      */
     private suspend fun processInserted(result: IngestResult.Inserted) {
-        val L = result.payload.lamportClock
-        val roomId = result.payload.roomId
+        syncMutex.withLock {
+            val L = result.payload.lamportClock
+            val roomId = result.payload.roomId
 
-        val computedAnchor = messageRepository.maxLamportBelow(roomId, L) ?: -1L
+            val computedAnchor = messageRepository.maxLamportBelow(roomId, L) ?: -1L
 
-        val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, computedAnchor)?: return
+            val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, computedAnchor) ?: return
 
-        pendingSyncRepository.deleteSync(sync.syncId)
-        val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, sync.orphanLamport)
-        val noMessageAtOrphan = messageRepository.countAtLamport(roomId, sync.orphanLamport) == 0L
-        if (orphanStillOpen || noMessageAtOrphan) {
-            insertNewGapSync(roomId, L, sync.orphanLamport)
+            pendingSyncRepository.deleteSync(sync.syncId)
+            val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, sync.orphanLamport)
+            val noMessageAtOrphan = messageRepository.countAtLamport(roomId, sync.orphanLamport) == 0L
+            if (orphanStillOpen || noMessageAtOrphan) {
+                insertNewGapSync(roomId, L, sync.orphanLamport)
+            }
         }
     }
 
@@ -170,25 +182,16 @@ class DefaultSyncCoordinator(
         pendingSyncRepository.insertSync(
             syncId = Uuid.random(),
             roomId = roomId,
-            maxMessages = MAX_MESSAGES,
+            maxMessages = syncConfig.syncMaxMessages,
             anchorLamport = anchorLamport,
             orphanLamport = orphanLamport,
             candidateAccounts = candidates,
-            nextAttemptAt = timeProvider.nowEpochSeconds() + GRACE_PERIOD_SECONDS,
+            nextAttemptAt = timeProvider.nowEpochSeconds() + syncConfig.gracePeriodSeconds,
         )
     }
 
     private suspend fun candidateAccountsFor(roomId: String): List<org.yapyap.crypto.identity.AccountId> {
         return roomRepository.membersOfRoom(roomId)
             .filter { it != identityResolver.getLocalAccountId() }
-    }
-
-    companion object {
-        /** Maximum messages requested per sync. Mirrors SyncPayloadProvider's cap. */
-        private const val MAX_MESSAGES = 16
-
-        /** Grace period (seconds) before sending a gap sync, to allow out-of-order
-         *  messages to arrive and close the gap without a round-trip. */
-        private const val GRACE_PERIOD_SECONDS = 60L
     }
 }

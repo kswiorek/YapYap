@@ -23,6 +23,11 @@ interface IdentityResolver {
 
     suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
 
+    suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> {
+        if (accountIds.isEmpty()) return emptyList()
+        return accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+    }
+
     suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
     suspend fun resolvePeerX3dhRemoteKeys(

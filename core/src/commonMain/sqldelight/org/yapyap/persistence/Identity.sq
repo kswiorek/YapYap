@@ -19,7 +19,7 @@ CREATE TABLE accounts (
 CREATE TABLE devices (
     device_id TEXT AS PeerId NOT NULL PRIMARY KEY,
     is_local_device INTEGER AS Boolean NOT NULL,
-    account_id TEXT NOT NULL,
+    account_id TEXT AS AccountId NOT NULL,
     device_type TEXT AS DeviceType NOT NULL,
     onion_address TEXT NOT NULL,
     onion_port INTEGER NOT NULL,
@@ -188,6 +188,9 @@ selectDevicesByAccountId:
 SELECT *
 FROM devices
 WHERE account_id = ?;
+
+selectDevicesByAccountIds:
+SELECT device_id FROM devices WHERE account_id IN ?;
 
 updateDeviceTorEndpoint:
 UPDATE devices

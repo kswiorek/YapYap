@@ -16,6 +16,7 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
+import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
 import org.yapyap.persistence.db.DatabaseFactory
@@ -23,8 +24,10 @@ import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.key.*
 import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
+import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
+import org.yapyap.persistence.sync.DefaultPendingSyncRepository
 import org.yapyap.protection.envelope.PlaintextFileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
@@ -64,6 +67,7 @@ class DefaultOrchestrator(
     private lateinit var identityProvisioning: DefaultIdentityProvisioning
     private lateinit var dagEngine: DefaultDagEngine
     private lateinit var pipeline: DefaultInboundMessagePipeline
+    private lateinit var syncCoordinator: DefaultSyncCoordinator
     private lateinit var orchestratorScope: CoroutineScope
 
     private lateinit var orchestratorRuntime: DefaultOrchestratorRuntime
@@ -211,8 +215,10 @@ class DefaultOrchestrator(
         )
 
         val messageRepo = DefaultMessageRepository(database)
+        val syncRepo = DefaultPendingSyncRepository(database)
+        val roomRepo = DefaultRoomRepository(database)
 
-        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo)
+        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, config.syncConfig)
 
         router = DefaultRouter(
             torTransport = torTransport,
@@ -223,9 +229,8 @@ class DefaultOrchestrator(
             envelopeProtectionService = envelopeProtectionService,
             routerConfig = config.routerConfig,
             syncPayloadProvider = syncPayloadProvider,
-            syncRepository = TODO(),
-            timeProvider = TODO(),
-            transportPolicy = TODO(),
+            syncRepository = syncRepo,
+            syncConfig = config.syncConfig,
         )
 
         router.start()
@@ -234,12 +239,23 @@ class DefaultOrchestrator(
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
+            roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
             timeProvider = SystemEpochSecondsProvider,
         )
         pipeline = DefaultInboundMessagePipeline(router, dagEngine)
         pipeline.start(orchestratorScope)
+
+        syncCoordinator = DefaultSyncCoordinator(
+            pipeline = pipeline,
+            roomRepository = roomRepo,
+            messageRepository = messageRepo,
+            identityResolver = identityResolver,
+            pendingSyncRepository = syncRepo,
+            syncConfig = config.syncConfig,
+        )
+        syncCoordinator.start(orchestratorScope)
 
         if (config.mode == NodeMode.FULL_CLIENT) {
             orchestratorRuntime = DefaultOrchestratorRuntime(

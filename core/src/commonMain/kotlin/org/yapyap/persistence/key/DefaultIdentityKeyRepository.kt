@@ -188,7 +188,7 @@ class DefaultIdentityKeyRepository(
                 queries.putDevice(
                     device_id = identity.deviceId,
                     is_local_device = true,
-                    account_id = accountId.id,
+                    account_id = accountId,
                     device_type = config.localDeviceType,
                     onion_address = config.defaultOnionAddress,
                     onion_port = config.defaultOnionPort,
@@ -323,7 +323,7 @@ class DefaultIdentityKeyRepository(
                 queries.putDevice(
                     device_id = identity.deviceId,
                     is_local_device = false,
-                    account_id = accountId.id,
+                    account_id = accountId,
                     device_type = deviceType,
                     onion_address = torEndpoint.onionAddress,
                     onion_port = torEndpoint.port.toLong(),
@@ -418,7 +418,14 @@ class DefaultIdentityKeyRepository(
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         withContext(dbDispatcher) {
             val queries = database.identityQueries
-            queries.selectDevicesByAccountId(accountId.id).executeAsList().map { it.device_id }
+            queries.selectDevicesByAccountId(accountId).executeAsList().map { it.device_id }
+        }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        withContext(dbDispatcher) {
+            database.identityQueries
+                .selectDevicesByAccountIds(accountIds)
+                .executeAsList()
         }
 
     override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {

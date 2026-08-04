@@ -1,5 +1,6 @@
 package org.yapyap.routing.sync
 
+import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
@@ -10,13 +11,14 @@ interface SyncPayloadProvider {
 
 class DefaultSyncPayloadProvider(
     private val messageRepository: MessageRepository,
+    private val syncConfig: SyncConfig,
 ) : SyncPayloadProvider {
 
     override suspend fun getMessages(syncRequest: SyncRequest): List<MessagePayload> {
         val roomId = syncRequest.roomId
         val anchor = syncRequest.anchorLamport
         val orphan = syncRequest.orphanLamport
-        val limit = syncRequest.maxMessages.coerceAtMost(MAX_MESSAGES)
+        val limit = syncRequest.maxMessages.coerceAtMost(syncConfig.syncMaxMessages)
 
         // Gap sync: [anchor, orphan] inclusive to catch branching, but skip a
         // boundary lamport when there's exactly one message at it — the requester
@@ -29,9 +31,5 @@ class DefaultSyncPayloadProvider(
             upperInclusive = orphan,
             limit = limit,
         ).map { it.payload }
-    }
-
-    private companion object {
-        const val MAX_MESSAGES = 16
     }
 }

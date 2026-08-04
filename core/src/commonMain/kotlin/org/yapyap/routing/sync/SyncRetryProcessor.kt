@@ -4,16 +4,15 @@ import kotlinx.coroutines.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.time.EpochSecondsProvider
 import kotlin.coroutines.cancellation.CancellationException
 
 internal class SyncRetryProcessor(
@@ -22,6 +21,7 @@ internal class SyncRetryProcessor(
     private val systemSender: SystemSender,
     private val peerPolicy: SyncPeerPolicy,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
+    private val syncConfig: SyncConfig,
     maxIdlePollSeconds: Long,
 ) {
     private val retryLoop = RetryLoop(
@@ -88,14 +88,14 @@ internal class SyncRetryProcessor(
     }
 
     private suspend fun processDueRow(row: PendingSyncRow, now: Long) {
-        val candidateDevices = row.candidateAccounts.flatMap { accountId ->
-            ctx.identityResolver.getAllPeerDevicesForAccount(accountId)
-        }.filter { it != ctx.localDeviceId }.distinct() //TODO: batch query
+        val candidateDevices = ctx.identityResolver.getAllPeerDevicesForAccounts(row.candidateAccounts)
+            .filter { it != ctx.localDeviceId }
+            .distinct()
 
         val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.attemptedDevices)
 
         if (nextDevice == null) {
-            pendingSyncs.updateAttemptAt(row.syncId, now + 60) // TODO: config
+            pendingSyncs.updateAttemptAt(row.syncId, now + syncConfig.deviceOfflineRetryDelaySeconds)
             return
         }
 
@@ -114,7 +114,7 @@ internal class SyncRetryProcessor(
         }
 
         val nextAttemptAt = now + computeBackoff(row.attempts)
-        pendingSyncs.recordAttempt(row.syncId, nextAttemptAt, now)
+        pendingSyncs.recordAttempt(row.syncId, nextAttemptAt)
     }
 
     private fun computeBackoff(attempts: Int): Long {

@@ -1,6 +1,11 @@
 package org.yapyap.persistence.sync
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.persistence.Pending_syncs
+import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload
 import kotlin.uuid.Uuid
@@ -50,7 +55,7 @@ interface PendingSyncRepository {
 
     suspend fun earliestDueAt(): Long?
     suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow>
-    suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long, now: Long)
+    suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long)
     suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId>
     suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long)
     suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long)
@@ -61,8 +66,11 @@ interface PendingSyncRepository {
 }
 
 class DefaultPendingSyncRepository(
-    private val database: org.yapyap.persistence.YapYapDatabase,
+    private val database: YapYapDatabase,
+    private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PendingSyncRepository {
+
+    private val queries = database.syncQueries
 
     override suspend fun insertSync(
         syncId: Uuid,
@@ -73,49 +81,89 @@ class DefaultPendingSyncRepository(
         candidateAccounts: List<AccountId>,
         nextAttemptAt: Long,
     ) {
-        TODO("Not yet implemented")
+        withContext(dbDispatcher) {
+            queries.insertPendingSync(
+                sync_id = syncId,
+                room_id = roomId,
+                max_messages = maxMessages.toLong(),
+                anchor_lamport = anchorLamport,
+                orphan_lamport = orphanLamport,
+                next_attempt_at = nextAttemptAt,
+            )
+            candidateAccounts.forEach { accountId ->
+                queries.insertPendingSyncCandidateAccount(sync_id = syncId, account_id = accountId)
+            }
+        }
     }
 
     override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
-        TODO("Not yet implemented")
+        withContext(dbDispatcher) {
+            queries.updateOrphanLamport(orphanLamport, syncId)
+        }
     }
 
     override suspend fun deleteSync(syncId: Uuid) {
-        TODO("Not yet implemented")
+        withContext(dbDispatcher) {
+            queries.deleteSync(syncId)
+        }
     }
 
-    override suspend fun earliestDueAt(): Long? {
-        TODO("Not yet implemented")
+    override suspend fun earliestDueAt(): Long? =
+        withContext(dbDispatcher) {
+            queries.selectEarliestDueAt().executeAsOneOrNull()?.MIN
+        }
+
+    override suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow> =
+        withContext(dbDispatcher) {
+            queries.selectDueSyncs(now, limit.toLong()).executeAsList().map { it.toRow() }
+        }
+
+    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long) {
+        withContext(dbDispatcher) {
+            queries.recordAttempt(next_attempt_at = nextAttemptAt, sync_id = syncId)
+        }
     }
 
-    override suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow> {
-        TODO("Not yet implemented")
-    }
-
-    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long, now: Long) {
-        TODO("Not yet implemented")
-    }
-
-    override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> {
-        TODO("Not yet implemented")
-    }
+    override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> =
+        withContext(dbDispatcher) {
+            queries.selectAttemptedPeersForSync(syncId).executeAsList().toSet()
+        }
 
     override suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long) {
-        TODO("Not yet implemented")
+        withContext(dbDispatcher) {
+            queries.accelerateForOnlinePeer(now, deviceId)
+        }
     }
 
     override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long) {
-        TODO("Not yet implemented")
+        withContext(dbDispatcher) {
+            queries.updateNextAttemptAt(nextAttemptAt, syncId)
+        }
     }
 
     override suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId) {
-        TODO("Not yet implemented")
+        withContext(dbDispatcher) {
+            queries.insertAttemptedPeer(syncId, deviceId)
+        }
     }
 
-    override suspend fun findGapSyncByAnchor(
-        roomId: String,
-        anchorLamport: Long
-    ): PendingSyncRow? {
-        TODO("Not yet implemented")
+    override suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow? =
+        withContext(dbDispatcher) {
+            queries.findGapSyncsByAnchor(roomId, anchorLamport).executeAsList().firstOrNull()?.toRow()
+        }
+
+    private fun Pending_syncs.toRow(): PendingSyncRow {
+        val candidates = queries.selectCandidateAccountsForSync(sync_id).executeAsList()
+        val attempted = queries.selectAttemptedPeersForSync(sync_id).executeAsList().toSet()
+        return PendingSyncRow(
+            syncId = sync_id,
+            roomId = room_id,
+            maxMessages = max_messages.toInt(),
+            anchorLamport = anchor_lamport,
+            orphanLamport = orphan_lamport,
+            candidateAccounts = candidates,
+            attemptedDevices = attempted,
+            attempts = attempts.toInt(),
+        )
     }
 }
