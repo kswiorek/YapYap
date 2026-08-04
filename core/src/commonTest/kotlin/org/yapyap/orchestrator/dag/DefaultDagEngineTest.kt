@@ -3,7 +3,6 @@ package org.yapyap.orchestrator.dag
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -21,6 +20,7 @@ class DefaultDagEngineTest {
     private lateinit var dagEngine: DefaultDagEngine
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var causalHoldRepo: FakeCausalHoldRepository
+    private lateinit var roomRepo: FakeRoomRepository
     private lateinit var identityResolver: FakeIdentityResolver
     private lateinit var signatureProvider: FakeSignatureProvider
     private lateinit var timeProvider: MutableEpochSecondsProvider
@@ -35,12 +35,14 @@ class DefaultDagEngineTest {
     fun setup() {
         messageRepo = FakeMessageRepository()
         causalHoldRepo = FakeCausalHoldRepository(messageRepo)
+        roomRepo = FakeRoomRepository()
         identityResolver = FakeIdentityResolver(testAccount, testDeviceId)
         signatureProvider = FakeSignatureProvider()
         timeProvider = MutableEpochSecondsProvider(1_000_000L)
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
+            roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
             timeProvider = timeProvider,
@@ -381,6 +383,7 @@ class DefaultDagEngineTest {
         val rejectingEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
+            roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = FakeRejectingSignatureProvider(),
             timeProvider = timeProvider,
@@ -412,15 +415,13 @@ private class FakeMessageRepository : MessageRepository {
 
     override suspend fun insert(
         payload: MessagePayload,
-        lifecycleState: MessageLifecycleState,
         isOrphaned: Boolean,
     ): Boolean {
         if (byId.containsKey(payload.messageId)) {
             // INSERT OR IGNORE semantics — duplicated key is a no-op.
-            val existing = byId[payload.messageId]!!
-            return existing == MessageRow(payload, lifecycleState, isOrphaned)
+            return true
         }
-        byId[payload.messageId] = MessageRow(payload, lifecycleState, isOrphaned)
+        byId[payload.messageId] = MessageRow(payload, isOrphaned)
         return true
     }
 
@@ -463,35 +464,6 @@ private class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override suspend fun findMessagesInRoomPageAsc(
-        roomId: String,
-        limit: Int,
-        cursor: MessageCursor?
-    ): List<MessageRow> {
-        val all = byId.values
-            .filter { it.payload.roomId == roomId }
-            .sortedWith(
-                compareBy<MessageRow> { it.payload.createdAtEpochSeconds }
-                    .thenBy { it.payload.lamportClock }
-                    .thenBy { it.payload.messageId }
-            )
-        val filtered = if (cursor == null) {
-            all
-        } else {
-            // Strictly NEWER than the cursor row (all three key sub-comparisons).
-            all.filter { row ->
-                val rowCreated = row.payload.createdAtEpochSeconds
-                val rowLamport = row.payload.lamportClock
-                val rowId = row.payload.messageId
-                rowCreated > cursor.createdAtEpochSeconds ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport > cursor.lamportClock) ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock &&
-                                cursor.messageId.let { rowId > it })
-            }
-        }
-        return filtered.take(limit)
-    }
-
     override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
         byId.values
             .filter { it.payload.roomId == roomId }
@@ -511,16 +483,49 @@ private class FakeMessageRepository : MessageRepository {
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
-        val row = byId[messageId] ?: return
-        byId[messageId] = row.copy(lifecycleState = state)
+    override suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean =
+        byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }
+
+    override suspend fun maxLamportBelow(roomId: String, lamport: Long): Long? =
+        byId.values
+            .filter { it.payload.roomId == roomId && it.payload.lamportClock < lamport }
+            .maxOfOrNull { it.payload.lamportClock }
+
+    override suspend fun findMessagesInLamportRange(
+        roomId: String,
+        lowerInclusive: Long,
+        upperInclusive: Long,
+        limit: Int,
+    ): List<MessageRow> =
+        byId.values
+            .filter { it.payload.roomId == roomId }
+            .filter { it.payload.lamportClock in lowerInclusive..upperInclusive }
+            .sortedWith(
+                compareBy<MessageRow> { it.payload.lamportClock }
+                    .thenBy { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.messageId }
+            )
+            .take(limit)
+
+    override suspend fun countAtLamport(roomId: String, lamport: Long): Long =
+        byId.values.count { it.payload.roomId == roomId && it.payload.lamportClock == lamport }.toLong()
+}
+
+private class FakeRoomRepository : RoomRepository {
+    private val seqs = mutableMapOf<String, Long>()
+
+    override suspend fun membersOfRoom(roomId: String): List<AccountId> = emptyList()
+
+    override suspend fun updateLocalSeq(roomId: String, seqN: Long) {
+        seqs[roomId] = seqN
     }
+
+    override suspend fun getLocalSeq(roomId: String): Long? = seqs[roomId]
 }
 
 private class FakeCausalHoldRepository(
     private val messageRepo: FakeMessageRepository,
-) : CausalHoldRepository {
-    private val rows = mutableListOf<CausalHoldRow>()
+) : CausalHoldRepository {    private val rows = mutableListOf<CausalHoldRow>()
 
     override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
         rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))

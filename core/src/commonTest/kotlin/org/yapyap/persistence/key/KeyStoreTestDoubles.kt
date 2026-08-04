@@ -137,6 +137,9 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersForAccount[accountId.id]?.map { PeerId(it) }?.sortedBy { it.id }.orEmpty()
 
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }.distinct()
+
     override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torForDevice[deviceId.id] = torEndpoint
     }

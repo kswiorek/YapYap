@@ -14,12 +14,10 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
-import org.yapyap.persistence.db.MessageLifecycleState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.SendMessageResult
@@ -53,15 +51,16 @@ class DefaultMessagingServiceTest {
         causalHoldRepo = FakeCausalHoldRepository(messageRepo)
         identityResolver = FakeIdentityResolver(localAccount)
         timeProvider = MutableEpochSecondsProvider(1_000_000L)
+        router = RecordingRouter()
+        roomMembershipRepo = FakeRoomRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
+            roomRepository = roomMembershipRepo,
             identityResolver = identityResolver,
             timeProvider = timeProvider,
             signatureProvider = FakeSignatureProvider(),
         )
-        router = RecordingRouter()
-        roomMembershipRepo = FakeRoomRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
     }
 
     private fun startStack(
@@ -458,6 +457,10 @@ private class FakeRoomRepository(
     val members: MutableMap<String, List<AccountId>>,
 ) : RoomRepository {
     override suspend fun membersOfRoom(roomId: String): List<AccountId> = members[roomId] ?: emptyList()
+
+    override suspend fun updateLocalSeq(roomId: String, seqN: Long) = Unit
+
+    override suspend fun getLocalSeq(roomId: String): Long? = null
 }
 
 private class FakeMessageRepository : MessageRepository {
@@ -465,14 +468,13 @@ private class FakeMessageRepository : MessageRepository {
 
     override suspend fun insert(
         payload: MessagePayload,
-        lifecycleState: MessageLifecycleState,
         isOrphaned: Boolean,
     ): Boolean {
         if (byId.containsKey(payload.messageId)) {
             // INSERT OR IGNORE semantics.
             return true
         }
-        byId[payload.messageId] = MessageRow(payload, lifecycleState, isOrphaned)
+        byId[payload.messageId] = MessageRow(payload, isOrphaned)
         return true
     }
 
@@ -515,35 +517,6 @@ private class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override suspend fun findMessagesInRoomPageAsc(
-        roomId: String,
-        limit: Int,
-        cursor: MessageCursor?
-    ): List<MessageRow> {
-        val all = byId.values
-            .filter { it.payload.roomId == roomId }
-            .sortedWith(
-                compareBy<MessageRow> { it.payload.createdAtEpochSeconds }
-                    .thenBy { it.payload.lamportClock }
-                    .thenBy { it.payload.messageId }
-            )
-        val filtered = if (cursor == null) {
-            all
-        } else {
-            // Strictly NEWER than the cursor row (all three key sub-comparisons).
-            all.filter { row ->
-                val rowCreated = row.payload.createdAtEpochSeconds
-                val rowLamport = row.payload.lamportClock
-                val rowId = row.payload.messageId
-                rowCreated > cursor.createdAtEpochSeconds ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport > cursor.lamportClock) ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock &&
-                                cursor.messageId.let { rowId > it })
-            }
-        }
-        return filtered.take(limit)
-    }
-
     override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
         byId.values
             .filter { it.payload.roomId == roomId }
@@ -563,10 +536,32 @@ private class FakeMessageRepository : MessageRepository {
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override suspend fun updateLifecycleState(messageId: Uuid, state: MessageLifecycleState) {
-        val row = byId[messageId] ?: return
-        byId[messageId] = row.copy(lifecycleState = state)
-    }
+    override suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean =
+        byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }
+
+    override suspend fun maxLamportBelow(roomId: String, lamport: Long): Long? =
+        byId.values
+            .filter { it.payload.roomId == roomId && it.payload.lamportClock < lamport }
+            .maxOfOrNull { it.payload.lamportClock }
+
+    override suspend fun findMessagesInLamportRange(
+        roomId: String,
+        lowerInclusive: Long,
+        upperInclusive: Long,
+        limit: Int,
+    ): List<MessageRow> =
+        byId.values
+            .filter { it.payload.roomId == roomId }
+            .filter { it.payload.lamportClock in lowerInclusive..upperInclusive }
+            .sortedWith(
+                compareBy<MessageRow> { it.payload.lamportClock }
+                    .thenBy { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.messageId }
+            )
+            .take(limit)
+
+    override suspend fun countAtLamport(roomId: String, lamport: Long): Long =
+        byId.values.count { it.payload.roomId == roomId && it.payload.lamportClock == lamport }.toLong()
 }
 
 private class FakeCausalHoldRepository(
@@ -641,18 +636,10 @@ private class RecordingRouter : Router {
         )
     }
 
-    override suspend fun requestSync(
-        syncRequest: SystemPayload.SyncRequest,
-        candidateAccounts: List<AccountId>
-    ) {
-        TODO("Not yet implemented")
-    }
-
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)
     }
 }
-
 private class FakeSignatureProvider : SignatureProvider {
     override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
 

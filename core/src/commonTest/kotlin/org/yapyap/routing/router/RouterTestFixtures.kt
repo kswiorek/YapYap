@@ -9,10 +9,13 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.persistence.sync.PendingSyncRepository
+import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
@@ -165,6 +168,63 @@ internal class FakeSyncPayloadProvider : SyncPayloadProvider{
         error("not used in router transport tests")
     }
 
+}
+
+internal class InMemoryPendingSyncRepository : PendingSyncRepository {
+    private val rows = mutableMapOf<Uuid, PendingSyncRow>()
+
+    override suspend fun insertSync(
+        syncId: Uuid,
+        roomId: String,
+        maxMessages: Int,
+        anchorLamport: Long,
+        orphanLamport: Long,
+        candidateAccounts: List<AccountId>,
+        nextAttemptAt: Long,
+    ) {
+        rows[syncId] = PendingSyncRow(
+            syncId = syncId,
+            roomId = roomId,
+            maxMessages = maxMessages,
+            anchorLamport = anchorLamport,
+            orphanLamport = orphanLamport,
+            candidateAccounts = candidateAccounts,
+            attemptedDevices = emptySet(),
+            attempts = 0,
+        )
+    }
+
+    override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
+        rows[syncId]?.let { rows[syncId] = it.copy(orphanLamport = orphanLamport) }
+    }
+
+    override suspend fun deleteSync(syncId: Uuid) {
+        rows.remove(syncId)
+    }
+
+    override suspend fun earliestDueAt(): Long? =
+        rows.values.minOfOrNull { it.attempts.toLong() }
+
+    override suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow> =
+        rows.values.toList().take(limit)
+
+    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long) {
+        rows[syncId]?.let { rows[syncId] = it.copy(attempts = it.attempts + 1) }
+    }
+
+    override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> =
+        rows[syncId]?.attemptedDevices ?: emptySet()
+
+    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long) = Unit
+
+    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long) = Unit
+
+    override suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId) {
+        rows[syncId]?.let { rows[syncId] = it.copy(attemptedDevices = it.attemptedDevices + deviceId) }
+    }
+
+    override suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow? =
+        rows.values.firstOrNull { it.roomId == roomId && it.anchorLamport == anchorLamport }
 }
 
 
@@ -514,7 +574,9 @@ internal fun e2eeRouterUnderTest(
         envelopeProtectionService = stack.protection,
         timeProvider = time,
         routerConfig = routerConfig,
+        syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
+        syncConfig = SyncConfig(),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -564,5 +626,7 @@ internal fun defaultRouterUnderTest(
         envelopeProtectionService = envelopeProtectionService,
         timeProvider = time,
         routerConfig = routerConfig,
+        syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
+        syncConfig = SyncConfig(),
     )

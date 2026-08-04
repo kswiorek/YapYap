@@ -1,6 +1,5 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.packet.PacketType
@@ -49,6 +48,29 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
+    fun systemPayload_syncRequest_encodeDecode_roundTrip() {
+        val original = SystemPayload.SyncRequest(
+            roomId = "room-a",
+            syncId = Uuid.random(),
+            maxMessages = 100,
+            anchorLamport = 42L,
+            orphanLamport = 7L,
+        )
+        val decoded = SystemPayload.SyncRequest.decode(original.encode())
+        assertSyncRequestEquals(original, decoded)
+    }
+
+    @Test
+    fun systemPayload_syncNack_encodeDecode_roundTrip() {
+        val original = SystemPayload.SyncNack(
+            syncId = Uuid.random(),
+            reason = "ancestor not found",
+        )
+        val decoded = SystemPayload.SyncNack.decode(original.encode())
+        assertSyncNackEquals(original, decoded)
+    }
+
+    @Test
     fun systemEnvelope_full_encodeDecode_packetAck_roundTrip() {
         val payload = SystemPayload.PacketAck(
             packetId = samplePacketId,
@@ -91,12 +113,13 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
-    fun systemEnvelope_full_encodeDecode_gapSyncRequest_roundTrip() {
-        val syncRequest = SystemPayload.SyncRequest.GapSyncRequest(
+    fun systemEnvelope_full_encodeDecode_syncRequest_roundTrip() {
+        val syncRequest = SystemPayload.SyncRequest(
             roomId = "room-a",
+            syncId = Uuid.random(),
             maxMessages = 100,
-            missingPrevId = Uuid.random(),
-            orphanedMessageId = Uuid.random(),
+            anchorLamport = 1234L,
+            orphanLamport = 10L,
         )
         val env = SystemEnvelope(
             systemEnvelopeId = Uuid.random(),
@@ -113,15 +136,10 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
-    fun systemEnvelope_full_encodeDecode_rangeSyncRequest_roundTrip() {
-        val syncRequest = SystemPayload.SyncRequest.RangeSyncRequest(
-            roomId = "room-a",
-            maxMessages = 100,
-            sinceCursor = MessageCursor(
-                1234567890L,
-                 1234567890L,
-                Uuid.random()
-            )
+    fun systemEnvelope_full_encodeDecode_syncNack_roundTrip() {
+        val syncNack = SystemPayload.SyncNack(
+            syncId = Uuid.random(),
+            reason = "request expired",
         )
         val env = SystemEnvelope(
             systemEnvelopeId = Uuid.random(),
@@ -131,7 +149,7 @@ class SystemEnvelopeCodecTest {
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
-            payload = syncRequest.encode(),
+            payload = syncNack.encode(),
         )
         val round = SystemEnvelope.decode(env.encode())
         assertSystemEnvelopeEquals(env, round)
@@ -172,6 +190,8 @@ class SystemEnvelopeCodecTest {
                 assertPacketNackEquals(expected, actual)
             expected is SystemPayload.SyncRequest && actual is SystemPayload.SyncRequest ->
                 assertSyncRequestEquals(expected, actual)
+            expected is SystemPayload.SyncNack && actual is SystemPayload.SyncNack ->
+                assertSyncNackEquals(expected, actual)
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }
@@ -187,24 +207,17 @@ class SystemEnvelopeCodecTest {
         assertEquals(expected.reason, actual.reason)
         assertEquals(expected.reasonText, actual.reasonText)
     }
+
     private fun assertSyncRequestEquals(expected: SystemPayload.SyncRequest, actual: SystemPayload.SyncRequest) {
-        when {
-            expected is SystemPayload.SyncRequest.GapSyncRequest && actual is SystemPayload.SyncRequest.GapSyncRequest ->
-                assertGapSyncRequestEquals(expected, actual)
-            expected is SystemPayload.SyncRequest.RangeSyncRequest && actual is SystemPayload.SyncRequest.RangeSyncRequest ->
-                assertRangeSyncRequestEquals(expected, actual)
-            else -> fail("SyncRequest kinds differ: ${expected::class} vs ${actual::class}")
-        }
-    }
-    private fun assertGapSyncRequestEquals(expected: SystemPayload.SyncRequest.GapSyncRequest, actual: SystemPayload.SyncRequest.GapSyncRequest) {
-        assertEquals(expected.maxMessages, actual.maxMessages)
         assertEquals(expected.roomId, actual.roomId)
-        assertEquals(expected.missingPrevId, actual.missingPrevId)
-        assertEquals(expected.orphanedMessageId, actual.orphanedMessageId)
-    }
-    private fun assertRangeSyncRequestEquals(expected: SystemPayload.SyncRequest.RangeSyncRequest, actual: SystemPayload.SyncRequest.RangeSyncRequest) {
+        assertEquals(expected.syncId, actual.syncId)
         assertEquals(expected.maxMessages, actual.maxMessages)
-        assertEquals(expected.roomId, actual.roomId)
-        assertEquals(expected.sinceCursor, actual.sinceCursor)
+        assertEquals(expected.anchorLamport, actual.anchorLamport)
+        assertEquals(expected.orphanLamport, actual.orphanLamport)
+    }
+
+    private fun assertSyncNackEquals(expected: SystemPayload.SyncNack, actual: SystemPayload.SyncNack) {
+        assertEquals(expected.syncId, actual.syncId)
+        assertEquals(expected.reason, actual.reason)
     }
 }

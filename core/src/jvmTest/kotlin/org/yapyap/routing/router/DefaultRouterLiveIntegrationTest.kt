@@ -7,6 +7,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -110,7 +111,9 @@ class DefaultRouterLiveIntegrationTest {
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 routerConfig = RouterConfig(),
+                syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
+                syncConfig = SyncConfig(),
             )
         val bobRouter =
             DefaultRouter(
@@ -122,7 +125,9 @@ class DefaultRouterLiveIntegrationTest {
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 routerConfig = RouterConfig(),
+                syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
+                syncConfig = SyncConfig(),
             )
 
         try {
