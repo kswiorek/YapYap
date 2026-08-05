@@ -215,8 +215,6 @@ sealed interface SystemPayload {
                 }
             }
         }
-
-    //TODO add test
     data class SyncNack(
         val syncId: Uuid,
         val reason: String,

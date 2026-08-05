@@ -5,7 +5,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.types.*
 
-//TODO add handling glare
 
 interface WebRtcTransport {
     // Data plane

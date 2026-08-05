@@ -153,7 +153,6 @@ internal class InboundEnvelopeProcessor(
             is SystemInboundResult.SyncRequested -> syncHandler.onSyncRequested(result.sync, result.peerId)
             is SystemInboundResult.MarkPeerAttempted -> syncHandler.onMarkPeerAttempted(result.syncId, result.peerId)
             // TODO Sprint 4: is SystemInboundResult.PeerHeartbeat -> peerPresenceService.record(result)
-            // TODO Sprint 2: is SystemInboundResult.GapSyncRequested -> gapSyncCoordinator.onRequest(result)
         }
     }
 }
