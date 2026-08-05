@@ -233,4 +233,230 @@ class DefaultSyncCoordinatorTest {
         assertEquals(9L, rows.single().orphanLamport)
         coordinator.stop()
     }
+
+    // ------------------------------------------------------------------
+    // requestRangeSync — boundary & multi-member edge cases
+    // ------------------------------------------------------------------
+
+    @Test
+    fun requestRangeSync_pingEqualsLocalSeq_ignores() = runTest {
+        val coordinator = buildCoordinator()
+        roomRepo.updateLocalSeq(roomId, 5L)
+
+        coordinator.requestRangeSync(roomId, pingLamport = 5L)
+
+        assertTrue(pendingRepo.all().isEmpty())
+    }
+
+    @Test
+    fun requestRangeSync_pingEqualsExistingOrphan_noChange() = runTest {
+        val coordinator = buildCoordinator()
+        roomRepo.updateLocalSeq(roomId, 5L)
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            anchorLamport = 5L, orphanLamport = 10L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+        )
+
+        coordinator.requestRangeSync(roomId, pingLamport = 10L)
+
+        assertEquals(10L, pendingRepo.findGapSyncByAnchor(roomId, 5L)!!.orphanLamport)
+        assertEquals(1, pendingRepo.all().size)
+    }
+
+    @Test
+    fun requestRangeSync_multipleMembers_allNonLocalAreCandidates() = runTest {
+        val thirdAccount = AccountId("third-account")
+        val coordinator = buildCoordinator(roomMembers = listOf(localAccount, remoteAccount, thirdAccount))
+        roomRepo.updateLocalSeq(roomId, 5L)
+
+        coordinator.requestRangeSync(roomId, pingLamport = 10L)
+
+        val sync = pendingRepo.all().single()
+        assertEquals(listOf(remoteAccount, thirdAccount), sync.candidateAccounts)
+    }
+
+    // ------------------------------------------------------------------
+    // processBecameOrphan — branching edge cases
+    // ------------------------------------------------------------------
+
+    @Test
+    fun becameOrphan_sameLamportAsOrphan_isNoOp() = runTest {
+        val coordinator = buildCoordinator()
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            anchorLamport = 4L, orphanLamport = 8L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+        )
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+        val twin = textMsg(roomId, lamport = 8L, prevId = Uuid.random())
+
+        pipeline.emit(
+            IngestResult.BecameOrphan(
+                payload = twin,
+                closedGapMissingPrevIds = emptyList(),
+                missingPrevId = twin.prevId!!,
+                anchorLamport = 4L,
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
+        val sync = pendingRepo.findGapSyncByAnchor(roomId, 4L)!!
+        assertEquals(8L, sync.orphanLamport)
+        assertEquals(1, pendingRepo.all().size)
+        coordinator.stop()
+    }
+
+    @Test
+    fun becameOrphan_lowerLamport_orphanStillOpen_splitsIntoTwoSyncs() = runTest {
+        val coordinator = buildCoordinator()
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true)
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            anchorLamport = 4L, orphanLamport = 9L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+        )
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+        val newOrphan = textMsg(roomId, lamport = 7L, prevId = Uuid.random())
+
+        pipeline.emit(
+            IngestResult.BecameOrphan(
+                payload = newOrphan,
+                closedGapMissingPrevIds = emptyList(),
+                missingPrevId = newOrphan.prevId!!,
+                anchorLamport = 4L,
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
+        val rows = pendingRepo.all().sortedBy { it.anchorLamport }
+        assertEquals(2, rows.size)
+        assertEquals(4L, rows[0].anchorLamport)
+        assertEquals(7L, rows[0].orphanLamport)
+        assertEquals(7L, rows[1].anchorLamport)
+        assertEquals(9L, rows[1].orphanLamport)
+        coordinator.stop()
+    }
+
+    @Test
+    fun becameOrphan_lowerLamport_noMessageAtOrphan_splitsIntoTwoSyncs() = runTest {
+        val coordinator = buildCoordinator()
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            anchorLamport = 4L, orphanLamport = 9L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+        )
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+        val newOrphan = textMsg(roomId, lamport = 6L, prevId = Uuid.random())
+
+        pipeline.emit(
+            IngestResult.BecameOrphan(
+                payload = newOrphan,
+                closedGapMissingPrevIds = emptyList(),
+                missingPrevId = newOrphan.prevId!!,
+                anchorLamport = 4L,
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
+        val rows = pendingRepo.all().sortedBy { it.anchorLamport }
+        assertEquals(2, rows.size)
+        assertEquals(4L, rows[0].anchorLamport)
+        assertEquals(6L, rows[0].orphanLamport)
+        assertEquals(6L, rows[1].anchorLamport)
+        assertEquals(9L, rows[1].orphanLamport)
+        coordinator.stop()
+    }
+
+    @Test
+    fun becameOrphan_lowerLamport_orphanAlreadyClosed_onlyShortens() = runTest {
+        val coordinator = buildCoordinator()
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false)
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            anchorLamport = 4L, orphanLamport = 9L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+        )
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+        val newOrphan = textMsg(roomId, lamport = 6L, prevId = Uuid.random())
+
+        pipeline.emit(
+            IngestResult.BecameOrphan(
+                payload = newOrphan,
+                closedGapMissingPrevIds = emptyList(),
+                missingPrevId = newOrphan.prevId!!,
+                anchorLamport = 4L,
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
+        val rows = pendingRepo.all()
+        assertEquals(1, rows.size)
+        assertEquals(4L, rows.single().anchorLamport)
+        assertEquals(6L, rows.single().orphanLamport)
+        coordinator.stop()
+    }
+
+    // ------------------------------------------------------------------
+    // processInserted — additional edge cases
+    // ------------------------------------------------------------------
+
+    @Test
+    fun inserted_noExistingSync_isNoOp() = runTest {
+        val coordinator = buildCoordinator()
+        val anchorMsg = textMsg(roomId, lamport = 4L, prevId = null)
+        messageRepo.insert(anchorMsg, isOrphaned = false)
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+
+        val inserted = textMsg(roomId, lamport = 5L, prevId = anchorMsg.messageId)
+        pipeline.emit(IngestResult.Inserted(payload = inserted))
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(pendingRepo.all().isEmpty())
+        coordinator.stop()
+    }
+
+    @Test
+    fun inserted_orphanAtOrphanLamportStillFlagged_recreatesContinuationSync() = runTest {
+        val coordinator = buildCoordinator()
+        val anchorMsg = textMsg(roomId, lamport = 4L, prevId = null)
+        messageRepo.insert(anchorMsg, isOrphaned = false)
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true)
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            anchorLamport = 4L, orphanLamport = 9L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+        )
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+
+        val inserted = textMsg(roomId, lamport = 8L, prevId = anchorMsg.messageId)
+        pipeline.emit(IngestResult.Inserted(payload = inserted))
+        testScheduler.advanceUntilIdle()
+
+        val rows = pendingRepo.all()
+        assertEquals(1, rows.size)
+        assertEquals(8L, rows.single().anchorLamport)
+        assertEquals(9L, rows.single().orphanLamport)
+        coordinator.stop()
+    }
+
+    @Test
+    fun inserted_noMessagesBelowL_isNoOp() = runTest {
+        val coordinator = buildCoordinator()
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+
+        val inserted = textMsg(roomId, lamport = 0L, prevId = null)
+        pipeline.emit(IngestResult.Inserted(payload = inserted))
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(pendingRepo.all().isEmpty())
+        coordinator.stop()
+    }
 }
