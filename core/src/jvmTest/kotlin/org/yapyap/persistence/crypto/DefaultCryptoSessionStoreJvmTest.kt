@@ -160,23 +160,6 @@ class DefaultCryptoSessionStoreJvmTest {
         assertNull(store.loadActiveCanonical(peer, sessionEpoch = 1))
     }
 
-    @Test
-    fun ratchetSkippedKeysCodec_roundTrip() {
-        val skipped = mapOf(
-            RatchetSkippedKeyId(byteArrayOf(0x01, 0x02), messageNumber = 3) to byteArrayOf(0xAA.toByte()),
-            RatchetSkippedKeyId.supersededChain(byteArrayOf(0x03, 0x04, 0x05)) to ByteArray(0),
-        )
-        val encoded = RatchetSkippedKeysCodec.encode(skipped)
-        val decoded = RatchetSkippedKeysCodec.decode(encoded)
-        assertEquals(skipped.size, decoded.size)
-        for ((key, value) in skipped) {
-            val loaded = decoded.entries.first { (k, _) -> k == key }.value
-            assertContentEquals(value, loaded)
-        }
-        val roundTrippedEmpty = RatchetSkippedKeysCodec.decode(RatchetSkippedKeysCodec.encode(emptyMap()))
-        assertEquals(0, roundTrippedEmpty.size)
-    }
-
     private fun assertRecordEquals(expected: CryptoSessionRecord, actual: CryptoSessionRecord) {
         assertEquals(expected.peerDeviceId, actual.peerDeviceId)
         assertEquals(expected.sessionEpoch, actual.sessionEpoch)

@@ -62,6 +62,7 @@ class DatabaseFactory(
                     roleAdapter = EnumColumnAdapter(),
                     x3dh_modeAdapter = EnumColumnAdapter<X3dhMode>(),
                     statusAdapter = EnumColumnAdapter(),
+                    peer_device_idAdapter = PeerIdAdapter(),
                 ),
                 one_time_prekeysAdapter = One_time_prekeys.Adapter(
                     statusAdapter = EnumColumnAdapter(),

@@ -1,11 +1,12 @@
+import kotlin.Boolean;
 import org.yapyap.crypto.e2ee.SessionRole;
 import org.yapyap.crypto.e2ee.SessionStatus;
 import org.yapyap.crypto.e2ee.X3dhMode;
-import kotlin.Boolean;
+import org.yapyap.protocol.PeerId;
 
 CREATE TABLE crypto_sessions (
     session_id TEXT NOT NULL PRIMARY KEY,
-    peer_device_id TEXT NOT NULL,
+    peer_device_id TEXT AS PeerId NOT NULL,
     canonical INTEGER AS Boolean NOT NULL,
     session_epoch INTEGER NOT NULL,
     session_generation INTEGER NOT NULL DEFAULT 1,
@@ -18,7 +19,6 @@ CREATE TABLE crypto_sessions (
     local_dh_private_key BLOB NOT NULL,
     local_dh_public_key BLOB NOT NULL,
     remote_dh_pub_key BLOB,
-    skipped_message_keys BLOB NOT NULL,
     role TEXT AS SessionRole NOT NULL,
     x3dh_mode TEXT AS X3dhMode NOT NULL,
     handshake_spk_id TEXT NOT NULL,
@@ -39,6 +39,17 @@ CREATE UNIQUE INDEX crypto_sessions_one_canonical_per_epoch
 ON crypto_sessions(peer_device_id, session_epoch)
 WHERE canonical = 1;
 
+CREATE TABLE crypto_session_skipped_keys (
+    session_id TEXT NOT NULL REFERENCES crypto_sessions(session_id) ON DELETE CASCADE,
+    dh_public_key BLOB NOT NULL,
+    message_number INTEGER NOT NULL,
+    message_key BLOB NOT NULL,
+    PRIMARY KEY (session_id, dh_public_key, message_number)
+);
+
+CREATE INDEX crypto_session_skipped_keys_session_idx
+ON crypto_session_skipped_keys(session_id);
+
 insertOrReplaceCryptoSession:
 INSERT OR REPLACE INTO crypto_sessions (
     session_id,
@@ -55,7 +66,6 @@ INSERT OR REPLACE INTO crypto_sessions (
     local_dh_private_key,
     local_dh_public_key,
     remote_dh_pub_key,
-    skipped_message_keys,
     role,
     x3dh_mode,
     handshake_spk_id,
@@ -66,30 +76,33 @@ INSERT OR REPLACE INTO crypto_sessions (
     status,
     created_at_epoch_seconds,
     updated_at_epoch_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
-selectActiveCanonicalCryptoSessionByPeerAndEpoch:
-SELECT *
-FROM crypto_sessions
-WHERE peer_device_id = ? AND session_epoch = ? AND canonical = 1 AND status = 'ACTIVE'
-LIMIT 1;
+deleteCryptoSessionSkippedKeysBySession:
+DELETE FROM crypto_session_skipped_keys WHERE session_id = ?;
 
-selectCryptoSessionByPeerAndEpoch:
-SELECT *
-FROM crypto_sessions
-WHERE peer_device_id = ? AND session_epoch = ?
-ORDER BY session_generation, role;
+insertCryptoSessionSkippedKey:
+INSERT INTO crypto_session_skipped_keys (session_id, dh_public_key, message_number, message_key)
+VALUES (?, ?, ?, ?);
+
+selectCryptoSessionByPeerAndEpochWithKeys:
+SELECT cs.*, sk.dh_public_key AS skipped_dh_public_key, sk.message_number AS skipped_message_number, sk.message_key AS skipped_message_key
+FROM crypto_sessions cs
+LEFT JOIN crypto_session_skipped_keys sk ON sk.session_id = cs.session_id
+WHERE cs.peer_device_id = ? AND cs.session_epoch = ?
+ORDER BY cs.session_generation, cs.role;
 
 setCanonicalByPeerEpochRoleAndGeneration:
 UPDATE crypto_sessions
 SET canonical = ?
 WHERE peer_device_id = ? AND session_epoch = ? AND role = ? AND session_generation = ?;
 
-selectCryptoSessionsByPeer:
-SELECT *
-FROM crypto_sessions
-WHERE peer_device_id = ?
-ORDER BY session_epoch, session_generation, role;
+selectCryptoSessionsByPeerWithKeys:
+SELECT cs.*, sk.dh_public_key AS skipped_dh_public_key, sk.message_number AS skipped_message_number, sk.message_key AS skipped_message_key
+FROM crypto_sessions cs
+LEFT JOIN crypto_session_skipped_keys sk ON sk.session_id = cs.session_id
+WHERE cs.peer_device_id = ?
+ORDER BY cs.session_epoch, cs.session_generation, cs.role;
 
 selectMaxSessionEpochByPeer:
 SELECT MAX(session_epoch) AS max_epoch
