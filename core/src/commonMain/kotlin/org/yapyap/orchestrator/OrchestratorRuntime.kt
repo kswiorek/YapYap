@@ -9,7 +9,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.routing.router.Router
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.SystemEpochProvider
 
 interface OrchestratorRuntime {
     val messaging: MessagingService
@@ -34,7 +34,7 @@ internal class DefaultOrchestratorRuntime(
             pipeline = pipeline,
             roomRepository = DefaultRoomRepository(database),
             identityResolver = identityResolver,
-            timeProvider = SystemEpochSecondsProvider,
+            timeProvider = SystemEpochProvider,
         )
         _messaging.start(scope)
     }

@@ -6,7 +6,7 @@ import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import org.yapyap.crypto.e2ee.X3dhMode
+import org.yapyap.crypto.e2ee.session.X3dhMode
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent

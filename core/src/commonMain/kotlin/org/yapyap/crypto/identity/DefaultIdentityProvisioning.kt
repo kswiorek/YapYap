@@ -12,7 +12,7 @@ import org.yapyap.persistence.key.KeyStore
 import org.yapyap.persistence.key.KeyType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 
 class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
@@ -20,7 +20,7 @@ class DefaultIdentityProvisioning(
     private val keyStore: KeyStore,
     private val config: IdentityKeyServiceConfig,
     private val identityResolver: IdentityResolver,
-    private val timeProvider: EpochSecondsProvider,
+    private val timeProvider: EpochProvider,
 ) : IdentityProvisioning {
     override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord {
         AppLog.info(

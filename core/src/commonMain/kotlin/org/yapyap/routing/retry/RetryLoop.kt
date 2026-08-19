@@ -4,13 +4,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
 
 internal class RetryLoop(
     private val earliestPendingRetryAt: suspend () -> Long?,
-    private val time: EpochSecondsProvider,
+    private val time: EpochProvider,
     private val processDue: suspend () -> Unit,
     private val maxIdlePollSeconds: Long = 60,
     private val onProcessFailed: (Throwable) -> Unit = {},

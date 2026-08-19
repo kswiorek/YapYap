@@ -22,7 +22,7 @@ import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.SendMessageResult
 import org.yapyap.routing.router.SendMessageStatus
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -37,7 +37,7 @@ class DefaultMessagingServiceTest {
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var causalHoldRepo: FakeCausalHoldRepository
     private lateinit var identityResolver: FakeIdentityResolver
-    private lateinit var timeProvider: MutableEpochSecondsProvider
+    private lateinit var timeProvider: FixedEpochProvider
     private lateinit var router: RecordingRouter
     private lateinit var roomMembershipRepo: FakeRoomRepository
 
@@ -50,7 +50,7 @@ class DefaultMessagingServiceTest {
         messageRepo = FakeMessageRepository()
         causalHoldRepo = FakeCausalHoldRepository(messageRepo)
         identityResolver = FakeIdentityResolver(localAccount)
-        timeProvider = MutableEpochSecondsProvider(1_000_000L)
+        timeProvider = FixedEpochProvider(1_000_000L)
         router = RecordingRouter()
         roomMembershipRepo = FakeRoomRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
         dagEngine = DefaultDagEngine(
@@ -418,9 +418,9 @@ class DefaultMessagingServiceTest {
     fun loadOlder_paginatesBackward() = runTest(UnconfinedTestDispatcher()) {
         // Three messages: m1 (oldest), m2, m3 (newest).
         val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
-        timeProvider.t += 1L
+        timeProvider.advanceBy(1L)
         val m2 = dagEngine.append(roomId, MessageDraft.Text("b"))
-        timeProvider.t += 1L
+        timeProvider.advanceBy(1L)
         val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
 
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
@@ -448,10 +448,6 @@ class DefaultMessagingServiceTest {
 }
 
 /* ---------- fakes (pure Kotlin, commonTest-safe) ---------- */
-
-private class MutableEpochSecondsProvider(var t: Long) : EpochSecondsProvider {
-    override fun nowEpochSeconds(): Long = t
-}
 
 private class FakeRoomRepository(
     val members: MutableMap<String, List<AccountId>>,

@@ -9,7 +9,7 @@ interface OpkRepository {
     /** Generate and persist a fresh OPK in [org.yapyap.persistence.db.OpkStatus.ALLOCATED] state. */
     suspend fun allocate(): LocalOneTimePreKey
 
-    /** Transition [opkId] from ALLOCATED to OFFERED when attached to an outbound [org.yapyap.crypto.e2ee.InnerSessionControl.OpkOffer]. */
+    /** Transition [opkId] from ALLOCATED to OFFERED when attached to an outbound [org.yapyap.crypto.e2ee.session.InnerSessionControl.OpkOffer]. */
     suspend fun markOffered(opkId: String)
 
     /**

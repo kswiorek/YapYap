@@ -10,7 +10,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
-import org.yapyap.testfixtures.MutableEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -28,7 +28,7 @@ class DefaultSyncCoordinatorTest {
     private lateinit var roomRepo: FakeRoomRepository
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var pendingRepo: FakePendingSyncRepository
-    private lateinit var time: MutableEpochSecondsProvider
+    private lateinit var time: FixedEpochProvider
 
     private fun buildCoordinator(
         roomMembers: List<AccountId> = listOf(localAccount, remoteAccount),
@@ -36,7 +36,7 @@ class DefaultSyncCoordinatorTest {
         roomRepo = FakeRoomRepository(mapOf(roomId to roomMembers))
         messageRepo = FakeMessageRepository()
         pendingRepo = FakePendingSyncRepository()
-        time = MutableEpochSecondsProvider(1_000L)
+        time = FixedEpochProvider(1_000L)
         return DefaultSyncCoordinator(
             pipeline = pipeline,
             roomRepository = roomRepo,

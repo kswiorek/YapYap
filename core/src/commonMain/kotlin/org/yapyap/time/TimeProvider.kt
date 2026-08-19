@@ -5,36 +5,35 @@ import kotlin.time.Clock
 /**
  * Provides current Unix epoch time in seconds.
  */
-fun interface EpochSecondsProvider {
+interface EpochProvider {
     fun nowEpochSeconds(): Long
-}
-
-/**
- * Provides current Unix epoch time in milliseconds.
- */
-fun interface EpochMillisecondsProvider {
     fun nowEpochMilliseconds(): Long
 }
 
 /**
  * Multiplatform default implementation backed by Kotlin's system clock.
  */
-object SystemEpochMillisecondsProvider : EpochMillisecondsProvider {
-    override fun nowEpochMilliseconds(): Long = Clock.System.now().toEpochMilliseconds()
-}
-
-/**
- * Multiplatform default implementation backed by Kotlin's system clock.
- */
-object SystemEpochSecondsProvider : EpochSecondsProvider {
+object SystemEpochProvider : EpochProvider {
     override fun nowEpochSeconds(): Long =
-        SystemEpochMillisecondsProvider.nowEpochMilliseconds() / 1_000L
+        Clock.System.now().epochSeconds
+
+    override fun nowEpochMilliseconds(): Long =
+        Clock.System.now().toEpochMilliseconds()
 }
 
 /**
  * Returns a constant epoch second value — useful for deterministic encode/decode tests.
  */
-class FixedEpochSecondsProvider(private val epochSeconds: Long) : EpochSecondsProvider {
+class FixedEpochProvider(private var epochSeconds: Long) : EpochProvider {
     override fun nowEpochSeconds(): Long = epochSeconds
+    override fun nowEpochMilliseconds(): Long = epochSeconds * 1000L
+
+    fun advanceTo(epochSeconds: Long) {
+        this.epochSeconds = epochSeconds
+    }
+
+    fun advanceBy(seconds: Long) {
+        advanceTo(epochSeconds + seconds)
+    }
 }
 

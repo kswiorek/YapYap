@@ -11,7 +11,7 @@ import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -167,7 +167,7 @@ class PersistenceContractsJvmTest {
             defaultOnionAddress = "keysig-test.onion",
             defaultOnionPort = 443L,
         )
-        val timeProvider = FixedEpochSecondsProvider(0L)
+        val timeProvider = FixedEpochProvider(0L)
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
         val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
 
@@ -194,7 +194,7 @@ class PersistenceContractsJvmTest {
             defaultOnionAddress = "spk-test.onion",
             defaultOnionPort = 443L,
         )
-        val timeProvider = FixedEpochSecondsProvider(0L)
+        val timeProvider = FixedEpochProvider(0L)
         val resolver = DefaultIdentityResolver(crypto, repo, store, config)
         val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
 

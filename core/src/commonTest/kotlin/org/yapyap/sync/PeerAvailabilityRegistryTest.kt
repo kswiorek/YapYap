@@ -5,7 +5,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
-import org.yapyap.testfixtures.MutableEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,13 +17,13 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun unknownPeer_isOffline() {
-        val registry = PeerAvailabilityRegistry(MutableEpochSecondsProvider(1_000L))
+        val registry = PeerAvailabilityRegistry(FixedEpochProvider(1_000L))
         assertFalse(registry.isOnline(peer("a")))
     }
 
     @Test
     fun markReachable_marksPeerOnlineAndAddsToOnlineDevices() = runTest {
-        val registry = PeerAvailabilityRegistry(MutableEpochSecondsProvider(1_000L))
+        val registry = PeerAvailabilityRegistry(FixedEpochProvider(1_000L))
         registry.markReachable(peer("a"), 1_000L)
 
         assertTrue(registry.isOnline(peer("a")))
@@ -32,18 +32,18 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun isOnline_expiresAfterThreshold() {
-        val time = MutableEpochSecondsProvider(1_000L)
+        val time = FixedEpochProvider(1_000L)
         val registry = PeerAvailabilityRegistry(time, onlineThresholdSeconds = 60)
         registry.markReachable(peer("a"), 1_000L)
         assertTrue(registry.isOnline(peer("a")))
 
-        time.t = 1_060L
+        time.advanceTo(1_060L)
         assertFalse(registry.isOnline(peer("a")))
     }
 
     @Test
     fun onlineEvents_emitsOncePerOfflineToOnlineTransition() = runTest {
-        val registry = PeerAvailabilityRegistry(MutableEpochSecondsProvider(1_000L))
+        val registry = PeerAvailabilityRegistry(FixedEpochProvider(1_000L))
         val events = mutableListOf<PeerId>()
         val job = launch { registry.onlineEvents.collect { events.add(it) } }
         testScheduler.runCurrent()
@@ -58,7 +58,7 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun onlineEvents_emitsForDistinctNewPeers() = runTest {
-        val registry = PeerAvailabilityRegistry(MutableEpochSecondsProvider(1_000L))
+        val registry = PeerAvailabilityRegistry(FixedEpochProvider(1_000L))
         val events = mutableListOf<PeerId>()
         val job = launch { registry.onlineEvents.collect { events.add(it) } }
         testScheduler.runCurrent()

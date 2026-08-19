@@ -1,7 +1,7 @@
 import kotlin.Boolean;
-import org.yapyap.crypto.e2ee.SessionRole;
-import org.yapyap.crypto.e2ee.SessionStatus;
-import org.yapyap.crypto.e2ee.X3dhMode;
+import org.yapyap.crypto.e2ee.session.SessionRole;
+import org.yapyap.crypto.e2ee.session.SessionStatus;
+import org.yapyap.crypto.e2ee.session.X3dhMode;
 import org.yapyap.protocol.PeerId;
 
 CREATE TABLE crypto_sessions (

@@ -1,8 +1,8 @@
 package org.yapyap.protection.envelope
 
-import org.yapyap.crypto.e2ee.CryptoSessionManager
-import org.yapyap.crypto.e2ee.CryptoWireLimits
-import org.yapyap.crypto.e2ee.SessionWireFrame
+import org.yapyap.crypto.e2ee.manager.CryptoSessionManager
+import org.yapyap.crypto.e2ee.session.CryptoWireLimits
+import org.yapyap.crypto.e2ee.session.SessionWireFrame
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog

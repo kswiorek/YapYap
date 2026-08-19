@@ -1,7 +1,11 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.manager
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.yapyap.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.crypto.e2ee.CryptoSessionException
+import org.yapyap.crypto.e2ee.policy.SimultaneousInitPolicy
+import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
@@ -10,8 +14,8 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 
 class DefaultCryptoSessionManager(
     private val crypto: CryptoProvider,
@@ -19,7 +23,7 @@ class DefaultCryptoSessionManager(
     private val sessionStore: CryptoSessionStore,
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
-    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    private val timeProvider: EpochProvider = SystemEpochProvider,
     private val upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
 ) : CryptoSessionManager {

@@ -1,4 +1,4 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.policy
 
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.protocol.ByteWriter

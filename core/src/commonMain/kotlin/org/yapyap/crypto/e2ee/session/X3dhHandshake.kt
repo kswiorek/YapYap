@@ -1,5 +1,6 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.session
 
+import org.yapyap.crypto.e2ee.CryptoSessionException
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
@@ -14,7 +15,7 @@ enum class X3dhMode(val wireValue: Byte) {
 
     companion object {
         fun fromWireValue(value: Byte): X3dhMode =
-            X3dhMode.entries.firstOrNull { it.wireValue == value }
+            entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported packet type value: $value")
     }
 }

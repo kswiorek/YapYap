@@ -11,7 +11,7 @@ import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
@@ -100,7 +100,7 @@ class DefaultRouterLiveIntegrationTest {
                 torByPeer = bobTorMap,
             )
 
-        val time = FixedEpochSecondsProvider(10_000L)
+        val time = FixedEpochProvider(10_000L)
         val aliceRouter =
             DefaultRouter(
                 torTransport = aliceTorTransport,

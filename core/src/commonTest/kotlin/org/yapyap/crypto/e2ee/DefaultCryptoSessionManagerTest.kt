@@ -1,11 +1,16 @@
 package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.e2ee.maintenance.maintainPeerSessions
+import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
+import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
+import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
+import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.key.FailingAllocateOpkRepository
 import org.yapyap.persistence.key.InMemoryOpkRepository
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 
 class SessionWireTypesTest {
@@ -211,7 +216,7 @@ class DefaultCryptoSessionManagerTest {
         val bobStore = MapBackedCryptoSessionStore()
         val alice = managerForPeer(
             crypto, alicePeer, bobPeer, aliceStore, InMemoryOpkRepository(crypto),
-            timeProvider = FixedEpochSecondsProvider(100_000L),
+            timeProvider = FixedEpochProvider(100_000L),
         )
         val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOpkRepository(crypto))
 
@@ -315,7 +320,7 @@ class DefaultCryptoSessionManagerTest {
         val bobOpkStore = InMemoryOpkRepository(crypto)
         val alice = managerForPeer(
             crypto, alicePeer, bobPeer, aliceStore, InMemoryOpkRepository(crypto),
-            timeProvider = FixedEpochSecondsProvider(100_000L),
+            timeProvider = FixedEpochProvider(100_000L),
         )
         val bob = managerForPeer(
             crypto = crypto,
@@ -433,7 +438,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun epoch2_ignoresOfferDecryptedOnSupersededGeneration() = runTest {
-        val testTime = FixedEpochSecondsProvider(100_000L)
+        val testTime = FixedEpochProvider(100_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
@@ -469,12 +474,13 @@ class DefaultCryptoSessionManagerTest {
 
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
         aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        testTime.advanceBy(100_000L)
         cryptoHousekeepingFor(
             sessionStore = aliceStore,
             opkRepository = InMemoryOpkRepository(crypto),
             sessionConfig = config,
             timeProvider = testTime,
-        ).run(nowEpochSeconds = 100_000L)
+        ).run()
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
         alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
@@ -702,7 +708,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun epoch2_supersedeEpoch1_retentionMeasuredFromSupersedeTime() = runTest {
-        val testTime = FixedEpochSecondsProvider(100_000L)
+        val testTime = FixedEpochProvider(100_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val bobStore = MapBackedCryptoSessionStore()
@@ -834,7 +840,7 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val alice = managerForPeer(
             crypto, alicePeer, bobPeer, aliceStore, InMemoryOpkRepository(crypto),
-            timeProvider = FixedEpochSecondsProvider(100_000L),
+            timeProvider = FixedEpochProvider(100_000L),
         )
 
         alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
@@ -889,12 +895,12 @@ class DefaultCryptoSessionManagerTest {
                 meta = stale.meta.copy(updatedAtEpochSeconds = 0L),
             ),
         )
-
         cryptoHousekeepingFor(
             sessionStore = aliceStore,
             opkRepository = InMemoryOpkRepository(crypto),
             sessionConfig = config,
-        ).run(nowEpochSeconds = 100_000L)
+            timeProvider = FixedEpochProvider(100_000L),
+        ).run()
 
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
         assertEquals(
@@ -939,7 +945,8 @@ class DefaultCryptoSessionManagerTest {
             sessionStore = aliceStore,
             opkRepository = InMemoryOpkRepository(crypto),
             sessionConfig = config,
-        ).run(nowEpochSeconds = 100_000L)
+            timeProvider = FixedEpochProvider(100_000L),
+        ).run()
 
         assertEquals(1, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 1).size)
         assertEquals(SessionRole.INITIATOR, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.role)
@@ -947,7 +954,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun supersededSession_stillDecryptsLateGen1Message() = runTest {
-        val testTime = FixedEpochSecondsProvider(100_000L)
+        val testTime = FixedEpochProvider(100_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
@@ -1007,7 +1014,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun idleSupersede_newGenerationHandshakeRoundTrip() = runTest {
-        val testTime = FixedEpochSecondsProvider(100_000L)
+        val testTime = FixedEpochProvider(100_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
@@ -1068,7 +1075,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun inboundGenerationReset_deferredUntilDecryptSucceeds() = runTest {
-        val testTime = FixedEpochSecondsProvider(100_000L)
+        val testTime = FixedEpochProvider(100_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
@@ -1194,7 +1201,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun housekeeping_prunesStalePendingEpoch2Session() = runTest {
-        val testTime = FixedEpochSecondsProvider(300_000L)
+        val testTime = FixedEpochProvider(300_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
@@ -1234,13 +1241,13 @@ class DefaultCryptoSessionManagerTest {
                 ),
             ),
         )
-
+        testTime.advanceBy(60L)
         cryptoHousekeepingFor(
             sessionStore = aliceStore,
             opkRepository = InMemoryOpkRepository(crypto),
             sessionConfig = config,
             timeProvider = testTime,
-        ).run(nowEpochSeconds = 300_000L)
+        ).run()
 
         assertEquals(0, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).size)
         assertNotNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
@@ -1254,7 +1261,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun housekeeping_prunesExpiredOfferedOpkAndClearsSessionMeta() = runTest {
-        val testTime = FixedEpochSecondsProvider(200_000L)
+        val testTime = FixedEpochProvider(200_000L)
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val bobStore = MapBackedCryptoSessionStore()
@@ -1290,13 +1297,13 @@ class DefaultCryptoSessionManagerTest {
 
         val opkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
         assertEquals(OpkStatus.OFFERED, bobOpkStore.status(opkId))
-
+        testTime.advanceBy(61L)
         cryptoHousekeepingFor(
             sessionStore = bobStore,
             opkRepository = bobOpkStore,
             sessionConfig = config,
             timeProvider = testTime,
-        ).run(nowEpochSeconds = 200_061L)
+        ).run()
 
         assertEquals(null, bobOpkStore.status(opkId))
         assertEquals(

@@ -6,7 +6,7 @@ import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.sync.SyncRetryProcessor
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.uuid.Uuid
@@ -39,7 +39,7 @@ class SyncRetryProcessorTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-            time = FixedEpochSecondsProvider(now),
+            time = FixedEpochProvider(now),
         )
         val repo = FakePendingSyncRepository()
         val syncId = Uuid.random()
@@ -65,7 +65,7 @@ class SyncRetryProcessorTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-            time = FixedEpochSecondsProvider(now),
+            time = FixedEpochProvider(now),
         )
         val repo = FakePendingSyncRepository()
         val syncId = Uuid.random()

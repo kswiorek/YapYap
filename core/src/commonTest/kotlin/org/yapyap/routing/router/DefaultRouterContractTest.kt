@@ -12,7 +12,7 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.packet.PacketType
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -248,7 +248,7 @@ class DefaultRouterContractTest {
                 tor = tor,
                 remoteTor = remoteTor,
                 dedup = recordingDedup,
-                time = FixedEpochSecondsProvider(10_001L),
+                time = FixedEpochProvider(10_001L),
             )
 
         router.start()
@@ -361,7 +361,7 @@ class DefaultRouterContractTest {
         tor: RecordingTorTransport,
         remoteTor: TorEndpoint,
         dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
-        time: FixedEpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+        time: FixedEpochProvider = FixedEpochProvider(10_000L),
     ): DefaultRouter {
         val torMap = mutableMapOf(remotePeer to remoteTor)
         val identity =

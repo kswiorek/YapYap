@@ -1,5 +1,6 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.session
 
+import org.yapyap.crypto.e2ee.CryptoSessionException
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 

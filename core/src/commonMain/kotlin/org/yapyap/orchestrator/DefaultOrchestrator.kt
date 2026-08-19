@@ -8,13 +8,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.DefaultCryptoSessionManager
-import org.yapyap.crypto.e2ee.X3dhHandshake
+import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
+import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
+import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
+import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.YapYapDatabase
@@ -33,9 +35,10 @@ import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.SystemEpochProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
@@ -94,7 +97,7 @@ class DefaultOrchestrator(
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
                 config.identityKeyServiceConfig, identityResolver,
-                SystemEpochSecondsProvider,
+                SystemEpochProvider,
             )
             try {
                 identityResolver.getLocalDeviceIdentityRecord()
@@ -220,6 +223,15 @@ class DefaultOrchestrator(
 
         val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, config.syncConfig)
 
+        val maintenance = MaintenanceScheduler(
+            tasks = listOf(
+                PacketStoreMaintenance(packetOutbox, packetDeduplicator)::run,
+                CryptoMaintenance(cryptoSessionStore, opkRepository)::run
+            ),
+            intervalSeconds = config.maintenanceIntervalSeconds, // or a constant
+        )
+        maintenance.start(orchestratorScope)
+
         router = DefaultRouter(
             torTransport = torTransport,
             webRtcTransport = webRtcTransport,
@@ -227,7 +239,6 @@ class DefaultOrchestrator(
             packetDeduplicator = packetDeduplicator,
             packetOutbox = packetOutbox,
             envelopeProtectionService = envelopeProtectionService,
-            routerConfig = config.routerConfig,
             syncPayloadProvider = syncPayloadProvider,
             syncRepository = syncRepo,
             syncConfig = config.syncConfig,
@@ -242,7 +253,7 @@ class DefaultOrchestrator(
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
-            timeProvider = SystemEpochSecondsProvider,
+            timeProvider = SystemEpochProvider,
         )
         pipeline = DefaultInboundMessagePipeline(router, dagEngine)
         pipeline.start(orchestratorScope)
@@ -280,7 +291,6 @@ class DefaultOrchestrator(
                 orchestratorRuntime.stop()
             }
             router.stop()
-            orchestratorScope.cancel()
             orchestratorScope.cancel()
         } catch (e: Throwable) {
             _lastError.value = e

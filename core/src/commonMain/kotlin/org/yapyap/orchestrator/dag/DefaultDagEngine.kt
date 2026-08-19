@@ -12,7 +12,7 @@ import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 import kotlin.uuid.Uuid
 
 /**
@@ -36,7 +36,7 @@ class DefaultDagEngine(
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val signatureProvider: SignatureProvider,
-    private val timeProvider: EpochSecondsProvider,
+    private val timeProvider: EpochProvider,
 ) : DagEngine {
 
     /**

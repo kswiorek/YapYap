@@ -11,8 +11,8 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 import kotlin.concurrent.Volatile
 import kotlin.uuid.Uuid
 
@@ -22,7 +22,7 @@ class DefaultSyncCoordinator(
     private val messageRepository: MessageRepository,
     private val identityResolver: IdentityResolver,
     private val pendingSyncRepository: PendingSyncRepository,
-    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    private val timeProvider: EpochProvider = SystemEpochProvider,
     private val syncConfig: SyncConfig
 ) : SyncCoordinator {
 

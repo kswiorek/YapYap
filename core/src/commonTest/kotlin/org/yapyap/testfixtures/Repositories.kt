@@ -6,7 +6,6 @@ import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.time.EpochSecondsProvider
 import kotlin.uuid.Uuid
 
 /**
@@ -15,10 +14,6 @@ import kotlin.uuid.Uuid
  * Extracted from [org.yapyap.orchestrator.dag.DefaultDagEngineTest] so the sync,
  * messaging and dag tests can reuse them instead of duplicating private copies.
  */
-
-class MutableEpochSecondsProvider(var t: Long) : EpochSecondsProvider {
-    override fun nowEpochSeconds(): Long = t
-}
 
 class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()

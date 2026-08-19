@@ -72,19 +72,6 @@ internal class OutboxProcessor(
         )
     }
 
-    suspend fun pruneRelayOverCapacityOnBoot() {
-        try {
-            packetOutbox.pruneRelayOverCapacity(ctx.routerConfig.outboxMaxSizeBytes)
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PRUNE_FAILED,
-                message = "Failed to prune outbox for relay over capacity",
-                throwable = e,
-            )
-        }
-    }
-
     suspend fun processDue() {
         val now = ctx.timeProvider.nowEpochSeconds()
         val pruned = packetOutbox.pruneExpired(now)

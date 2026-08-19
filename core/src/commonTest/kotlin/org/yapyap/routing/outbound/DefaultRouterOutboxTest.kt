@@ -17,7 +17,7 @@ import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -244,7 +244,7 @@ class DefaultRouterOutboxTest {
             webRtc = webRtc,
             identity = identity,
             outbox = outbox,
-            time = FixedEpochSecondsProvider(10_000L),
+            time = FixedEpochProvider(10_000L),
             routerConfig = RouterConfig(retryLoopMaxIdlePollSeconds = 1),
         )
     }

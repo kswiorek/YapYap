@@ -5,7 +5,6 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyServiceConfig
 import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 
@@ -55,12 +54,12 @@ data class OrchestratorConfig(
     val mode: NodeMode,
     /** Absolute path to the node data root (DB, Tor state, logs). */
     val dataDirectory: String,
-    val routerConfig: RouterConfig = RouterConfig(),
     val torBackendConfig: TorBackendConfig = TorBackendConfig(),
     val webRtcBackendConfig: WebRtcBackendConfig = WebRtcBackendConfig(),
     val identityKeyServiceConfig: IdentityKeyServiceConfig = IdentityKeyServiceConfig(),
     val syncConfig: SyncConfig = SyncConfig(),
     val keyringServiceName: String = "org.yapyap",
+    val maintenanceIntervalSeconds: Long = 60 * 60,
 ) {
     init {
         require(dataDirectory.isNotBlank()) { "dataDirectory must not be blank" }

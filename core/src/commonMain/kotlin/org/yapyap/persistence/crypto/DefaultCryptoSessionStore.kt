@@ -2,7 +2,7 @@ package org.yapyap.persistence.crypto
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.yapyap.crypto.e2ee.*
+import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.persistence.SelectCryptoSessionByPeerAndEpochWithKeys
 import org.yapyap.persistence.SelectCryptoSessionsByPeerWithKeys
 import org.yapyap.persistence.YapYapDatabase

@@ -4,7 +4,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.*
+import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
+import org.yapyap.crypto.e2ee.TestPeerIdentity
+import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
+import org.yapyap.crypto.e2ee.session.X3dhHandshake
+import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -31,8 +35,8 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -523,7 +527,7 @@ internal fun buildE2eeRouterStack(
     remote: TestPeerIdentity,
     peersByAccount: Map<AccountId, List<PeerId>>,
     torByPeer: MutableMap<PeerId, TorEndpoint>,
-    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    time: EpochProvider = FixedEpochProvider(10_000L),
     crypto: CryptoProvider = DefaultCryptoProvider(),
 ): E2eeRouterTestStack {
     val identity = E2eeIdentityResolverForRouter(
@@ -561,7 +565,7 @@ internal fun e2eeRouterUnderTest(
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    time: EpochProvider = FixedEpochProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
 ): DefaultRouter =
@@ -584,7 +588,7 @@ internal fun outboxProcessorUnderTest(
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     identity: FakeIdentityResolverForRouter,
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    time: EpochProvider = FixedEpochProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
 ): OutboxProcessor {
     val ctx =
@@ -612,7 +616,7 @@ internal fun defaultRouterUnderTest(
     identity: FakeIdentityResolverForRouter,
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    time: EpochProvider = FixedEpochProvider(10_000L),
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),

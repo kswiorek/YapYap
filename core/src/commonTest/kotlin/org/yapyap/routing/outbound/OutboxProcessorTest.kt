@@ -11,7 +11,7 @@ import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.ConcurrencyTrackingTorTransport
 import org.yapyap.transport.tor.RecordingTorTransport
 import kotlin.test.Test
@@ -47,7 +47,7 @@ class OutboxProcessorTest {
             tor = tor,
             outbox = outbox,
             identity = identityFor(remoteTor = TorEndpoint("peer.onion", 443)),
-            time = FixedEpochSecondsProvider(now),
+            time = FixedEpochProvider(now),
         )
 
         processor.processDue()
@@ -81,7 +81,7 @@ class OutboxProcessorTest {
             tor = tor,
             outbox = outbox,
             identity = identityFor(),
-            time = FixedEpochSecondsProvider(now),
+            time = FixedEpochProvider(now),
         )
 
         processor.processDue()

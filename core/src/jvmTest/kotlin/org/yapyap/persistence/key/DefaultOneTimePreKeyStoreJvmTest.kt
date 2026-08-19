@@ -5,7 +5,8 @@ import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.*
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 
 class DefaultOneTimePreKeyStoreJvmTest {
@@ -75,7 +76,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     @Test
     fun pruneExpiredOffers_deletesRowAndPrivateKey() = runTest {
-        val time = MutableEpochSecondsProvider(10_000L)
+        val time = FixedEpochProvider(10_000L)
         val fixture = openStore(timeProvider = time)
 
         val opk = fixture.store.allocate()
@@ -91,7 +92,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     @Test
     fun pruneExpiredOffers_keepsFreshOffers() = runTest {
-        val time = MutableEpochSecondsProvider(20_000L)
+        val time = FixedEpochProvider(20_000L)
         val fixture = openStore(timeProvider = time)
 
         val opk = fixture.store.allocate()
@@ -106,7 +107,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     @Test
     fun pruneExpiredOffers_ignoresAllocatedAndConsumed() = runTest {
-        val time = MutableEpochSecondsProvider(30_000L)
+        val time = FixedEpochProvider(30_000L)
         val fixture = openStore(timeProvider = time)
 
         val allocatedOnly = fixture.store.allocate()
@@ -137,7 +138,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     private suspend fun openStore(
         nowEpochSeconds: Long = 0L,
-        timeProvider: EpochSecondsProvider = MutableEpochSecondsProvider(nowEpochSeconds),
+        timeProvider: EpochProvider = FixedEpochProvider(nowEpochSeconds),
     ): StoreFixture {
         connection = openMemoryDatabase()
         val database = connection!!.database
@@ -163,13 +164,5 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
         fun rowStatus(opkId: String): OpkStatus =
             database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOne().status
-    }
-
-    private class MutableEpochSecondsProvider(private var epochSeconds: Long) : EpochSecondsProvider {
-        fun advanceTo(epochSeconds: Long) {
-            this.epochSeconds = epochSeconds
-        }
-
-        override fun nowEpochSeconds(): Long = epochSeconds
     }
 }

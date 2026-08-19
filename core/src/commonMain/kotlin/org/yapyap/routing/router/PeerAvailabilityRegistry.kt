@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.internal.SynchronizedObject
 import kotlinx.coroutines.internal.synchronized
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 
 /**
  * Tracks which peers are currently reachable.
@@ -19,7 +19,7 @@ import org.yapyap.time.SystemEpochSecondsProvider
  * persistence (last-seen db writes).
  */
 internal class PeerAvailabilityRegistry(
-    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    private val timeProvider: EpochProvider = SystemEpochProvider,
     private val onlineThresholdSeconds: Long = DEFAULT_ONLINE_THRESHOLD_SECONDS,
 ) {
     @OptIn(InternalCoroutinesApi::class)

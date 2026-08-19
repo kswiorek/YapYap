@@ -1,5 +1,10 @@
 package org.yapyap.crypto.e2ee
 
+import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
+import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
+import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
+import org.yapyap.crypto.e2ee.session.X3dhHandshake
+import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -7,8 +12,8 @@ import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 
 internal data class TestPeerIdentity(
     val device: DeviceIdentityRecord,
@@ -143,7 +148,7 @@ internal fun managerForPeer(
     oneTimePreKeyStore: OpkRepository,
     upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    timeProvider: EpochProvider = SystemEpochProvider,
 ): DefaultCryptoSessionManager =
     DefaultCryptoSessionManager(
         crypto = crypto,
@@ -163,9 +168,9 @@ internal fun cryptoHousekeepingFor(
     sessionStore: CryptoSessionStore,
     opkRepository: OpkRepository,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
-): DefaultCryptoHousekeeping =
-    DefaultCryptoHousekeeping(
+    timeProvider: EpochProvider = SystemEpochProvider,
+): CryptoMaintenance =
+    CryptoMaintenance(
         sessionStore = sessionStore,
         opkRepository = opkRepository,
         sessionConfig = sessionConfig,

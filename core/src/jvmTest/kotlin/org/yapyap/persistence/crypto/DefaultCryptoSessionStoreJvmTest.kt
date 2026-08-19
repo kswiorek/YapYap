@@ -1,7 +1,7 @@
 package org.yapyap.persistence.crypto
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.e2ee.*
+import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.persistence.db.*
 import org.yapyap.protocol.PeerId
 import kotlin.test.*

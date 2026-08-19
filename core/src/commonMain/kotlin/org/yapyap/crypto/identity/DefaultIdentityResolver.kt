@@ -1,7 +1,7 @@
 package org.yapyap.crypto.identity
 
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.X3dhRemotePeerKeys
+import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent

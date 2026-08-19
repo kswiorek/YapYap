@@ -1,5 +1,6 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.session
 
+import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
@@ -46,12 +47,6 @@ object CryptoWireLimits {
         }
     }
 
-    fun requireSkippedKeysBlobSize(size: Int) {
-        require(size in 0..MAX_SKIPPED_KEYS_BLOB_BYTES) {
-            "skipped message keys blob size $size exceeds max $MAX_SKIPPED_KEYS_BLOB_BYTES"
-        }
-    }
-
     fun requireDhPublicKeySize(size: Int) {
         require(size in 1..MAX_DH_PUBLIC_KEY_BYTES) {
             "DH public key size $size exceeds max $MAX_DH_PUBLIC_KEY_BYTES"
@@ -91,12 +86,6 @@ object CryptoWireLimits {
     fun requireSessionBindingSize(size: Int) {
         require(size == MAX_SESSION_BINDING_BYTES) {
             "session binding size $size must be $MAX_SESSION_BINDING_BYTES"
-        }
-    }
-
-    fun requireSkippedMessageKeySize(size: Int) {
-        require(size in 0..MAX_MESSAGE_KEY_BYTES) {
-            "skipped message key size $size exceeds max $MAX_MESSAGE_KEY_BYTES"
         }
     }
 }

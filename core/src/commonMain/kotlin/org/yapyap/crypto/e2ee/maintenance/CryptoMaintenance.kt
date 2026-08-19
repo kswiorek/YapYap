@@ -1,49 +1,34 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.maintenance
 
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
+import org.yapyap.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 
-interface CryptoHousekeeping {
-    suspend fun run(nowEpochSeconds: Long? = null)
-    //TODO Orchestrator implementation
-}
-
-class DefaultCryptoHousekeeping(
+class CryptoMaintenance(
     private val sessionStore: CryptoSessionStore,
     private val opkRepository: OpkRepository,
     private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
-) : CryptoHousekeeping {
+    private val timeProvider: EpochProvider = SystemEpochProvider,
+) {
 
-    override suspend fun run(nowEpochSeconds: Long?) {
-        val now = nowEpochSeconds ?: timeProvider.nowEpochSeconds()
-        try {
-            val prunedOpkIds = opkRepository.pruneExpiredOffers(
-                cutoffEpochSeconds = now - sessionConfig.offeredOpkRetentionSeconds,
-            )
-            if (prunedOpkIds.isNotEmpty()) {
-                sessionStore.clearOfferedOpkIds(prunedOpkIds, updatedAtEpochSeconds = now)
-            }
-            for (peerDeviceId in sessionStore.listPeerDeviceIds()) {
-                maintainPeerSessions(
-                    sessionStore = sessionStore,
-                    sessionConfig = sessionConfig,
-                    peerDeviceId = peerDeviceId,
-                    nowEpochSeconds = now,
-                )
-            }
-        } catch (error: Exception) {
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.CRYPTO_MAINTENANCE_FAILED,
-                message = "Crypto housekeeping failed",
-                throwable = error,
+    suspend fun run() {
+        val now = timeProvider.nowEpochSeconds()
+        val prunedOpkIds = opkRepository.pruneExpiredOffers(
+            cutoffEpochSeconds = now - sessionConfig.offeredOpkRetentionSeconds,
+        )
+        if (prunedOpkIds.isNotEmpty()) {
+            sessionStore.clearOfferedOpkIds(prunedOpkIds, updatedAtEpochSeconds = now)
+        }
+        for (peerDeviceId in sessionStore.listPeerDeviceIds()) {
+            maintainPeerSessions(
+                sessionStore = sessionStore,
+                sessionConfig = sessionConfig,
+                peerDeviceId = peerDeviceId,
+                nowEpochSeconds = now,
             )
         }
     }

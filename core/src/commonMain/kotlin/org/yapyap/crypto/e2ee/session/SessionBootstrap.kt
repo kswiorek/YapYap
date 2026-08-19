@@ -1,5 +1,6 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.session
 
+import org.yapyap.crypto.e2ee.CryptoSessionException
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -10,7 +11,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 
 internal data class LoadedSession(
     val session: DoubleRatchetSession,
@@ -23,7 +24,7 @@ internal class SessionBootstrap(
     private val sessionStore: CryptoSessionStore,
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
-    private val timeProvider: EpochSecondsProvider,
+    private val timeProvider: EpochProvider,
 ) {
 
     suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId, sessionGeneration: Int): LoadedSession {

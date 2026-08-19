@@ -1,5 +1,8 @@
 package org.yapyap.crypto.e2ee
 
+import org.yapyap.crypto.e2ee.session.CryptoSessionRecord
+import org.yapyap.crypto.e2ee.session.SessionRole
+import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.persistence.crypto.CryptoSessionCanonicalInvariant
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.protocol.PeerId

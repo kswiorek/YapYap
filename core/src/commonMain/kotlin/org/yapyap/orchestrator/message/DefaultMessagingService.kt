@@ -20,7 +20,7 @@ import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.SendFailureKind
 import org.yapyap.routing.router.SendMessageResult
 import org.yapyap.routing.router.SendMessageStatus
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 import kotlin.concurrent.Volatile
 import kotlin.uuid.Uuid
 
@@ -30,7 +30,7 @@ internal class DefaultMessagingService(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
-    private val timeProvider: EpochSecondsProvider,
+    private val timeProvider: EpochProvider,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)

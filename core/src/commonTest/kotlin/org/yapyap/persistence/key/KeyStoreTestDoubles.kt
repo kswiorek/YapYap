@@ -7,8 +7,8 @@ import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 
 /** In-memory [KeyStore] for unit tests. */
 internal class InMemoryKeyStore : KeyStore {
@@ -204,7 +204,7 @@ internal class InMemoryIdentityKeyRepository(
 /** In-memory [OpkRepository] for unit tests. */
 internal class InMemoryOpkRepository(
     private val crypto: CryptoProvider,
-    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    private val timeProvider: EpochProvider = SystemEpochProvider,
 ) : OpkRepository {
     private data class OpkEntry(
         val opk: LocalOneTimePreKey,

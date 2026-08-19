@@ -23,8 +23,8 @@ import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncPayloadProvider
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.uuid.Uuid
@@ -163,7 +163,7 @@ internal class SyncRoutingStack(
 internal fun buildSyncRoutingStack(
     localDevice: DeviceIdentityRecord,
     peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
-    time: EpochSecondsProvider = FixedEpochSecondsProvider(10_000L),
+    time: EpochProvider = FixedEpochProvider(10_000L),
 ): SyncRoutingStack {
     val tor = RecordingTorTransport()
     val webRtc = RecordingWebRtcTransport()

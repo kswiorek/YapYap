@@ -9,6 +9,7 @@ data class RouterConfig(
     val standbyRetryDelaySeconds: Long = 3600,
     val retryLoopMaxIdlePollSeconds: Long = 60,
     val outboxMaxSizeBytes: Long = 1024 * 1024 * 10,
+    val dedupRetentionSeconds: Long = 60 * 60 * 24 * 7, //TODO to be decided
 ) {
     init {
         require(messageLifetimeSeconds > 0) { "messageLifetimeSeconds must be > 0" }

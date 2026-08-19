@@ -7,7 +7,7 @@ import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.uuid.Uuid
@@ -62,7 +62,7 @@ internal class RoutingContext(
     val envelopeProtectionService: EnvelopeProtectionService,
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
-    val timeProvider: EpochSecondsProvider,
+    val timeProvider: EpochProvider,
     val routerConfig: RouterConfig,
 ) {
     lateinit var localDeviceIdentity: DeviceIdentityRecord

@@ -1,4 +1,5 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.manager
+import org.yapyap.crypto.e2ee.session.SessionWireFrame
 import org.yapyap.protocol.PeerId
 
 interface CryptoSessionManager {

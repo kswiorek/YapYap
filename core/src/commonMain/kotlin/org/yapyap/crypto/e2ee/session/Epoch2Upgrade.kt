@@ -1,5 +1,8 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.session
 
+import org.yapyap.crypto.e2ee.CryptoSessionException
+import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
+import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.identity.LocalOneTimePreKey
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -9,7 +12,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 
 internal class Epoch2Upgrade(
     private val crypto: CryptoProvider,
@@ -17,7 +20,7 @@ internal class Epoch2Upgrade(
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
     private val sessionBootstrap: SessionBootstrap,
-    private val timeProvider: EpochSecondsProvider,
+    private val timeProvider: EpochProvider,
     private val upgradePolicy: SessionUpgradePolicy,
 ) {
 

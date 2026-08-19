@@ -6,6 +6,7 @@ import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.*
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -21,7 +22,7 @@ class DefaultDagEngineTest {
     private lateinit var roomRepo: FakeRoomRepository
     private lateinit var identityResolver: FakeIdentityResolver
     private lateinit var signatureProvider: FakeSignatureProvider
-    private lateinit var timeProvider: MutableEpochSecondsProvider
+    private lateinit var timeProvider: FixedEpochProvider
 
     private val testAccount = AccountId("dag-sender-account")
     private val remoteAccount = AccountId("dag-remote-account")
@@ -36,7 +37,7 @@ class DefaultDagEngineTest {
         roomRepo = FakeRoomRepository()
         identityResolver = FakeIdentityResolver(testAccount, testDeviceId)
         signatureProvider = FakeSignatureProvider()
-        timeProvider = MutableEpochSecondsProvider(1_000_000L)
+        timeProvider = FixedEpochProvider(1_000_000L)
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
@@ -63,7 +64,7 @@ class DefaultDagEngineTest {
     @Test
     fun append_chainsOffRoomTail_incrementsLamport() = runTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
-        timeProvider.t += 1L
+        timeProvider.advanceBy(1L)
         val second = dagEngine.append(roomId, MessageDraft.Text("second"))
 
         assertEquals(1L, second.lamportClock)

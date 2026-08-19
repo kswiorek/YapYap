@@ -22,7 +22,7 @@ import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.*
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -47,7 +47,7 @@ class SyncIntegrationTest {
     private val remoteDevice = PeerId("it-remote-device")
     private val roomId = "it-room"
 
-    private val localTime = MutableEpochSecondsProvider(now)
+    private val localTime = FixedEpochProvider(now)
 
     // ------------------------------------------------------------------
     // Local node
@@ -127,12 +127,12 @@ class SyncIntegrationTest {
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
                 peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-                time = FixedEpochSecondsProvider(now),
+                time = FixedEpochProvider(now),
             )
             val remoteStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(remoteDevice),
                 peersByAccount = mapOf(localAccount to listOf(localDevice)),
-                time = FixedEpochSecondsProvider(now),
+                time = FixedEpochProvider(now),
             )
             val retryProcessor = SyncRetryProcessor(
                 ctx = localStack.ctx,
@@ -225,12 +225,12 @@ class SyncIntegrationTest {
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
                 peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-                time = FixedEpochSecondsProvider(now),
+                time = FixedEpochProvider(now),
             )
             val remoteStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(remoteDevice),
                 peersByAccount = mapOf(localAccount to listOf(localDevice)),
-                time = FixedEpochSecondsProvider(now),
+                time = FixedEpochProvider(now),
             )
             val retryProcessor = SyncRetryProcessor(
                 ctx = localStack.ctx,

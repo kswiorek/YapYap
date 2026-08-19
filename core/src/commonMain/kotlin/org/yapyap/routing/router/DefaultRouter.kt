@@ -35,8 +35,8 @@ import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
@@ -50,8 +50,8 @@ class DefaultRouter(
     val packetOutbox: PacketOutbox,
     val syncRepository: PendingSyncRepository,
     val envelopeProtectionService: EnvelopeProtectionService,
-    val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
-    val routerConfig: RouterConfig,
+    val timeProvider: EpochProvider = SystemEpochProvider,
+    val routerConfig: RouterConfig = RouterConfig(),
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
     val syncConfig: SyncConfig,
@@ -205,7 +205,6 @@ class DefaultRouter(
         }
 
         outboxRetryJob = outboxProcessor.runIn(s)
-        outboxProcessor.pruneRelayOverCapacityOnBoot()
 
         syncRetryJob = syncProcessor.runIn(s)
 

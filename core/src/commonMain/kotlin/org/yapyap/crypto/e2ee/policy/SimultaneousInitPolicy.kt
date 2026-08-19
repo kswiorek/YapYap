@@ -1,8 +1,12 @@
-package org.yapyap.crypto.e2ee
+package org.yapyap.crypto.e2ee.policy
 
+import org.yapyap.crypto.e2ee.session.CryptoSessionRecord
+import org.yapyap.crypto.e2ee.session.LoadedSession
+import org.yapyap.crypto.e2ee.session.SessionRole
+import org.yapyap.crypto.e2ee.session.SessionWireFrame
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
+import org.yapyap.time.EpochProvider
 
 internal object SimultaneousInitPolicy {
 
@@ -47,7 +51,7 @@ internal object SimultaneousInitPolicy {
 
     suspend fun handleInboundGenerationReset(
         sessionStore: CryptoSessionStore,
-        timeProvider: EpochSecondsProvider,
+        timeProvider: EpochProvider,
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
         canonicalRecord: CryptoSessionRecord?,

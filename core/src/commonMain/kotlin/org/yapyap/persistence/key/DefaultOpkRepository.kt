@@ -9,15 +9,15 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochSecondsProvider
-import org.yapyap.time.SystemEpochSecondsProvider
+import org.yapyap.time.EpochProvider
+import org.yapyap.time.SystemEpochProvider
 
 class DefaultOpkRepository(
     private val database: YapYapDatabase,
     private val keyStore: KeyStore,
     private val crypto: CryptoProvider,
     private val localDeviceId: PeerId,
-    private val timeProvider: EpochSecondsProvider = SystemEpochSecondsProvider,
+    private val timeProvider: EpochProvider = SystemEpochProvider,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : OpkRepository {
 

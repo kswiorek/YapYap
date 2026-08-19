@@ -10,7 +10,7 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.test.*
@@ -108,7 +108,7 @@ class DefaultRouterE2eeIntegrationTest {
         val alicePeer = buildTestPeerIdentity(crypto, "router-e2ee-alice")
         val bobPeer = buildTestPeerIdentity(crypto, "router-e2ee-bob")
         val bobAccount = AccountId("bob-e2ee-account")
-        val time = FixedEpochSecondsProvider(10_000L)
+        val time = FixedEpochProvider(10_000L)
 
         val aliceTor = RecordingTorTransport(TorEndpoint("alice-e2ee.onion", 80))
         val bobTor = RecordingTorTransport(TorEndpoint("bob-e2ee.onion", 80))

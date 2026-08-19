@@ -6,7 +6,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.time.FixedEpochSecondsProvider
+import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -23,7 +23,7 @@ class RetryLoopTest {
         val outbox = TrackingPacketOutbox()
         val loop = RetryLoop(
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
-            time = FixedEpochSecondsProvider(1_000L),
+            time = FixedEpochProvider(1_000L),
             processDue = {
                 calls++
                 if (calls == 1) {
@@ -50,7 +50,7 @@ class RetryLoopTest {
 
         val loop = RetryLoop(
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
-            time = FixedEpochSecondsProvider(1_000L),
+            time = FixedEpochProvider(1_000L),
             processDue = { calls++ },
             maxIdlePollSeconds = 60,
         )
@@ -74,7 +74,7 @@ class RetryLoopTest {
 
         val loop = RetryLoop(
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
-            time = FixedEpochSecondsProvider(1_000L),
+            time = FixedEpochProvider(1_000L),
             processDue = { calls++ },
             maxIdlePollSeconds = 60,
         )
