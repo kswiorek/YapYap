@@ -12,12 +12,6 @@ import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 
 class DeviceIdentityAttestationTest {
-
-    private val config = IdentityKeyServiceConfig(
-        defaultOnionAddress = "attestation-test.onion",
-        defaultOnionPort = 443L,
-    )
-
     private fun resolverStack(): Triple<
         InMemoryIdentityKeyRepository,
         InMemoryKeyStore,
@@ -26,9 +20,9 @@ class DeviceIdentityAttestationTest {
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+        val resolver = DefaultIdentityResolver(crypto, repo, store)
         val timeProvider = FixedEpochProvider(0L)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
         return Triple(repo, store, resolver to provisioning)
     }
 
@@ -55,7 +49,7 @@ class DeviceIdentityAttestationTest {
         val crypto = DefaultCryptoProvider()
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+        val resolver = DefaultIdentityResolver(crypto, repo, store)
         val accountId = AccountId("attestation-account")
         repo.insertLocalAccount(
             identity = AccountIdentityRecord(

@@ -51,7 +51,7 @@ class DefaultRouter(
     val syncRepository: PendingSyncRepository,
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochProvider = SystemEpochProvider,
-    val routerConfig: RouterConfig = RouterConfig(),
+    val routerConfig: RouterConfig,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
     val syncConfig: SyncConfig,

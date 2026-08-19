@@ -28,7 +28,7 @@ internal suspend fun seedLocalAccountAndDevice(
     accountId: AccountId,
     deviceId: PeerId,
 ) {
-    val repo = DefaultIdentityKeyRepository(database)
+    val repo = DefaultIdentityKeyRepository(database, DeviceType.DESKTOP)
     val accountRecord = AccountIdentityRecord(
         accountId = accountId,
         displayName = "Fixture Account",
@@ -85,7 +85,7 @@ internal suspend fun seedPeerDevice(
     deviceId: PeerId,
     torEndpoint: TorEndpoint = TorEndpoint(onionAddress = "peer.onion", port = 80),
 ) {
-    val repo = DefaultIdentityKeyRepository(database)
+    val repo = DefaultIdentityKeyRepository(database, DeviceType.DESKTOP)
     val deviceRecord = DeviceIdentityRecord(
         deviceId = deviceId,
         signing = IdentityPublicKeyRecord(

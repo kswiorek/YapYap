@@ -17,7 +17,6 @@ class DefaultIdentityResolver(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityKeyRepository,
     private val privateKeyStore: KeyStore,
-    private val config: IdentityKeyServiceConfig,
 ) : IdentityResolver {
 
     private data class LocalSigningKeyMaterial(
@@ -55,12 +54,12 @@ class DefaultIdentityResolver(
     }
 
     private suspend fun buildLocalDeviceIdentityRecordFromKeys(): DeviceIdentityRecord {
-        val signingKeys = resolveLocalSigningKeyMaterial(config.localDeviceKeyPrefix) {
+        val signingKeys = resolveLocalSigningKeyMaterial(LOCAL_DEVICE_KEY_PREFIX) {
             CryptoException.MissingDeviceRecord("local device")
         }
         val deviceId = cryptoProvider.peerIdFromPublicKey(signingKeys.publicKey)
 
-        val encryptionKeyId = config.localDeviceKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+        val encryptionKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
         val privateEncryptionKey = privateKeyStore.getKey(
             ref = KeyReference(
                 keyId = encryptionKeyId,
@@ -101,7 +100,7 @@ class DefaultIdentityResolver(
     }
 
     private suspend fun buildLocalAccountIdentityRecordFromKeys(): AccountIdentityRecord {
-        val signingKeys = resolveLocalSigningKeyMaterial(config.localAccountKeyPrefix) {
+        val signingKeys = resolveLocalSigningKeyMaterial(LOCAL_ACCOUNT_KEY_PREFIX) {
             CryptoException.MissingAccountRecord("local account")
         }
         val accountId = cryptoProvider.accountIdFromPublicKey(signingKeys.publicKey)
@@ -187,7 +186,7 @@ class DefaultIdentityResolver(
 
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
-        val keyId = config.localDeviceKeyPrefix + purpose.name.lowercase()
+        val keyId = LOCAL_DEVICE_KEY_PREFIX + purpose.name.lowercase()
         return privateKeyStore.getKey(
             ref = KeyReference(
                 keyId = keyId,
@@ -198,10 +197,10 @@ class DefaultIdentityResolver(
     }
 
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
-        val keyId = config.localDeviceKeyPrefix + purpose.name.lowercase()
+        val keyId = LOCAL_DEVICE_KEY_PREFIX + purpose.name.lowercase()
         return privateKeyStore.getKey(
             ref = KeyReference(
-                keyId = config.localAccountKeyPrefix + purpose.name.lowercase(),
+                keyId = LOCAL_ACCOUNT_KEY_PREFIX + purpose.name.lowercase(),
                 purpose = purpose,
                 type = KeyType.PRIVATE,
             )

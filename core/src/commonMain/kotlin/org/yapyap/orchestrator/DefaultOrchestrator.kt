@@ -15,6 +15,7 @@ import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.orchestrator.config.AppConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
@@ -45,7 +46,7 @@ import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 
 class DefaultOrchestrator(
-    private val config: OrchestratorConfig,
+    private val config: AppConfig,
     private val keyringSessionFactory: KeyringSessionFactory,
     private val createDriverFactory: (masterKey: ByteArray) -> DriverFactory,
     private val torBackend: TorBackend,
@@ -82,21 +83,20 @@ class DefaultOrchestrator(
         _state.value = OrchestratorState.Starting
         _lastError.value = null
         try {
-            keyStore = DefaultKeyStore(config.keyringServiceName, keyringSessionFactory)
+            keyStore = DefaultKeyStore(keyringSessionFactory)
             cryptoProvider = DefaultCryptoProvider()
             val masterKey = DefaultMasterKeyProvider(keyStore, cryptoProvider).getOrCreate()
             val dbConnection = DatabaseFactory(createDriverFactory(masterKey)).createConnection()
-            identityRepo = DefaultIdentityKeyRepository(dbConnection.database)
+            identityRepo = DefaultIdentityKeyRepository(dbConnection.database, config.boot.localDeviceType)
             database = dbConnection.database
             identityResolver = DefaultIdentityResolver(
                 cryptoProvider = cryptoProvider,
                 publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
                 privateKeyStore = keyStore,                 // DefaultKeyStore
-                config = config.identityKeyServiceConfig,        // use defaults or derive from config
             )
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
-                config.identityKeyServiceConfig, identityResolver,
+                identityResolver,
                 SystemEpochProvider,
             )
             try {
@@ -225,7 +225,7 @@ class DefaultOrchestrator(
 
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
-                PacketStoreMaintenance(packetOutbox, packetDeduplicator)::run,
+                PacketStoreMaintenance(packetOutbox, packetDeduplicator, config.routerConfig)::run,
                 CryptoMaintenance(cryptoSessionStore, opkRepository)::run
             ),
             intervalSeconds = config.maintenanceIntervalSeconds, // or a constant
@@ -242,6 +242,7 @@ class DefaultOrchestrator(
             syncPayloadProvider = syncPayloadProvider,
             syncRepository = syncRepo,
             syncConfig = config.syncConfig,
+            routerConfig = config.routerConfig,
         )
 
         router.start()

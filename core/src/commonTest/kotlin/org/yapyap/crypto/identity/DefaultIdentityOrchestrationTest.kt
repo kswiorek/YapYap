@@ -13,11 +13,6 @@ import kotlin.test.*
 class DefaultIdentityOrchestrationTest {
 
     private val fixedTor = TorEndpoint(onionAddress = "fixture-identity.onion", port = 443)
-    private val config =
-        IdentityKeyServiceConfig(
-            defaultOnionAddress = "fixture-identity.onion",
-            defaultOnionPort = 443L,
-        )
 
     private fun stack(): Triple<
         InMemoryIdentityKeyRepository,
@@ -27,9 +22,9 @@ class DefaultIdentityOrchestrationTest {
         val repo = InMemoryIdentityKeyRepository(defaultLocalTor = fixedTor)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+        val resolver = DefaultIdentityResolver(crypto, repo, store)
         val timeProvider = FixedEpochProvider(0L)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
         return Triple(repo, store, Pair(resolver, provisioning))
     }
 
@@ -83,8 +78,8 @@ class DefaultIdentityOrchestrationTest {
         provisioning.createNewAccountIdentity(displayName = "Private-only recovery")
         val device = provisioning.createNewDeviceIdentity()
 
-        val signingKeyId = config.localDeviceKeyPrefix + IdentityKeyPurpose.SIGNING.name.lowercase()
-        val encryptionKeyId = config.localDeviceKeyPrefix + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
+        val signingKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.SIGNING.name.lowercase()
+        val encryptionKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
         store.deleteKey(KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PUBLIC))
         store.deleteKey(KeyReference(encryptionKeyId, IdentityKeyPurpose.ENCRYPTION, KeyType.PUBLIC))
         repo.clearLocalDeviceRecord()

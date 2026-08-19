@@ -18,7 +18,6 @@ class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityKeyRepository,
     private val keyStore: KeyStore,
-    private val config: IdentityKeyServiceConfig,
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochProvider,
 ) : IdentityProvisioning {
@@ -33,14 +32,14 @@ class DefaultIdentityProvisioning(
         val deviceId = cryptoProvider.peerIdFromPublicKey(signingKey.publicKey)
 
         val signingKeyRecord = IdentityPublicKeyRecord(
-            config.localDeviceKeyPrefix + "signing",
+            LOCAL_DEVICE_KEY_PREFIX + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
             signingKey.publicKey)
         val privateSigningKeyRef =
             KeyReference(keyId = signingKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
         val encryptionKeyRecord = IdentityPublicKeyRecord(
-            config.localDeviceKeyPrefix + "encryption",
+            LOCAL_DEVICE_KEY_PREFIX + "encryption",
             0,
             IdentityKeyPurpose.ENCRYPTION,
             encryptionKey.publicKey)
@@ -151,7 +150,7 @@ class DefaultIdentityProvisioning(
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val accountId = cryptoProvider.accountIdFromPublicKey(signingKey.publicKey)
         val accountKeyRecord = IdentityPublicKeyRecord(
-            config.localAccountKeyPrefix + "signing",
+            LOCAL_ACCOUNT_KEY_PREFIX + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
             signingKey.publicKey)
@@ -207,7 +206,7 @@ class DefaultIdentityProvisioning(
         val publicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
         val accountId = cryptoProvider.accountIdFromPublicKey(publicKey)
         val accountKeyRecord = IdentityPublicKeyRecord(
-            config.localAccountKeyPrefix + "signing",
+            LOCAL_ACCOUNT_KEY_PREFIX + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
             publicKey,

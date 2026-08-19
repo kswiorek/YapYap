@@ -65,3 +65,6 @@ data class AccountIdentityRecord(
     val displayName: String,
     val key: IdentityPublicKeyRecord? = null,
 )
+
+const val LOCAL_DEVICE_KEY_PREFIX = "yapyap:local_device:"
+const val LOCAL_ACCOUNT_KEY_PREFIX = "yapyap:local_account:"

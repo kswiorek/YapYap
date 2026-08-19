@@ -10,8 +10,8 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 class DefaultKeyStore(
-    private val serviceName: String,
     private val sessionFactory: KeyringSessionFactory,
+    private val serviceName: String = "org.yapyap",
 ) : KeyStore {
 
     override suspend fun putKey(ref: KeyReference, key: ByteArray) {

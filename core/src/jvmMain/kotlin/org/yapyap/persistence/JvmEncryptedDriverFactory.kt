@@ -6,20 +6,21 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.DriverFactory
+import java.nio.file.Path
 
 class JvmEncryptedDriverFactory(
-    private val databasePath: String,
-    masterKey: ByteArray,
+    private val databaseFile: Path,
+    private val masterKey: ByteArray,
 ) : DriverFactory {
-    private val masterKeyHex = masterKey.toHexString()
-
     override fun createDriver(): SqlDriver {
-        val url = "jdbc:sqlite:file:$databasePath?cipher=sqlcipher&key=$masterKeyHex&foreign_keys=on&journal_mode=WAL"
+        val path = databaseFile.toString().replace('\\', '/')   // JDBC wants forward slashes
+        val url = "jdbc:sqlite:file:$path?cipher=sqlcipher&key=${masterKey.toHexString()}&foreign_keys=on&journal_mode=WAL"
+
         AppLog.info(
             component = LogComponent.DATABASE,
             event = LogEvent.DATABASE_INITIALIZED,
             message = "Creating encrypted JDBC SQLite driver",
-            fields = mapOf("databasePath" to databasePath),
+            fields = mapOf("databaseFile" to databaseFile),
         )
         return JdbcSqliteDriver(url)
     }

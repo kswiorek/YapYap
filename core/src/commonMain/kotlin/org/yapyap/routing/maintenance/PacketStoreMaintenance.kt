@@ -9,7 +9,7 @@ import org.yapyap.time.SystemEpochProvider
 class PacketStoreMaintenance(
     private val outbox: PacketOutbox,
     private val dedup: PacketDeduplicator,
-    private val config: RouterConfig = RouterConfig(),
+    private val config: RouterConfig,
     private val timeProvider: EpochProvider = SystemEpochProvider,
 ) {
     suspend fun run() {

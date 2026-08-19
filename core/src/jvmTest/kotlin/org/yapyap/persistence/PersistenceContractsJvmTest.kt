@@ -72,7 +72,7 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_insertLocal_then_get_resolve_tor_and_peers() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db)
+        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
 
         val accountId = AccountId("repo-account-1")
         val deviceA = PeerId("repodeviceaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -131,7 +131,7 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_insertPeerAccount_and_lookup() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db)
+        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
 
         val accountId = AccountId("peer-acc-99")
         val record = AccountIdentityRecord(
@@ -160,16 +160,12 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_getDevicePublicKey_roundTripsKeySignature() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db)
+        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val config = IdentityKeyServiceConfig(
-            defaultOnionAddress = "keysig-test.onion",
-            defaultOnionPort = 443L,
-        )
         val timeProvider = FixedEpochProvider(0L)
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
+        val resolver = DefaultIdentityResolver(crypto, repo, store)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
 
         provisioning.createNewAccountIdentity(displayName = "KeySig User")
         val device = provisioning.createNewDeviceIdentity()
@@ -187,16 +183,12 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_signedPreKey_roundTripsViaTable() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db)
+        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val config = IdentityKeyServiceConfig(
-            defaultOnionAddress = "spk-test.onion",
-            defaultOnionPort = 443L,
-        )
         val timeProvider = FixedEpochProvider(0L)
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, config, resolver, timeProvider)
+        val resolver = DefaultIdentityResolver(crypto, repo, store)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
 
         provisioning.createNewAccountIdentity(displayName = "SPK User")
         val device = provisioning.createNewDeviceIdentity()

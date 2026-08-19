@@ -194,14 +194,13 @@ class MessageProtectionTest {
         val crypto = DefaultCryptoProvider()
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
-        val config = IdentityKeyServiceConfig()
-        val resolver = DefaultIdentityResolver(crypto, repo, store, config)
+        val resolver = DefaultIdentityResolver(crypto, repo, store)
 
         val senderSigning = crypto.generateSigningKeyPair()
         val senderEncryption = crypto.generateEncryptionKeyPair()
         val senderPeer = crypto.peerIdFromPublicKey(senderSigning.publicKey)
-        val encryptionKeyId = "${config.localDeviceKeyPrefix}encryption"
-        val signingKeyId = "${config.localDeviceKeyPrefix}signing"
+        val encryptionKeyId = "${LOCAL_DEVICE_KEY_PREFIX}encryption"
+        val signingKeyId = "${LOCAL_DEVICE_KEY_PREFIX}signing"
 
         store.putKey(
             KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PRIVATE),

@@ -15,7 +15,8 @@ import org.yapyap.protocol.TorEndpoint
 
 class DefaultIdentityKeyRepository(
     private val database: YapYapDatabase,
-    private val config: IdentityKeyServiceConfig = IdentityKeyServiceConfig(),
+    private val deviceType: DeviceType,
+    private val defaults: DeviceRecordDefaults = DeviceRecordDefaults(),
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : IdentityKeyRepository {
 
@@ -189,9 +190,9 @@ class DefaultIdentityKeyRepository(
                     device_id = identity.deviceId,
                     is_local_device = true,
                     account_id = accountId,
-                    device_type = config.localDeviceType,
-                    onion_address = config.defaultOnionAddress,
-                    onion_port = config.defaultOnionPort,
+                    device_type = deviceType,
+                    onion_address = defaults.onionAddress,
+                    onion_port = defaults.onionPort,
                     signing_pub_key = identity.signing.publicKey,
                     signing_key_id = identity.signing.keyId,
                     signing_key_version = identity.signing.keyVersion,
@@ -200,10 +201,10 @@ class DefaultIdentityKeyRepository(
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
                     current_signed_prekey_id = identity.signedPreKey?.keyId,
-                    push_token = config.defaultPushToken,
-                    ping_attempts = config.defaultPingAttempts,
-                    ping_successes = config.defaultPingSuccesses,
-                    last_seen_timestamp = config.defaultLastSeenTimestamp,
+                    push_token = defaults.pushToken,
+                    ping_attempts = defaults.pingAttempts,
+                    ping_successes = defaults.pingSuccesses,
+                    last_seen_timestamp = defaults.lastSeenTimestamp,
                 )
                 identity.signedPreKey?.let { spk ->
                     persistSignedPreKey(
@@ -335,10 +336,10 @@ class DefaultIdentityKeyRepository(
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
                     current_signed_prekey_id = null,
-                    push_token = config.defaultPushToken,
-                    ping_attempts = config.defaultPingAttempts,
-                    ping_successes = config.defaultPingSuccesses,
-                    last_seen_timestamp = config.defaultLastSeenTimestamp,
+                    push_token = defaults.pushToken,
+                    ping_attempts = defaults.pingAttempts,
+                    ping_successes = defaults.pingSuccesses,
+                    last_seen_timestamp = defaults.lastSeenTimestamp,
                 )
                 identity.signedPreKey?.let { spk ->
                     persistSignedPreKey(
