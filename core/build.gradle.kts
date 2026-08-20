@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary) apply false
     id("app.cash.sqldelight") version "2.3.2"
+    kotlin("plugin.serialization") version "2.3.20"
 }
 
 fun hasAndroidSdkConfigured(): Boolean {
@@ -81,6 +82,7 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutinesCore)
             implementation(libs.runtime)
+            implementation(libs.kotlinx.io.core)
             implementation(libs.tor.resource.exec.tor)
             implementation(libs.tor.resource.noexec.tor)
             implementation(libs.ktor.network)
@@ -88,6 +90,8 @@ kotlin {
             implementation(libs.coroutines.extensions)
             implementation(libs.cryptography.core)
             implementation(libs.cryptography.provider.optimal)
+            implementation(libs.tomlkt)
+            implementation(libs.kotlinx.serialization.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

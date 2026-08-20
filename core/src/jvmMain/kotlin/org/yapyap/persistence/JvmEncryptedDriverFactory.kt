@@ -2,11 +2,11 @@ package org.yapyap.persistence
 
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import kotlinx.io.files.Path
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.DriverFactory
-import java.nio.file.Path
 
 class JvmEncryptedDriverFactory(
     private val databaseFile: Path,

@@ -1,10 +1,8 @@
 package org.yapyap.logging
-
-import java.io.PrintWriter
-import java.io.StringWriter
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardOpenOption
+import kotlinx.io.Buffer
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.writeString
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -15,16 +13,16 @@ class JvmAppLogger(
     private val minLevel: LogLevel = LogLevel.DEBUG,
 ) : AppLogger {
 
-    private val logFile: Path = logDirectory.resolve(fileName)
+    private val logFile: Path = Path(logDirectory, fileName)
     private val writeLock = Any()
 
     private val timestampFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX").withZone(ZoneOffset.UTC)
 
     init {
-        Files.createDirectories(logDirectory)
-        if (!Files.exists(logFile)) {
-            Files.createFile(logFile)
+        SystemFileSystem.createDirectories(logDirectory)
+        if (!SystemFileSystem.exists(logFile)) {
+            SystemFileSystem.sink(logFile).close()
         }
     }
 
@@ -75,13 +73,13 @@ class JvmAppLogger(
 
         synchronized(writeLock) {
             println(output)
-            Files.writeString(
-                logFile,
-                output + System.lineSeparator(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.APPEND,
-            )
+            val buffer = Buffer()
+            buffer.writeString(output)
+            buffer.writeByte('\n'.code.toByte())
+            SystemFileSystem.sink(logFile, append = true).use { sink ->
+                sink.write(buffer, buffer.size)
+                sink.flush()
+            }
         }
     }
 
@@ -94,9 +92,6 @@ class JvmAppLogger(
         return fields.entries.joinToString(", ") { (k, v) -> "$k=${v ?: "null"}" }
     }
 
-    private fun renderStackTrace(throwable: Throwable): String {
-        val buffer = StringWriter()
-        throwable.printStackTrace(PrintWriter(buffer))
-        return buffer.toString().trimEnd()
-    }
+    private fun renderStackTrace(throwable: Throwable): String =
+        throwable.stackTraceToString().trimEnd()
 }

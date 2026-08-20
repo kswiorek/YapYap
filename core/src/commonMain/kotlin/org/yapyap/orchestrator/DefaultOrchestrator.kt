@@ -7,6 +7,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import org.yapyap.config.BootConfig
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
@@ -15,12 +18,14 @@ import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.orchestrator.config.AppConfig
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.AppLogger
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
@@ -41,16 +46,20 @@ import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.time.SystemEpochProvider
 import org.yapyap.transport.tor.backend.TorBackend
+import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
+import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 
 class DefaultOrchestrator(
-    private val config: AppConfig,
+    private val dataDirectory: Path,
+    private val bootConfig: BootConfig,
     private val keyringSessionFactory: KeyringSessionFactory,
-    private val createDriverFactory: (masterKey: ByteArray) -> DriverFactory,
-    private val torBackend: TorBackend,
-    private val webRtcBackend: WebRtcBackend,
+    private val createDriverFactory: (masterKey: ByteArray, databaseFile: Path) -> DriverFactory,
+    private val createTorBackend: (TorBackendConfig, torStateRoot: Path) -> TorBackend,
+    private val createWebRtcBackend: (WebRtcBackendConfig) -> WebRtcBackend,
+    private val createLogger: (logDirectory: Path) -> AppLogger,
 ) : Orchestrator {
 
     private val _state = MutableStateFlow(OrchestratorState.Created)
@@ -59,8 +68,11 @@ class DefaultOrchestrator(
     override val state: StateFlow<OrchestratorState> = _state.asStateFlow()
     override val lastError: StateFlow<Throwable?> = _lastError.asStateFlow()
 
+    private lateinit var configStore: ConfigStore
     private lateinit var router: DefaultRouter
+    private lateinit var torBackend: TorBackend
     private lateinit var torTransport: DefaultTorTransport
+    private lateinit var webRtcBackend: WebRtcBackend
     private lateinit var webRtcTransport: DefaultWebRtcTransport
     private lateinit var identityResolver: DefaultIdentityResolver
     private lateinit var cryptoSessionManager: DefaultCryptoSessionManager
@@ -83,11 +95,36 @@ class DefaultOrchestrator(
         _state.value = OrchestratorState.Starting
         _lastError.value = null
         try {
+            // 1. paths (kotlinx.io.files.Path, resolve via Path(parent, child))
+            val databaseFile = Path(dataDirectory, "vault.db")
+            val torStateRoot = Path(dataDirectory, "tor")
+            val logDirectory = Path(dataDirectory, "logs")
+            val userSettingsFile = Path(dataDirectory, "userSettings.toml")
+            val stateFile = Path(dataDirectory, "state.toml")
+
+            // 2. create dirs (sync, as today)
+            SystemFileSystem.createDirectories(dataDirectory)
+            SystemFileSystem.createDirectories(torStateRoot)
+            SystemFileSystem.createDirectories(logDirectory)
+
+            // 3. logging first
+            AppLog.init(createLogger(logDirectory))
+
+            // 4. config store (loads userSettings.toml + state.toml cache → derive)
+            configStore = ConfigStore(userSettingsFile, stateFile)
+
+            // TODO(sprint 7): fetch NetworkPolicy from clearnet API and call
+            //   configStore.applyNetwork(fetched) before backends read the derived config.
+
+
+            torBackend    = createTorBackend(configStore.runtime.value.tor, torStateRoot)
+            webRtcBackend = createWebRtcBackend(configStore.runtime.value.webRtc)
+
             keyStore = DefaultKeyStore(keyringSessionFactory)
             cryptoProvider = DefaultCryptoProvider()
             val masterKey = DefaultMasterKeyProvider(keyStore, cryptoProvider).getOrCreate()
-            val dbConnection = DatabaseFactory(createDriverFactory(masterKey)).createConnection()
-            identityRepo = DefaultIdentityKeyRepository(dbConnection.database, config.boot.localDeviceType)
+            val dbConnection = DatabaseFactory(createDriverFactory(masterKey, databaseFile)).createConnection()
+            identityRepo = DefaultIdentityKeyRepository(dbConnection.database, bootConfig.localDeviceType)
             database = dbConnection.database
             identityResolver = DefaultIdentityResolver(
                 cryptoProvider = cryptoProvider,
@@ -221,14 +258,14 @@ class DefaultOrchestrator(
         val syncRepo = DefaultPendingSyncRepository(database)
         val roomRepo = DefaultRoomRepository(database)
 
-        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, config.syncConfig)
+        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.runtime.value.sync)
 
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
-                PacketStoreMaintenance(packetOutbox, packetDeduplicator, config.routerConfig)::run,
+                PacketStoreMaintenance(packetOutbox, packetDeduplicator, configStore.runtime.value.router)::run,
                 CryptoMaintenance(cryptoSessionStore, opkRepository)::run
             ),
-            intervalSeconds = config.maintenanceIntervalSeconds, // or a constant
+            intervalSeconds = configStore.runtime.value.maintenanceIntervalSeconds, // or a constant
         )
         maintenance.start(orchestratorScope)
 
@@ -241,8 +278,8 @@ class DefaultOrchestrator(
             envelopeProtectionService = envelopeProtectionService,
             syncPayloadProvider = syncPayloadProvider,
             syncRepository = syncRepo,
-            syncConfig = config.syncConfig,
-            routerConfig = config.routerConfig,
+            syncConfig = configStore.runtime.value.sync,
+            routerConfig = configStore.runtime.value.router,
         )
 
         router.start()
@@ -265,11 +302,11 @@ class DefaultOrchestrator(
             messageRepository = messageRepo,
             identityResolver = identityResolver,
             pendingSyncRepository = syncRepo,
-            syncConfig = config.syncConfig,
+            syncConfig = configStore.runtime.value.sync,
         )
         syncCoordinator.start(orchestratorScope)
 
-        if (config.mode == NodeMode.FULL_CLIENT) {
+        if (bootConfig.mode == NodeMode.FULL_CLIENT) {
             orchestratorRuntime = DefaultOrchestratorRuntime(
                 dagEngine = dagEngine,
                 router = router,
@@ -303,7 +340,7 @@ class DefaultOrchestrator(
     }
 
     override fun runtime(): OrchestratorRuntime {
-        check(config.mode == NodeMode.FULL_CLIENT) { "runtime() requires FULL_CLIENT mode"}
+        check(bootConfig.mode == NodeMode.FULL_CLIENT) { "runtime() requires FULL_CLIENT mode"}
         check(_state.value == OrchestratorState.Running) { "Orchestrator must be Running" }
         return orchestratorRuntime
     }

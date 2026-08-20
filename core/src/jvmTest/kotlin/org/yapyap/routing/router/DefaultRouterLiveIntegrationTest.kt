@@ -1,8 +1,10 @@
 package org.yapyap.routing.router
 
-import io.matthewnelson.kmp.file.File
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
@@ -17,10 +19,6 @@ import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
-import java.nio.file.Files
-import kotlin.io.path.ExperimentalPathApi
-import kotlin.io.path.absolutePathString
-import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -33,7 +31,6 @@ import kotlin.uuid.Uuid
  *
  * Opt-in: `./gradlew :composeApp:jvmTest -PintegrationTests=true`
  */
-@OptIn(ExperimentalPathApi::class)
 class DefaultRouterLiveIntegrationTest {
 
     private val alicePeer =
@@ -64,18 +61,20 @@ class DefaultRouterLiveIntegrationTest {
     fun twoRouters_torTransport_deliversTextMessageEndToEnd() = runBlocking {
         val bobAccount = AccountId("bob-live-account")
 
-        val aliceTorDir = Files.createTempDirectory("yapyap-router-alice-tor")
-        val bobTorDir = Files.createTempDirectory("yapyap-router-bob-tor")
+        val aliceTorDir = Path(SystemTemporaryDirectory, "yapyap-router-alice-tor-${Uuid.random()}")
+        val bobTorDir = Path(SystemTemporaryDirectory, "yapyap-router-bob-tor-${Uuid.random()}")
+        SystemFileSystem.createDirectories(aliceTorDir)
+        SystemFileSystem.createDirectories(bobTorDir)
         val torConfig = TorBackendConfig(startupTimeoutMillis = 180_000L)
 
         val aliceTorBackend =
             KmpTorBackend(
-                torStateRootPath = File(aliceTorDir.absolutePathString()),
+                torStateRootPath = aliceTorDir,
                 config = torConfig,
             )
         val bobTorBackend =
             KmpTorBackend(
-                torStateRootPath = File(bobTorDir.absolutePathString()),
+                torStateRootPath = bobTorDir,
                 config = torConfig,
             )
 
@@ -159,8 +158,15 @@ class DefaultRouterLiveIntegrationTest {
         } finally {
             runCatching { aliceRouter.stop() }
             runCatching { bobRouter.stop() }
-            runCatching { aliceTorDir.deleteRecursively() }
-            runCatching { bobTorDir.deleteRecursively() }
+            runCatching { deleteRecursively(aliceTorDir) }
+            runCatching { deleteRecursively(bobTorDir) }
         }
+    }
+
+    private fun deleteRecursively(path: Path) {
+        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+            SystemFileSystem.list(path).forEach { deleteRecursively(it) }
+        }
+        SystemFileSystem.delete(path, mustExist = false)
     }
 }

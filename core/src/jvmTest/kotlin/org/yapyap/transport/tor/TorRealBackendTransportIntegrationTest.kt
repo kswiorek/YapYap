@@ -1,21 +1,19 @@
 package org.yapyap.transport.tor
 
-import io.matthewnelson.kmp.file.File
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
-import java.nio.file.Files
-import kotlin.io.path.ExperimentalPathApi
-import kotlin.io.path.absolutePathString
-import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -28,15 +26,13 @@ import kotlin.uuid.Uuid
  * These tests are **opt-in** (see `composeApp` Gradle: `-PintegrationTests=true`) because they are
  * slow and need a working Tor download/bootstrap on the host.
  */
-@OptIn(ExperimentalPathApi::class)
 class TorRealBackendTransportIntegrationTest {
-
     @Test
     fun defaultTorTransport_withKmpTorNoExecBackend_sendsToSelfAndDecodesIncoming() = runBlocking {
-        val tempDir = Files.createTempDirectory("yapyap-tor-it")
-        val torStateRoot = File(tempDir.absolutePathString())
+        val tempDir = Path(SystemTemporaryDirectory, "yapyap-tor-it-${Uuid.random()}")
+        SystemFileSystem.createDirectories(tempDir)
         val backend = KmpTorBackend(
-            torStateRootPath = torStateRoot,
+            torStateRootPath = tempDir,
             config = TorBackendConfig(
                 startupTimeoutMillis = 180_000L,
             ),
@@ -77,7 +73,14 @@ class TorRealBackendTransportIntegrationTest {
             assertContentEquals(out.payload, received.envelope.payload)
         } finally {
             runCatching { transport.stop() }
-            runCatching { tempDir.deleteRecursively() }
+            runCatching { deleteRecursively(tempDir) }
         }
+    }
+
+    private fun deleteRecursively(path: Path) {
+        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+            SystemFileSystem.list(path).forEach { deleteRecursively(it) }
+        }
+        SystemFileSystem.delete(path, mustExist = false)
     }
 }

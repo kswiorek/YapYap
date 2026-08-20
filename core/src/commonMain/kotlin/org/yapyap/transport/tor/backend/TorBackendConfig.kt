@@ -1,16 +1,17 @@
 package org.yapyap.transport.tor.backend
 
-import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.serialization.Serializable
 
 /**
  * Runtime tuning values for Tor backend implementations.
  */
+
+@Serializable
 data class TorBackendConfig(
     val startupTimeoutMillis: Long = 120_000,
     val maxPayloadBytes: Int = 4 * 1024 * 1024,
     val inboundReplay: Int = 0,
     val inboundExtraBufferCapacity: Int = 64,
-    val inboundOverflow: BufferOverflow = BufferOverflow.SUSPEND,
     val socksRetryTimeoutMillis: Long = 300_000,
     val socksRetryDelayMillis: Long = 1_000,
     val socksTransientFailureCodes: Set<Int> = setOf(3, 4, 6),

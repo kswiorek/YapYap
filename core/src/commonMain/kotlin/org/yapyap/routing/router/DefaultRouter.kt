@@ -222,17 +222,22 @@ class DefaultRouter(
 
         webRtcTransport.stop()
         torTransport.stop()
-        torIncomingJob?.cancel()
-        torIncomingJob = null
 
-        webRtcOutgoingJob?.cancel()
-        webRtcOutgoingJob = null
-        webRtcIncomingEnvelopeJob?.cancel()
+        listOfNotNull(
+            torIncomingJob,
+            webRtcIncomingEnvelopeJob,
+            webRtcOutgoingJob,
+            webRtcSessionJob,
+            outboxRetryJob,
+            syncRetryJob,
+        ).forEach { it.cancelAndJoin() }
+
+        torIncomingJob = null
         webRtcIncomingEnvelopeJob = null
-        webRtcSessionJob?.cancel()
+        webRtcOutgoingJob = null
         webRtcSessionJob = null
-        outboxRetryJob?.cancel()
         outboxRetryJob = null
+        syncRetryJob = null
         scope?.cancel()
         scope = null
 

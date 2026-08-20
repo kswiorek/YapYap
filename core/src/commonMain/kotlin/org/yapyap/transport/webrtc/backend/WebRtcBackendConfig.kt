@@ -1,5 +1,8 @@
 package org.yapyap.transport.webrtc.backend
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class WebRtcIceServerConfig(
     val urls: List<String>,
     val username: String? = null,
@@ -10,6 +13,7 @@ data class WebRtcIceServerConfig(
     }
 }
 
+@Serializable
 data class WebRtcBackendConfig(
     val iceServers: List<WebRtcIceServerConfig> = listOf(
         WebRtcIceServerConfig(urls = listOf("stun:stun.l.google.com:19302")),

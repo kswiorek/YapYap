@@ -1,63 +1,30 @@
 package org.yapyap.orchestrator
 
-import io.matthewnelson.kmp.file.File
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.io.files.Path
+import org.yapyap.config.BootConfig
 import org.yapyap.crypto.JavaKeyringSessionFactory
-import org.yapyap.logging.AppLog
 import org.yapyap.logging.JvmAppLogger
-import org.yapyap.orchestrator.config.AppConfig
-import org.yapyap.orchestrator.config.BootConfig
 import org.yapyap.persistence.JvmEncryptedDriverFactory
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
-import java.nio.file.Files
-import java.nio.file.Path
 
 actual class OrchestratorFactory actual constructor(
-    dataDirectory: String,
+    private val dataDirectory: Path,
     private val mode: NodeMode,
 ) {
-    private val root: Path = Path.of(dataDirectory)
 
-    actual fun create(): Orchestrator {
-        val databaseFile = root.resolve("vault.db")
-        val torStateRoot = root.resolve("tor")
-        val logDirectory = root.resolve("logs")
-
-        Files.createDirectories(root)
-        Files.createDirectories(torStateRoot)
-        Files.createDirectories(logDirectory)
-
-        AppLog.init(JvmAppLogger(logDirectory = logDirectory))   // already takes Path
-
-        val loaded = ConfigLoader.load(root)                      // JVM: Typesafe Config + java.nio
-
-        val deviceType = if (mode == NodeMode.HEADLESS_RELAY) DeviceType.HEADLESS else DeviceType.DESKTOP
-        val appConfig = AppConfig(
-            boot = BootConfig(
+    actual fun create(): Orchestrator =
+        DefaultOrchestrator(
+            dataDirectory = dataDirectory,
+            bootConfig = BootConfig(
                 mode = mode,
-                localDeviceType = deviceType,
+                localDeviceType = if (mode == NodeMode.HEADLESS_RELAY) DeviceType.HEADLESS else DeviceType.DESKTOP,
             ),
-            runtime = MutableStateFlow(loaded.runtime),
-            userPreferences = MutableStateFlow(loaded.userPreferences),
-            networkPolicy = MutableStateFlow(loaded.networkPolicy),
-        )
-
-        ConfigWatcher.start(root, appConfig)                      // JVM: WatchService
-
-        return DefaultOrchestrator(
-            config = appConfig,
             keyringSessionFactory = JavaKeyringSessionFactory,
-            createDriverFactory = { masterKey ->
-                JvmEncryptedDriverFactory(databaseFile, masterKey) // takes Path
-            },
-            torBackend = KmpTorBackend(
-                torStateRootPath = torStateRoot.toKmpFile(),       // ← the ONE boundary
-                config = loaded.runtime.tor,
-            ),
-            webRtcBackend = JvmWebRtcBackend(config = loaded.runtime.webRtc),
+            createDriverFactory = { masterKey, databaseFile -> JvmEncryptedDriverFactory(databaseFile, masterKey) },
+            createTorBackend = { torConfig, torStateRoot -> KmpTorBackend(torStateRoot, config = torConfig) },   // kmp-file boundary lives here
+            createWebRtcBackend = { webRtcConfig -> JvmWebRtcBackend(config = webRtcConfig) },
+            createLogger = { logDirectory -> JvmAppLogger(logDirectory = logDirectory) },
         )
-    }
-    private fun Path.toKmpFile(): File = File(toString())
 }

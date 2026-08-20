@@ -4,7 +4,6 @@ import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
 import io.matthewnelson.kmp.file.File
-import io.matthewnelson.kmp.file.SysTempDir
 import io.matthewnelson.kmp.file.resolve
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.startDaemonAsync
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.stopDaemonAsync
@@ -15,9 +14,11 @@ import io.matthewnelson.kmp.tor.runtime.core.key.ED25519_V3
 import io.matthewnelson.kmp.tor.runtime.core.net.Port.Companion.toPort
 import io.matthewnelson.kmp.tor.runtime.core.util.executeAsync
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.io.files.Path
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -33,15 +34,15 @@ import kotlin.time.TimeSource
  * Tor backend powered by kmp-tor runtime using noexec resources.
  */
 class KmpTorBackend(
-    private val torStateRootPath: File = defaultTorStateRootPath(),
+    private val torStateRootPath: Path,
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
-    private val config: TorBackendConfig = TorBackendConfig(),
+    private val config: TorBackendConfig,
 ) : TorBackend {
 
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
         replay = config.inboundReplay,
         extraBufferCapacity = config.inboundExtraBufferCapacity,
-        onBufferOverflow = config.inboundOverflow,
+        onBufferOverflow = BufferOverflow.SUSPEND,
     )
     override val incomingFrames: Flow<TorIncomingFrame> = inboundFlow.asSharedFlow()
 
@@ -75,7 +76,7 @@ class KmpTorBackend(
         val listener = aSocket(selector).tcp().bind("127.0.0.1", 0)
         acceptSocket = listener
 
-        val runtime = createTorRuntime(torStateRootPath)
+        val runtime = createTorRuntime(torStateRootPath.toKmpFile())
         torRuntime = runtime
 
         val localScope = CoroutineScope(SupervisorJob() + selectorContext)
@@ -360,11 +361,9 @@ class KmpTorBackend(
 
     private class SocksConnectException(val code: Int) : RuntimeException()
 
+    private fun Path.toKmpFile(): File = File(toString())
+
     companion object {
         private const val FRAME_MAGIC: Int = 0x59595431
-
-        fun defaultTorStateRootPath(): File {
-            return SysTempDir.resolve("yapyap").resolve("tor").resolve("devices")
-        }
     }
 }

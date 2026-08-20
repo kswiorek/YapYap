@@ -23,7 +23,9 @@ sqliteJdbc = "3.51.2.0"
 webrtcJava = "0.14.0"
 ktor = "3.4.2"
 kmpTorResource = "409.5.0"
-napier = "2.7.1"
+kotlinxIoCore = "0.8.1"
+tomlktVersion = "0.5.0"
+kotlinxSerialization = "1.11.0"
 
 [libraries]
 android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "androidDriver" }
@@ -61,7 +63,9 @@ ktor-network = { module = "io.ktor:ktor-network", version.ref = "ktor"}
 ktor-io = { module = "io.ktor:ktor-io", version.ref = "ktor"}
 tor-resource-exec-tor = { module = "io.matthewnelson.kmp-tor:resource-exec-tor", version.ref = "kmpTorResource"}
 tor-resource-noexec-tor = { module = "io.matthewnelson.kmp-tor:resource-noexec-tor", version.ref = "kmpTorResource"}
-napier = { module = "io.github.aakira:napier", version.ref = "napier"}
+kotlinx-io-core = {module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinxIoCore"}
+tomlkt = {module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlktVersion"}
+kotlinx-serialization-core = {module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization"}
 
 
 [plugins]

@@ -1,5 +1,8 @@
 package org.yapyap.routing.router
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class RouterConfig(
     val messageLifetimeSeconds: Long = 60 * 60 * 24 * 2,
     val ackLifetimeSeconds: Long = 60 * 60,
@@ -10,6 +13,7 @@ data class RouterConfig(
     val retryLoopMaxIdlePollSeconds: Long = 60,
     val outboxMaxSizeBytes: Long = 1024 * 1024 * 10,
     val dedupRetentionSeconds: Long = 60 * 60 * 24 * 7, //TODO to be decided
+    val maxMessageSizeBytes: Long = 1024 * 1024 * 8,
 ) {
     init {
         require(messageLifetimeSeconds > 0) { "messageLifetimeSeconds must be > 0" }
