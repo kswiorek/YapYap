@@ -137,6 +137,19 @@ internal class OutboundMessenger(
             forced = forceTransport,
         )
         val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
+
+        if (binaryEnvelope.encode().size > ctx.routerConfig.maxMessageBinaryEnvelopeBytes) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.SIZE_EXCEEDED,
+                message = "Message envelope size exceeds maximum",
+                fields = mapOf(
+                    "size" to binaryEnvelope.encode().size,
+                )
+            )
+            return PeerSendOutcome.PermanentFailure
+        }
+
         outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
         AppLog.debug(
             component = LogComponent.ROUTER,

@@ -52,6 +52,6 @@ data class NetworkPolicy(
 @Serializable
 data class RouterNetworkPolicy(
     val messageLifetimeSeconds: Long? = null,
-    val maxMessageSizeBytes: Long? = null,
+    val maxMessageBinaryEnvelopeBytes: Long? = null,
     val dedupRetentionSeconds: Long? = null,
 )

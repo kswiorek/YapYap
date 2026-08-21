@@ -19,12 +19,9 @@ data class WebRtcBackendConfig(
         WebRtcIceServerConfig(urls = listOf("stun:stun.l.google.com:19302")),
         WebRtcIceServerConfig(urls = listOf("stun:stun1.l.google.com:19302")),
     ),
-    val dataChannelLabelPrefix: String = "yapyap",
     val orderedDataChannel: Boolean = true,
     val maxRetransmits: Int? = null,
     val maxPacketLifeTimeMs: Int? = null,
+    val maxPayloadBytes: Long = 1024 * 1024 * 1,
 ) {
-    init {
-        require(dataChannelLabelPrefix.isNotBlank()) { "dataChannelLabelPrefix must not be blank" }
-    }
 }

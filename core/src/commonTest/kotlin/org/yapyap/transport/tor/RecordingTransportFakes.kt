@@ -123,8 +123,8 @@ class RecordingTorBackend : TorBackend {
     val sends = mutableListOf<Pair<TorEndpoint, ByteArray>>()
     var nextEndpoint: TorEndpoint = TorEndpoint("backend.onion", 9050)
 
-    override suspend fun start(localPort: Int?): TorEndpoint {
-        startCalls.add(localPort)
+    override suspend fun start(): TorEndpoint {
+        startCalls.add(80)
         return nextEndpoint
     }
 

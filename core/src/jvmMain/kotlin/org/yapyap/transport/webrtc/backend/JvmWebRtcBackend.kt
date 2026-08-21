@@ -132,6 +132,10 @@ class JvmWebRtcBackend(
         val session = sessions[dataFrame.target] ?: error("Unknown session for target: ${dataFrame.target}")
         require(session.remotePeer == dataFrame.target) { "Session target mismatch for target ${dataFrame.target}" }
 
+        require(dataFrame.payload.size <= config.maxPayloadBytes) {
+            "Payload length ${dataFrame.payload.size} exceeds configured max ${config.maxPayloadBytes}"
+        }
+
         val channel = session.channelFor(dataFrame.dataType)
         if (channel?.state != RTCDataChannelState.OPEN) {
             awaitChannelOpen(session, dataFrame.dataType)
@@ -570,10 +574,10 @@ class JvmWebRtcBackend(
     }
 
     private fun envelopeChannelLabel(local: PeerId, target: PeerId): String =
-        "${config.dataChannelLabelPrefix}-env-${local.id}-${target.id}"
+        "yapyap-env-${local.id}-${target.id}"
 
     private fun avChannelLabel(local: PeerId, target: PeerId): String =
-        "${config.dataChannelLabelPrefix}-av-${local.id}-${target.id}"
+        "yapyap-av-${local.id}-${target.id}"
 
     private suspend fun awaitChannelOpen(session: Session, dataType: WebRtcDataType) {
         val deferred = when (dataType) {

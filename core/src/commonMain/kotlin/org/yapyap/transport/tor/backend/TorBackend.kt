@@ -9,7 +9,7 @@ import org.yapyap.transport.tor.TorIncomingFrame
 interface TorBackend {
     val incomingFrames: Flow<TorIncomingFrame>
 
-    suspend fun start(localPort: Int? = null): TorEndpoint
+    suspend fun start(): TorEndpoint
 
     suspend fun stop()
 

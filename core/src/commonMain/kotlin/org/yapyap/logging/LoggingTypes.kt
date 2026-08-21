@@ -91,6 +91,7 @@ enum class LogEvent {
     PENDING_SYNC_ATTEMPT_RECORDED,
     PENDING_SYNC_ACCELERATED,
     MAINTENANCE_FAILED,
+    SIZE_EXCEEDED,
 }
 
 enum class LogComponent {

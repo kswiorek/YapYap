@@ -43,9 +43,9 @@ class TorTransportAndBackendSmokeTest {
     @Test
     fun recordingTorBackend_recordsLifecycleAndPayloads() = runBlocking {
         val b = RecordingTorBackend()
-        val ep = b.start(localPort = 9050)
+        val ep = b.start()
         assertEquals(b.nextEndpoint, ep)
-        assertEquals(listOf<Int?>(9050), b.startCalls)
+        assertEquals(listOf<Int?>(80), b.startCalls)
 
         val tgt = TorEndpoint("peer.onion", 443)
         val payload = byteArrayOf(1, 2, 3)

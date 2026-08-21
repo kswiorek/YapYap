@@ -40,8 +40,8 @@ class KmpTorBackend(
 ) : TorBackend {
 
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
-        replay = config.inboundReplay,
-        extraBufferCapacity = config.inboundExtraBufferCapacity,
+        replay = 0,
+        extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.SUSPEND,
     )
     override val incomingFrames: Flow<TorIncomingFrame> = inboundFlow.asSharedFlow()
@@ -51,19 +51,14 @@ class KmpTorBackend(
     var publishedLocalEndpoint: TorEndpoint? = null
         private set
 
-    private var localServicePort: Int? = null
     private var torRuntime: TorRuntime? = null
     private var acceptSocket: ServerSocket? = null
     private var selectorManager: SelectorManager? = null
     private var scope: CoroutineScope? = null
     private var started = false
-    private var effectivePort: Int = 80
 
-    override suspend fun start(localPort: Int?): TorEndpoint {
+    override suspend fun start(): TorEndpoint {
         check(torRuntime == null) { "Tor backend already started" }
-        effectivePort = localPort ?: config.defaultTorPort
-        require(effectivePort in 1..65535) { "localPort must be in range 1..65535" }
-        this.localServicePort = localPort
 
         val selectorContext = if (coroutineContext == EmptyCoroutineContext) {
             Dispatchers.Default
@@ -88,7 +83,7 @@ class KmpTorBackend(
 
             val onionEntry = runtime.executeAsync(
                 TorCmd.Onion.Add.new(ED25519_V3) {
-                    port(effectivePort.toPort()) {
+                    port(config.defaultTorPort.toPort()) {
                         target(listener.port.toPort())
                     }
                 }
@@ -96,7 +91,7 @@ class KmpTorBackend(
             val onionAddress = onionEntry.publicKey.address().toString().let { raw ->
                 if (raw.endsWith(".onion", ignoreCase = true)) raw else "$raw.onion"
             }
-            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = effectivePort)
+            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = config.defaultTorPort)
             publishedLocalEndpoint = resolvedEndpoint
 
             localScope.launch {
@@ -107,7 +102,7 @@ class KmpTorBackend(
                 component = LogComponent.TOR_BACKEND,
                 event = LogEvent.STARTED,
                 message = "KMP Tor backend started",
-                fields = mapOf("onionAddress" to onionAddress, "port" to effectivePort),
+                fields = mapOf("onionAddress" to onionAddress, "port" to config.defaultTorPort),
             )
             return resolvedEndpoint
         } catch (error: Throwable) {
@@ -137,7 +132,6 @@ class KmpTorBackend(
         }
         torRuntime = null
 
-        localServicePort = null
         publishedLocalEndpoint = null
         socksPort = null
         started = false
