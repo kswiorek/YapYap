@@ -1,58 +1,27 @@
 package org.yapyap.crypto.e2ee.session
 
 import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
-import org.yapyap.protocol.ByteReader
-import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 
-private val SESSION_WIRE_MAGIC = byteArrayOf(
-    'Y'.code.toByte(),
-    'S'.code.toByte(),
-    'W'.code.toByte(),
-    '1'.code.toByte(),
-)
-private const val SESSION_WIRE_VERSION: Byte = 1
-
-private const val INNER_KIND_APPLICATION: Byte = 0
-private const val INNER_KIND_WITH_CONTROL: Byte = 1
-
-private const val CONTROL_TAG_OPK_OFFER: Byte = 1
-
-/** Fixed wire-format size limits for crypto session payloads (aligned with Tor max payload by default). */
+/**
+ * Protocol-invariant wire-format constraints for crypto session payloads. These are fixed by the
+ * cryptographic algorithms and wire format, not by transport capacity — they never change at runtime.
+ *
+ * Capacity limits (max frame/body/plaintext/control bytes) that depend on transport limits live in
+ * [CryptoLimits] and are enforced by [CryptoWireCodec].
+ */
 object CryptoWireLimits {
-    const val MAX_SESSION_WIRE_FRAME_BYTES: Int = 4 * 1024 * 1024
     /** X25519 keys are stored in DER form in this stack (~44 bytes); cap prevents hostile oversize. */
     const val MAX_DH_PUBLIC_KEY_BYTES: Int = 64
     const val MAX_X3DH_EPHEMERAL_KEY_BYTES: Int = 64
-    const val MAX_RATCHET_BODY_BYTES: Int = 256 * 1024
     const val MAX_STRING_ID_BYTES: Int = 256
-    const val MAX_INNER_PLAINTEXT_BYTES: Int = 256 * 1024
-    const val MAX_INNER_CONTROL_BYTES: Int = 4 * 1024
     const val MAX_OPK_PUBLIC_KEY_BYTES: Int = 64
     const val MAX_SESSION_BINDING_BYTES: Int = OpkOfferBinding.BINDING_LENGTH
     const val MAX_SKIPPED_KEYS_COUNT: Int = 256
 
-    fun requireSessionWireFrameSize(size: Int) {
-        require(size in 0..MAX_SESSION_WIRE_FRAME_BYTES) {
-            "session wire frame size $size exceeds max $MAX_SESSION_WIRE_FRAME_BYTES"
-        }
-    }
-
-    fun requireInnerPlaintextSize(size: Int) {
-        require(size in 0..MAX_INNER_PLAINTEXT_BYTES) {
-            "inner plaintext size $size exceeds max $MAX_INNER_PLAINTEXT_BYTES"
-        }
-    }
-
     fun requireDhPublicKeySize(size: Int) {
         require(size in 1..MAX_DH_PUBLIC_KEY_BYTES) {
             "DH public key size $size exceeds max $MAX_DH_PUBLIC_KEY_BYTES"
-        }
-    }
-
-    fun requireRatchetBodySize(size: Int) {
-        require(size in 0..MAX_RATCHET_BODY_BYTES) {
-            "ratchet body size $size exceeds max $MAX_RATCHET_BODY_BYTES"
         }
     }
 
@@ -65,12 +34,6 @@ object CryptoWireLimits {
     fun requireStringIdSize(size: Int) {
         require(size in 0..MAX_STRING_ID_BYTES) {
             "string id size $size exceeds max $MAX_STRING_ID_BYTES"
-        }
-    }
-
-    fun requireInnerControlSize(size: Int) {
-        require(size in 0..MAX_INNER_CONTROL_BYTES) {
-            "inner control size $size exceeds max $MAX_INNER_CONTROL_BYTES"
         }
     }
 
@@ -93,103 +56,16 @@ data class SessionWireFrame(
     val outerHandshake: X3dhWireInfo?,   // epoch-1 initiator first message only
     val ratchet: RatchetCiphertext,
 ) {
-    fun encode(): ByteArray {
-        val ratchetBytes = ratchet.encode()
-        val writer = ByteWriter(64 + ratchetBytes.size)
-        writer.writeMagic(SESSION_WIRE_MAGIC)
-        writer.writeByte(SESSION_WIRE_VERSION.toInt())
-        writer.writeInt(sessionEpoch)
-        writer.writeInt(sessionGeneration)
-        if (outerHandshake == null) {
-            writer.writeByte(0)
-        } else {
-            writer.writeByte(1)
-            writer.writeByteArray(
-                encodeX3dhWireInfo(outerHandshake),
-                CryptoWireLimits.MAX_SESSION_WIRE_FRAME_BYTES,
-            )
-        }
-        writer.writeByteArray(ratchetBytes, CryptoWireLimits.MAX_SESSION_WIRE_FRAME_BYTES)
-        val bytes = writer.toByteArray()
-        CryptoWireLimits.requireSessionWireFrameSize(bytes.size)
-        return bytes
-    }
-
-    private fun encodeX3dhWireInfo(wire: X3dhWireInfo): ByteArray {
-        CryptoWireLimits.requireX3dhEphemeralKeySize(wire.ephemeralPublicKey.size)
-        val idBytes = wire.signedPreKeyId.encodeToByteArray()
-        CryptoWireLimits.requireStringIdSize(idBytes.size)
-        val opkIdBytes = wire.oneTimePreKeyId?.encodeToByteArray()
-        if (opkIdBytes != null) {
-            CryptoWireLimits.requireStringIdSize(opkIdBytes.size)
-        }
-        val writer = ByteWriter(
-            wire.ephemeralPublicKey.size + idBytes.size + (opkIdBytes?.size ?: 0) + 32,
-        )
-        writer.writeByteArray(wire.ephemeralPublicKey, CryptoWireLimits.MAX_X3DH_EPHEMERAL_KEY_BYTES)
-        writer.writeByteArray(idBytes, CryptoWireLimits.MAX_STRING_ID_BYTES)
-        writer.writeInt(wire.sessionEpoch)
-        writer.writeInt(wire.sessionGeneration)
-        writer.writeByte(wire.mode.wireValue.toInt())
-        if (opkIdBytes == null) {
-            writer.writeByte(0)
-        } else {
-            writer.writeByte(1)
-            writer.writeByteArray(opkIdBytes, CryptoWireLimits.MAX_STRING_ID_BYTES)
-        }
-        return writer.toByteArray()
-    }
-
     companion object {
-        fun decode(bytes: ByteArray): SessionWireFrame {
-            CryptoWireLimits.requireSessionWireFrameSize(bytes.size)
-            val reader = ByteReader(bytes)
-            reader.readMagic(SESSION_WIRE_MAGIC)
-            val version = reader.readByte()
-            require(version == SESSION_WIRE_VERSION) { "unsupported session wire version: $version" }
-            val sessionEpoch = reader.readInt()
-            val sessionGeneration = reader.readInt()
-            val hasOuter = reader.readUnsignedByte() != 0
-            val outerHandshake = if (hasOuter) {
-                decodeX3dhWireInfo(
-                    reader.readByteArray(CryptoWireLimits.MAX_SESSION_WIRE_FRAME_BYTES),
-                )
-            } else {
-                null
-            }
-            val ratchetBytes = reader.readByteArray(CryptoWireLimits.MAX_SESSION_WIRE_FRAME_BYTES)
-            reader.requireFullyRead()
-            return SessionWireFrame(
-                sessionEpoch = sessionEpoch,
-                sessionGeneration = sessionGeneration,
-                outerHandshake = outerHandshake,
-                ratchet = RatchetCiphertext.decode(ratchetBytes),
-            )
-        }
-
-        private fun decodeX3dhWireInfo(bytes: ByteArray): X3dhWireInfo {
-            val reader = ByteReader(bytes)
-            val ephemeralPublicKey = reader.readByteArray(CryptoWireLimits.MAX_X3DH_EPHEMERAL_KEY_BYTES)
-            val signedPreKeyIdBytes = reader.readByteArray(CryptoWireLimits.MAX_STRING_ID_BYTES)
-            val sessionEpoch = reader.readInt()
-            val sessionGeneration = reader.readInt()
-            val mode = X3dhMode.fromWireValue(reader.readByte())
-            val hasOpk = reader.readUnsignedByte() != 0
-            val oneTimePreKeyId = if (hasOpk) {
-                reader.readByteArray(CryptoWireLimits.MAX_STRING_ID_BYTES).decodeToString()
-            } else {
-                null
-            }
-            reader.requireFullyRead()
-            return X3dhWireInfo(
-                ephemeralPublicKey = ephemeralPublicKey,
-                signedPreKeyId = signedPreKeyIdBytes.decodeToString(),
-                sessionEpoch = sessionEpoch,
-                sessionGeneration = sessionGeneration,
-                mode = mode,
-                oneTimePreKeyId = oneTimePreKeyId,
-            )
-        }
+        /**
+         * Max header bytes added by the wire codec around the ratchet ciphertext (worst case: an
+         * epoch-1 first message with the X3DH handshake attached).
+         * MAGIC(4) + VERSION(1) + epoch(4) + generation(4) + hasOuter(1)
+         * + outer length prefix(4) + outer content + ratchet length prefix(4).
+         * Outer content worst case (using protocol caps): ephKey(4+64) + spkId(4+256) + epoch(4)
+         * + generation(4) + mode(1) + opkFlag(1) + opkId(4+256) = 598, giving 14 + 4 + 598 + 4 = 620.
+         */
+        const val MAX_HEADER_BYTES: Int = 620
     }
 }
 
@@ -202,58 +78,9 @@ sealed interface RatchetInnerPlaintext {
         val control: InnerSessionControl?,
     ) : RatchetInnerPlaintext
 
-    fun encode(): ByteArray =
-        when (this) {
-            is Payload -> {
-                CryptoWireLimits.requireInnerPlaintextSize(bytes.size)
-                ByteWriter(1 + 4 + bytes.size).apply {
-                    writeByte(INNER_KIND_APPLICATION.toInt())
-                    writeByteArray(bytes, CryptoWireLimits.MAX_INNER_PLAINTEXT_BYTES)
-                }.toByteArray()
-            }
-
-            is WithControl -> {
-                CryptoWireLimits.requireInnerPlaintextSize(bytes.size)
-                val controlBytes = control?.encode()
-                ByteWriter(8 + bytes.size + (controlBytes?.size ?: 0)).apply {
-                    writeByte(INNER_KIND_WITH_CONTROL.toInt())
-                    writeByteArray(bytes, CryptoWireLimits.MAX_INNER_PLAINTEXT_BYTES)
-                    if (controlBytes == null) {
-                        writeByte(0)
-                    } else {
-                        writeByte(1)
-                        writeByteArray(controlBytes, CryptoWireLimits.MAX_INNER_CONTROL_BYTES)
-                    }
-                }.toByteArray()
-            }
-        }
-
-    companion object{
-        fun decode(bytes: ByteArray): RatchetInnerPlaintext {
-            require(bytes.isNotEmpty()) { "inner plaintext is empty" }
-            val reader = ByteReader(bytes)
-            return when (reader.readByte()) {
-                INNER_KIND_APPLICATION -> {
-                    val app = reader.readByteArray(CryptoWireLimits.MAX_INNER_PLAINTEXT_BYTES)
-                    reader.requireFullyRead()
-                    Payload(app)
-                }
-                INNER_KIND_WITH_CONTROL -> {
-                    val application = reader.readByteArray(CryptoWireLimits.MAX_INNER_PLAINTEXT_BYTES)
-                    val hasControl = reader.readUnsignedByte() != 0
-                    val control = if (hasControl) {
-                        InnerSessionControl.decode(
-                            reader.readByteArray(CryptoWireLimits.MAX_INNER_CONTROL_BYTES),
-                        )
-                    } else {
-                        null
-                    }
-                    reader.requireFullyRead()
-                    WithControl(bytes = application, control = control)
-                }
-                else -> error("unsupported inner plaintext kind: ${bytes[0]}")
-            }
-        }
+    companion object {
+        /** Bytes added by the wire codec around the application plaintext: kind(1) + length prefix(4). */
+        const val ENCODED_OVERHEAD: Int = 5
     }
 }
 
@@ -265,53 +92,6 @@ sealed interface InnerSessionControl {
         val opkPublicKey: ByteArray,
         val sessionBinding: ByteArray,
     ) : InnerSessionControl
-
-    fun encode(): ByteArray =
-        when (this) {
-            is OpkOffer -> {
-                val idBytes = opkId.encodeToByteArray()
-                CryptoWireLimits.requireStringIdSize(idBytes.size)
-                CryptoWireLimits.requireOpkPublicKeySize(opkPublicKey.size)
-                CryptoWireLimits.requireSessionBindingSize(sessionBinding.size)
-                ByteWriter(
-                    1 + 8 + idBytes.size + opkPublicKey.size + sessionBinding.size + 16,
-                ).apply {
-                    writeByte(CONTROL_TAG_OPK_OFFER.toInt())
-                    writeInt(sessionEpoch)
-                    writeInt(sessionGeneration)
-                    writeByteArray(idBytes, CryptoWireLimits.MAX_STRING_ID_BYTES)
-                    writeByteArray(opkPublicKey, CryptoWireLimits.MAX_OPK_PUBLIC_KEY_BYTES)
-                    writeByteArray(sessionBinding, CryptoWireLimits.MAX_SESSION_BINDING_BYTES)
-                }.toByteArray()
-            }
-        }
-
-    companion object {
-        fun decode(bytes: ByteArray): InnerSessionControl {
-            CryptoWireLimits.requireInnerControlSize(bytes.size)
-            require(bytes.isNotEmpty()) { "control block is empty" }
-            val reader = ByteReader(bytes)
-            return when (reader.readByte()) {
-                CONTROL_TAG_OPK_OFFER -> {
-                    val sessionEpoch = reader.readInt()
-                    val sessionGeneration = reader.readInt()
-                    val idBytes = reader.readByteArray(CryptoWireLimits.MAX_STRING_ID_BYTES)
-                    val opkPublicKey = reader.readByteArray(CryptoWireLimits.MAX_OPK_PUBLIC_KEY_BYTES)
-                    val sessionBinding = reader.readByteArray(CryptoWireLimits.MAX_SESSION_BINDING_BYTES)
-                    reader.requireFullyRead()
-                    CryptoWireLimits.requireSessionBindingSize(sessionBinding.size)
-                    OpkOffer(
-                        sessionEpoch = sessionEpoch,
-                        sessionGeneration = sessionGeneration,
-                        opkId = idBytes.decodeToString(),
-                        opkPublicKey = opkPublicKey,
-                        sessionBinding = sessionBinding,
-                    )
-                }
-                else -> error("unsupported inner session control tag: ${bytes[0]}")
-            }
-        }
-    }
 }
 
 

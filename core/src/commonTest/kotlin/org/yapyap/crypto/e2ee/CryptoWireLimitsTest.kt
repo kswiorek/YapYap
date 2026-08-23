@@ -11,8 +11,10 @@ class CryptoWireLimitsTest {
 
     @Test
     fun sessionWireFrame_decode_rejectsOversizedBlob() {
-        assertFailsWith<IllegalArgumentException> {
-            SessionWireFrame.decode(ByteArray(CryptoWireLimits.MAX_SESSION_WIRE_FRAME_BYTES + 1))
+        assertFailsWith<CryptoSessionException.OversizedFrame> {
+            testCryptoWireCodec().decodeSessionWireFrame(
+                ByteArray(testCryptoLimits().maxSessionWireFrameBytes + 1),
+            )
         }
     }
 
@@ -25,7 +27,7 @@ class CryptoWireLimitsTest {
         bytes[3] = (CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES + 1).toByte()
 
         assertFailsWith<IllegalArgumentException> {
-            RatchetCiphertext.decode(bytes)
+            testCryptoWireCodec().decodeRatchetCiphertext(bytes)
         }
     }
 
@@ -36,20 +38,22 @@ class CryptoWireLimitsTest {
         val (aliceBootstrap, bobBootstrap) = DoubleRatchetSessionTestBootstraps.create(crypto, x3dh)
         val alice = DoubleRatchetSession.createInitiator(crypto, aliceBootstrap)
         val frame = alice.encrypt("hello".encodeToByteArray())
+        val codec = testCryptoWireCodec()
 
+        val maxBody = testCryptoLimits().maxRatchetBodyBytes
         val tamperedSize = ByteArray(4)
-        tamperedSize[0] = ((CryptoWireLimits.MAX_RATCHET_BODY_BYTES + 1) ushr 24).toByte()
-        tamperedSize[1] = ((CryptoWireLimits.MAX_RATCHET_BODY_BYTES + 1) ushr 16).toByte()
-        tamperedSize[2] = ((CryptoWireLimits.MAX_RATCHET_BODY_BYTES + 1) ushr 8).toByte()
-        tamperedSize[3] = (CryptoWireLimits.MAX_RATCHET_BODY_BYTES + 1).toByte()
+        tamperedSize[0] = ((maxBody + 1) ushr 24).toByte()
+        tamperedSize[1] = ((maxBody + 1) ushr 16).toByte()
+        tamperedSize[2] = ((maxBody + 1) ushr 8).toByte()
+        tamperedSize[3] = (maxBody + 1).toByte()
 
-        val encoded = frame.encode()
+        val encoded = codec.encode(frame)
         val bodySizeOffset = 4 + frame.dhPublicKey.size + 4 + 4
         val forged = encoded.copyOf()
         tamperedSize.copyInto(forged, bodySizeOffset)
 
-        assertFailsWith<IllegalArgumentException> {
-            RatchetCiphertext.decode(forged)
+        assertFailsWith<CryptoSessionException.OversizedFrame> {
+            codec.decodeRatchetCiphertext(forged)
         }
     }
 
@@ -66,8 +70,9 @@ class CryptoWireLimitsTest {
             outerHandshake = null,
             ratchet = ratchet,
         )
+        val codec = testCryptoWireCodec()
 
-        val decoded = SessionWireFrame.decode(original.encode())
+        val decoded = codec.decodeSessionWireFrame(codec.encode(original))
         assertContentEquals(ratchet.body, decoded.ratchet.body)
     }
 }

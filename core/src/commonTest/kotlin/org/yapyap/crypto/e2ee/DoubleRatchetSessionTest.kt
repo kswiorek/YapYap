@@ -59,8 +59,9 @@ class DoubleRatchetSessionTest {
         val bob = DoubleRatchetSession.createResponder(crypto, bobBootstrap)
 
         val frame = alice.encrypt(byteArrayOf(42))
-        val encoded = frame.encode()
-        val decoded = RatchetCiphertext.decode(encoded)
+        val codec = testCryptoWireCodec()
+        val encoded = codec.encode(frame)
+        val decoded = codec.decodeRatchetCiphertext(encoded)
         assertContentEquals(byteArrayOf(42), bob.decrypt(decoded))
     }
 

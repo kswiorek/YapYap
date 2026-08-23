@@ -1,8 +1,6 @@
 package org.yapyap.protection.envelope
 
 import org.yapyap.crypto.e2ee.manager.CryptoSessionManager
-import org.yapyap.crypto.e2ee.session.CryptoWireLimits
-import org.yapyap.crypto.e2ee.session.SessionWireFrame
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
@@ -148,11 +146,10 @@ class SignedAndEncryptedWebRtcSignalProtection(
             "Context security scheme must be ENCRYPTED_AND_SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
 
-        val encryptedInput = cryptoSessionManager.encryptMessage(
+        val wirePayload = cryptoSessionManager.encryptMessage(
             remoteDeviceId = context.targetDeviceId,
             bytes = input.payload,
         )
-        val wirePayload = encryptedInput.encode()
 
         val unsigned = WebRtcSignalEnvelope(
             signalEnvelopeId = Uuid.random(),
@@ -186,24 +183,10 @@ class SignedAndEncryptedWebRtcSignalProtection(
             throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
-        CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
-
-        val encryptedInput = try {
-            SessionWireFrame.decode(envelope.payload)
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode SessionWireFrame from encrypted WebRTC signal envelope",
-                throwable = e,
-            )
-            throw ProtectionException.InvalidEnvelope(e)
-        }
-
         val decryptedInput = try {
             cryptoSessionManager.decryptMessage(
                 remoteDeviceId = envelope.source,
-                frame = encryptedInput,
+                frameBytes = envelope.payload,
             )
         } catch (e: Exception) {
             AppLog.error(

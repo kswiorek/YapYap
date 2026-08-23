@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.config.BootConfig
+import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
@@ -229,12 +230,16 @@ class DefaultOrchestrator(
             localDeviceId = localDeviceId,
         )
 
+        val messageLimits = MessageLimits.from(configStore.runtime.value)
+
         cryptoSessionManager = DefaultCryptoSessionManager(
             crypto = cryptoProvider,
             x3dh = x3dhHandshake,
             sessionStore = cryptoSessionStore,
             identityResolver = identityResolver,
             opkRepository = opkRepository,
+            cryptoLimits = messageLimits.crypto,
+            sessionConfig = configStore.runtime.value.crypto,
         )
 
         val signatureProvider = DefaultSignatureProvider(identityResolver, cryptoProvider)
@@ -263,7 +268,7 @@ class DefaultOrchestrator(
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
                 PacketStoreMaintenance(packetOutbox, packetDeduplicator, configStore.runtime.value.router)::run,
-                CryptoMaintenance(cryptoSessionStore, opkRepository)::run
+                CryptoMaintenance(cryptoSessionStore, opkRepository, configStore.runtime.value.crypto)::run
             ),
             intervalSeconds = configStore.runtime.value.maintenanceIntervalSeconds, // or a constant
         )
@@ -280,6 +285,7 @@ class DefaultOrchestrator(
             syncRepository = syncRepo,
             syncConfig = configStore.runtime.value.sync,
             routerConfig = configStore.runtime.value.router,
+            transportLimits = messageLimits.transport,
         )
 
         router.start()
@@ -313,6 +319,7 @@ class DefaultOrchestrator(
                 pipeline = pipeline,
                 database = database,
                 identityResolver = identityResolver,
+                messageLimits = messageLimits,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

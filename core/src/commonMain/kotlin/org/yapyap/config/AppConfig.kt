@@ -1,6 +1,7 @@
 package org.yapyap.config
 
 import kotlinx.serialization.Serializable
+import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.db.DeviceType
@@ -21,6 +22,7 @@ data class RuntimeConfig(
     val webRtc: WebRtcBackendConfig = WebRtcBackendConfig(),
     val router: RouterConfig = RouterConfig(),
     val sync: SyncConfig = SyncConfig(),
+    val crypto: CryptoSessionConfig = CryptoSessionConfig(),
     val maintenanceIntervalSeconds: Long = 60 * 60,
 )
 
@@ -52,6 +54,5 @@ data class NetworkPolicy(
 @Serializable
 data class RouterNetworkPolicy(
     val messageLifetimeSeconds: Long? = null,
-    val maxMessageBinaryEnvelopeBytes: Long? = null,
     val dedupRetentionSeconds: Long? = null,
 )

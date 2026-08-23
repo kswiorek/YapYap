@@ -23,10 +23,13 @@ class DefaultCryptoSessionManager(
     private val sessionStore: CryptoSessionStore,
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
+    private val cryptoLimits: CryptoLimits,
     private val timeProvider: EpochProvider = SystemEpochProvider,
     private val upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
 ) : CryptoSessionManager {
+
+    private val codec = CryptoWireCodec(cryptoLimits)
 
     private val peerLocks = PeerLockRegistry()
 
@@ -52,22 +55,27 @@ class DefaultCryptoSessionManager(
     override suspend fun encryptMessage(
         remoteDeviceId: PeerId,
         bytes: ByteArray,
-    ): SessionWireFrame = peerLocks.withPeerLock(remoteDeviceId) {
-        encryptMessageUnderLock(remoteDeviceId, bytes)
+    ): ByteArray = peerLocks.withPeerLock(remoteDeviceId) {
+        codec.encode(encryptMessageUnderLock(remoteDeviceId, bytes))
     }
 
     override suspend fun decryptMessage(
         remoteDeviceId: PeerId,
-        frame: SessionWireFrame,
-    ): ByteArray = peerLocks.withPeerLock(remoteDeviceId) {
-        decryptMessageUnderLock(remoteDeviceId, frame)
+        frameBytes: ByteArray,
+    ): ByteArray {
+        val frame = codec.decodeSessionWireFrame(frameBytes)
+        return peerLocks.withPeerLock(remoteDeviceId) {
+            decryptMessageUnderLock(remoteDeviceId, frame)
+        }
     }
 
     private suspend fun encryptMessageUnderLock(
         remoteDeviceId: PeerId,
         bytes: ByteArray,
     ): SessionWireFrame {
-        CryptoWireLimits.requireInnerPlaintextSize(bytes.size)
+        require(bytes.size <= cryptoLimits.maxInnerPlaintextBytes) {
+            "inner plaintext size ${bytes.size} exceeds max ${cryptoLimits.maxInnerPlaintextBytes}"
+        }
         val epoch = sessionStore.latestEncryptEpoch(remoteDeviceId) ?: 1
         var loaded = loadCanonicalSession(remoteDeviceId, epoch)
         var outerHandshake: X3dhWireInfo? = null
@@ -108,7 +116,7 @@ class DefaultCryptoSessionManager(
             loaded.meta = loaded.meta.copy(offeredOpkId = innerToEncrypt.control.opkId)
         }
 
-        val ratchet = loaded.session.encrypt(innerToEncrypt.encode())
+        val ratchet = loaded.session.encrypt(codec.encode(innerToEncrypt))
         persist(remoteDeviceId, epoch, loaded.session, loaded.meta)
 
         return SessionWireFrame(
@@ -263,7 +271,7 @@ class DefaultCryptoSessionManager(
             }
             return null
         }
-        return RatchetInnerPlaintext.decode(plaintext)
+        return codec.decodeRatchetInnerPlaintext(plaintext)
     }
 
     private fun isCandidateMismatch(error: Throwable): Boolean =
@@ -317,7 +325,7 @@ class DefaultCryptoSessionManager(
         ratchet: RatchetCiphertext,
     ): RatchetInnerPlaintext {
         val plaintext = session.decrypt(ratchet)
-        return RatchetInnerPlaintext.decode(plaintext)
+        return codec.decodeRatchetInnerPlaintext(plaintext)
     }
 
     private suspend fun nextSessionGeneration(

@@ -1,5 +1,6 @@
 package org.yapyap.routing.router
 
+import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -27,6 +28,7 @@ enum class SendFailureKind {
     NO_PEERS,
     NOT_READY,
     PERMANENT,
+    TOO_LARGE,
     MIXED,
 }
 
@@ -64,6 +66,7 @@ internal class RoutingContext(
     val webRtcTransport: WebRtcTransport,
     val timeProvider: EpochProvider,
     val routerConfig: RouterConfig,
+    val transportLimits: TransportLimits,
 ) {
     lateinit var localDeviceIdentity: DeviceIdentityRecord
 

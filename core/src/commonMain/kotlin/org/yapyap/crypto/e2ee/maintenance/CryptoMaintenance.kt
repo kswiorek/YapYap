@@ -11,7 +11,7 @@ import org.yapyap.time.SystemEpochProvider
 class CryptoMaintenance(
     private val sessionStore: CryptoSessionStore,
     private val opkRepository: OpkRepository,
-    private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
+    private val sessionConfig: CryptoSessionConfig,
     private val timeProvider: EpochProvider = SystemEpochProvider,
 ) {
 

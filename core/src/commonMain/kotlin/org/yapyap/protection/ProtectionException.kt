@@ -95,6 +95,7 @@ sealed class ProtectionException(
             when (error) {
                 is CryptoSessionException.Replay,
                 is CryptoSessionException.MessageSkipExceeded,
+                is CryptoSessionException.OversizedFrame,
                 -> SessionViolation(error)
                 is CryptoSessionException.SupersededDhChain -> SessionGap(error)
                 is CryptoSessionException.DecryptionFailed ->

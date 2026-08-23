@@ -2,8 +2,6 @@ package org.yapyap.protection.envelope
 
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.manager.CryptoSessionManager
-import org.yapyap.crypto.e2ee.session.CryptoWireLimits
-import org.yapyap.crypto.e2ee.session.SessionWireFrame
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
@@ -148,7 +146,7 @@ class SignedAndEncryptedMessageProtection(
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
 
-        val encryptedInput = try {
+        val wirePayload = try {
             cryptoSessionManager.encryptMessage(
                 remoteDeviceId = context.targetDeviceId,
                 bytes = input.encode(),
@@ -162,7 +160,6 @@ class SignedAndEncryptedMessageProtection(
             )
             throw ProtectionException.mapEncryptDecryptFailure(e)
         }
-        val wirePayload = encryptedInput.encode()
 
         val unsigned = MessageEnvelope(
             messageEnvelopeId = input.messageId,
@@ -205,24 +202,10 @@ class SignedAndEncryptedMessageProtection(
             throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
 
-        CryptoWireLimits.requireSessionWireFrameSize(envelope.payload.size)
-
-        val encryptedInput = try {
-            SessionWireFrame.decode(envelope.payload)
-        } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode SessionWireFrame from encrypted message envelope",
-                throwable = e,
-            )
-            throw ProtectionException.InvalidEnvelope(e)
-        }
-
         val decryptedInput = try {
             cryptoSessionManager.decryptMessage(
                 remoteDeviceId = envelope.source,
-                frame = encryptedInput,
+                frameBytes = envelope.payload,
             )
         } catch (e: Exception) {
             AppLog.error(

@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
@@ -52,6 +53,7 @@ class DefaultRouter(
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochProvider = SystemEpochProvider,
     val routerConfig: RouterConfig,
+    val transportLimits: TransportLimits,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
     val syncConfig: SyncConfig,
@@ -64,6 +66,7 @@ class DefaultRouter(
         webRtcTransport = webRtcTransport,
         timeProvider = timeProvider,
         routerConfig = routerConfig,
+        transportLimits = transportLimits,
     )
     private val envelopeDispatcher = EnvelopeDispatcher(routingContext)
     private val systemSender = SystemSender(

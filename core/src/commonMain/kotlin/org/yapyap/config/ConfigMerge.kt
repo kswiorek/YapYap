@@ -20,7 +20,6 @@ fun RuntimeConfig.applyUser(u: UserPreferences): RuntimeConfig = copy(
 fun RuntimeConfig.applyNetwork(n: NetworkPolicy): RuntimeConfig = copy(
     router = router.copy(
         messageLifetimeSeconds = n.router.messageLifetimeSeconds ?: router.messageLifetimeSeconds,
-        maxMessageBinaryEnvelopeBytes = n.router.maxMessageBinaryEnvelopeBytes ?: router.maxMessageBinaryEnvelopeBytes,
         dedupRetentionSeconds = n.router.dedupRetentionSeconds ?: router.dedupRetentionSeconds,
     ),
 )
@@ -46,7 +45,6 @@ private fun SyncUserPrefs.mergePatch(patch: SyncUserPrefs): SyncUserPrefs = copy
 fun fromRuntime(r: RuntimeConfig): NetworkPolicy = NetworkPolicy(
     router = RouterNetworkPolicy(
         messageLifetimeSeconds = r.router.messageLifetimeSeconds,
-        maxMessageBinaryEnvelopeBytes = r.router.maxMessageBinaryEnvelopeBytes,
         dedupRetentionSeconds = r.router.dedupRetentionSeconds,
     ),
 )

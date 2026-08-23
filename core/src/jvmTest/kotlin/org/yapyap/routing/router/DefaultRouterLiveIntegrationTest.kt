@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
@@ -110,6 +111,7 @@ class DefaultRouterLiveIntegrationTest {
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 routerConfig = RouterConfig(),
+                transportLimits = testTransportLimits(),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 syncConfig = SyncConfig(),
@@ -124,6 +126,7 @@ class DefaultRouterLiveIntegrationTest {
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
                 routerConfig = RouterConfig(),
+                transportLimits = testTransportLimits(),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 syncConfig = SyncConfig(),

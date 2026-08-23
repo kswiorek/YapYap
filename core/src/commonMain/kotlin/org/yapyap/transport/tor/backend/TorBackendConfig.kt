@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class TorBackendConfig(
     val startupTimeoutMillis: Long = 120_000,
-    val maxPayloadBytes: Int = 4 * 1024 * 1024,
+    val maxPayloadBytes: Long = 4 * 1024 * 1024,
     val socksRetryTimeoutMillis: Long = 300_000,
     val socksRetryDelayMillis: Long = 1_000,
     val socksTransientFailureCodes: Set<Int> = setOf(3, 4, 6),

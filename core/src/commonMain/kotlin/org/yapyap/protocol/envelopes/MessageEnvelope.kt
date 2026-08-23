@@ -67,6 +67,14 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'M'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
+        /**
+         * Bytes added by [encode] around [payload] for the ENCRYPTED_AND_SIGNED message path
+         * (worst case): MAGIC(4) + VERSION(1) + messageId(4+16) + source(2+64) + target(2+64)
+         * + createdAt(8) + nonce(4+24) + scheme(1) + signature(4+64) + payload length prefix(4) = 266.
+         * Nonce is 24 bytes (ENCRYPTED_AND_SIGNED), signature is 64 bytes (Ed25519).
+         */
+        const val ENCODED_OVERHEAD_BYTES: Int = 266
+
             fun decode(bytes: ByteArray): MessageEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
@@ -200,6 +208,15 @@ sealed interface MessagePayload {
         }
 
         companion object {
+            /**
+             * Generous reserve for the fixed [Text] header bytes added by [encode] around the
+             * text content: version(1) + type(1) + messageId(4+16) + roomId(2+n) + accountId(2+n)
+             * + authorDeviceId(2+64) + prevId(4+16) + lamportClock(8) + createdAt(8) + text length
+             * prefix(2) + authorSignature(4+64). The variable `roomId`/`accountId` portions are
+             * the reason for the margin; the fixed portion is ~200 bytes.
+             */
+            const val ENCODED_HEADER_RESERVE_BYTES: Int = 512
+
                     fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.TEXT)

@@ -1,5 +1,7 @@
 package org.yapyap.crypto.e2ee
 
+import kotlinx.serialization.Serializable
+@Serializable
 data class CryptoSessionConfig(
     /** Keep superseded rows for late decrypt, then delete this long after supersede (`updatedAtEpochSeconds`). */
     val supersededRetentionSeconds: Long = 2 * 24 * 60 * 60,

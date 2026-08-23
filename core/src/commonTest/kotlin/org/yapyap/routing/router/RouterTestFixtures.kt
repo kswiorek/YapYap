@@ -9,6 +9,8 @@ import org.yapyap.crypto.e2ee.TestPeerIdentity
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
+import org.yapyap.crypto.e2ee.testCryptoLimits
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -544,6 +546,7 @@ internal fun buildE2eeRouterStack(
         identityResolver = identity,
         opkRepository = InMemoryOpkRepository(crypto),
         timeProvider = time,
+        cryptoLimits = testCryptoLimits(),
     )
     val signatureProvider = DefaultSignatureProvider(identity, crypto)
     val protection = DefaultEnvelopeProtectionService(
@@ -578,6 +581,7 @@ internal fun e2eeRouterUnderTest(
         envelopeProtectionService = stack.protection,
         timeProvider = time,
         routerConfig = routerConfig,
+        transportLimits = testTransportLimits(),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
         syncConfig = SyncConfig(),
@@ -600,6 +604,7 @@ internal fun outboxProcessorUnderTest(
             webRtcTransport = webRtc,
             timeProvider = time,
             routerConfig = routerConfig,
+            transportLimits = testTransportLimits(),
         )
     return OutboxProcessor(
         ctx = ctx,
@@ -630,6 +635,7 @@ internal fun defaultRouterUnderTest(
         envelopeProtectionService = envelopeProtectionService,
         timeProvider = time,
         routerConfig = routerConfig,
+        transportLimits = testTransportLimits(),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
         syncConfig = SyncConfig(),

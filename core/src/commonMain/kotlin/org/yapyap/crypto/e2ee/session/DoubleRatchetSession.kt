@@ -257,27 +257,6 @@ data class RatchetCiphertext(
     val previousChainLength: Int,
     val body: ByteArray,
 ) {
-    fun encode(): ByteArray {
-        CryptoWireLimits.requireDhPublicKeySize(dhPublicKey.size)
-        CryptoWireLimits.requireRatchetBodySize(body.size)
-        val dhSize = dhPublicKey.size
-        val bodySize = body.size
-        val bytes = ByteArray(4 + dhSize + 4 + 4 + 4 + bodySize)
-        var offset = 0
-        writeInt(bytes, offset, dhSize)
-        offset += 4
-        dhPublicKey.copyInto(bytes, offset)
-        offset += dhSize
-        writeInt(bytes, offset, messageNumber)
-        offset += 4
-        writeInt(bytes, offset, previousChainLength)
-        offset += 4
-        writeInt(bytes, offset, bodySize)
-        offset += 4
-        body.copyInto(bytes, offset)
-        return bytes
-    }
-
     fun headerAssociatedData(): ByteArray {
         val dhSize = dhPublicKey.size
         val bytes = ByteArray(4 + dhSize + 4 + 4)
@@ -290,34 +269,12 @@ data class RatchetCiphertext(
     }
 
     companion object {
-        fun decode(bytes: ByteArray): RatchetCiphertext {
-            var offset = 0
-            val dhSize = readInt(bytes, offset)
-            require(dhSize in 1..CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES) {
-                "DH public key size $dhSize exceeds max ${CryptoWireLimits.MAX_DH_PUBLIC_KEY_BYTES}"
-            }
-            offset += 4
-            require(offset + dhSize <= bytes.size) { "unexpected end of ratchet ciphertext" }
-            val dhPublicKey = bytes.copyOfRange(offset, offset + dhSize)
-            offset += dhSize
-            val messageNumber = readInt(bytes, offset)
-            offset += 4
-            val previousChainLength = readInt(bytes, offset)
-            offset += 4
-            val bodySize = readInt(bytes, offset)
-            require(bodySize in 0..CryptoWireLimits.MAX_RATCHET_BODY_BYTES) {
-                "ratchet body size $bodySize exceeds max ${CryptoWireLimits.MAX_RATCHET_BODY_BYTES}"
-            }
-            offset += 4
-            require(offset + bodySize == bytes.size) { "trailing bytes in ratchet ciphertext" }
-            val body = bytes.copyOfRange(offset, offset + bodySize)
-            return RatchetCiphertext(
-                dhPublicKey = dhPublicKey,
-                messageNumber = messageNumber,
-                previousChainLength = previousChainLength,
-                body = body,
-            )
-        }
+        /**
+         * Fixed header bytes added by the wire codec around [body], excluding the body itself:
+         * dhSize(4) + dhPublicKey(32) + messageNumber(4) + previousChainLength(4) + bodySize(4) = 48.
+         * Assumes a 32-byte raw X25519 DH public key.
+         */
+        const val HEADER_BYTES: Int = 48
     }
 }
 
@@ -448,14 +405,14 @@ private data class MutableRatchetState(
 private val ROOT_KDF_INFO = "YapYapDR_RK".encodeToByteArray()
 private val CHAIN_KDF_INFO = "YapYapDR_CK".encodeToByteArray()
 
-private fun writeInt(target: ByteArray, offset: Int, value: Int) {
+internal fun writeInt(target: ByteArray, offset: Int, value: Int) {
     target[offset] = (value ushr 24).toByte()
     target[offset + 1] = (value ushr 16).toByte()
     target[offset + 2] = (value ushr 8).toByte()
     target[offset + 3] = value.toByte()
 }
 
-private fun readInt(bytes: ByteArray, offset: Int): Int {
+internal fun readInt(bytes: ByteArray, offset: Int): Int {
     require(offset + 4 <= bytes.size) { "unexpected end of ratchet ciphertext" }
     return ((bytes[offset].toInt() and 0xff) shl 24) or
         ((bytes[offset + 1].toInt() and 0xff) shl 16) or

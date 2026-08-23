@@ -138,7 +138,7 @@ internal class OutboundMessenger(
         )
         val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
 
-        if (binaryEnvelope.encode().size > ctx.routerConfig.maxMessageBinaryEnvelopeBytes) {
+        if (binaryEnvelope.encode().size.toLong() > ctx.transportLimits.maxRoutableBytes) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.SIZE_EXCEEDED,

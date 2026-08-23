@@ -49,4 +49,12 @@ sealed class CryptoSessionException(
             message = "Ratchet decryption failed: ${cause.message ?: cause::class.simpleName.orEmpty()}",
             cause = cause,
         )
+
+    /**
+     * Peer-sent wire frame exceeds the configured capacity limits (transport capacity / DoS guard).
+     * Thrown by the decode path; the encode path uses [IllegalArgumentException] via [require] for
+     * the same violation because that is a programming error, not hostile input.
+     */
+    class OversizedFrame(detail: String) :
+        CryptoSessionException("Frame exceeds configured limit: $detail")
 }

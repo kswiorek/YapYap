@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -31,10 +32,13 @@ internal class DefaultMessagingService(
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochProvider,
+    private val messageLimits: MessageLimits,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
+
+    override val maxTextMessageBytes: Int = messageLimits.maxTextMessageBytes
 
     /**
      * Map of open windows per room. Guarded by [windowsMapMutex].
@@ -74,6 +78,26 @@ internal class DefaultMessagingService(
         roomId: String,
         text: String,
     ): SendMessageResult {
+        val textBytes = text.encodeToByteArray()
+        if (textBytes.size > maxTextMessageBytes) {
+            AppLog.warn(
+                component = LogComponent.MESSAGING,
+                event = LogEvent.SIZE_EXCEEDED,
+                message = "Text message exceeds maximum size",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "size" to textBytes.size,
+                    "maxTextMessageBytes" to maxTextMessageBytes,
+                ),
+            )
+            return SendMessageResult(
+                status = SendMessageStatus.FAILURE,
+                peersTotal = 0,
+                peersQueued = 0,
+                failureKind = SendFailureKind.TOO_LARGE,
+            )
+        }
+
         val payload = dagEngine.append(roomId, MessageDraft.Text(text))
 
         val members = roomRepository.membersOfRoom(roomId)

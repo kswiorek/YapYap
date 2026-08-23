@@ -1,8 +1,12 @@
 package org.yapyap.crypto.e2ee
 
+import org.yapyap.config.MessageLimits
+import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
+import org.yapyap.crypto.e2ee.session.CryptoLimits
+import org.yapyap.crypto.e2ee.session.CryptoWireCodec
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
@@ -149,6 +153,7 @@ internal fun managerForPeer(
     upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
     timeProvider: EpochProvider = SystemEpochProvider,
+    cryptoLimits: CryptoLimits = testCryptoLimits(),
 ): DefaultCryptoSessionManager =
     DefaultCryptoSessionManager(
         crypto = crypto,
@@ -162,7 +167,24 @@ internal fun managerForPeer(
         timeProvider = timeProvider,
         upgradePolicy = upgradePolicy,
         sessionConfig = sessionConfig,
+        cryptoLimits = cryptoLimits,
     )
+
+/** Legacy-equivalent capacity limits for tests (matches the pre-config crypto constants). */
+internal fun testCryptoLimits() = CryptoLimits(
+    maxSessionWireFrameBytes = 4 * 1024 * 1024,
+    maxInnerPlaintextBytes = 256 * 1024,
+    maxRatchetBodyBytes = 256 * 1024,
+)
+
+internal fun testCryptoWireCodec() = CryptoWireCodec(testCryptoLimits())
+
+internal fun testTransportLimits() = TransportLimits(
+    torMaxPayloadBytes = 4L * 1024 * 1024,
+    webRtcMaxPayloadBytes = 1024L * 1024,
+)
+
+internal fun testMessageLimits() = MessageLimits.from(testTransportLimits())
 
 internal fun cryptoHousekeepingFor(
     sessionStore: CryptoSessionStore,

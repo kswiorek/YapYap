@@ -29,6 +29,12 @@ class DefaultCryptoProvider(
 
     companion object {
         const val AEAD_KEY_SIZE_BYTES: Int = 32
+
+        /**
+         * Bytes added by [encryptAead] on top of the plaintext: a 12-byte IV plus a
+         * 16-byte Poly1305 authentication tag (`IV || ciphertext || tag`).
+         */
+        const val AEAD_OVERHEAD_BYTES: Int = 28
     }
 
     override suspend fun sha256(bytes: ByteArray): ByteArray =

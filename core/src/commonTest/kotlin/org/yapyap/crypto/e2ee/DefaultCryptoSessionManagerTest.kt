@@ -16,6 +16,7 @@ import kotlin.test.*
 class SessionWireTypesTest {
 
     private val crypto = DefaultCryptoProvider()
+    private val codec = testCryptoWireCodec()
 
     @Test
     fun sessionWireFrame_encodeDecode_roundTrip() = runTest {
@@ -31,7 +32,7 @@ class SessionWireTypesTest {
             outerHandshake = wire,
             ratchet = ratchet,
         )
-        val decoded = SessionWireFrame.decode(original.encode())
+        val decoded = codec.decodeSessionWireFrame(codec.encode(original))
         assertEquals(original.sessionEpoch, decoded.sessionEpoch)
         assertEquals(original.sessionGeneration, decoded.sessionGeneration)
         assertNotNull(decoded.outerHandshake)
@@ -44,7 +45,7 @@ class SessionWireTypesTest {
     @Test
     fun innerPlaintext_application_roundTrip() {
         val original = RatchetInnerPlaintext.Payload(byteArrayOf(9, 8, 7))
-        val decoded = RatchetInnerPlaintext.decode(original.encode())
+        val decoded = codec.decodeRatchetInnerPlaintext(codec.encode(original))
         require(decoded is RatchetInnerPlaintext.Payload)
         assertContentEquals(original.bytes, decoded.bytes)
     }
@@ -62,7 +63,7 @@ class SessionWireTypesTest {
                 sessionBinding = binding,
             ),
         )
-        val decoded = RatchetInnerPlaintext.decode(original.encode())
+        val decoded = codec.decodeRatchetInnerPlaintext(codec.encode(original))
         require(decoded is RatchetInnerPlaintext.WithControl)
         assertContentEquals(original.bytes, decoded.bytes)
         require(decoded.control is InnerSessionControl.OpkOffer)
@@ -118,6 +119,7 @@ class SessionWireTypesTest {
 class DefaultCryptoSessionManagerTest {
 
     private val crypto = DefaultCryptoProvider()
+    private val codec = testCryptoWireCodec()
 
     @Test
     fun epoch1_aliceFirstMessage_bobDecrypts() = runTest {
@@ -129,15 +131,16 @@ class DefaultCryptoSessionManagerTest {
             managerForPeer(crypto, bobPeer, alicePeer, MapBackedCryptoSessionStore(), InMemoryOpkRepository(crypto))
 
         val plaintext = "hello bob".encodeToByteArray()
-        val frame = alice.encryptMessage(
+        val frameBytes = alice.encryptMessage(
             bobPeer.device.deviceId,
             plaintext,
         )
+        val frame = codec.decodeSessionWireFrame(frameBytes)
         assertEquals(1, frame.sessionEpoch)
         assertNotNull(frame.outerHandshake)
         assertContentEquals(frame.outerHandshake.ephemeralPublicKey, frame.ratchet.dhPublicKey)
 
-        val opened = bob.decryptMessage(alicePeer.device.deviceId, frame)
+        val opened = bob.decryptMessage(alicePeer.device.deviceId, frameBytes)
         assertContentEquals(plaintext, opened)
     }
 
@@ -232,8 +235,8 @@ class DefaultCryptoSessionManagerTest {
         val fromBob = "from bob".encodeToByteArray()
         val aliceFrame = alice.encryptMessage(bobPeer.device.deviceId, fromAlice)
         val bobFrame = bob.encryptMessage(alicePeer.device.deviceId, fromBob)
-        assertNotNull(aliceFrame.outerHandshake)
-        assertNotNull(bobFrame.outerHandshake)
+        assertNotNull(codec.decodeSessionWireFrame(aliceFrame).outerHandshake)
+        assertNotNull(codec.decodeSessionWireFrame(bobFrame).outerHandshake)
 
         assertContentEquals(fromAlice, bob.decryptMessage(alicePeer.device.deviceId, aliceFrame))
         assertContentEquals(fromBob, alice.decryptMessage(bobPeer.device.deviceId, bobFrame))
@@ -390,10 +393,12 @@ class DefaultCryptoSessionManagerTest {
             bobPeer.device.deviceId,
             byteArrayOf(3),
         )
-        assertEquals(2, epoch2Frame.sessionEpoch)
-        assertNotNull(epoch2Frame.outerHandshake)
-        assertEquals(X3dhMode.FOUR_DH, epoch2Frame.outerHandshake.mode)
-        assertNotEquals(epoch2Frame.outerHandshake.ephemeralPublicKey, epoch1Frame.outerHandshake!!.ephemeralPublicKey)
+        val epoch2Decoded = codec.decodeSessionWireFrame(epoch2Frame)
+        val epoch1Decoded = codec.decodeSessionWireFrame(epoch1Frame)
+        assertEquals(2, epoch2Decoded.sessionEpoch)
+        assertNotNull(epoch2Decoded.outerHandshake)
+        assertEquals(X3dhMode.FOUR_DH, epoch2Decoded.outerHandshake.mode)
+        assertNotEquals(epoch2Decoded.outerHandshake.ephemeralPublicKey, epoch1Decoded.outerHandshake!!.ephemeralPublicKey)
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
         assertContentEquals(byteArrayOf(3), opened)
@@ -529,10 +534,10 @@ class DefaultCryptoSessionManagerTest {
             sessionEpoch = 1,
             sessionGeneration = 1,
             outerHandshake = null,
-            ratchet = ratchet.encrypt(tamperedOffer.encode()),
+            ratchet = ratchet.encrypt(codec.encode(tamperedOffer)),
         )
 
-        alice.decryptMessage(bobPeer.device.deviceId, frame)
+        alice.decryptMessage(bobPeer.device.deviceId, codec.encode(frame))
 
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 2))
     }
@@ -565,8 +570,11 @@ class DefaultCryptoSessionManagerTest {
         promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
 
         val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
-        val mismatched = epoch2Frame.copy(
-            outerHandshake = epoch2Frame.outerHandshake!!.copy(signedPreKeyId = "wrong-spk"),
+        val decoded = codec.decodeSessionWireFrame(epoch2Frame)
+        val mismatched = codec.encode(
+            decoded.copy(
+                outerHandshake = decoded.outerHandshake!!.copy(signedPreKeyId = "wrong-spk"),
+            ),
         )
 
         assertFailsWith<CryptoSessionException.NoSession> {
@@ -635,7 +643,7 @@ class DefaultCryptoSessionManagerTest {
         alice.encryptMessage(bobPeer.device.deviceId, "lost".encodeToByteArray())
 
         val second = alice.encryptMessage(bobPeer.device.deviceId, "delivered".encodeToByteArray())
-        assertNotNull(second.outerHandshake)
+        assertNotNull(codec.decodeSessionWireFrame(second).outerHandshake)
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, second)
         assertContentEquals("delivered".encodeToByteArray(), opened)
@@ -653,7 +661,7 @@ class DefaultCryptoSessionManagerTest {
         val m0 = alice.encryptMessage(bobPeer.device.deviceId, "m0".encodeToByteArray())
         alice.encryptMessage(bobPeer.device.deviceId, "m1".encodeToByteArray())
         val m2 = alice.encryptMessage(bobPeer.device.deviceId, "m2".encodeToByteArray())
-        assertNotNull(m2.outerHandshake)
+        assertNotNull(codec.decodeSessionWireFrame(m2).outerHandshake)
 
         val opened2 = bob.decryptMessage(alicePeer.device.deviceId, m2)
         assertContentEquals("m2".encodeToByteArray(), opened2)
@@ -672,14 +680,14 @@ class DefaultCryptoSessionManagerTest {
             managerForPeer(crypto, bobPeer, alicePeer, MapBackedCryptoSessionStore(), InMemoryOpkRepository(crypto))
 
         val first = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
-        assertNotNull(first.outerHandshake)
+        assertNotNull(codec.decodeSessionWireFrame(first).outerHandshake)
 
         bob.decryptMessage(alicePeer.device.deviceId, first)
         val bobReply = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
         alice.decryptMessage(bobPeer.device.deviceId, bobReply)
 
         val followUp = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
-        assertNull(followUp.outerHandshake)
+        assertNull(codec.decodeSessionWireFrame(followUp).outerHandshake)
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, followUp)
         assertContentEquals(byteArrayOf(3), opened)
@@ -779,8 +787,11 @@ class DefaultCryptoSessionManagerTest {
         val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOpkRepository(crypto))
 
         val frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
-        val mismatched = frame.copy(
-            outerHandshake = frame.outerHandshake!!.copy(sessionEpoch = 2),
+        val decoded = codec.decodeSessionWireFrame(frame)
+        val mismatched = codec.encode(
+            decoded.copy(
+                outerHandshake = decoded.outerHandshake!!.copy(sessionEpoch = 2),
+            ),
         )
 
         val error = assertFailsWith<CryptoSessionException.HandshakeMismatch> {
@@ -801,8 +812,11 @@ class DefaultCryptoSessionManagerTest {
         val bob = managerForPeer(crypto, bobPeer, alicePeer, bobStore, InMemoryOpkRepository(crypto))
 
         val frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
-        val tampered = frame.copy(
-            ratchet = frame.ratchet.copy(body = frame.ratchet.body.copyOf().also { if (it.isNotEmpty()) it[0] = (it[0] + 1).toByte() }),
+        val decoded = codec.decodeSessionWireFrame(frame)
+        val tampered = codec.encode(
+            decoded.copy(
+                ratchet = decoded.ratchet.copy(body = decoded.ratchet.body.copyOf().also { if (it.isNotEmpty()) it[0] = (it[0] + 1).toByte() }),
+            ),
         )
 
         assertFailsWith<Exception> {
@@ -854,8 +868,9 @@ class DefaultCryptoSessionManagerTest {
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
         val second = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
-        assertNotNull(second.outerHandshake)
-        assertEquals(2, second.sessionGeneration)
+        val secondDecoded = codec.decodeSessionWireFrame(second)
+        assertNotNull(secondDecoded.outerHandshake)
+        assertEquals(2, secondDecoded.sessionGeneration)
 
         val sessions = aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 1)
         assertEquals(2, sessions.size)
@@ -986,7 +1001,7 @@ class DefaultCryptoSessionManagerTest {
         bob.decryptMessage(alicePeer.device.deviceId, first)
 
         val lateFromBob = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(7))
-        assertEquals(1, lateFromBob.sessionGeneration)
+        assertEquals(1, codec.decodeSessionWireFrame(lateFromBob).sessionGeneration)
 
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
         aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
@@ -999,7 +1014,7 @@ class DefaultCryptoSessionManagerTest {
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
         val reset = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
-        assertEquals(2, reset.sessionGeneration)
+        assertEquals(2, codec.decodeSessionWireFrame(reset).sessionGeneration)
         bob.decryptMessage(alicePeer.device.deviceId, reset)
 
         val opened = alice.decryptMessage(bobPeer.device.deviceId, lateFromBob)
@@ -1056,8 +1071,9 @@ class DefaultCryptoSessionManagerTest {
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
         val reset = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
-        assertEquals(2, reset.sessionGeneration)
-        assertNotNull(reset.outerHandshake)
+        val resetDecoded = codec.decodeSessionWireFrame(reset)
+        assertEquals(2, resetDecoded.sessionGeneration)
+        assertNotNull(resetDecoded.outerHandshake)
 
         bob.decryptMessage(alicePeer.device.deviceId, reset)
         val reply = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(3))
@@ -1116,11 +1132,12 @@ class DefaultCryptoSessionManagerTest {
         )
 
         val reset = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
-        assertEquals(2, reset.sessionGeneration)
-        val tamperedBody = reset.ratchet.body.copyOf().also {
+        val resetDecoded = codec.decodeSessionWireFrame(reset)
+        assertEquals(2, resetDecoded.sessionGeneration)
+        val tamperedBody = resetDecoded.ratchet.body.copyOf().also {
             it[it.lastIndex] = (it.last().toInt() xor 0xff).toByte()
         }
-        val tampered = reset.copy(ratchet = reset.ratchet.copy(body = tamperedBody))
+        val tampered = codec.encode(resetDecoded.copy(ratchet = resetDecoded.ratchet.copy(body = tamperedBody)))
 
         assertFailsWith<Exception> {
             bob.decryptMessage(alicePeer.device.deviceId, tampered)
@@ -1331,7 +1348,7 @@ class DefaultCryptoSessionManagerTest {
         deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
 
         val stillEpoch1 = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(10))
-        assertEquals(1, stillEpoch1.sessionEpoch)
+        assertEquals(1, codec.decodeSessionWireFrame(stillEpoch1).sessionEpoch)
         assertEquals(
             SessionStatus.PENDING,
             aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single().meta.status,
@@ -1415,12 +1432,12 @@ class DefaultCryptoSessionManagerTest {
         deliverFirstOpkOfferToAlice(alice, bob, alicePeer, bobPeer)
 
         val epoch1WhilePending = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(10))
-        assertEquals(1, epoch1WhilePending.sessionEpoch)
+        assertEquals(1, codec.decodeSessionWireFrame(epoch1WhilePending).sessionEpoch)
         assertContentEquals(byteArrayOf(10), bob.decryptMessage(alicePeer.device.deviceId, epoch1WhilePending))
 
         promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
         val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(11))
-        assertEquals(2, epoch2Frame.sessionEpoch)
+        assertEquals(2, codec.decodeSessionWireFrame(epoch2Frame).sessionEpoch)
         assertContentEquals(byteArrayOf(11), bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame))
         assertNotNull(bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 2))
     }

@@ -5,6 +5,9 @@ import org.yapyap.routing.router.SendMessageResult
 
 interface MessagingService {
 
+    /** Max text length in bytes that [sendTextMessage] will accept. Derived from transport limits. */
+    val maxTextMessageBytes: Int
+
     val incomingMessageEvents: Flow<IncomingMessageEvent>
 
     /** Outbound: append to local DAG, fan out to room members via router. */

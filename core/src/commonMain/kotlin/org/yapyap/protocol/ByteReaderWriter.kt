@@ -14,7 +14,7 @@ class ByteReader(private val bytes: ByteArray) {
 
     fun readBytes(size: Int): ByteArray {
         require(size >= 0) { "Size must be non-negative" }
-        require(position + size <= bytes.size) { "Unexpected end of envelope" }
+        require(size <= bytes.size - position) { "Unexpected end of envelope" }
         val out = bytes.copyOfRange(position, position + size)
         position += size
         return out

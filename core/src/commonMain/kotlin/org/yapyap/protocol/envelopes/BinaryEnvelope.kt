@@ -57,6 +57,14 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'Y'.code.toByte(), 'P'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
+        /**
+         * Fixed bytes added by [encode] around [payload], excluding the payload itself.
+         * MAGIC(4) + VERSION(1) + packetType(1) + createdAt(8) + expiresAt(8) + packetId(4+16)
+         * + source(2+64) + target(2+64) + payload length prefix(4) = 178.
+         * Assumes a 64-char hex [PeerId] (SHA-256 of the signing key).
+         */
+        const val ENCODED_HEADER_BYTES: Int = 178
+
             fun decode(bytes: ByteArray): BinaryEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)

@@ -9,6 +9,10 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.yapyap.config.MessageLimits
+import org.yapyap.crypto.e2ee.testCryptoLimits
+import org.yapyap.crypto.e2ee.testMessageLimits
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
@@ -18,10 +22,7 @@ import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.RouterTransport
-import org.yapyap.routing.router.SendMessageResult
-import org.yapyap.routing.router.SendMessageStatus
+import org.yapyap.routing.router.*
 import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
 import kotlin.uuid.Uuid
@@ -79,6 +80,7 @@ class DefaultMessagingServiceTest {
     private fun newService(
         scope: TestScope,
         pipeline: DefaultInboundMessagePipeline = DefaultInboundMessagePipeline(router, dagEngine),
+        messageLimits: MessageLimits = testMessageLimits(),
     ): DefaultMessagingService = DefaultMessagingService(
         dagEngine = dagEngine,
         router = router,
@@ -86,6 +88,7 @@ class DefaultMessagingServiceTest {
         roomRepository = roomMembershipRepo,
         identityResolver = identityResolver,
         timeProvider = timeProvider,
+        messageLimits = messageLimits,
     )
 
     @Test
@@ -122,6 +125,30 @@ class DefaultMessagingServiceTest {
         assertEquals(0, result.peersTotal)
         assertEquals(0, result.peersQueued)
         assertEquals(0, router.sentTargets.size)
+    }
+
+    @Test
+    fun sendTextMessage_oversizedText_returnsTooLarge_andDoesNotAppendToDag() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val service = newService(
+            this,
+            pipeline,
+            messageLimits = MessageLimits(
+                transport = testTransportLimits(),
+                crypto = testCryptoLimits(),
+                maxTextMessageBytes = 8,
+            ),
+        )
+        startStack(this, pipeline, service)
+
+        val result = service.sendTextMessage(roomId, "this text is too long")
+
+        assertEquals(SendMessageStatus.FAILURE, result.status)
+        assertEquals(SendFailureKind.TOO_LARGE, result.failureKind)
+        assertEquals(0, result.peersTotal)
+        assertEquals(0, result.peersQueued)
+        assertEquals(0, router.sentTargets.size)
+        assertEquals(0, dagEngine.getMessagesInRoom(roomId).size)
     }
 
     @Test

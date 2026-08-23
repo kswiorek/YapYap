@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
@@ -176,6 +177,7 @@ internal fun buildSyncRoutingStack(
         webRtcTransport = webRtc,
         timeProvider = time,
         routerConfig = RouterConfig(),
+        transportLimits = testTransportLimits(),
     )
     ctx.localDeviceIdentity = localDevice
 
