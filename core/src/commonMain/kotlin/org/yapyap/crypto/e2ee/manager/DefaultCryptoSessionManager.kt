@@ -1,5 +1,6 @@
 package org.yapyap.crypto.e2ee.manager
 
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
@@ -23,10 +24,10 @@ class DefaultCryptoSessionManager(
     private val sessionStore: CryptoSessionStore,
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
-    private val cryptoLimits: CryptoLimits,
+    private val cryptoLimits: StateFlow<CryptoLimits>,
     private val timeProvider: EpochProvider = SystemEpochProvider,
     private val upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
-    private val sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
+    private val sessionConfig: StateFlow<CryptoSessionConfig>,
 ) : CryptoSessionManager {
 
     private val codec = CryptoWireCodec(cryptoLimits)
@@ -73,8 +74,8 @@ class DefaultCryptoSessionManager(
         remoteDeviceId: PeerId,
         bytes: ByteArray,
     ): SessionWireFrame {
-        require(bytes.size <= cryptoLimits.maxInnerPlaintextBytes) {
-            "inner plaintext size ${bytes.size} exceeds max ${cryptoLimits.maxInnerPlaintextBytes}"
+        require(bytes.size <= cryptoLimits.value.maxInnerPlaintextBytes) {
+            "inner plaintext size ${bytes.size} exceeds max ${cryptoLimits.value.maxInnerPlaintextBytes}"
         }
         val epoch = sessionStore.latestEncryptEpoch(remoteDeviceId) ?: 1
         var loaded = loadCanonicalSession(remoteDeviceId, epoch)
@@ -190,7 +191,7 @@ class DefaultCryptoSessionManager(
                 canonicalRecord.meta.sessionGeneration,
                 canonical = false,
             )
-            if (sessionConfig.supersedeRogueSessionsAfterSimultaneousInit) {
+            if (sessionConfig.value.supersedeRogueSessionsAfterSimultaneousInit) {
                 sessionStore.markSuperseded(
                     remoteDeviceId,
                     frame.sessionEpoch,
@@ -209,7 +210,7 @@ class DefaultCryptoSessionManager(
         )
         if (!responderIsCanonical && canonicalRecord != null &&
             canonicalRecord.meta.sessionGeneration == frame.sessionGeneration &&
-            sessionConfig.supersedeRogueSessionsAfterSimultaneousInit
+            sessionConfig.value.supersedeRogueSessionsAfterSimultaneousInit
         ) {
             sessionStore.markSuperseded(
                 remoteDeviceId,

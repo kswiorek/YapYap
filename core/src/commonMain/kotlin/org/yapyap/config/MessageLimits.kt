@@ -50,10 +50,10 @@ data class MessageLimits(
          * Computes the session-wire-frame / ratchet-body / inner-plaintext budgets for a given
          * BinaryEnvelope byte budget, by subtracting each envelope's wire-format overhead.
          */
-        private fun cryptoBudget(envelopeBytes: Long): CryptoBudget {
+        private fun cryptoBudget(envelopeBytes: Int): CryptoBudget {
             val maxSessionWireFrame = (envelopeBytes
                 - BinaryEnvelope.ENCODED_HEADER_BYTES
-                - MessageEnvelope.ENCODED_OVERHEAD_BYTES).toInt()
+                - MessageEnvelope.ENCODED_OVERHEAD_BYTES)
 
             val maxRatchetBody = (maxSessionWireFrame
                 - SessionWireFrame.MAX_HEADER_BYTES

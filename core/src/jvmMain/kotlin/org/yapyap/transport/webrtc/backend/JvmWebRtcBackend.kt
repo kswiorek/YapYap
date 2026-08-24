@@ -4,6 +4,7 @@ import dev.onvoid.webrtc.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -19,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 
 class JvmWebRtcBackend(
-    private val config: WebRtcBackendConfig = WebRtcBackendConfig(),
+    private val config: StateFlow<WebRtcBackendConfig>,
 ) : WebRtcBackend {
 
     private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
@@ -80,9 +81,9 @@ class JvmWebRtcBackend(
         }
 
         val channelInit = RTCDataChannelInit().also { init ->
-            init.ordered = config.orderedDataChannel
-            config.maxRetransmits?.let { init.maxRetransmits = it }
-            config.maxPacketLifeTimeMs?.let { init.maxPacketLifeTime = it }
+            init.ordered = config.value.orderedDataChannel
+            config.value.maxRetransmits?.let { init.maxRetransmits = it }
+            config.value.maxPacketLifeTimeMs?.let { init.maxPacketLifeTime = it }
         }
         val channel = pc.createDataChannel(envelopeChannelLabel(local, target), channelInit)
         attachDataChannel(session, channel, WebRtcDataType.ENVELOPE_BINARY)
@@ -132,8 +133,8 @@ class JvmWebRtcBackend(
         val session = sessions[dataFrame.target] ?: error("Unknown session for target: ${dataFrame.target}")
         require(session.remotePeer == dataFrame.target) { "Session target mismatch for target ${dataFrame.target}" }
 
-        require(dataFrame.payload.size <= config.maxPayloadBytes) {
-            "Payload length ${dataFrame.payload.size} exceeds configured max ${config.maxPayloadBytes}"
+        require(dataFrame.payload.size <= config.value.maxPayloadBytes) {
+            "Payload length ${dataFrame.payload.size} exceeds configured max ${config.value.maxPayloadBytes}"
         }
 
         val channel = session.channelFor(dataFrame.dataType)
@@ -432,7 +433,7 @@ class JvmWebRtcBackend(
         sessionRef: AtomicReference<Session?>,
     ): RTCPeerConnection {
         val rtcConfig = RTCConfiguration().also { configuration ->
-            configuration.iceServers = config.iceServers.map { serverConfig ->
+            configuration.iceServers = config.value.iceServers.map { serverConfig ->
                 RTCIceServer().also { server ->
                     server.urls = serverConfig.urls
                     server.username = serverConfig.username.orEmpty()

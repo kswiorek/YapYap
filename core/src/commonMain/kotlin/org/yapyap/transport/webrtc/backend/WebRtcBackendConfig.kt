@@ -22,6 +22,6 @@ data class WebRtcBackendConfig(
     val orderedDataChannel: Boolean = true,
     val maxRetransmits: Int? = null,
     val maxPacketLifeTimeMs: Int? = null,
-    val maxPayloadBytes: Long = 1024 * 1024 * 1,
+    val maxPayloadBytes: Int = 1024 * 1024 * 1,
 ) {
 }

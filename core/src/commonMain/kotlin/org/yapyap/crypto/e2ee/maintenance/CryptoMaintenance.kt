@@ -1,5 +1,6 @@
 package org.yapyap.crypto.e2ee.maintenance
 
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.persistence.crypto.CryptoSessionStore
@@ -11,14 +12,14 @@ import org.yapyap.time.SystemEpochProvider
 class CryptoMaintenance(
     private val sessionStore: CryptoSessionStore,
     private val opkRepository: OpkRepository,
-    private val sessionConfig: CryptoSessionConfig,
+    private val sessionConfig: StateFlow<CryptoSessionConfig>,
     private val timeProvider: EpochProvider = SystemEpochProvider,
 ) {
 
     suspend fun run() {
         val now = timeProvider.nowEpochSeconds()
         val prunedOpkIds = opkRepository.pruneExpiredOffers(
-            cutoffEpochSeconds = now - sessionConfig.offeredOpkRetentionSeconds,
+            cutoffEpochSeconds = now - sessionConfig.value.offeredOpkRetentionSeconds,
         )
         if (prunedOpkIds.isNotEmpty()) {
             sessionStore.clearOfferedOpkIds(prunedOpkIds, updatedAtEpochSeconds = now)
@@ -26,7 +27,7 @@ class CryptoMaintenance(
         for (peerDeviceId in sessionStore.listPeerDeviceIds()) {
             maintainPeerSessions(
                 sessionStore = sessionStore,
-                sessionConfig = sessionConfig,
+                sessionConfig = sessionConfig.value,
                 peerDeviceId = peerDeviceId,
                 nowEpochSeconds = now,
             )

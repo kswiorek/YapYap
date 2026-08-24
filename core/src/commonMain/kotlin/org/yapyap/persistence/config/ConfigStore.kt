@@ -14,13 +14,47 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import net.peanuuutz.tomlkt.Toml
 import org.yapyap.config.*
+import org.yapyap.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.crypto.e2ee.session.CryptoLimits
+import org.yapyap.orchestrator.OrchestratorConfig
+import org.yapyap.orchestrator.sync.SyncConfig
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 
 class ConfigStore(
     private val userSettingsFile: Path,
     private val stateFile: Path,
 ) {
-    private val _runtime = MutableStateFlow<RuntimeConfig>(RuntimeConfig())   // temp, set in init
+    private val _runtime = MutableStateFlow(RuntimeConfig())
     val runtime: StateFlow<RuntimeConfig> = _runtime.asStateFlow()
+
+    private val _tor = MutableStateFlow(RuntimeConfig().tor)
+    val torConfig: StateFlow<TorBackendConfig> = _tor.asStateFlow()
+
+    private val _webRtc = MutableStateFlow(RuntimeConfig().webRtc)
+    val webRtcConfig: StateFlow<WebRtcBackendConfig> = _webRtc.asStateFlow()
+
+    private val _router = MutableStateFlow(RuntimeConfig().router)
+    val routerConfig: StateFlow<RouterConfig> = _router.asStateFlow()
+
+    private val _sync = MutableStateFlow(RuntimeConfig().sync)
+    val syncConfig: StateFlow<SyncConfig> = _sync.asStateFlow()
+
+    private val _crypto = MutableStateFlow(RuntimeConfig().crypto)
+    val cryptoConfig: StateFlow<CryptoSessionConfig> = _crypto.asStateFlow()
+
+    private val _orchestrator = MutableStateFlow(RuntimeConfig().orchestrator)
+    val orchestratorConfig: StateFlow<OrchestratorConfig> = _orchestrator.asStateFlow()
+
+    private val _messageLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()))
+    val messageLimits: StateFlow<MessageLimits> = _messageLimits.asStateFlow()
+
+    private val _cryptoLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()).crypto)
+    val cryptoLimits: StateFlow<CryptoLimits> = _cryptoLimits.asStateFlow()
+
+    private val _transportLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()).transport)
+    val transportLimits: StateFlow<TransportLimits> = _transportLimits.asStateFlow()
 
     private val _userPrefs = MutableStateFlow(UserPreferences())
     private val _networkPolicy = MutableStateFlow(NetworkPolicy())
@@ -70,7 +104,21 @@ class ConfigStore(
     private suspend fun rederiveAndCommit() {
         val effective = derive(_userPrefs.value, _networkPolicy.value)
         writeFile(stateFile, toml.encodeToString(effective))
+        commit(effective)
+    }
+
+    private fun commit(effective: RuntimeConfig) {
         _runtime.value = effective
+        _tor.value = effective.tor
+        _webRtc.value = effective.webRtc
+        _router.value = effective.router
+        _sync.value = effective.sync
+        _crypto.value = effective.crypto
+        _orchestrator.value = effective.orchestrator
+        val limits = MessageLimits.from(effective)
+        _messageLimits.value = limits
+        _cryptoLimits.value = limits.crypto
+        _transportLimits.value = limits.transport
     }
 
     private inline fun <reified T> readAndParse(file: Path): T? {

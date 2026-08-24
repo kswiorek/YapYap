@@ -1,5 +1,6 @@
 package org.yapyap.crypto.e2ee.session
 
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.e2ee.CryptoSessionException
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
@@ -30,11 +31,12 @@ private const val CONTROL_TAG_OPK_OFFER: Byte = 1
  * caps, binding length) come from [CryptoWireLimits].
  */
 class CryptoWireCodec(
-    private val limits: CryptoLimits,
+    private val limits: StateFlow<CryptoLimits>,
 ) {
     // ── SessionWireFrame ──
 
     fun encode(frame: SessionWireFrame): ByteArray {
+        val limitsSnapshot = limits.value
         val ratchetBytes = encode(frame.ratchet)
         val writer = ByteWriter(64 + ratchetBytes.size)
         writer.writeMagic(SESSION_WIRE_MAGIC)
@@ -47,21 +49,22 @@ class CryptoWireCodec(
             writer.writeByte(1)
             writer.writeByteArray(
                 encodeX3dhWireInfo(frame.outerHandshake),
-                limits.maxSessionWireFrameBytes,
+                limitsSnapshot.maxSessionWireFrameBytes,
             )
         }
-        writer.writeByteArray(ratchetBytes, limits.maxSessionWireFrameBytes)
+        writer.writeByteArray(ratchetBytes, limitsSnapshot.maxSessionWireFrameBytes)
         val bytes = writer.toByteArray()
-        require(bytes.size <= limits.maxSessionWireFrameBytes) {
-            "encoded session wire frame ${bytes.size} exceeds max ${limits.maxSessionWireFrameBytes}"
+        require(bytes.size <= limitsSnapshot.maxSessionWireFrameBytes) {
+            "encoded session wire frame ${bytes.size} exceeds max ${limitsSnapshot.maxSessionWireFrameBytes}"
         }
         return bytes
     }
 
     fun decodeSessionWireFrame(bytes: ByteArray): SessionWireFrame {
-        if (bytes.size > limits.maxSessionWireFrameBytes) {
+        val limitsSnapshot = limits.value
+        if (bytes.size > limitsSnapshot.maxSessionWireFrameBytes) {
             throw CryptoSessionException.OversizedFrame(
-                "session wire frame ${bytes.size} exceeds max ${limits.maxSessionWireFrameBytes}",
+                "session wire frame ${bytes.size} exceeds max ${limitsSnapshot.maxSessionWireFrameBytes}",
             )
         }
         val reader = ByteReader(bytes)
@@ -72,11 +75,11 @@ class CryptoWireCodec(
         val sessionGeneration = reader.readInt()
         val hasOuter = reader.readUnsignedByte() != 0
         val outerHandshake = if (hasOuter) {
-            decodeX3dhWireInfo(readBounded(reader, limits.maxSessionWireFrameBytes))
+            decodeX3dhWireInfo(readBounded(reader, limitsSnapshot.maxSessionWireFrameBytes))
         } else {
             null
         }
-        val ratchetBytes = readBounded(reader, limits.maxSessionWireFrameBytes)
+        val ratchetBytes = readBounded(reader, limitsSnapshot.maxSessionWireFrameBytes)
         reader.requireFullyRead()
         return SessionWireFrame(
             sessionEpoch = sessionEpoch,
@@ -90,8 +93,8 @@ class CryptoWireCodec(
 
     fun encode(ciphertext: RatchetCiphertext): ByteArray {
         CryptoWireLimits.requireDhPublicKeySize(ciphertext.dhPublicKey.size)
-        require(ciphertext.body.size <= limits.maxRatchetBodyBytes) {
-            "ratchet body size ${ciphertext.body.size} exceeds max ${limits.maxRatchetBodyBytes}"
+        require(ciphertext.body.size <= limits.value.maxRatchetBodyBytes) {
+            "ratchet body size ${ciphertext.body.size} exceeds max ${limits.value.maxRatchetBodyBytes}"
         }
         val dhSize = ciphertext.dhPublicKey.size
         val bodySize = ciphertext.body.size
@@ -121,9 +124,9 @@ class CryptoWireCodec(
         val previousChainLength = readInt(bytes, offset)
         offset += 4
         val bodySize = readInt(bytes, offset)
-        if (bodySize > limits.maxRatchetBodyBytes) {
+        if (bodySize > limits.value.maxRatchetBodyBytes) {
             throw CryptoSessionException.OversizedFrame(
-                "ratchet body $bodySize exceeds max ${limits.maxRatchetBodyBytes}",
+                "ratchet body $bodySize exceeds max ${limits.value.maxRatchetBodyBytes}",
             )
         }
         offset += 4
@@ -139,51 +142,54 @@ class CryptoWireCodec(
 
     // ── RatchetInnerPlaintext ──
 
-    fun encode(plaintext: RatchetInnerPlaintext): ByteArray =
-        when (plaintext) {
+    fun encode(plaintext: RatchetInnerPlaintext): ByteArray {
+        val limitsSnapshot = limits.value
+        return when (plaintext) {
             is RatchetInnerPlaintext.Payload -> {
-                require(plaintext.bytes.size <= limits.maxInnerPlaintextBytes) {
-                    "inner plaintext size ${plaintext.bytes.size} exceeds max ${limits.maxInnerPlaintextBytes}"
+                require(plaintext.bytes.size <= limitsSnapshot.maxInnerPlaintextBytes) {
+                    "inner plaintext size ${plaintext.bytes.size} exceeds max ${limitsSnapshot.maxInnerPlaintextBytes}"
                 }
                 ByteWriter(1 + 4 + plaintext.bytes.size).apply {
                     writeByte(INNER_KIND_APPLICATION.toInt())
-                    writeByteArray(plaintext.bytes, limits.maxInnerPlaintextBytes)
+                    writeByteArray(plaintext.bytes, limitsSnapshot.maxInnerPlaintextBytes)
                 }.toByteArray()
             }
 
             is RatchetInnerPlaintext.WithControl -> {
-                require(plaintext.bytes.size <= limits.maxInnerPlaintextBytes) {
-                    "inner plaintext size ${plaintext.bytes.size} exceeds max ${limits.maxInnerPlaintextBytes}"
+                require(plaintext.bytes.size <= limitsSnapshot.maxInnerPlaintextBytes) {
+                    "inner plaintext size ${plaintext.bytes.size} exceeds max ${limitsSnapshot.maxInnerPlaintextBytes}"
                 }
                 val controlBytes = plaintext.control?.let { encode(it) }
                 ByteWriter(8 + plaintext.bytes.size + (controlBytes?.size ?: 0)).apply {
                     writeByte(INNER_KIND_WITH_CONTROL.toInt())
-                    writeByteArray(plaintext.bytes, limits.maxInnerPlaintextBytes)
+                    writeByteArray(plaintext.bytes, limitsSnapshot.maxInnerPlaintextBytes)
                     if (controlBytes == null) {
                         writeByte(0)
                     } else {
                         writeByte(1)
-                        writeByteArray(controlBytes, limits.maxInnerControlBytes)
+                        writeByteArray(controlBytes, limitsSnapshot.maxInnerControlBytes)
                     }
                 }.toByteArray()
             }
         }
+    }
 
     fun decodeRatchetInnerPlaintext(bytes: ByteArray): RatchetInnerPlaintext {
         require(bytes.isNotEmpty()) { "inner plaintext is empty" }
+        val limitsSnapshot = limits.value
         val reader = ByteReader(bytes)
         return when (reader.readByte()) {
             INNER_KIND_APPLICATION -> {
-                val app = readBounded(reader, limits.maxInnerPlaintextBytes)
+                val app = readBounded(reader, limitsSnapshot.maxInnerPlaintextBytes)
                 reader.requireFullyRead()
                 RatchetInnerPlaintext.Payload(app)
             }
 
             INNER_KIND_WITH_CONTROL -> {
-                val application = readBounded(reader, limits.maxInnerPlaintextBytes)
+                val application = readBounded(reader, limitsSnapshot.maxInnerPlaintextBytes)
                 val hasControl = reader.readUnsignedByte() != 0
                 val control = if (hasControl) {
-                    decodeInnerSessionControl(readBounded(reader, limits.maxInnerControlBytes))
+                    decodeInnerSessionControl(readBounded(reader, limitsSnapshot.maxInnerControlBytes))
                 } else {
                     null
                 }
@@ -218,9 +224,9 @@ class CryptoWireCodec(
         }
 
     fun decodeInnerSessionControl(bytes: ByteArray): InnerSessionControl {
-        if (bytes.size > limits.maxInnerControlBytes) {
+        if (bytes.size > limits.value.maxInnerControlBytes) {
             throw CryptoSessionException.OversizedFrame(
-                "inner control ${bytes.size} exceeds max ${limits.maxInnerControlBytes}",
+                "inner control ${bytes.size} exceeds max ${limits.value.maxInnerControlBytes}",
             )
         }
         require(bytes.isNotEmpty()) { "control block is empty" }
@@ -304,7 +310,7 @@ class CryptoWireCodec(
      */
     private fun readBounded(reader: ByteReader, maxSize: Int): ByteArray {
         val len = reader.readInt()
-        if (len < 0 || len > maxSize) {
+        if (len !in 0..maxSize) {
             throw CryptoSessionException.OversizedFrame("field length $len exceeds max $maxSize")
         }
         return reader.readBytes(len)

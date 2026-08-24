@@ -3,6 +3,7 @@ package org.yapyap.config
 import kotlinx.serialization.Serializable
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.orchestrator.NodeMode
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.routing.router.RouterConfig
@@ -23,7 +24,7 @@ data class RuntimeConfig(
     val router: RouterConfig = RouterConfig(),
     val sync: SyncConfig = SyncConfig(),
     val crypto: CryptoSessionConfig = CryptoSessionConfig(),
-    val maintenanceIntervalSeconds: Long = 60 * 60,
+    val orchestrator: OrchestratorConfig = OrchestratorConfig(),
 )
 
 // What the user is allowed to set. Mirrors userSettings.conf structure.

@@ -1,14 +1,19 @@
 package org.yapyap.orchestrator.maintenance
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.OrchestratorConfig
 import kotlin.time.Duration.Companion.seconds
 
 class MaintenanceScheduler(
     private val tasks: List<suspend () -> Unit>,
-    private val intervalSeconds: Long,
+    private val config: StateFlow<OrchestratorConfig>,
 ) {
     suspend fun runOnce() {
         tasks.forEach { task ->
@@ -23,10 +28,10 @@ class MaintenanceScheduler(
     }
 
     fun start(scope: CoroutineScope): Job = scope.launch {
-        runOnce()
-        while (isActive) {
-            delay(intervalSeconds.seconds)
-            runOnce()
-        }
+        config.map { it.maintenanceIntervalSeconds }
+            .distinctUntilChanged()
+            .collectLatest { interval ->
+                while (isActive) { delay(interval.seconds); runOnce() }
+            }
     }
 }

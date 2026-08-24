@@ -3,6 +3,7 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.AccountId
@@ -52,11 +53,11 @@ class DefaultRouter(
     val syncRepository: PendingSyncRepository,
     val envelopeProtectionService: EnvelopeProtectionService,
     val timeProvider: EpochProvider = SystemEpochProvider,
-    val routerConfig: RouterConfig,
-    val transportLimits: TransportLimits,
+    val routerConfig: StateFlow<RouterConfig>,
+    val transportLimits: StateFlow<TransportLimits>,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
-    val syncConfig: SyncConfig,
+    val syncConfig: StateFlow<SyncConfig>,
 ): Router {
     private val routingContext = RoutingContext(
         identityResolver = identityResolver,

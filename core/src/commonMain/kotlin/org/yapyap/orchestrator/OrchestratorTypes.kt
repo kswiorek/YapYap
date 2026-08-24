@@ -49,24 +49,3 @@ data class IdentityPayload(
     val device: DeviceIdentityRecord,       // public parts (signing/enc/SPK/sig)
     val torEndpoint: TorEndpoint?,          // null until Tor is up; update QR later if needed
 )
-
-data class OrchestratorConfig(
-    val mode: NodeMode,
-    /** Absolute path to the node data root (DB, Tor state, logs). */
-    val dataDirectory: String,
-    val torBackendConfig: TorBackendConfig = TorBackendConfig(),
-    val webRtcBackendConfig: WebRtcBackendConfig = WebRtcBackendConfig(),
-    val routerConfig: RouterConfig = RouterConfig(),
-    val syncConfig: SyncConfig = SyncConfig(),
-    val keyringServiceName: String = "org.yapyap",
-    val maintenanceIntervalSeconds: Long = 60 * 60,
-) {
-    init {
-        require(dataDirectory.isNotBlank()) { "dataDirectory must not be blank" }
-        require(keyringServiceName.isNotBlank()) { "keyringServiceName must not be blank" }
-    }
-
-    val databasePath: String get() = "$dataDirectory/vault.db"
-    val torStateRootPath: String get() = "$dataDirectory/tor"
-    val logDirectory: String get() = "$dataDirectory/logs"
-}

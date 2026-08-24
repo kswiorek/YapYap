@@ -1,5 +1,6 @@
 package org.yapyap.routing.router
 
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
@@ -65,8 +66,8 @@ internal class RoutingContext(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val timeProvider: EpochProvider,
-    val routerConfig: RouterConfig,
-    val transportLimits: TransportLimits,
+    val routerConfig: StateFlow<RouterConfig>,
+    val transportLimits: StateFlow<TransportLimits>,
 ) {
     lateinit var localDeviceIdentity: DeviceIdentityRecord
 

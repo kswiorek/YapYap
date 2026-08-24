@@ -58,8 +58,8 @@ class DefaultOrchestrator(
     private val bootConfig: BootConfig,
     private val keyringSessionFactory: KeyringSessionFactory,
     private val createDriverFactory: (masterKey: ByteArray, databaseFile: Path) -> DriverFactory,
-    private val createTorBackend: (TorBackendConfig, torStateRoot: Path) -> TorBackend,
-    private val createWebRtcBackend: (WebRtcBackendConfig) -> WebRtcBackend,
+    private val createTorBackend: (StateFlow<TorBackendConfig>, torStateRoot: Path) -> TorBackend,
+    private val createWebRtcBackend: (StateFlow<WebRtcBackendConfig>) -> WebRtcBackend,
     private val createLogger: (logDirectory: Path) -> AppLogger,
 ) : Orchestrator {
 
@@ -118,8 +118,8 @@ class DefaultOrchestrator(
             //   configStore.applyNetwork(fetched) before backends read the derived config.
 
 
-            torBackend    = createTorBackend(configStore.runtime.value.tor, torStateRoot)
-            webRtcBackend = createWebRtcBackend(configStore.runtime.value.webRtc)
+            torBackend    = createTorBackend(configStore.torConfig, torStateRoot)
+            webRtcBackend = createWebRtcBackend(configStore.webRtcConfig)
 
             keyStore = DefaultKeyStore(keyringSessionFactory)
             cryptoProvider = DefaultCryptoProvider()
@@ -230,16 +230,14 @@ class DefaultOrchestrator(
             localDeviceId = localDeviceId,
         )
 
-        val messageLimits = MessageLimits.from(configStore.runtime.value)
-
         cryptoSessionManager = DefaultCryptoSessionManager(
             crypto = cryptoProvider,
             x3dh = x3dhHandshake,
             sessionStore = cryptoSessionStore,
             identityResolver = identityResolver,
             opkRepository = opkRepository,
-            cryptoLimits = messageLimits.crypto,
-            sessionConfig = configStore.runtime.value.crypto,
+            cryptoLimits = configStore.cryptoLimits,
+            sessionConfig = configStore.cryptoConfig,
         )
 
         val signatureProvider = DefaultSignatureProvider(identityResolver, cryptoProvider)
@@ -263,14 +261,14 @@ class DefaultOrchestrator(
         val syncRepo = DefaultPendingSyncRepository(database)
         val roomRepo = DefaultRoomRepository(database)
 
-        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.runtime.value.sync)
+        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.syncConfig)
 
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
-                PacketStoreMaintenance(packetOutbox, packetDeduplicator, configStore.runtime.value.router)::run,
-                CryptoMaintenance(cryptoSessionStore, opkRepository, configStore.runtime.value.crypto)::run
+                PacketStoreMaintenance(packetOutbox, packetDeduplicator, configStore.routerConfig)::run,
+                CryptoMaintenance(cryptoSessionStore, opkRepository, configStore.cryptoConfig)::run
             ),
-            intervalSeconds = configStore.runtime.value.maintenanceIntervalSeconds, // or a constant
+            config = configStore.orchestratorConfig
         )
         maintenance.start(orchestratorScope)
 
@@ -283,9 +281,9 @@ class DefaultOrchestrator(
             envelopeProtectionService = envelopeProtectionService,
             syncPayloadProvider = syncPayloadProvider,
             syncRepository = syncRepo,
-            syncConfig = configStore.runtime.value.sync,
-            routerConfig = configStore.runtime.value.router,
-            transportLimits = messageLimits.transport,
+            syncConfig = configStore.syncConfig,
+            routerConfig = configStore.routerConfig,
+            transportLimits = configStore.transportLimits,
         )
 
         router.start()

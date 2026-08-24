@@ -17,6 +17,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.io.files.Path
 import org.yapyap.logging.AppLog
@@ -36,7 +37,7 @@ import kotlin.time.TimeSource
 class KmpTorBackend(
     private val torStateRootPath: Path,
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
-    private val config: TorBackendConfig,
+    private val config: StateFlow<TorBackendConfig>,
 ) : TorBackend {
 
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
@@ -83,7 +84,7 @@ class KmpTorBackend(
 
             val onionEntry = runtime.executeAsync(
                 TorCmd.Onion.Add.new(ED25519_V3) {
-                    port(config.defaultTorPort.toPort()) {
+                    port(config.value.defaultTorPort.toPort()) {
                         target(listener.port.toPort())
                     }
                 }
@@ -91,7 +92,7 @@ class KmpTorBackend(
             val onionAddress = onionEntry.publicKey.address().toString().let { raw ->
                 if (raw.endsWith(".onion", ignoreCase = true)) raw else "$raw.onion"
             }
-            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = config.defaultTorPort)
+            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = config.value.defaultTorPort)
             publishedLocalEndpoint = resolvedEndpoint
 
             localScope.launch {
@@ -102,7 +103,7 @@ class KmpTorBackend(
                 component = LogComponent.TOR_BACKEND,
                 event = LogEvent.STARTED,
                 message = "KMP Tor backend started",
-                fields = mapOf("onionAddress" to onionAddress, "port" to config.defaultTorPort),
+                fields = mapOf("onionAddress" to onionAddress, "port" to config.value.defaultTorPort),
             )
             return resolvedEndpoint
         } catch (error: Throwable) {
@@ -143,14 +144,15 @@ class KmpTorBackend(
     }
 
     override suspend fun send(target: TorEndpoint, payload: ByteArray) {
+        val configSnapshot = config.value
         val localSource = publishedLocalEndpoint ?: error("Tor backend must be started before send")
         val localSocksPort = requireNotNull(socksPort) { "Tor socks port is not ready" }
         val selector = requireNotNull(selectorManager) { "Tor selector manager is not initialized" }
-        require(payload.size <= config.maxPayloadBytes) {
-            "Payload length ${payload.size} exceeds configured max ${config.maxPayloadBytes}"
+        require(payload.size <= configSnapshot.maxPayloadBytes) {
+            "Payload length ${payload.size} exceeds configured max ${configSnapshot.maxPayloadBytes}"
         }
 
-        val deadline = TimeSource.Monotonic.markNow() + config.socksRetryTimeoutMillis.milliseconds
+        val deadline = TimeSource.Monotonic.markNow() + configSnapshot.socksRetryTimeoutMillis
         while (true) {
             val socket = run {
                 aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
@@ -168,7 +170,7 @@ class KmpTorBackend(
                 return
             } catch (error: SocksConnectException) {
                 val shouldRetry =
-                    error.code in config.socksTransientFailureCodes &&
+                    error.code in configSnapshot.socksTransientFailureCodes &&
                         TimeSource.Monotonic.markNow() < deadline
                 if (!shouldRetry) {
                     AppLog.error(
@@ -180,7 +182,7 @@ class KmpTorBackend(
                     )
                     throw TransportException.TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
                 }
-                delay(config.socksRetryDelayMillis.milliseconds)
+                delay(configSnapshot.socksRetryDelayMillis)
             } finally {
                 socket.safeClose()
             }
@@ -207,7 +209,7 @@ class KmpTorBackend(
     }
 
     private suspend fun waitUntilReady(runtime: TorRuntime) {
-        val completed = withTimeoutOrNull(config.startupTimeoutMillis.milliseconds) {
+        val completed = withTimeoutOrNull(config.value.startupTimeoutMillis) {
             while (true) {
                 socksPort = runtime.listeners().socks.lastOrNull()?.port?.value ?: socksPort
                 val ready = socksPort != null && runtime.isReady()
@@ -302,8 +304,8 @@ class KmpTorBackend(
     ) {
         val sourceHost = source.onionAddress.encodeToByteArray()
         require(sourceHost.size <= 255) { "Source onion host is too long" }
-        require(payload.size <= config.maxPayloadBytes) {
-            "Payload length ${payload.size} exceeds configured max ${config.maxPayloadBytes}"
+        require(payload.size <= config.value.maxPayloadBytes) {
+            "Payload length ${payload.size} exceeds configured max ${config.value.maxPayloadBytes}"
         }
 
         output.writeInt(FRAME_MAGIC)
@@ -323,8 +325,8 @@ class KmpTorBackend(
         val sourcePort = input.readShort().toInt() and 0xffff
         val payloadLength = input.readInt()
         require(payloadLength >= 0) { "Payload length must be >= 0" }
-        require(payloadLength <= config.maxPayloadBytes) {
-            "Payload length $payloadLength exceeds configured max ${config.maxPayloadBytes}"
+        require(payloadLength <= config.value.maxPayloadBytes) {
+            "Payload length $payloadLength exceeds configured max ${config.value.maxPayloadBytes}"
         }
         val payload = input.readExact(payloadLength)
 
