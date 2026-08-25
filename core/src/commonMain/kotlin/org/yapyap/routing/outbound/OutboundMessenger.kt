@@ -123,7 +123,7 @@ internal class OutboundMessenger(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
             createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
-            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + ctx.routerConfig.messageLifetimeSeconds,
+            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + ctx.routerConfig.value.messageLifetimeSeconds,
             source = messageEnvelope.source,
             target = messageEnvelope.target,
             payload = messageEnvelope.encode(),
@@ -138,7 +138,7 @@ internal class OutboundMessenger(
         )
         val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
 
-        if (binaryEnvelope.encode().size.toLong() > ctx.transportLimits.maxRoutableBytes) {
+        if (binaryEnvelope.encode().size.toLong() > ctx.transportLimits.value.maxRoutableBytes) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.SIZE_EXCEEDED,

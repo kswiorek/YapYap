@@ -1,10 +1,7 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
@@ -59,6 +56,15 @@ class DefaultRouter(
     val syncPayloadProvider: SyncPayloadProvider,
     val syncConfig: StateFlow<SyncConfig>,
 ): Router {
+
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val retryLoopMaxIdlePollSeconds: StateFlow<Long> = routerConfig
+        .map { it.retryLoopMaxIdlePollSeconds }
+        .stateIn(scope, SharingStarted.Eagerly, routerConfig.value.retryLoopMaxIdlePollSeconds)
+
+
     private val routingContext = RoutingContext(
         identityResolver = identityResolver,
         packetDeduplicator = packetDeduplicator,
@@ -80,7 +86,7 @@ class DefaultRouter(
         dispatcher = envelopeDispatcher,
         transportPolicy = transportPolicy,
         packetOutbox = packetOutbox,
-        maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
+        maxIdlePollSeconds = retryLoopMaxIdlePollSeconds,
     )
 
     private val outboundMessenger = OutboundMessenger(
@@ -121,7 +127,7 @@ class DefaultRouter(
         systemSender = systemSender,
         peerPolicy = peerPolicy,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
-        maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
+        maxIdlePollSeconds = retryLoopMaxIdlePollSeconds,
         syncConfig = syncConfig,
     )
 
@@ -129,7 +135,6 @@ class DefaultRouter(
     private var torEndpoint: TorEndpoint? = null
     private var localDeviceIdentity: DeviceIdentityRecord? = null
 
-    private var scope: CoroutineScope? = null
     private var torIncomingJob: Job? = null
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
@@ -159,9 +164,7 @@ class DefaultRouter(
             torEndpoint = torEndpoint!!,
         )
 
-        val s = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        scope = s
-        torIncomingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
+        torIncomingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             torTransport.incoming.collect { inbound ->
                 runCatching { inboundEnvelopeProcessor.handleTorInbound(inbound) }
                     .onFailure { e ->
@@ -176,7 +179,7 @@ class DefaultRouter(
             }
         }
 
-        webRtcIncomingEnvelopeJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
+        webRtcIncomingEnvelopeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             webRtcTransport.incomingEnvelopes.collect { inbound ->
                 runCatching { inboundEnvelopeProcessor.handleWebRtcInbound(inbound) }
                     .onFailure { e ->
@@ -191,7 +194,7 @@ class DefaultRouter(
             }
         }
 
-        webRtcOutgoingJob = s.launch(start = CoroutineStart.UNDISPATCHED) {
+        webRtcOutgoingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             webRtcTransport.outgoingBootstrapSignals.collect { signal ->
                 runCatching { webRtcBootstrapSignaler.signal(signal) }
                     .onFailure { e ->
@@ -200,7 +203,7 @@ class DefaultRouter(
             }
         }
 
-        webRtcSessionJob = s.launch {
+        webRtcSessionJob = scope.launch {
             webRtcTransport.sessionStates.collect { state ->
                 if (state.phase == WebRtcSessionPhase.CONNECTED) {
                     outboxProcessor.onWebRtcSessionConnected(state.peerId)
@@ -208,9 +211,9 @@ class DefaultRouter(
             }
         }
 
-        outboxRetryJob = outboxProcessor.runIn(s)
+        outboxRetryJob = outboxProcessor.runIn(scope)
 
-        syncRetryJob = syncProcessor.runIn(s)
+        syncRetryJob = syncProcessor.runIn(scope)
 
         AppLog.info(
             component = LogComponent.ROUTER,
@@ -242,8 +245,7 @@ class DefaultRouter(
         webRtcSessionJob = null
         outboxRetryJob = null
         syncRetryJob = null
-        scope?.cancel()
-        scope = null
+        scope.cancel()
 
         AppLog.info(
             component = LogComponent.ROUTER,

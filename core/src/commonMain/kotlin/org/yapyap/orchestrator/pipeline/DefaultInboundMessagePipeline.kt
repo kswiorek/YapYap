@@ -19,7 +19,7 @@ class DefaultInboundMessagePipeline(
     private val dagEngine: DagEngine,
 ) : InboundMessagePipeline {
 
-    private val _ingestResults = MutableSharedFlow<IngestResult>(extraBufferCapacity = 64)
+    private val _ingestResults = MutableSharedFlow<IngestResult>(replay = 64, extraBufferCapacity = 64)
     override val ingestResults: Flow<IngestResult> = _ingestResults.asSharedFlow()
 
     private var job: Job? = null

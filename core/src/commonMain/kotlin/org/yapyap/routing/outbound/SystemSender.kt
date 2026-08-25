@@ -151,7 +151,7 @@ internal class SystemSender(
             packetId = Uuid.random(),
             packetType = PacketType.SYSTEM,
             createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + ctx.routerConfig.ackLifetimeSeconds,
+            expiresAtEpochSeconds = now + ctx.routerConfig.value.ackLifetimeSeconds,
             source = ctx.localDeviceId,
             target = context.targetDeviceId,
             payload = protected.encode(),

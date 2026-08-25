@@ -3,6 +3,7 @@ package org.yapyap.sync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.AccountId
@@ -176,15 +177,15 @@ internal fun buildSyncRoutingStack(
         torTransport = tor,
         webRtcTransport = webRtc,
         timeProvider = time,
-        routerConfig = RouterConfig(),
-        transportLimits = testTransportLimits(),
+        routerConfig = MutableStateFlow(RouterConfig()),
+        transportLimits = MutableStateFlow(testTransportLimits()),
     )
     ctx.localDeviceIdentity = localDevice
 
     val dispatcher = EnvelopeDispatcher(ctx)
-    val policy = SessionOrTorPolicy(RouterConfig())
+    val policy = SessionOrTorPolicy(MutableStateFlow(RouterConfig()))
     val outbox = TrackingPacketOutbox()
-    val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePollSeconds = 60)
+    val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePollSeconds = MutableStateFlow(60))
     val outboundMessenger = OutboundMessenger(ctx, dispatcher, policy, outboxProcessor)
     val systemSender = SystemSender(ctx, policy, dispatcher)
     return SyncRoutingStack(

@@ -1,6 +1,7 @@
 package org.yapyap.sync
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
@@ -30,8 +31,8 @@ class SyncRetryProcessorTest {
             systemSender = stack.systemSender,
             peerPolicy = policy,
             peerAvailabilityRegistry = PeerAvailabilityRegistry(stack.ctx.timeProvider),
-            syncConfig = SyncConfig(deviceOfflineRetryDelaySeconds = 60),
-            maxIdlePollSeconds = 1,
+            syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
+            maxIdlePollSeconds = MutableStateFlow(1),
         )
 
     @Test

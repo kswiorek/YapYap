@@ -1,5 +1,6 @@
 package org.yapyap.sync
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.sync.SyncConfig
@@ -20,7 +21,7 @@ class DefaultSyncPayloadProviderTest {
     private val remoteDevice = PeerId("remote-device")
 
     private val messageRepo = FakeMessageRepository()
-    private val config = SyncConfig(syncMaxMessages = 20)
+    private val config = MutableStateFlow(SyncConfig(syncMaxMessages = 20))
     private val provider = DefaultSyncPayloadProvider(messageRepo, config)
 
     private fun textMsg(lamport: Long): MessagePayload.Text =

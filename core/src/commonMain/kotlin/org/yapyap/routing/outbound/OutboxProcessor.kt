@@ -1,6 +1,7 @@
 package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -20,7 +21,7 @@ internal class OutboxProcessor(
     private val dispatcher: EnvelopeDispatcher,
     private val transportPolicy: OutboundPolicy,
     private val packetOutbox: PacketOutbox,
-    maxIdlePollSeconds: Long,
+    maxIdlePollSeconds: StateFlow<Long>,
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { packetOutbox.earliestPendingRetryAt() },

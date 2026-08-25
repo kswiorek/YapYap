@@ -1,16 +1,14 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
-import org.yapyap.crypto.e2ee.TestPeerIdentity
+import org.yapyap.crypto.e2ee.*
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
-import org.yapyap.crypto.e2ee.testCryptoLimits
-import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -546,7 +544,9 @@ internal fun buildE2eeRouterStack(
         identityResolver = identity,
         opkRepository = InMemoryOpkRepository(crypto),
         timeProvider = time,
-        cryptoLimits = testCryptoLimits(),
+        cryptoLimits = MutableStateFlow(testCryptoLimits()),
+        sessionConfig = MutableStateFlow(
+            CryptoSessionConfig())
     )
     val signatureProvider = DefaultSignatureProvider(identity, crypto)
     val protection = DefaultEnvelopeProtectionService(
@@ -580,11 +580,11 @@ internal fun e2eeRouterUnderTest(
         packetOutbox = outbox,
         envelopeProtectionService = stack.protection,
         timeProvider = time,
-        routerConfig = routerConfig,
-        transportLimits = testTransportLimits(),
+        routerConfig = MutableStateFlow(routerConfig),
+        transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
-        syncConfig = SyncConfig(),
+        syncConfig = MutableStateFlow(SyncConfig()),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -603,15 +603,15 @@ internal fun outboxProcessorUnderTest(
             torTransport = tor,
             webRtcTransport = webRtc,
             timeProvider = time,
-            routerConfig = routerConfig,
-            transportLimits = testTransportLimits(),
+            routerConfig = MutableStateFlow(routerConfig),
+            transportLimits = MutableStateFlow(testTransportLimits()),
         )
     return OutboxProcessor(
         ctx = ctx,
         dispatcher = EnvelopeDispatcher(ctx),
-        transportPolicy = SessionOrTorPolicy(routerConfig),
+        transportPolicy = SessionOrTorPolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
-        maxIdlePollSeconds = routerConfig.retryLoopMaxIdlePollSeconds,
+        maxIdlePollSeconds = MutableStateFlow(routerConfig.retryLoopMaxIdlePollSeconds),
     )
 }
 
@@ -634,9 +634,9 @@ internal fun defaultRouterUnderTest(
         packetOutbox = outbox,
         envelopeProtectionService = envelopeProtectionService,
         timeProvider = time,
-        routerConfig = routerConfig,
-        transportLimits = testTransportLimits(),
+        routerConfig = MutableStateFlow(routerConfig),
+        transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
-        syncConfig = SyncConfig(),
+        syncConfig = MutableStateFlow(SyncConfig()),
     )

@@ -152,7 +152,7 @@ class KmpTorBackend(
             "Payload length ${payload.size} exceeds configured max ${configSnapshot.maxPayloadBytes}"
         }
 
-        val deadline = TimeSource.Monotonic.markNow() + configSnapshot.socksRetryTimeoutMillis
+        val deadline = TimeSource.Monotonic.markNow() + configSnapshot.socksRetryTimeout
         while (true) {
             val socket = run {
                 aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
@@ -182,7 +182,7 @@ class KmpTorBackend(
                     )
                     throw TransportException.TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
                 }
-                delay(configSnapshot.socksRetryDelayMillis)
+                delay(configSnapshot.socksRetryDelay)
             } finally {
                 socket.safeClose()
             }
@@ -209,7 +209,7 @@ class KmpTorBackend(
     }
 
     private suspend fun waitUntilReady(runtime: TorRuntime) {
-        val completed = withTimeoutOrNull(config.value.startupTimeoutMillis) {
+        val completed = withTimeoutOrNull(config.value.startupTimeout) {
             while (true) {
                 socksPort = runtime.listeners().socks.lastOrNull()?.port?.value ?: socksPort
                 val ready = socksPort != null && runtime.isReady()

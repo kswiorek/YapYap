@@ -1,5 +1,6 @@
 package org.yapyap.crypto.e2ee
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
@@ -166,8 +167,8 @@ internal fun managerForPeer(
         opkRepository = oneTimePreKeyStore,
         timeProvider = timeProvider,
         upgradePolicy = upgradePolicy,
-        sessionConfig = sessionConfig,
-        cryptoLimits = cryptoLimits,
+        sessionConfig = MutableStateFlow(sessionConfig),
+        cryptoLimits = MutableStateFlow(cryptoLimits),
     )
 
 /** Legacy-equivalent capacity limits for tests (matches the pre-config crypto constants). */
@@ -177,11 +178,11 @@ internal fun testCryptoLimits() = CryptoLimits(
     maxRatchetBodyBytes = 256 * 1024,
 )
 
-internal fun testCryptoWireCodec() = CryptoWireCodec(testCryptoLimits())
+internal fun testCryptoWireCodec() = CryptoWireCodec(MutableStateFlow(testCryptoLimits()))
 
 internal fun testTransportLimits() = TransportLimits(
-    torMaxPayloadBytes = 4L * 1024 * 1024,
-    webRtcMaxPayloadBytes = 1024L * 1024,
+    torMaxPayloadBytes = 4 * 1024 * 1024,
+    webRtcMaxPayloadBytes = 1024 * 1024,
 )
 
 internal fun testMessageLimits() = MessageLimits.from(testTransportLimits())
@@ -195,6 +196,6 @@ internal fun cryptoHousekeepingFor(
     CryptoMaintenance(
         sessionStore = sessionStore,
         opkRepository = opkRepository,
-        sessionConfig = sessionConfig,
+        sessionConfig = MutableStateFlow(sessionConfig),
         timeProvider = timeProvider,
     )

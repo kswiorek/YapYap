@@ -220,7 +220,7 @@ class DefaultRouterOutboxTest {
         delay(400.milliseconds)
         router.stop()
 
-        assertEquals(now+router.routerConfig.webRtcRetryDelaySeconds, outbox.getNextRetryAt(packetId))
+        assertEquals(now+router.routerConfig.value.webRtcRetryDelaySeconds, outbox.getNextRetryAt(packetId))
         assertEquals(1, outbox.setDueForTargetCalls.size)
         assertEquals(remotePeer, outbox.setDueForTargetCalls.single().first)
     }

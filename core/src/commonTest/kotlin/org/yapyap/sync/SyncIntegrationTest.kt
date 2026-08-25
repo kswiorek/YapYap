@@ -3,6 +3,7 @@ package org.yapyap.sync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.DefaultDagEngine
@@ -26,6 +27,7 @@ import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -75,11 +77,11 @@ class SyncIntegrationTest {
         identityResolver = localIdentity,
         pendingSyncRepository = pendingRepo,
         timeProvider = localTime,
-        syncConfig = SyncConfig(
+        syncConfig = MutableStateFlow(SyncConfig(
             gracePeriodSeconds = 0,
             syncMaxMessages = 20,
             deviceOfflineRetryDelaySeconds = 60,
-        ),
+        )),
     )
 
     private fun textMsg(
@@ -98,6 +100,18 @@ class SyncIntegrationTest {
             createdAtEpochSeconds = 0L,
             text = "m$lamport",
         )
+
+    private suspend fun awaitPendingSyncCount(count: Int) {
+        while (pendingRepo.all().size < count) {
+            yield()
+        }
+    }
+
+    private suspend fun awaitPendingSyncEmpty() {
+        while (pendingRepo.all().isNotEmpty()) {
+            yield()
+        }
+    }
 
     // ------------------------------------------------------------------
     // Tests
@@ -140,12 +154,12 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider),
-                syncConfig = SyncConfig(deviceOfflineRetryDelaySeconds = 60),
-                maxIdlePollSeconds = 1,
+                syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
+                maxIdlePollSeconds = MutableStateFlow(1),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, SyncConfig(syncMaxMessages = 20)),
+                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(SyncConfig(syncMaxMessages = 20))),
                 pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
@@ -156,7 +170,7 @@ class SyncIntegrationTest {
 
             // Ingest the orphan: pipeline emits BecameOrphan -> coordinator creates a pending sync.
             router.emitIncoming(m2)
-            delay(100)
+            withTimeout(10.seconds) { awaitPendingSyncCount(1) }
             assertEquals(1, pendingRepo.all().size)
             val sync = pendingRepo.all().single()
             assertEquals(0L, sync.anchorLamport)
@@ -175,7 +189,7 @@ class SyncIntegrationTest {
 
             // Remote handles the request and sends the missing messages back.
             remoteHandler.onSyncRequested(syncRequest, sourceDevice = localDevice)
-            delay(100)
+            withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(2) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
                 MessageEnvelope.decode(bin.payload).decodePayload()
@@ -185,7 +199,7 @@ class SyncIntegrationTest {
 
             // Relay each returned message back into the local node.
             returned.forEach { router.emitIncoming(it) }
-            delay(200)
+            withTimeout(10.seconds) { awaitPendingSyncEmpty() }
 
             // Gap closed, sync deleted.
             assertTrue(pendingRepo.all().isEmpty(), "pending sync should be deleted after gap closure")
@@ -238,12 +252,12 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider),
-                syncConfig = SyncConfig(deviceOfflineRetryDelaySeconds = 60),
-                maxIdlePollSeconds = 1,
+                syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
+                maxIdlePollSeconds = MutableStateFlow(1),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, SyncConfig(syncMaxMessages = 20)),
+                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(SyncConfig(syncMaxMessages = 20))),
                 pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
@@ -255,7 +269,7 @@ class SyncIntegrationTest {
             // Ping triggers a range sync request.
             localRoomRepo.updateLocalSeq(roomId, 1L)
             coordinator.requestRangeSync(roomId, pingLamport = 4L)
-            delay(100)
+            withTimeout(10.seconds) { awaitPendingSyncCount(1) }
             assertEquals(1, pendingRepo.all().size)
             val sync = pendingRepo.all().single()
             assertEquals(1L, sync.anchorLamport)
@@ -269,7 +283,7 @@ class SyncIntegrationTest {
             assertEquals(4L, syncRequest.orphanLamport)
 
             remoteHandler.onSyncRequested(syncRequest, sourceDevice = localDevice)
-            delay(100)
+            withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(3) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
                 MessageEnvelope.decode(bin.payload).decodePayload()
@@ -279,7 +293,7 @@ class SyncIntegrationTest {
             assertTrue(returned.any { it.messageId == m4.messageId })
 
             returned.forEach { router.emitIncoming(it) }
-            delay(200)
+            withTimeout(10.seconds) { awaitPendingSyncEmpty() }
 
             assertTrue(pendingRepo.all().isEmpty(), "pending sync should be deleted after range filled")
             assertTrue(dagEngine.openGaps(roomId).isEmpty())
@@ -293,7 +307,7 @@ class SyncIntegrationTest {
 
 /** Minimal [Router] that records outgoing sends and can emit inbound messages into the pipeline. */
 private class RecordingRouter : Router {
-    private val _incomingMessages = MutableSharedFlow<MessagePayload>(extraBufferCapacity = 64)
+    private val _incomingMessages = MutableSharedFlow<MessagePayload>(replay = 64, extraBufferCapacity = 64)
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
 
     val sent = mutableListOf<MessagePayload>()

@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.DagEngine
@@ -23,7 +24,7 @@ internal class DefaultOrchestratorRuntime(
     private val pipeline: InboundMessagePipeline,
     private val database: YapYapDatabase,
     private val identityResolver: IdentityResolver,
-    private val messageLimits: MessageLimits,
+    private val messageLimits: StateFlow<MessageLimits>,
 ) : OrchestratorRuntime {
 
     private lateinit var _messaging: DefaultMessagingService

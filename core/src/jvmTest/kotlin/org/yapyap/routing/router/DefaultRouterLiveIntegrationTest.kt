@@ -1,6 +1,7 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -19,11 +20,13 @@ import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
+import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -66,7 +69,8 @@ class DefaultRouterLiveIntegrationTest {
         val bobTorDir = Path(SystemTemporaryDirectory, "yapyap-router-bob-tor-${Uuid.random()}")
         SystemFileSystem.createDirectories(aliceTorDir)
         SystemFileSystem.createDirectories(bobTorDir)
-        val torConfig = TorBackendConfig(startupTimeoutMillis = 180_000L)
+        val torConfig = MutableStateFlow(TorBackendConfig(startupTimeout = 180.seconds))
+        val webRtcConfig = MutableStateFlow(WebRtcBackendConfig())
 
         val aliceTorBackend =
             KmpTorBackend(
@@ -81,8 +85,8 @@ class DefaultRouterLiveIntegrationTest {
 
         val aliceTorTransport = DefaultTorTransport(aliceTorBackend)
         val bobTorTransport = DefaultTorTransport(bobTorBackend)
-        val aliceWebRtc = DefaultWebRtcTransport(JvmWebRtcBackend())
-        val bobWebRtc = DefaultWebRtcTransport(JvmWebRtcBackend())
+        val aliceWebRtc = DefaultWebRtcTransport(JvmWebRtcBackend(webRtcConfig))
+        val bobWebRtc = DefaultWebRtcTransport(JvmWebRtcBackend(webRtcConfig))
 
         val aliceTorMap = mutableMapOf<PeerId, TorEndpoint>()
         val bobTorMap = mutableMapOf<PeerId, TorEndpoint>()
@@ -110,11 +114,11 @@ class DefaultRouterLiveIntegrationTest {
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
-                routerConfig = RouterConfig(),
-                transportLimits = testTransportLimits(),
+                routerConfig = MutableStateFlow(RouterConfig()),
+                transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
-                syncConfig = SyncConfig(),
+                syncConfig = MutableStateFlow(SyncConfig()),
             )
         val bobRouter =
             DefaultRouter(
@@ -125,11 +129,11 @@ class DefaultRouterLiveIntegrationTest {
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
                 timeProvider = time,
-                routerConfig = RouterConfig(),
-                transportLimits = testTransportLimits(),
+                routerConfig = MutableStateFlow(RouterConfig()),
+                transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
-                syncConfig = SyncConfig(),
+                syncConfig = MutableStateFlow(SyncConfig()),
             )
 
         try {

@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.config.BootConfig
-import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
@@ -306,7 +305,7 @@ class DefaultOrchestrator(
             messageRepository = messageRepo,
             identityResolver = identityResolver,
             pendingSyncRepository = syncRepo,
-            syncConfig = configStore.runtime.value.sync,
+            syncConfig = configStore.syncConfig,
         )
         syncCoordinator.start(orchestratorScope)
 
@@ -317,7 +316,7 @@ class DefaultOrchestrator(
                 pipeline = pipeline,
                 database = database,
                 identityResolver = identityResolver,
-                messageLimits = messageLimits,
+                messageLimits = configStore.messageLimits,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

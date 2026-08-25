@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,7 +24,7 @@ class DefaultSyncCoordinator(
     private val identityResolver: IdentityResolver,
     private val pendingSyncRepository: PendingSyncRepository,
     private val timeProvider: EpochProvider = SystemEpochProvider,
-    private val syncConfig: SyncConfig
+    private val syncConfig: StateFlow<SyncConfig>
 ) : SyncCoordinator {
 
     @Volatile
@@ -182,11 +183,11 @@ class DefaultSyncCoordinator(
         pendingSyncRepository.insertSync(
             syncId = Uuid.random(),
             roomId = roomId,
-            maxMessages = syncConfig.syncMaxMessages,
+            maxMessages = syncConfig.value.syncMaxMessages,
             anchorLamport = anchorLamport,
             orphanLamport = orphanLamport,
             candidateAccounts = candidates,
-            nextAttemptAt = timeProvider.nowEpochSeconds() + syncConfig.gracePeriodSeconds,
+            nextAttemptAt = timeProvider.nowEpochSeconds() + syncConfig.value.gracePeriodSeconds,
         )
     }
 

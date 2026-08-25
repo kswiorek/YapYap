@@ -1,5 +1,6 @@
 package org.yapyap.sync
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.IngestResult
@@ -44,11 +45,11 @@ class DefaultSyncCoordinatorTest {
             identityResolver = FakeIdentityResolver(localAccount, localDevice),
             pendingSyncRepository = pendingRepo,
             timeProvider = time,
-            syncConfig = SyncConfig(
+            syncConfig = MutableStateFlow(SyncConfig(
                 gracePeriodSeconds = 60,
                 syncMaxMessages = 20,
                 deviceOfflineRetryDelaySeconds = 60,
-            ),
+            )),
         )
     }
 

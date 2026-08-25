@@ -2,6 +2,7 @@ package org.yapyap.transport.tor
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -19,6 +20,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -33,9 +35,9 @@ class TorRealBackendTransportIntegrationTest {
         SystemFileSystem.createDirectories(tempDir)
         val backend = KmpTorBackend(
             torStateRootPath = tempDir,
-            config = TorBackendConfig(
-                startupTimeoutMillis = 180_000L,
-            ),
+            config = MutableStateFlow(TorBackendConfig(
+                startupTimeout = 180.seconds,
+            )),
         )
         val transport = DefaultTorTransport(backend = backend)
         val local = PeerId("0".repeat(64))

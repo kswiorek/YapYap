@@ -1,6 +1,7 @@
 package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
@@ -30,7 +31,7 @@ class RetryLoopTest {
                     error("boom")
                 }
             },
-            maxIdlePollSeconds = 1,
+            maxIdlePollSeconds = MutableStateFlow(1),
         )
 
         val scope = CoroutineScope(SupervisorJob())
@@ -52,7 +53,7 @@ class RetryLoopTest {
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochProvider(1_000L),
             processDue = { calls++ },
-            maxIdlePollSeconds = 60,
+            maxIdlePollSeconds = MutableStateFlow(60),
         )
 
         val scope = CoroutineScope(SupervisorJob())
@@ -76,7 +77,7 @@ class RetryLoopTest {
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochProvider(1_000L),
             processDue = { calls++ },
-            maxIdlePollSeconds = 60,
+            maxIdlePollSeconds = MutableStateFlow(60),
         )
 
         val scope = CoroutineScope(SupervisorJob())

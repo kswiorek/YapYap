@@ -1,6 +1,7 @@
 package org.yapyap.routing.sync
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -21,8 +22,8 @@ internal class SyncRetryProcessor(
     private val systemSender: SystemSender,
     private val peerPolicy: SyncPeerPolicy,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
-    private val syncConfig: SyncConfig,
-    maxIdlePollSeconds: Long,
+    private val syncConfig: StateFlow<SyncConfig>,
+    maxIdlePollSeconds: StateFlow<Long>,
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { pendingSyncs.earliestDueAt() },
@@ -95,7 +96,7 @@ internal class SyncRetryProcessor(
         val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.attemptedDevices)
 
         if (nextDevice == null) {
-            pendingSyncs.updateAttemptAt(row.syncId, now + syncConfig.deviceOfflineRetryDelaySeconds)
+            pendingSyncs.updateAttemptAt(row.syncId, now + syncConfig.value.deviceOfflineRetryDelaySeconds)
             return
         }
 

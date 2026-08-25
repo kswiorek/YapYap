@@ -32,13 +32,13 @@ internal class DefaultMessagingService(
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochProvider,
-    private val messageLimits: MessageLimits,
+    private val messageLimits: StateFlow<MessageLimits>,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
 
-    override val maxTextMessageBytes: Int = messageLimits.maxTextMessageBytes
+    override val maxTextMessageBytes: Int get() = messageLimits.value.maxTextMessageBytes
 
     /**
      * Map of open windows per room. Guarded by [windowsMapMutex].

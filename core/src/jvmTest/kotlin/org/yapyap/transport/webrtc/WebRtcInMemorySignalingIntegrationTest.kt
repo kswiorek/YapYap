@@ -1,11 +1,13 @@
 package org.yapyap.transport.webrtc
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
+import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.test.Test
@@ -28,8 +30,10 @@ class WebRtcInMemorySignalingIntegrationTest {
         val peerA = PeerId("a".repeat(64))
         val peerB = PeerId("b".repeat(64))
 
-        val backendA = JvmWebRtcBackend()
-        val backendB = JvmWebRtcBackend()
+        val config = MutableStateFlow(WebRtcBackendConfig())
+
+        val backendA = JvmWebRtcBackend(config)
+        val backendB = JvmWebRtcBackend(config)
         val alice = DefaultWebRtcTransport(backendA)
         val bob = DefaultWebRtcTransport(backendB)
 
