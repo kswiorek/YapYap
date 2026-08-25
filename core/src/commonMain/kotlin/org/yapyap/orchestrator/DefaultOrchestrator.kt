@@ -1,15 +1,13 @@
 package org.yapyap.orchestrator
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.config.BootConfig
+import org.yapyap.config.ConfigFileWatcher
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
@@ -60,6 +58,7 @@ class DefaultOrchestrator(
     private val createTorBackend: (StateFlow<TorBackendConfig>, torStateRoot: Path) -> TorBackend,
     private val createWebRtcBackend: (StateFlow<WebRtcBackendConfig>) -> WebRtcBackend,
     private val createLogger: (logDirectory: Path) -> AppLogger,
+    private val createConfigFileWatcher: (userSettingsFile: Path) -> ConfigFileWatcher,
 ) : Orchestrator {
 
     private val _state = MutableStateFlow(OrchestratorState.Created)
@@ -112,6 +111,12 @@ class DefaultOrchestrator(
 
             // 4. config store (loads userSettings.toml + state.toml cache → derive)
             configStore = ConfigStore(userSettingsFile, stateFile)
+
+            val watcher = createConfigFileWatcher(userSettingsFile)
+
+            orchestratorScope.launch {
+                watcher.changes().collect { configStore.onUserSettingsFileChanged() }
+            }
 
             // TODO(sprint 7): fetch NetworkPolicy from clearnet API and call
             //   configStore.applyNetwork(fetched) before backends read the derived config.

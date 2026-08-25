@@ -2,6 +2,7 @@ package org.yapyap.orchestrator
 
 import kotlinx.io.files.Path
 import org.yapyap.config.BootConfig
+import org.yapyap.config.JvmConfigFileWatcher
 import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.logging.JvmAppLogger
 import org.yapyap.persistence.JvmEncryptedDriverFactory
@@ -26,6 +27,6 @@ actual class OrchestratorFactory actual constructor(
             createTorBackend = { torConfig, torStateRoot -> KmpTorBackend(torStateRoot, config = torConfig) },   // kmp-file boundary lives here
             createWebRtcBackend = { webRtcConfig -> JvmWebRtcBackend(config = webRtcConfig) },
             createLogger = { logDirectory -> JvmAppLogger(logDirectory = logDirectory) },
-
+            createConfigFileWatcher = { userSettingsFile -> JvmConfigFileWatcher(userSettingsFile) },
         )
 }

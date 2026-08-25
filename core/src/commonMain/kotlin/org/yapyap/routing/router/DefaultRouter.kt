@@ -14,7 +14,6 @@ import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
@@ -265,13 +264,5 @@ class DefaultRouter(
     ): SendMessageResult {
         check(started) { "Router must be started before sending messages" }
         return outboundMessenger.sendMessage(target, payload, forceTransport)
-    }
-
-    suspend fun testOpenWebRtcSession(target: PeerId) {
-        webRtcTransport.openSession(target)
-    }
-
-    suspend fun testCloseWebRtcSession(target: PeerId) {
-        webRtcTransport.closeSession(target)
     }
 }

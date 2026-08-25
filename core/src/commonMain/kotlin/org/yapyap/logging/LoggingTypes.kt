@@ -92,6 +92,7 @@ enum class LogEvent {
     PENDING_SYNC_ACCELERATED,
     MAINTENANCE_FAILED,
     SIZE_EXCEEDED,
+    CONFIG_READ_FAILED,
 }
 
 enum class LogComponent {
@@ -105,6 +106,7 @@ enum class LogComponent {
     MESSAGING,
     DAG,
     ORCHESTRATOR,
+    CONFIG,
 }
 
 enum class LogLevel {

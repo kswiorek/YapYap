@@ -16,6 +16,9 @@ import net.peanuuutz.tomlkt.Toml
 import org.yapyap.config.*
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.crypto.e2ee.session.CryptoLimits
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.routing.router.RouterConfig
@@ -94,14 +97,13 @@ class ConfigStore(
     }
 
     suspend fun onUserSettingsFileChanged() = writeMutex.withLock {
-        val next = readAndParse<UserPreferences>(userSettingsFile)
-        if (next != null) {                                  // parse error → keep old prefs
-            _userPrefs.value = next
-            rederiveAndCommit()
-        }
+        val next = readAndParse<UserPreferences>(userSettingsFile) ?: return@withLock  // parse error → keep old prefs
+        if (next == _userPrefs.value) return@withLock                                  // self-trigger or no-op save
+        _userPrefs.value = next
+        rederiveAndCommit()
     }
 
-    private suspend fun rederiveAndCommit() {
+    private fun rederiveAndCommit() {
         val effective = derive(_userPrefs.value, _networkPolicy.value)
         writeFile(stateFile, toml.encodeToString(effective))
         commit(effective)
@@ -132,7 +134,14 @@ class ConfigStore(
             }
             toml.decodeFromString<T>(buffer.readString())
         } catch (e: Exception) {
-            null //TODO: log
+            AppLog.error(
+                component = LogComponent.CONFIG,
+                event = LogEvent.CONFIG_READ_FAILED,
+                message = "Failed to read config file:",
+                throwable = e,
+                fields = mapOf("file" to file),
+            )
+            null
         }
     }
 
