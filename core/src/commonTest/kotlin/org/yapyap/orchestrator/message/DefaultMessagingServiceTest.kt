@@ -19,6 +19,9 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
+import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
+import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
+import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -29,7 +32,7 @@ import kotlin.test.*
 import kotlin.uuid.Uuid
 
 /**
- * Pure-Kotlin contract tests for [DefaultMessagingService] backed by fake in-memory repos.
+ * Pure-Kotlin contract tests for [org.yapyap.orchestrator.runtime.message.DefaultMessagingService] backed by fake in-memory repos.
  * Safe to move to commonTest.
  */
 @OptIn(ExperimentalCoroutinesApi::class)

@@ -1,4 +1,4 @@
-package org.yapyap.orchestrator.message
+package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId

@@ -26,34 +26,3 @@ data class RuntimeConfig(
     val crypto: CryptoSessionConfig = CryptoSessionConfig(),
     val orchestrator: OrchestratorConfig = OrchestratorConfig(),
 )
-
-// What the user is allowed to set. Mirrors userSettings.conf structure.
-@Serializable
-data class UserPreferences(
-    val router: RouterUserPrefs = RouterUserPrefs(),
-    val sync: SyncUserPrefs = SyncUserPrefs(),
-    val pushToken: String? = null,
-)
-
-@Serializable
-data class RouterUserPrefs(
-    val outboxMaxSizeBytes: Long? = null,
-    val ackLifetimeSeconds: Long? = null,
-    // messageLifetimeSeconds ABSENT → network-controlled
-)
-
-@Serializable
-data class SyncUserPrefs(
-    val gracePeriodSeconds: Long? = null,
-)
-
-@Serializable
-data class NetworkPolicy(
-    val router: RouterNetworkPolicy = RouterNetworkPolicy(),
-)
-
-@Serializable
-data class RouterNetworkPolicy(
-    val messageLifetimeSeconds: Long? = null,
-    val dedupRetentionSeconds: Long? = null,
-)

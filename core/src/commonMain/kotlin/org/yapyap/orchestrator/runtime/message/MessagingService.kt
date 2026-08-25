@@ -1,4 +1,4 @@
-package org.yapyap.orchestrator.message
+package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.routing.router.SendMessageResult

@@ -59,52 +59,71 @@ class ConfigStore(
     private val _transportLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()).transport)
     val transportLimits: StateFlow<TransportLimits> = _transportLimits.asStateFlow()
 
-    private val _userPrefs = MutableStateFlow(UserPreferences())
-    private val _networkPolicy = MutableStateFlow(NetworkPolicy())
+    private val _userOverrides = MutableStateFlow<Overrides>(emptyMap())
+    val userOverrides: StateFlow<Overrides> = _userOverrides.asStateFlow()
+
+    private val _networkOverrides = MutableStateFlow<Overrides>(emptyMap())
+    val networkOverrides: StateFlow<Overrides> = _networkOverrides.asStateFlow()
 
     private val writeMutex = Mutex()
     private val toml = Toml { ignoreUnknownKeys = true }
 
     init {
-        // 1. user wishes (absent/corrupt → defaults)
-        val userPrefs = readAndParse<UserPreferences>(userSettingsFile) ?: UserPreferences()
+        // 1. user overrides (absent/corrupt → empty)
+        val userOverrides = readUserOverrides(userSettingsFile) ?: emptyMap()
 
         // 2. last effective config + network cache from state.toml
         val stateRuntime = readAndParse<RuntimeConfig>(stateFile)
-        val netPolicy = stateRuntime?.let { fromRuntime(it) } ?: NetworkPolicy()
+        val networkOverrides = stateRuntime?.let { projectNetwork(it) } ?: emptyMap()
 
         // 3. derive effective
-        val effective = derive(userPrefs, netPolicy)
+        val effective = derive(userOverrides, networkOverrides)
 
         // 4. refresh state.toml on boot (it's the persisted truth)
         writeFile(stateFile, toml.encodeToString(effective))
 
-        _userPrefs.value = userPrefs
-        _networkPolicy.value = netPolicy
-        _runtime.value = effective
+        _userOverrides.value = userOverrides
+        _networkOverrides.value = networkOverrides
+        commit(effective)
     }
 
-    suspend fun updateUser(patch: UserPreferences) = writeMutex.withLock {
-        val next = _userPrefs.value.mergePatch(patch)       // null = unchanged
-        writeFile(userSettingsFile, toml.encodeToString(next))
-        _userPrefs.value = next
+    /**
+     * Set (or clear, when [value] is null) a single user setting.
+     * Returns null on success, otherwise an error message describing why it was rejected.
+     */
+    suspend fun updateUser(id: String, value: ConfigValue?): String? = writeMutex.withLock {
+        val field = FIELDS.firstOrNull { it.id == id } ?: return@withLock "Unknown setting: $id"
+        if (field.source != FieldSource.USER) return@withLock "Setting '$id' is not user-editable"
+
+        val next = if (value == null) {
+            _userOverrides.value - id
+        } else {
+            when (val result = field.write(RuntimeConfig(), value)) {
+                is WriteResult.Invalid -> return@withLock result.reason
+                is WriteResult.Ok -> _userOverrides.value + (id to value)
+            }
+        }
+
+        writeFile(userSettingsFile, next.toTomlText())
+        _userOverrides.value = next
         rederiveAndCommit()
+        null
     }
 
-    suspend fun applyNetwork(policy: NetworkPolicy) = writeMutex.withLock {
-        _networkPolicy.value = policy                        // full replacement
+    suspend fun applyNetwork(network: Overrides) = writeMutex.withLock {
+        _networkOverrides.value = network
         rederiveAndCommit()                                  // does NOT touch userSettings.toml
     }
 
     suspend fun onUserSettingsFileChanged() = writeMutex.withLock {
-        val next = readAndParse<UserPreferences>(userSettingsFile) ?: return@withLock  // parse error → keep old prefs
-        if (next == _userPrefs.value) return@withLock                                  // self-trigger or no-op save
-        _userPrefs.value = next
+        val next = readUserOverrides(userSettingsFile) ?: return@withLock  // parse error → keep old
+        if (next == _userOverrides.value) return@withLock                                          // self-trigger or no-op save
+        _userOverrides.value = next
         rederiveAndCommit()
     }
 
     private fun rederiveAndCommit() {
-        val effective = derive(_userPrefs.value, _networkPolicy.value)
+        val effective = derive(_userOverrides.value, _networkOverrides.value)
         writeFile(stateFile, toml.encodeToString(effective))
         commit(effective)
     }
@@ -123,7 +142,7 @@ class ConfigStore(
         _transportLimits.value = limits.transport
     }
 
-    private inline fun <reified T> readAndParse(file: Path): T? {
+    private fun readText(file: Path): String? {
         if (!SystemFileSystem.exists(file)) return null
         return try {
             val buffer = Buffer()
@@ -132,17 +151,41 @@ class ConfigStore(
                     // read until exhausted
                 }
             }
-            toml.decodeFromString<T>(buffer.readString())
+            buffer.readString()
         } catch (e: Exception) {
-            AppLog.error(
-                component = LogComponent.CONFIG,
-                event = LogEvent.CONFIG_READ_FAILED,
-                message = "Failed to read config file:",
-                throwable = e,
-                fields = mapOf("file" to file),
-            )
+            logReadError(file, e)
             null
         }
+    }
+
+    private inline fun <reified T> readAndParse(file: Path): T? =
+        readText(file)?.let { text ->
+            try {
+                toml.decodeFromString<T>(text)
+            } catch (e: Exception) {
+                logReadError(file, e)
+                null
+            }
+        }
+
+    private fun readUserOverrides(file: Path): Overrides? =
+        readText(file)?.let { text ->
+            try {
+                Toml.parseToTomlTable(text).toOverrides()
+            } catch (e: Exception) {
+                logReadError(file, e)
+                null
+            }
+        }
+
+    private fun logReadError(file: Path, e: Exception) {
+        AppLog.error(
+            component = LogComponent.CONFIG,
+            event = LogEvent.CONFIG_READ_FAILED,
+            message = "Failed to read config file:",
+            throwable = e,
+            fields = mapOf("file" to file),
+        )
     }
 
     private fun writeFile(file: Path, text: String) {

@@ -1,4 +1,4 @@
-package org.yapyap.orchestrator.message
+package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
