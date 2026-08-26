@@ -113,6 +113,7 @@ class OutboxProcessorTest {
         BinaryEnvelope(
             packetId = packetId,
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = now,
             expiresAtEpochSeconds = now + 3_600,
             source = source,

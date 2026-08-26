@@ -6,7 +6,6 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
-import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.router.*
@@ -18,7 +17,6 @@ internal class InboundEnvelopeProcessor(
     private val ctx: RoutingContext,
     private val systemSender: SystemSender,
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
-    private val systemHandler: SystemInboundHandler,
     private val outboxProcessor: OutboxProcessor,
     private val syncHandler: SyncHandler,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry
@@ -57,9 +55,8 @@ internal class InboundEnvelopeProcessor(
                     "receivedAtEpochSeconds" to receivedAtEpochSeconds,
                 ),
             )
-            when (inbound.packetType) {
-                PacketType.SYSTEM -> return
-                else -> systemSender.sendDispositionForDuplicate(
+            if (inbound.dispositionRequested) {
+                systemSender.sendDispositionForDuplicate(
                     inbound,
                     transport,
                     ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
@@ -78,7 +75,9 @@ internal class InboundEnvelopeProcessor(
                     "receivedAtEpochSeconds" to receivedAtEpochSeconds,
                 ),
             )
-            systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
+            if (inbound.dispositionRequested) {
+                systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
+            }
             return
         }
 
@@ -93,16 +92,10 @@ internal class InboundEnvelopeProcessor(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
-            systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
-            return
-        }
-
-        when (inbound.packetType) {
-            PacketType.SYSTEM -> {
-                applySystemInboundResult(systemHandler.handle(inbound))
-                return
+            if (inbound.dispositionRequested) {
+                systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
             }
-            else -> Unit
+            return
         }
 
         val handler = handlers[inbound.packetType]
@@ -120,9 +113,14 @@ internal class InboundEnvelopeProcessor(
             InboundHandleResult.Rejected(PacketNackReason.UNSUPPORTED_TYPE)
         }
 
+        applySideEffects(handleResult.sideEffects)
+
         when (handleResult) {
-            InboundHandleResult.Success -> systemSender.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
-            InboundHandleResult.Deferred -> {
+            is InboundHandleResult.Success ->
+                if (inbound.dispositionRequested) {
+                    systemSender.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+                }
+            is InboundHandleResult.Deferred -> {
                 AppLog.info(
                     component = LogComponent.ROUTER,
                     event = LogEvent.ENVELOPE_PROTECTION_FAILED,
@@ -135,24 +133,36 @@ internal class InboundEnvelopeProcessor(
                 )
                 ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
             }
-            is InboundHandleResult.Rejected -> systemSender.sendNack(
-                inbound.packetId,
-                inbound.source,
-                inbound.packetType,
-                handleResult.reason,
-                transport,
-            )
+            is InboundHandleResult.Rejected ->
+                if (inbound.dispositionRequested) {
+                    systemSender.sendNack(
+                        inbound.packetId,
+                        inbound.source,
+                        inbound.packetType,
+                        handleResult.reason,
+                        transport,
+                    )
+                }
         }
     }
 
-    private suspend fun applySystemInboundResult(result: SystemInboundResult) {
-        when (result) {
-            is SystemInboundResult.RemoveFromOutbox ->
-                outboxProcessor.onOutboundPacketDelivered(result.packetId)
-            is SystemInboundResult.Ignored -> Unit
-            is SystemInboundResult.SyncRequested -> syncHandler.onSyncRequested(result.sync, result.peerId)
-            is SystemInboundResult.MarkPeerAttempted -> syncHandler.onMarkPeerAttempted(result.syncId, result.peerId)
-            // TODO Sprint 4: is SystemInboundResult.PeerHeartbeat -> peerPresenceService.record(result)
+    private suspend fun applySideEffects(sideEffects: List<InboundSideEffect>) {
+        sideEffects.forEach { effect ->
+            when (effect) {
+                is InboundSideEffect.EnqueueForRelay ->
+                    outboxProcessor.enqueueAndWake(
+                        effect.envelope,
+                        nextRetryAt = ctx.timeProvider.nowEpochSeconds(),
+                        relayMessage = true,
+                    )
+                is InboundSideEffect.RemoveFromOutbox ->
+                    outboxProcessor.onOutboundPacketDelivered(effect.packetId)
+                is InboundSideEffect.SyncRequested ->
+                    syncHandler.onSyncRequested(effect.sync, effect.peerId)
+                is InboundSideEffect.MarkPeerAttempted ->
+                    syncHandler.onMarkPeerAttempted(effect.syncId, effect.peerId)
+                // TODO Sprint 4: is InboundSideEffect.PeerHeartbeat -> peerPresenceService.record(result)
+            }
         }
     }
 }

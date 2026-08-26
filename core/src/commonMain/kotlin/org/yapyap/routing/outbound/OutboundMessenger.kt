@@ -125,6 +125,7 @@ internal class OutboundMessenger(
         val binaryEnvelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = now,
             expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetimeSeconds,
             source = ctx.localDeviceId,

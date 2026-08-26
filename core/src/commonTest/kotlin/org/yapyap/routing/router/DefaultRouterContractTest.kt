@@ -334,6 +334,7 @@ class DefaultRouterContractTest {
                 BinaryEnvelope(
                     packetId = packetId,
                     packetType = PacketType.MESSAGE,
+                    dispositionRequested = true,
                     createdAtEpochSeconds = 10_000L,
                     expiresAtEpochSeconds = 11_000L,
                     source = remotePeer,
@@ -399,6 +400,7 @@ class DefaultRouterContractTest {
             BinaryEnvelope(
                 packetId = packetId,
                 packetType = PacketType.MESSAGE,
+                dispositionRequested = true,
                 createdAtEpochSeconds = 10_000L,
                 expiresAtEpochSeconds = expiresAtEpochSeconds,
                 source = remotePeer,

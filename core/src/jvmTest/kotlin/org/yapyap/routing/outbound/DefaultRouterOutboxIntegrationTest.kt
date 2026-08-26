@@ -132,6 +132,7 @@ class DefaultRouterOutboxIntegrationTest {
         BinaryEnvelope(
             packetId = packetId,
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = now,
             expiresAtEpochSeconds = now + 3_600,
             source = source,
@@ -159,6 +160,7 @@ class DefaultRouterOutboxIntegrationTest {
             BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.SYSTEM,
+                dispositionRequested = false,
                 createdAtEpochSeconds = 10_000L,
                 expiresAtEpochSeconds = 11_000L,
                 source = remotePeer,

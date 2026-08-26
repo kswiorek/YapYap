@@ -14,6 +14,7 @@ import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
@@ -48,6 +49,7 @@ internal class MessageInboundHandler(
             val binaryEnvelope = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.MESSAGE,
+                dispositionRequested = true,
                 createdAtEpochSeconds = now,
                 expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetimeSeconds,
                 source = ctx.localDeviceId,
@@ -56,7 +58,9 @@ internal class MessageInboundHandler(
             )
 
 
-            return InboundHandleResult.Success
+            return InboundHandleResult.Success(
+                sideEffects = listOf(InboundSideEffect.EnqueueForRelay(binaryEnvelope)),
+            )
         }
 
         val payload = try {
@@ -73,6 +77,6 @@ internal class MessageInboundHandler(
             return inboundResultForProtectionFailure(e)
         }
         incomingMessages.emit(payload)
-        return InboundHandleResult.Success
+        return InboundHandleResult.Success()
     }
 }

@@ -54,6 +54,6 @@ internal class SignalInboundHandler(
             return inboundResultForProtectionFailure(e)
         }
         ctx.webRtcTransport.handleBootstrapSignal(signal)
-        return InboundHandleResult.Success
+        return InboundHandleResult.Success()
     }
 }

@@ -8,15 +8,18 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.routing.inbound.InboundEnvelopeHandler
+import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.SystemInboundResult
 import kotlin.coroutines.cancellation.CancellationException
 
 internal class SystemInboundHandler(
     private val ctx: RoutingContext,
-) {
-    suspend fun handle(env: BinaryEnvelope): SystemInboundResult {
+) : InboundEnvelopeHandler {
+    override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
             AppLog.warn(
                 component = LogComponent.ROUTER,
@@ -24,7 +27,7 @@ internal class SystemInboundHandler(
                 message = "Failed to decode message envelope",
                 fields = mapOf("error" to "decode_failed"),
             )
-            return SystemInboundResult.Ignored
+            return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
         }
 
         if (systemEnvelope.target != ctx.localDeviceId) {
@@ -38,7 +41,7 @@ internal class SystemInboundHandler(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
-            return SystemInboundResult.Ignored
+            return InboundHandleResult.Rejected(PacketNackReason.WRONG_TARGET)
         }
 
         val payload = try {
@@ -52,7 +55,7 @@ internal class SystemInboundHandler(
                 source = env.source,
                 exception = e,
             )
-            return SystemInboundResult.Ignored
+            return inboundResultForProtectionFailure(e)
         }
 
         return when (payload) {
@@ -67,7 +70,9 @@ internal class SystemInboundHandler(
                         "source" to systemEnvelope.source,
                     ),
                 )
-                SystemInboundResult.RemoveFromOutbox(payload.packetId)
+                InboundHandleResult.Success(
+                    sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                )
             }
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
@@ -83,7 +88,9 @@ internal class SystemInboundHandler(
                                 "source" to systemEnvelope.source,
                             ),
                         )
-                        SystemInboundResult.RemoveFromOutbox(payload.packetId)
+                        InboundHandleResult.Success(
+                            sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                        )
                     }
                     PacketNackReason.PROTECTION_FAILED -> {
                         AppLog.warn(
@@ -97,7 +104,7 @@ internal class SystemInboundHandler(
                                 "source" to systemEnvelope.source,
                             ),
                         )
-                        SystemInboundResult.Ignored
+                        InboundHandleResult.Success()
                     }
                     else -> {
                         AppLog.debug(
@@ -111,7 +118,7 @@ internal class SystemInboundHandler(
                                 "source" to systemEnvelope.source,
                             ),
                         )
-                        SystemInboundResult.Ignored
+                        InboundHandleResult.Success()
                     }
                 }
             }
@@ -126,7 +133,9 @@ internal class SystemInboundHandler(
                         "syncId" to payload.syncId,
                     )
                 )
-                SystemInboundResult.SyncRequested(systemEnvelope.source, payload)
+                InboundHandleResult.Success(
+                    sideEffects = listOf(InboundSideEffect.SyncRequested(systemEnvelope.source, payload)),
+                )
             }
             is SystemPayload.SyncNack -> {
                 AppLog.debug(
@@ -139,9 +148,11 @@ internal class SystemInboundHandler(
                         "reason" to payload.reason,
                     ),
                 )
-                SystemInboundResult.MarkPeerAttempted(systemEnvelope.source, payload.syncId)
+                InboundHandleResult.Success(
+                    sideEffects = listOf(InboundSideEffect.MarkPeerAttempted(systemEnvelope.source, payload.syncId)),
+                )
             }
-            // TODO Sprint 4: SystemPayload.Ping/Pong -> SystemInboundResult.PeerHeartbeat(...)
+            // TODO Sprint 4: SystemPayload.Ping/Pong -> InboundSideEffect.PeerHeartbeat(...)
             else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}
         }
     }

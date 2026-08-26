@@ -22,11 +22,12 @@ internal class WebRtcBootstrapSignaler(
             securityScheme = SignalSecurityScheme.SIGNED,
         )
         val envelope = ctx.envelopeProtectionService.protectSignal(signal, protectContext)
-
+        //TODO: Check ack for signal
         dispatcher.dispatch(
             envelope = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.SIGNAL,
+                dispositionRequested = true,
                 createdAtEpochSeconds = protectContext.createdAtEpochSeconds,
                 expiresAtEpochSeconds = protectContext.createdAtEpochSeconds + 600,
                 source = ctx.localDeviceId,

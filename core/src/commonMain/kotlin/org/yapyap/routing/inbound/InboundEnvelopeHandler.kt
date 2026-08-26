@@ -37,7 +37,7 @@ internal fun logInboundProtectionFailure(
 
 internal fun inboundResultForProtectionFailure(ex: ProtectionException): InboundHandleResult =
     when (ex.disposition) {
-        ProtectionDisposition.DEFER -> InboundHandleResult.Deferred
+        ProtectionDisposition.DEFER -> InboundHandleResult.Deferred()
         ProtectionDisposition.PERMANENT -> InboundHandleResult.Rejected(
             if (ex is ProtectionException.InvalidEnvelope) {
                 PacketNackReason.DECODE_FAILED

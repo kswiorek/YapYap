@@ -46,6 +46,7 @@ class TorRealBackendTransportIntegrationTest {
         val out = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = t0,
             expiresAtEpochSeconds = t0 + 3_600L,
             source = local,

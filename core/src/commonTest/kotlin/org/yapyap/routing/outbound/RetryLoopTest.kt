@@ -94,6 +94,7 @@ class RetryLoopTest {
             envelope = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.MESSAGE,
+                dispositionRequested = true,
                 createdAtEpochSeconds = 1_000L,
                 expiresAtEpochSeconds = 9_999L,
                 source = targetPeer,

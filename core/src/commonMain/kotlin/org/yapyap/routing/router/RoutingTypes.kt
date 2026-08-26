@@ -7,6 +7,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.time.EpochProvider
@@ -40,17 +41,22 @@ data class SendMessageResult(
     val failureKind: SendFailureKind?,
 )
 
-internal sealed interface InboundHandleResult {
-    data object Success : InboundHandleResult
-    data object Deferred : InboundHandleResult
-    data class Rejected(val reason: PacketNackReason) : InboundHandleResult
+internal sealed interface InboundSideEffect {
+    data class EnqueueForRelay(val envelope: BinaryEnvelope) : InboundSideEffect
+    data class RemoveFromOutbox(val packetId: Uuid) : InboundSideEffect
+    data class SyncRequested(val peerId: PeerId, val sync: SyncRequest) : InboundSideEffect
+    data class MarkPeerAttempted(val peerId: PeerId, val syncId: Uuid) : InboundSideEffect
+    // TODO Sprint 4: data class PeerHeartbeat(...) : InboundSideEffect
 }
 
-internal sealed interface SystemInboundResult {
-    data object Ignored : SystemInboundResult
-    data class RemoveFromOutbox(val packetId: Uuid) : SystemInboundResult
-    data class SyncRequested(val peerId: PeerId, val sync: SyncRequest) : SystemInboundResult
-    data class MarkPeerAttempted(val peerId: PeerId, val syncId: Uuid) : SystemInboundResult
+internal sealed interface InboundHandleResult {
+    val sideEffects: List<InboundSideEffect>
+    data class Success(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
+    data class Deferred(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
+    data class Rejected(
+        val reason: PacketNackReason,
+        override val sideEffects: List<InboundSideEffect> = emptyList(),
+    ) : InboundHandleResult
 }
 
 internal sealed interface PeerSendOutcome {

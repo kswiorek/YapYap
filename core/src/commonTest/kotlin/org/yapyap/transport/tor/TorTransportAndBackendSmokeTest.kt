@@ -66,6 +66,7 @@ private fun sampleBinaryEnvelope(): BinaryEnvelope {
     return BinaryEnvelope(
         packetId = pid,
         packetType = PacketType.MESSAGE,
+        dispositionRequested = true,
         createdAtEpochSeconds = 1L,
         expiresAtEpochSeconds = 2L,
         source = src,

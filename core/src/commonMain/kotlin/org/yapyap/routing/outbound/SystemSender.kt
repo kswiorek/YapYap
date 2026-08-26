@@ -150,6 +150,7 @@ internal class SystemSender(
         val envelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.SYSTEM,
+            dispositionRequested = false,
             createdAtEpochSeconds = now,
             expiresAtEpochSeconds = now + ctx.routerConfig.value.ackLifetimeSeconds,
             source = ctx.localDeviceId,

@@ -125,6 +125,7 @@ internal fun sampleOutboxEnvelope(
     BinaryEnvelope(
         packetId = packetId,
         packetType = PacketType.MESSAGE,
+        dispositionRequested = true,
         createdAtEpochSeconds = now,
         expiresAtEpochSeconds = expiresAt,
         source = source,

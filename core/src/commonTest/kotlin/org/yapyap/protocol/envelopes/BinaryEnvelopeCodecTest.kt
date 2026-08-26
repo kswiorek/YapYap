@@ -19,6 +19,7 @@ class BinaryEnvelopeCodecTest {
         val original = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = 100L,
             expiresAtEpochSeconds = 200L,
             source = source,
@@ -27,6 +28,7 @@ class BinaryEnvelopeCodecTest {
         )
         val decoded = BinaryEnvelope.decode(original.encode())
         assertEquals(original.packetType, decoded.packetType)
+        assertEquals(original.dispositionRequested, decoded.dispositionRequested)
         assertEquals(original.createdAtEpochSeconds, decoded.createdAtEpochSeconds)
         assertEquals(original.expiresAtEpochSeconds, decoded.expiresAtEpochSeconds)
         assertEquals(original.source, decoded.source)
@@ -36,11 +38,28 @@ class BinaryEnvelopeCodecTest {
     }
 
     @Test
+    fun encode_decode_roundTrip_dispositionNotRequested() {
+        val original = BinaryEnvelope(
+            packetId = sampleId,
+            packetType = PacketType.MESSAGE,
+            dispositionRequested = false,
+            createdAtEpochSeconds = 100L,
+            expiresAtEpochSeconds = 200L,
+            source = source,
+            target = target,
+            payload = byteArrayOf(),
+        )
+        val decoded = BinaryEnvelope.decode(original.encode())
+        assertEquals(false, decoded.dispositionRequested)
+    }
+
+    @Test
     fun encode_decode_roundTrip_nonEmptyPayload() {
         val payload = byteArrayOf(0x00, 0x7f, 0xff.toByte())
         val original = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.FILE,
+            dispositionRequested = true,
             createdAtEpochSeconds = 0L,
             expiresAtEpochSeconds = 0L,
             source = source,
@@ -58,6 +77,7 @@ class BinaryEnvelopeCodecTest {
             BinaryEnvelope(
                 packetId = sampleId,
                 packetType = PacketType.ACK,
+                dispositionRequested = false,
                 createdAtEpochSeconds = 10L,
                 expiresAtEpochSeconds = 9L,
                 source = source,
@@ -72,6 +92,7 @@ class BinaryEnvelopeCodecTest {
         val good = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.SIGNAL,
+            dispositionRequested = true,
             createdAtEpochSeconds = 1L,
             expiresAtEpochSeconds = 2L,
             source = source,
@@ -90,6 +111,7 @@ class BinaryEnvelopeCodecTest {
         val good = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.DISCOVERY,
+            dispositionRequested = false,
             createdAtEpochSeconds = 1L,
             expiresAtEpochSeconds = 1L,
             source = source,
@@ -108,6 +130,7 @@ class BinaryEnvelopeCodecTest {
         val good = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = 1L,
             expiresAtEpochSeconds = 2L,
             source = source,
@@ -124,6 +147,7 @@ class BinaryEnvelopeCodecTest {
         val good = BinaryEnvelope(
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
             createdAtEpochSeconds = 1L,
             expiresAtEpochSeconds = 2L,
             source = source,
