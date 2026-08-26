@@ -46,8 +46,8 @@ val FIELDS: List<Field> = listOf(
         source = FieldSource.NETWORK,
         unit = "seconds",
         min = 1L,
-        readValue = { it.router.messageLifetimeSeconds },
-        writeValue = { cfg, v -> cfg.copy(router = cfg.router.copy(messageLifetimeSeconds = v)) },
+        readValue = { it.router.binaryEnvelopeLifetimeSeconds },
+        writeValue = { cfg, v -> cfg.copy(router = cfg.router.copy(binaryEnvelopeLifetimeSeconds = v)) },
     ),
     NumberField(
         id = "dedupRetentionSeconds",

@@ -49,8 +49,8 @@ internal class OutboxProcessor(
         wake()
     }
 
-    suspend fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Long) {
-        packetOutbox.enqueue(envelope, nextRetryAt)
+    suspend fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean = false) {
+        packetOutbox.enqueue(envelope, nextRetryAt, relayMessage = relayMessage)
         wake()
     }
 

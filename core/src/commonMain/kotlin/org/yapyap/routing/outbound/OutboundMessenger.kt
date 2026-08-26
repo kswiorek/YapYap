@@ -110,6 +110,7 @@ internal class OutboundMessenger(
             createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
         )
+        //TODO: select and send to relays if no webrtc session
 
         val messageEnvelope = try {
             ctx.envelopeProtectionService.protectMessage(payload, context)
@@ -119,13 +120,15 @@ internal class OutboundMessenger(
             return outboundResultForProtectionFailure(target, e)
         }
 
+        val now = ctx.timeProvider.nowEpochSeconds()
+
         val binaryEnvelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
-            createdAtEpochSeconds = messageEnvelope.createdAtEpochSeconds,
-            expiresAtEpochSeconds = messageEnvelope.createdAtEpochSeconds + ctx.routerConfig.value.messageLifetimeSeconds,
-            source = messageEnvelope.source,
-            target = messageEnvelope.target,
+            createdAtEpochSeconds = now,
+            expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetimeSeconds,
+            source = ctx.localDeviceId,
+            target = target,
             payload = messageEnvelope.encode(),
         )
         // TODO opening WebRTC session on demand if not exists, fallback to Tor if session cannot be established, etc
@@ -150,7 +153,7 @@ internal class OutboundMessenger(
             return PeerSendOutcome.PermanentFailure
         }
 
-        outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
+        outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt) //TODO: check if doesn't send twice
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.OUTBOX_MESSAGE_QUEUED,

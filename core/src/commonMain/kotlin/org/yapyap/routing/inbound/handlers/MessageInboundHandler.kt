@@ -9,12 +9,14 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.uuid.Uuid
 
 internal class MessageInboundHandler(
     private val ctx: RoutingContext,
@@ -42,6 +44,18 @@ internal class MessageInboundHandler(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
+            val now = ctx.timeProvider.nowEpochSeconds()
+            val binaryEnvelope = BinaryEnvelope(
+                packetId = Uuid.random(),
+                packetType = PacketType.MESSAGE,
+                createdAtEpochSeconds = now,
+                expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetimeSeconds,
+                source = ctx.localDeviceId,
+                target = messageEnvelope.target,
+                payload = messageEnvelope.encode(),
+            )
+
+
             return InboundHandleResult.Success
         }
 
