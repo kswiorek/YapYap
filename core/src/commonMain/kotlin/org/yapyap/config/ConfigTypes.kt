@@ -26,3 +26,8 @@ data class RuntimeConfig(
     val crypto: CryptoSessionConfig = CryptoSessionConfig(),
     val orchestrator: OrchestratorConfig = OrchestratorConfig(),
 )
+
+sealed interface UpdateResult {
+    data object Success : UpdateResult
+    data class Failure(val reason: String) : UpdateResult
+}

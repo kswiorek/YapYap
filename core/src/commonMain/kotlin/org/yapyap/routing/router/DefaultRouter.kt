@@ -103,7 +103,7 @@ class DefaultRouter(
         syncPayloadProvider,
         syncRepository,
         systemSender)
-    private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider)
+    private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider, routerConfig)
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         systemSender = systemSender,

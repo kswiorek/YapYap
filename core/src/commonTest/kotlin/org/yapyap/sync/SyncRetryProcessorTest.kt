@@ -6,6 +6,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
@@ -30,7 +31,7 @@ class SyncRetryProcessorTest {
             pendingSyncs = repo,
             systemSender = stack.systemSender,
             peerPolicy = policy,
-            peerAvailabilityRegistry = PeerAvailabilityRegistry(stack.ctx.timeProvider),
+            peerAvailabilityRegistry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
             syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
             maxIdlePollSeconds = MutableStateFlow(1),
         )

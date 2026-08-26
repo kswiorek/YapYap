@@ -29,9 +29,6 @@ class ConfigStore(
     private val userSettingsFile: Path,
     private val stateFile: Path,
 ) {
-    private val _runtime = MutableStateFlow(RuntimeConfig())
-    val runtime: StateFlow<RuntimeConfig> = _runtime.asStateFlow()
-
     private val _tor = MutableStateFlow(RuntimeConfig().tor)
     val torConfig: StateFlow<TorBackendConfig> = _tor.asStateFlow()
 
@@ -60,10 +57,10 @@ class ConfigStore(
     val transportLimits: StateFlow<TransportLimits> = _transportLimits.asStateFlow()
 
     private val _userOverrides = MutableStateFlow<Overrides>(emptyMap())
-    val userOverrides: StateFlow<Overrides> = _userOverrides.asStateFlow()
-
     private val _networkOverrides = MutableStateFlow<Overrides>(emptyMap())
-    val networkOverrides: StateFlow<Overrides> = _networkOverrides.asStateFlow()
+
+    private val _overrides = MutableStateFlow<Overrides>(emptyMap())
+    val overrides: StateFlow<Overrides> = _overrides.asStateFlow()
 
     private val writeMutex = Mutex()
     private val toml = Toml { ignoreUnknownKeys = true }
@@ -77,7 +74,7 @@ class ConfigStore(
         val networkOverrides = stateRuntime?.let { projectNetwork(it) } ?: emptyMap()
 
         // 3. derive effective
-        val effective = derive(userOverrides, networkOverrides)
+        val effective = derive(userOverrides + networkOverrides)
 
         // 4. refresh state.toml on boot (it's the persisted truth)
         writeFile(stateFile, toml.encodeToString(effective))
@@ -91,15 +88,17 @@ class ConfigStore(
      * Set (or clear, when [value] is null) a single user setting.
      * Returns null on success, otherwise an error message describing why it was rejected.
      */
-    suspend fun updateUser(id: String, value: ConfigValue?): String? = writeMutex.withLock {
-        val field = FIELDS.firstOrNull { it.id == id } ?: return@withLock "Unknown setting: $id"
-        if (field.source != FieldSource.USER) return@withLock "Setting '$id' is not user-editable"
+    suspend fun updateUser(id: String, value: ConfigValue?): UpdateResult = writeMutex.withLock {
+        val field = FIELDS.firstOrNull { it.id == id }
+            ?: return@withLock UpdateResult.Failure("Unknown setting: $id")
+        if (field.source != FieldSource.USER)
+            return@withLock UpdateResult.Failure("Setting '$id' is not user-editable")
 
         val next = if (value == null) {
             _userOverrides.value - id
         } else {
             when (val result = field.write(RuntimeConfig(), value)) {
-                is WriteResult.Invalid -> return@withLock result.reason
+                is WriteResult.Invalid -> return@withLock UpdateResult.Failure(result.reason)
                 is WriteResult.Ok -> _userOverrides.value + (id to value)
             }
         }
@@ -107,11 +106,13 @@ class ConfigStore(
         writeFile(userSettingsFile, next.toTomlText())
         _userOverrides.value = next
         rederiveAndCommit()
-        null
+        UpdateResult.Success
     }
 
     suspend fun applyNetwork(network: Overrides) = writeMutex.withLock {
-        _networkOverrides.value = network
+        _networkOverrides.value = network.filterKeys { id ->
+            FIELDS.any { it.id == id && it.source == FieldSource.NETWORK }
+        }
         rederiveAndCommit()                                  // does NOT touch userSettings.toml
     }
 
@@ -123,13 +124,13 @@ class ConfigStore(
     }
 
     private fun rederiveAndCommit() {
-        val effective = derive(_userOverrides.value, _networkOverrides.value)
+        val effective = derive(_userOverrides.value + _networkOverrides.value)
         writeFile(stateFile, toml.encodeToString(effective))
         commit(effective)
     }
 
     private fun commit(effective: RuntimeConfig) {
-        _runtime.value = effective
+        _overrides.value = _userOverrides.value + _networkOverrides.value
         _tor.value = effective.tor
         _webRtc.value = effective.webRtc
         _router.value = effective.router

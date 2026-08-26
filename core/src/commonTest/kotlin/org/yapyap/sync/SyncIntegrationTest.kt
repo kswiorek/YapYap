@@ -15,10 +15,7 @@ import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.router.PeerAvailabilityRegistry
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.RouterTransport
-import org.yapyap.routing.router.SendMessageResult
+import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -153,7 +150,7 @@ class SyncIntegrationTest {
                 pendingSyncs = pendingRepo,
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
-                peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider),
+                peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
                 syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
                 maxIdlePollSeconds = MutableStateFlow(1),
             )
@@ -251,7 +248,7 @@ class SyncIntegrationTest {
                 pendingSyncs = pendingRepo,
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
-                peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider),
+                peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
                 syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
                 maxIdlePollSeconds = MutableStateFlow(1),
             )
@@ -323,7 +320,7 @@ private class RecordingRouter : Router {
     ): SendMessageResult {
         sent.add(payload)
         return SendMessageResult(
-            status = org.yapyap.routing.router.SendMessageStatus.SUCCESS,
+            status = SendMessageStatus.SUCCESS,
             peersTotal = 1,
             peersQueued = 1,
             failureKind = null,

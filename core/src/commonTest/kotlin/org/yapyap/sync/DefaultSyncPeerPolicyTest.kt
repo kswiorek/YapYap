@@ -1,9 +1,11 @@
 package org.yapyap.sync
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RouterConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -18,7 +20,7 @@ class DefaultSyncPeerPolicyTest {
     fun prefersWebRtcSessionOverOnlinePeer() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
         stack.webRtc.openSession(peerA)
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider)
+        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
         registry.markReachable(peerB, stack.ctx.timeProvider.nowEpochSeconds())
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
@@ -28,7 +30,7 @@ class DefaultSyncPeerPolicyTest {
     @Test
     fun prefersOnlinePeerOverOfflinePeer() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider)
+        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
         registry.markReachable(peerB, stack.ctx.timeProvider.nowEpochSeconds())
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
@@ -38,7 +40,7 @@ class DefaultSyncPeerPolicyTest {
     @Test
     fun returnsNullWhenNoPeerOnlineOrSessioned() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider)
+        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
         assertNull(policy.pickNextDevice(listOf(peerA, peerB), emptySet()))
@@ -47,7 +49,7 @@ class DefaultSyncPeerPolicyTest {
     @Test
     fun skipsAttemptedPeersEvenIfOnline() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider)
+        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
         registry.markReachable(peerB, stack.ctx.timeProvider.nowEpochSeconds())
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 

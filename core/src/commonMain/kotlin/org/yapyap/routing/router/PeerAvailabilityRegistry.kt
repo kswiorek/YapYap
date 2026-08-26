@@ -20,7 +20,7 @@ import org.yapyap.time.SystemEpochProvider
  */
 internal class PeerAvailabilityRegistry(
     private val timeProvider: EpochProvider = SystemEpochProvider,
-    private val onlineThresholdSeconds: Long = DEFAULT_ONLINE_THRESHOLD_SECONDS,
+    private val routerConfig: StateFlow<RouterConfig>,
 ) {
     @OptIn(InternalCoroutinesApi::class)
     private val lock = SynchronizedObject()
@@ -53,11 +53,6 @@ internal class PeerAvailabilityRegistry(
 
     private fun isOnlineLocked(deviceId: PeerId, now: Long): Boolean {
         val last = lastSeenEpoch[deviceId] ?: return false
-        return now - last < onlineThresholdSeconds
-    }
-
-    companion object {
-        const val DEFAULT_ONLINE_THRESHOLD_SECONDS: Long = 5 * 60
-        //TODO: config value
+        return now - last < routerConfig.value.onlineThresholdSeconds
     }
 }

@@ -324,6 +324,7 @@ class DefaultOrchestrator(
                 database = database,
                 identityResolver = identityResolver,
                 messageLimits = configStore.messageLimits,
+                configStore = configStore,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

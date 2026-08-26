@@ -31,10 +31,7 @@ class SettingsTest {
 
     @Test
     fun derive_appliesUserOverride() {
-        val runtime = derive(
-            user = mapOf("outboxMaxSizeBytes" to ConfigValue.Number(2048L)),
-            network = emptyMap(),
-        )
+        val runtime = derive(mapOf("outboxMaxSizeBytes" to ConfigValue.Number(2048L)))
         assertEquals(2048L, runtime.router.outboxMaxSizeBytes)
     }
 
@@ -51,15 +48,15 @@ class SettingsTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
 
-            assertEquals(null, store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(4096L)))
+            assertEquals(UpdateResult.Success, store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(4096L)))
             assertEquals(4096L, store.routerConfig.value.outboxMaxSizeBytes)
 
             store.applyNetwork(mapOf("messageLifetimeSeconds" to ConfigValue.Number(999L)))
             assertEquals(999L, store.routerConfig.value.messageLifetimeSeconds)
 
             // Reject invalid + non-editable updates.
-            assertTrue(store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(-1L)) != null)
-            assertTrue(store.updateUser("messageLifetimeSeconds", ConfigValue.Number(1L)) != null)
+            assertTrue(store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(-1L)) is UpdateResult.Failure)
+            assertTrue(store.updateUser("messageLifetimeSeconds", ConfigValue.Number(1L)) is UpdateResult.Failure)
 
             // A fresh store reloads the same effective values from the files.
             val reloaded = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
