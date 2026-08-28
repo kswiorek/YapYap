@@ -31,6 +31,8 @@ interface IdentityKeyRepository {
 
     suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId>
 
+    suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId?
+
     suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
     suspend fun getSignedPreKey(spkId: String): SignedPreKeyRecord?

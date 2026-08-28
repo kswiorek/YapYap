@@ -21,6 +21,10 @@ interface WebRtcBackend {
 
     suspend fun handleRemoteSignal(signal: WebRtcSignal)
 
+    /**
+     * True iff the envelope data channel to [target] is open and can carry data immediately.
+     * False while the session is still negotiating or after it failed/closed.
+     */
     fun hasSession(target: PeerId): Boolean
 
     suspend fun closeSession(target: PeerId)

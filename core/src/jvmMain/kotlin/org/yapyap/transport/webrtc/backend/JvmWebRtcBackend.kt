@@ -38,6 +38,7 @@ class JvmWebRtcBackend(
     private val sessions = ConcurrentHashMap<PeerId, Session>()
     private var scope: CoroutineScope? = null
 
+    //TODO: renegotiate without removing session
     override suspend fun start(localDevice: PeerId) {
         check(this.localDevice == null) { "WebRTC backend is already started" }
         this.localDevice = localDevice
@@ -115,7 +116,11 @@ class JvmWebRtcBackend(
         }
     }
 
-    override fun hasSession(target: PeerId): Boolean = sessions.containsKey(target)
+    override fun hasSession(target: PeerId): Boolean {
+        val session = sessions[target] ?: return false
+        val channel = session.envelopeDataChannel ?: return false
+        return channel.state == RTCDataChannelState.OPEN
+    }
 
     override suspend fun closeSession(target: PeerId) {
         check(localDevice != null) { "WebRTC backend must be started before closing session" }
@@ -521,6 +526,10 @@ class JvmWebRtcBackend(
                         WebRtcDataType.ENVELOPE_BINARY -> {
                             if (state == RTCDataChannelState.OPEN) {
                                 session.envelopeChannelOpen.complete(Unit)
+                                // Align session events with the hasSession contract: Connected
+                                // means the envelope channel can carry data, not just that the
+                                // peer connection reached CONNECTED.
+                                emitSessionEvent(WebRtcSessionEvent.Connected(session.remotePeer))
                             } else if (state == RTCDataChannelState.CLOSED) {
                                 session.envelopeChannelOpen = CompletableDeferred()
                             }

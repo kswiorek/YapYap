@@ -177,6 +177,7 @@ class FakeIdentityResolver(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
     override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")

@@ -23,10 +23,7 @@ import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.inbound.handlers.MessageInboundHandler
 import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
-import org.yapyap.routing.outbound.OutboundMessenger
-import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
+import org.yapyap.routing.outbound.*
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
@@ -80,6 +77,8 @@ class DefaultRouter(
         transportPolicy,
         envelopeDispatcher)
     private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
+    // Fed by SystemInboundHandler when a typing indicator system envelope is received.
+    private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
@@ -104,6 +103,15 @@ class DefaultRouter(
         syncRepository,
         systemSender)
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider, routerConfig)
+    private val proactiveSessionOpener = ProactiveSessionOpener(
+        ctx = routingContext,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+    )
+    private val typingIndicatorDispatcher = TypingIndicatorDispatcher(
+        ctx = routingContext,
+        systemSender = systemSender,
+        sessionOpener = proactiveSessionOpener,
+    )
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         systemSender = systemSender,
@@ -111,7 +119,7 @@ class DefaultRouter(
             PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
             PacketType.FILE to FileInboundHandler(),
-            PacketType.SYSTEM to SystemInboundHandler(ctx = routingContext),
+            PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow),
         ),
         outboxProcessor = outboxProcessor,
         syncHandler = syncHandler,
@@ -142,6 +150,8 @@ class DefaultRouter(
     private var syncRetryJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
+
+    override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
@@ -264,5 +274,13 @@ class DefaultRouter(
     ): SendMessageResult {
         check(started) { "Router must be started before sending messages" }
         return outboundMessenger.sendMessage(target, payload, forceTransport)
+    }
+
+    override suspend fun sendTypingIndicator(
+        targets: Collection<AccountId>,
+        roomId: String,
+    ) {
+        check(started) { "Router must be started before sending typing indicators" }
+        typingIndicatorDispatcher.dispatch(targets, roomId)
     }
 }

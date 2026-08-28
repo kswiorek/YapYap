@@ -2,6 +2,7 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.TransportLimits
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -39,6 +40,18 @@ data class SendMessageResult(
     val peersTotal: Int,
     val peersQueued: Int,
     val failureKind: SendFailureKind?,
+)
+
+/**
+ * A received typing indicator, already resolved from a source [PeerId] to the author's
+ * [senderAccountId]. Emitted per-account (multiple devices of the same account collapse here);
+ * room state management and idle-timeout handling are an orchestrator concern.
+ */
+data class TypingIndicatorEvent(
+    val senderAccountId: AccountId,
+    val roomId: String,
+    val intervalSeconds: Int,
+    val receivedAtEpochSeconds: Long,
 )
 
 internal sealed interface InboundSideEffect {

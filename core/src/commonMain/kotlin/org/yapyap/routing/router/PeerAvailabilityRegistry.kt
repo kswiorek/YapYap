@@ -51,6 +51,15 @@ internal class PeerAvailabilityRegistry(
     fun isOnline(deviceId: PeerId): Boolean =
         synchronized(lock) { isOnlineLocked(deviceId, timeProvider.nowEpochSeconds()) }
 
+    /**
+     * Epoch seconds of the last inbound traffic observed from [deviceId], or null if the device
+     * has never been seen. Used by callers that need a more granular freshness check than
+     * [isOnline] (e.g. proactive session opening).
+     */
+    @OptIn(InternalCoroutinesApi::class)
+    fun lastSeenEpoch(deviceId: PeerId): Long? =
+        synchronized(lock) { lastSeenEpoch[deviceId] }
+
     private fun isOnlineLocked(deviceId: PeerId, now: Long): Boolean {
         val last = lastSeenEpoch[deviceId] ?: return false
         return now - last < routerConfig.value.onlineThresholdSeconds

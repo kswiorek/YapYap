@@ -633,6 +633,7 @@ private class FakeIdentityResolver(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
     override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")
@@ -642,6 +643,8 @@ private class FakeIdentityResolver(
 private class RecordingRouter : Router {
     private val _incomingMessages = MutableSharedFlow<MessagePayload>(extraBufferCapacity = 64)
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
+
+    override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
 
     val sentTargets = mutableListOf<AccountId>()
 
@@ -662,6 +665,8 @@ private class RecordingRouter : Router {
             failureKind = null,
         )
     }
+
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

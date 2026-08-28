@@ -192,6 +192,11 @@ WHERE account_id = ?;
 selectDevicesByAccountIds:
 SELECT device_id FROM devices WHERE account_id IN ?;
 
+selectAccountIdByDeviceId:
+SELECT account_id
+FROM devices
+WHERE device_id = ?;
+
 updateDeviceTorEndpoint:
 UPDATE devices
 SET

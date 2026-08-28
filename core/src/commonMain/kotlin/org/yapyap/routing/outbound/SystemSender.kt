@@ -140,6 +140,36 @@ internal class SystemSender(
         sendSystemEnvelope(payload, transport, context)
     }
 
+    /**
+     * Sends a fire-and-forget typing indicator. Delivery is WebRTC-only: peers without an open
+     * WebRTC session are silently skipped (no Tor fallback, no outbox persistence) since a typing
+     * indicator delivered over Tor store-and-forward would be stale by the time it arrives.
+     */
+    suspend fun sendTypingIndicator(
+        target: PeerId,
+        payload: SystemPayload.TypingIndicator,
+    ) {
+        if (!ctx.webRtcTransport.hasSession(target)) return
+
+        val context = EnvelopeProtectContext(
+            sourceDeviceId = ctx.localDeviceId,
+            targetDeviceId = target,
+            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+        )
+        sendSystemEnvelope(payload, RouterTransport.WEBRTC, context)
+        AppLog.debug(
+            component = LogComponent.ROUTER,
+            event = LogEvent.TYPING_INDICATOR_SENT,
+            message = "Typing indicator sent over WebRTC",
+            fields = mapOf(
+                "target" to target,
+                "roomId" to payload.roomId,
+                "intervalSeconds" to payload.intervalSeconds,
+            ),
+        )
+    }
+
     private suspend fun sendSystemEnvelope(
         payload: SystemPayload,
         transport: RouterTransport,

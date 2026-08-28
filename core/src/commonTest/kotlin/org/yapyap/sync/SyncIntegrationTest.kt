@@ -307,6 +307,8 @@ private class RecordingRouter : Router {
     private val _incomingMessages = MutableSharedFlow<MessagePayload>(replay = 64, extraBufferCapacity = 64)
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
 
+    override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+
     val sent = mutableListOf<MessagePayload>()
 
     override suspend fun start() = Unit
@@ -326,6 +328,8 @@ private class RecordingRouter : Router {
             failureKind = null,
         )
     }
+
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

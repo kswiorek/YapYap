@@ -284,6 +284,10 @@ class DefaultIdentityResolver(
         return accountIds.flatMap { getAllPeerDevicesForAccount(it) }
     }
 
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? {
+        return publicKeyRepository.getAccountIdForDevice(deviceId)
+    }
+
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         publicKeyRepository.upsertPeerTorEndpoint(deviceId, torEndpoint)
     }

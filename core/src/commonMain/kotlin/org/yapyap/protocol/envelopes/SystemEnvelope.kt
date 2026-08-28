@@ -244,6 +244,43 @@ sealed interface SystemPayload {
         }
     }
 
+    /**
+     * Fire-and-forget presence signal sent periodically over an open WebRTC session while the
+     * author is composing a message. The presence of the indicator means "typing"; there is no
+     * explicit stop message. [intervalSeconds] is the sender's send cadence — a receiver that sees
+     * no further indicator within roughly 2x this interval considers the author idle.
+     */
+    data class TypingIndicator(
+        val roomId: String,
+        val intervalSeconds: Int,
+    ) : SystemPayload {
+        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.TYPING_INDICATOR
+
+        override fun encode(): ByteArray {
+            val writer = ByteWriter(16 + roomId.length)
+            writer.writeByte(kind.wireValue.toInt())
+            writer.writeString(roomId)
+            writer.writeInt(intervalSeconds)
+            return writer.toByteArray()
+        }
+
+        companion object {
+            fun decode(bytes: ByteArray): TypingIndicator {
+                val reader = ByteReader(bytes)
+                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.TYPING_INDICATOR) {
+                    "Expected TYPING_INDICATOR payload kind"
+                }
+                val roomId = reader.readString()
+                val intervalSeconds = reader.readInt()
+                reader.requireFullyRead()
+                return TypingIndicator(
+                    roomId = roomId,
+                    intervalSeconds = intervalSeconds,
+                )
+            }
+        }
+    }
+
     companion object {
         fun decode(bytes: ByteArray): SystemPayload {
             val kind = SystemEnvelopeKind.fromWireValue(ByteReader(bytes).readByte())
@@ -252,6 +289,7 @@ sealed interface SystemPayload {
                 SystemEnvelopeKind.PACKET_NACK -> PacketNack.decode(bytes)
                 SystemEnvelopeKind.SYNC_REQUEST -> SyncRequest.decode(bytes)
                 SystemEnvelopeKind.SYNC_NACK -> SyncNack.decode(bytes)
+                SystemEnvelopeKind.TYPING_INDICATOR -> TypingIndicator.decode(bytes)
             }
         }
     }
@@ -261,7 +299,8 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
     PACKET_ACK(1),
     PACKET_NACK(2),
     SYNC_REQUEST(3),
-    SYNC_NACK(4);
+    SYNC_NACK(4),
+    TYPING_INDICATOR(5);
 
     companion object {
         fun fromWireValue(value: Byte): SystemEnvelopeKind =

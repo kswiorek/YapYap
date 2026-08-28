@@ -1,5 +1,6 @@
 package org.yapyap.routing.inbound.handlers
 
+import kotlinx.coroutines.flow.MutableSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -14,10 +15,12 @@ import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.coroutines.cancellation.CancellationException
 
 internal class SystemInboundHandler(
     private val ctx: RoutingContext,
+    private val typingIndicatorFlow: MutableSharedFlow<TypingIndicatorEvent>
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -151,6 +154,30 @@ internal class SystemInboundHandler(
                 InboundHandleResult.Success(
                     sideEffects = listOf(InboundSideEffect.MarkPeerAttempted(systemEnvelope.source, payload.syncId)),
                 )
+            }
+            is SystemPayload.TypingIndicator -> {
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.TYPING_INDICATOR_RECEIVED,
+                    message = "Typing indicator received",
+                    fields = mapOf(
+                        "source" to systemEnvelope.source,
+                        "roomId" to payload.roomId,
+                        "intervalSeconds" to payload.intervalSeconds,
+                    ),
+                )
+                val accountId = ctx.identityResolver.getAccountIdForDevice(systemEnvelope.source)
+                if (accountId != null) {
+                    typingIndicatorFlow.emit(
+                        TypingIndicatorEvent(
+                            senderAccountId = accountId,
+                            roomId = payload.roomId,
+                            intervalSeconds = payload.intervalSeconds,
+                            receivedAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+                        )
+                    )
+                }
+                InboundHandleResult.Success()
             }
             // TODO Sprint 4: SystemPayload.Ping/Pong -> InboundSideEffect.PeerHeartbeat(...)
             else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}

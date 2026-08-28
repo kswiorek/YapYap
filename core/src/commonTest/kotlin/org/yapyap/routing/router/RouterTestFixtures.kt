@@ -325,6 +325,9 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
+        peersByAccount.entries.firstOrNull { deviceId in it.value }?.key
+
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torUpdates.add(deviceId to torEndpoint)
         torByPeer[deviceId] = torEndpoint
@@ -477,6 +480,9 @@ internal class E2eeIdentityResolverForRouter(
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
+
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
+        peersByAccount.entries.firstOrNull { deviceId in it.value }?.key
 
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torUpdates.add(deviceId to torEndpoint)

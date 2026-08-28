@@ -28,6 +28,12 @@ interface IdentityResolver {
         return accountIds.flatMap { getAllPeerDevicesForAccount(it) }
     }
 
+    /**
+     * Resolves the owning [AccountId] for a peer device, or null if the device is unknown.
+     * Callers must treat null as "unknown device" rather than an error.
+     */
+    suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId?
+
     suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 
     suspend fun resolvePeerX3dhRemoteKeys(

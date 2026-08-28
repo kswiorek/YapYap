@@ -30,6 +30,11 @@ interface WebRtcTransport {
     suspend fun closeSession(targetId: PeerId)
     suspend fun handleBootstrapSignal(signal: WebRtcSignal)
 
+    /**
+     * True iff the envelope data channel to [peerId] is open and can carry data immediately.
+     * False while a session is still negotiating or after it failed/closed. This is the
+     * predicate transport-selection policy and WebRTC-only senders (typing indicators) rely on.
+     */
     fun hasSession(peerId: PeerId): Boolean
 
     // Call (in-band over WebRTC data)

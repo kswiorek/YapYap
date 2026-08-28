@@ -41,7 +41,9 @@ class RecordingWebRtcTransport : WebRtcTransport {
     val updateCallOptionsCalls = mutableListOf<Pair<PeerId, AvSessionOptions>>()
     val endCallCalls = mutableListOf<Pair<PeerId, String?>>()
     val hasSessionCalls = mutableListOf<PeerId>()
-    private val activeSessions = mutableSetOf<PeerId>()
+
+    /** Peers whose simulated envelope data channel is OPEN; only these report hasSession == true. */
+    private val openChannelPeers = mutableSetOf<PeerId>()
 
     override suspend fun start(deviceId: PeerId) {
         startCalls.add(deviceId)
@@ -53,7 +55,16 @@ class RecordingWebRtcTransport : WebRtcTransport {
 
     override suspend fun openSession(target: PeerId) {
         openSessionCalls.add(target)
-        activeSessions.add(target)
+    }
+
+    /** Simulates the envelope data channel reaching OPEN for [peer]; hasSession(peer) becomes true. */
+    fun simulateEnvelopeChannelOpen(peer: PeerId) {
+        openChannelPeers.add(peer)
+    }
+
+    /** Simulates the envelope data channel closing for [peer]; hasSession(peer) becomes false. */
+    fun simulateEnvelopeChannelClosed(peer: PeerId) {
+        openChannelPeers.remove(peer)
     }
 
     override suspend fun sendEnvelope(targetId: PeerId, envelope: BinaryEnvelope) {
@@ -62,7 +73,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
 
     override suspend fun closeSession(targetId: PeerId) {
         closeSessionCalls.add(targetId)
-        activeSessions.remove(targetId)
+        openChannelPeers.remove(targetId)
     }
 
     override suspend fun handleBootstrapSignal(signal: WebRtcSignal) {
@@ -71,7 +82,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
 
     override fun hasSession(peerId: PeerId): Boolean {
         hasSessionCalls.add(peerId)
-        return peerId in activeSessions
+        return peerId in openChannelPeers
     }
 
     override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
@@ -122,6 +133,9 @@ class RecordingWebRtcBackend : WebRtcBackend {
     val removeAvChannelCalls = mutableListOf<PeerId>()
     val hasSessionCalls = mutableListOf<PeerId>()
 
+    /** Peers whose simulated envelope data channel is OPEN; only these report hasSession == true. */
+    private val openChannelPeers = mutableSetOf<PeerId>()
+
     override suspend fun start(localDevice: PeerId) {
         startCalls.add(localDevice)
     }
@@ -134,17 +148,23 @@ class RecordingWebRtcBackend : WebRtcBackend {
         openSessionCalls.add(target)
     }
 
+    /** Simulates the envelope data channel reaching OPEN for [peer]; hasSession(peer) becomes true. */
+    fun simulateEnvelopeChannelOpen(peer: PeerId) {
+        openChannelPeers.add(peer)
+    }
+
     override suspend fun handleRemoteSignal(signal: WebRtcSignal) {
         handleRemoteSignalCalls.add(signal)
     }
 
     override fun hasSession(target: PeerId): Boolean {
         hasSessionCalls.add(target)
-        return true
+        return target in openChannelPeers
     }
 
     override suspend fun closeSession(target: PeerId) {
         closeSessionCalls.add(target)
+        openChannelPeers.remove(target)
     }
 
     override suspend fun sendData(dataFrame: WebRtcDataFrame) {

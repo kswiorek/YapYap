@@ -429,6 +429,13 @@ class DefaultIdentityKeyRepository(
                 .executeAsList()
         }
 
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
+        withContext(dbDispatcher) {
+            database.identityQueries
+                .selectAccountIdByDeviceId(deviceId)
+                .executeAsOneOrNull()
+        }
+
     override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
