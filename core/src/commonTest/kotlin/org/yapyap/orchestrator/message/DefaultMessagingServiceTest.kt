@@ -16,6 +16,7 @@ import org.yapyap.crypto.e2ee.testMessageLimits
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.SignatureProvider
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
@@ -93,6 +94,7 @@ class DefaultMessagingServiceTest {
         identityResolver = identityResolver,
         timeProvider = timeProvider,
         messageLimits = MutableStateFlow(messageLimits),
+        orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
     )
 
     @Test
@@ -666,7 +668,7 @@ private class RecordingRouter : Router {
         )
     }
 
-    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String) = Unit
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, intervalSeconds: Int) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

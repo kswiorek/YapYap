@@ -14,6 +14,7 @@ import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.time.EpochProvider
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
+import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 enum class RouterTransport {
@@ -50,7 +51,7 @@ data class SendMessageResult(
 data class TypingIndicatorEvent(
     val senderAccountId: AccountId,
     val roomId: String,
-    val intervalSeconds: Int,
+    val interval: Duration,
     val receivedAtEpochSeconds: Long,
 )
 

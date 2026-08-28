@@ -104,6 +104,7 @@ internal class ProactiveSessionOpener(
      *   [SessionOutcome.Timeout] once the budget is exhausted.
      */
     suspend fun awaitSession(peerId: PeerId, timeoutSeconds: Long): SessionOutcome {
+        //TODO: event driven
         val deadline = ctx.timeProvider.nowEpochSeconds() + timeoutSeconds
         val pollMillis = SESSION_AWAIT_POLL_MILLIS
         while (true) {

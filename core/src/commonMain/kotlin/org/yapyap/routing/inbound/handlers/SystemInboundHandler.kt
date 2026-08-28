@@ -17,6 +17,7 @@ import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.milliseconds
 
 internal class SystemInboundHandler(
     private val ctx: RoutingContext,
@@ -163,7 +164,7 @@ internal class SystemInboundHandler(
                     fields = mapOf(
                         "source" to systemEnvelope.source,
                         "roomId" to payload.roomId,
-                        "intervalSeconds" to payload.intervalSeconds,
+                        "intervalSeconds" to payload.intervalMillis,
                     ),
                 )
                 val accountId = ctx.identityResolver.getAccountIdForDevice(systemEnvelope.source)
@@ -172,7 +173,7 @@ internal class SystemInboundHandler(
                         TypingIndicatorEvent(
                             senderAccountId = accountId,
                             roomId = payload.roomId,
-                            intervalSeconds = payload.intervalSeconds,
+                            interval = payload.intervalMillis.milliseconds,
                             receivedAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
                         )
                     )

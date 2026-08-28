@@ -247,12 +247,12 @@ sealed interface SystemPayload {
     /**
      * Fire-and-forget presence signal sent periodically over an open WebRTC session while the
      * author is composing a message. The presence of the indicator means "typing"; there is no
-     * explicit stop message. [intervalSeconds] is the sender's send cadence — a receiver that sees
+     * explicit stop message. [intervalMillis] is the sender's send cadence — a receiver that sees
      * no further indicator within roughly 2x this interval considers the author idle.
      */
     data class TypingIndicator(
         val roomId: String,
-        val intervalSeconds: Int,
+        val intervalMillis: Int,
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.TYPING_INDICATOR
 
@@ -260,7 +260,7 @@ sealed interface SystemPayload {
             val writer = ByteWriter(16 + roomId.length)
             writer.writeByte(kind.wireValue.toInt())
             writer.writeString(roomId)
-            writer.writeInt(intervalSeconds)
+            writer.writeInt(intervalMillis)
             return writer.toByteArray()
         }
 
@@ -271,11 +271,11 @@ sealed interface SystemPayload {
                     "Expected TYPING_INDICATOR payload kind"
                 }
                 val roomId = reader.readString()
-                val intervalSeconds = reader.readInt()
+                val intervalMillis = reader.readInt()
                 reader.requireFullyRead()
                 return TypingIndicator(
                     roomId = roomId,
-                    intervalSeconds = intervalSeconds,
+                    intervalMillis = intervalMillis,
                 )
             }
         }

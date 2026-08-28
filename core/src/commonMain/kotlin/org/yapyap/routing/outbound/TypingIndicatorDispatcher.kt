@@ -10,9 +10,14 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 
 /**
  * Fans a typing indicator out to the devices of [targets] (room members).
+ *
+ * The send cadence ([intervalSeconds]) is owned by the caller (orchestrator) and only crosses
+ * here to be stamped into the payload — receivers derive their idle-timeout from the announced
+ * value, so the router never needs it from config.
  *
  * Per device, either delivers now over an open WebRTC session, or asks the
  * [ProactiveSessionOpener] to pre-warm one so a later tick can deliver. Delivery is
@@ -24,13 +29,16 @@ internal class TypingIndicatorDispatcher(
     private val systemSender: SystemSender,
     private val sessionOpener: ProactiveSessionOpener,
 ) {
-    suspend fun dispatch(targets: Collection<AccountId>, roomId: String) {
+    suspend fun dispatch(
+        targets: Collection<AccountId>,
+        roomId: String,
+        interval: Duration,
+    ) {
         if (targets.isEmpty()) return
 
-        val intervalSeconds = ctx.routerConfig.value.typingIndicatorIntervalSeconds
         val payload = SystemPayload.TypingIndicator(
             roomId = roomId,
-            intervalSeconds = intervalSeconds,
+            intervalMillis = interval.inWholeMilliseconds.toInt(),
         )
         val devices = ctx.identityResolver.getAllPeerDevicesForAccounts(targets)
             .filter { it != ctx.localDeviceId }

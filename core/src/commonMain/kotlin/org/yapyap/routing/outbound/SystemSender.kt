@@ -165,7 +165,7 @@ internal class SystemSender(
             fields = mapOf(
                 "target" to target,
                 "roomId" to payload.roomId,
-                "intervalSeconds" to payload.intervalSeconds,
+                "intervalSeconds" to payload.intervalMillis,
             ),
         )
     }

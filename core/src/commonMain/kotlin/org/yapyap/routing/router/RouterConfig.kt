@@ -14,8 +14,6 @@ data class RouterConfig(
     val outboxMaxSizeBytes: Long = 1024 * 1024 * 10,
     val dedupRetentionSeconds: Long = 60 * 60 * 24 * 30,
     val onlineThresholdSeconds: Long = 2 * 60,
-    /** Send cadence for typing indicators while the user is composing; receivers idle-timeout at ~2x this. */
-    val typingIndicatorIntervalSeconds: Int = 3,
     /** A peer must have sent us traffic within this window for proactive session pre-warming. */
     val proactiveSessionFreshnessSeconds: Long = 60,
     /** Minimum interval between proactive open attempts to the same peer after a failed/closed session. */
@@ -32,7 +30,6 @@ data class RouterConfig(
         require(retryLoopMaxIdlePollSeconds > 0) { "outboxMaxIdlePollSeconds must be > 0" }
         require(ackLifetimeSeconds > 0) { "ackLifetimeSeconds must be > 0" }
         require(outboxMaxSizeBytes > 0) { "outboxMaxSizeBytes must be > 0" }
-        require(typingIndicatorIntervalSeconds > 0) { "typingIndicatorIntervalSeconds must be > 0" }
         require(proactiveSessionFreshnessSeconds > 0) { "proactiveSessionFreshnessSeconds must be > 0" }
         require(proactiveSessionRetryDelaySeconds > 0) { "proactiveSessionRetryDelaySeconds must be > 0" }
         require(sessionAwaitTimeoutSeconds > 0) { "sessionAwaitTimeoutSeconds must be > 0" }

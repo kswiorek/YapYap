@@ -5,10 +5,12 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.config.MessageLimits
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.Gap
 import org.yapyap.orchestrator.dag.IngestResult
@@ -17,10 +19,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.SendFailureKind
-import org.yapyap.routing.router.SendMessageResult
-import org.yapyap.routing.router.SendMessageStatus
+import org.yapyap.routing.router.*
 import org.yapyap.time.EpochProvider
 import kotlin.concurrent.Volatile
 import kotlin.uuid.Uuid
@@ -33,6 +32,7 @@ internal class DefaultMessagingService(
     private val identityResolver: IdentityResolver,
     private val timeProvider: EpochProvider,
     private val messageLimits: StateFlow<MessageLimits>,
+    private val orchestratorConfig: StateFlow<OrchestratorConfig>,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
@@ -46,9 +46,31 @@ internal class DefaultMessagingService(
     private val windowsMapMutex = Mutex()
     private val openWindows = mutableMapOf<String, DefaultRoomMessageWindow>()
 
+    // --- Typing: outbound announcements -------------------------------------------------
+
+    /** Per-room announcement loops started by [setTyping]. Guarded by [typingSendMutex]. */
+    private val typingSendMutex = Mutex()
+    private val typingSendJobs = mutableMapOf<String, Job>()
+
+    // --- Typing: inbound state -----------------------------------------------------------
+
+    private data class TypingKey(val roomId: String, val accountId: AccountId)
+
+    private val _typingState = MutableStateFlow<Map<String, Set<AccountId>>>(emptyMap())
+    override val typingState: StateFlow<Map<String, Set<AccountId>>> = _typingState.asStateFlow()
+
+    /**
+     * Idle-timeout jobs keyed by (roomId, account). Guarded by [typingTimeoutMutex]. Each
+     * received indicator replaces the previous job, so the account drops out of
+     * [typingState] only after ~2x the announced cadence without a refresh.
+     */
+    private val typingTimeoutMutex = Mutex()
+    private val typingTimeoutJobs = mutableMapOf<TypingKey, Job>()
+
     @Volatile
     private var serviceScope: CoroutineScope? = null
     private var subscriptionJob: Job? = null
+    private var typingSubscriptionJob: Job? = null
 
     fun start(scope: CoroutineScope) {
         check(subscriptionJob == null) { "MessagingService already started" }
@@ -60,17 +82,121 @@ internal class DefaultMessagingService(
                 emitIncomingEventIfNeeded(result.payload)
             }
         }
+        typingSubscriptionJob = scope.launch {
+            router.typingIndicators.collect { event ->
+                runCatching { onTypingIndicatorReceived(event) }
+                    .onFailure { e ->
+                        if (e is CancellationException) throw e
+                        AppLog.error(
+                            component = LogComponent.MESSAGING,
+                            event = LogEvent.TYPING_INDICATOR_RECEIVED,
+                            message = "Failed to process typing indicator",
+                            fields = mapOf("roomId" to event.roomId, "error" to e.toString()),
+                        )
+                    }
+            }
+        }
     }
 
     suspend fun stop() {
         subscriptionJob?.cancel()
         subscriptionJob?.join()  // wait for pipeline collector to finish
+        typingSubscriptionJob?.cancel()
+        typingSubscriptionJob?.join()
+        typingSendMutex.withLock {
+            typingSendJobs.values.forEach { it.cancel() }
+            typingSendJobs.clear()
+        }
+        typingTimeoutMutex.withLock {
+            typingTimeoutJobs.values.forEach { it.cancel() }
+            typingTimeoutJobs.clear()
+        }
+        _typingState.value = emptyMap()
         serviceScope = null
         val windows = windowsMapMutex.withLock {
             openWindows.values.toList()  // just snapshot, no clear
         }
         for (window in windows) {
             window.close()
+        }
+    }
+
+    override suspend fun setTyping(roomId: String, isTyping: Boolean) {
+        typingSendMutex.withLock {
+            val existing = typingSendJobs[roomId]
+            if (isTyping) {
+                if (existing?.isActive == true) return  // already announcing
+                val scope = serviceScope ?: error("MessagingService not started")
+                typingSendJobs[roomId] = scope.launch { announceTyping(roomId) }
+            } else {
+                existing?.cancel()
+                typingSendJobs.remove(roomId)
+            }
+        }
+    }
+
+    /**
+     * Announces typing to the room's current members immediately, then re-announces every
+     * configured interval until cancelled. Members are re-resolved each tick so membership
+     * changes during a long composition are respected; the interval is re-read so hot config
+     * reloads take effect.
+     */
+    private suspend fun announceTyping(roomId: String) {
+        while (true) {
+            val interval = orchestratorConfig.value.typingIndicatorInterval
+            val members = roomRepository.membersOfRoom(roomId)
+            if (members.isNotEmpty()) {
+                try {
+                    router.sendTypingIndicator(members, roomId, interval)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AppLog.warn(
+                        component = LogComponent.MESSAGING,
+                        event = LogEvent.TYPING_INDICATOR_DISPATCH_FAILED,
+                        message = "Typing indicator announcement failed",
+                        fields = mapOf("roomId" to roomId, "error" to e.toString()),
+                    )
+                }
+            }
+            delay(interval)
+        }
+    }
+
+    private suspend fun onTypingIndicatorReceived(event: TypingIndicatorEvent) {
+        val scope = serviceScope ?: return
+        val localAccountId = identityResolver.getLocalAccountId()
+        if (event.senderAccountId == localAccountId) return
+
+        val key = TypingKey(event.roomId, event.senderAccountId)
+        // Idle-timeout at ~2x the announced cadence (tolerates one lost indicator).
+        val timeoutMillis = event.interval * 2
+        val timeoutJob = scope.launch {
+            delay(timeoutMillis)
+            onTypingTimedOut(key)
+        }
+
+        val previous = typingTimeoutMutex.withLock {
+            _typingState.value += (event.roomId to ((_typingState.value[event.roomId] ?: emptySet()) + event.senderAccountId))
+            typingTimeoutJobs.put(key, timeoutJob)
+        }
+        previous?.cancel()
+    }
+
+    private suspend fun onTypingTimedOut(key: TypingKey) {
+        // Identity check: a newer indicator may have re-registered a fresh timeout job after
+        // this one fired; only clear the account if our job is still the registered one.
+        val self = currentCoroutineContext().job
+        val cleared = typingTimeoutMutex.withLock {
+            if (typingTimeoutJobs[key] !== self) return@withLock false
+            typingTimeoutJobs.remove(key)
+            true
+        }
+        if (!cleared) return
+        _typingState.update { current ->
+            val roomSet = current[key.roomId] ?: return@update current
+            val newSet = roomSet - key.accountId
+            if (newSet.isEmpty()) current - key.roomId else current + (key.roomId to newSet)
         }
     }
 

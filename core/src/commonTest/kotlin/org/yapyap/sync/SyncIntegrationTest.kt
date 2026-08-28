@@ -329,7 +329,7 @@ private class RecordingRouter : Router {
         )
     }
 
-    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String) = Unit
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, intervalSeconds: Int) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

@@ -36,6 +36,7 @@ import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 
 class DefaultRouter(
     val torTransport: TorTransport,
@@ -279,8 +280,9 @@ class DefaultRouter(
     override suspend fun sendTypingIndicator(
         targets: Collection<AccountId>,
         roomId: String,
+        interval: Duration,
     ) {
         check(started) { "Router must be started before sending typing indicators" }
-        typingIndicatorDispatcher.dispatch(targets, roomId)
+        typingIndicatorDispatcher.dispatch(targets, roomId, interval)
     }
 }

@@ -47,6 +47,7 @@ internal class DefaultOrchestratorRuntime(
             identityResolver = identityResolver,
             timeProvider = SystemEpochProvider,
             messageLimits = messageLimits,
+            orchestratorConfig = configStore.orchestratorConfig,
         )
         _messaging.start(scope)
 
