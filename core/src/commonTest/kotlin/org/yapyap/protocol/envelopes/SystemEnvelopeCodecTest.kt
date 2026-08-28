@@ -52,7 +52,6 @@ class SystemEnvelopeCodecTest {
         val original = SystemPayload.SyncRequest(
             roomId = "room-a",
             syncId = Uuid.random(),
-            maxMessages = 100,
             anchorLamport = 42L,
             orphanLamport = 7L,
         )
@@ -117,7 +116,6 @@ class SystemEnvelopeCodecTest {
         val syncRequest = SystemPayload.SyncRequest(
             roomId = "room-a",
             syncId = Uuid.random(),
-            maxMessages = 100,
             anchorLamport = 1234L,
             orphanLamport = 10L,
         )
@@ -211,7 +209,6 @@ class SystemEnvelopeCodecTest {
     private fun assertSyncRequestEquals(expected: SystemPayload.SyncRequest, actual: SystemPayload.SyncRequest) {
         assertEquals(expected.roomId, actual.roomId)
         assertEquals(expected.syncId, actual.syncId)
-        assertEquals(expected.maxMessages, actual.maxMessages)
         assertEquals(expected.anchorLamport, actual.anchorLamport)
         assertEquals(expected.orphanLamport, actual.orphanLamport)
     }

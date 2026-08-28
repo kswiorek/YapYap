@@ -6,10 +6,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -24,6 +24,7 @@ import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -74,11 +75,7 @@ class SyncIntegrationTest {
         identityResolver = localIdentity,
         pendingSyncRepository = pendingRepo,
         timeProvider = localTime,
-        syncConfig = MutableStateFlow(SyncConfig(
-            gracePeriodSeconds = 0,
-            syncMaxMessages = 20,
-            deviceOfflineRetryDelaySeconds = 60,
-        )),
+        orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriodSeconds = 0)),
     )
 
     private fun textMsg(
@@ -151,12 +148,11 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-                syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
                 maxIdlePollSeconds = MutableStateFlow(1),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(SyncConfig(syncMaxMessages = 20))),
+                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(RouterConfig())),
                 pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
@@ -249,12 +245,11 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-                syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
                 maxIdlePollSeconds = MutableStateFlow(1),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(SyncConfig(syncMaxMessages = 20))),
+                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(RouterConfig())),
                 pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
@@ -329,7 +324,7 @@ private class RecordingRouter : Router {
         )
     }
 
-    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, intervalSeconds: Int) = Unit
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, interval: Duration) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

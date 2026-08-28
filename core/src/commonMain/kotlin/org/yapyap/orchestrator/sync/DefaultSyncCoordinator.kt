@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
@@ -24,7 +25,7 @@ class DefaultSyncCoordinator(
     private val identityResolver: IdentityResolver,
     private val pendingSyncRepository: PendingSyncRepository,
     private val timeProvider: EpochProvider = SystemEpochProvider,
-    private val syncConfig: StateFlow<SyncConfig>
+    private val orchestratorConfig: StateFlow<OrchestratorConfig>
 ) : SyncCoordinator {
 
     @Volatile
@@ -183,11 +184,10 @@ class DefaultSyncCoordinator(
         pendingSyncRepository.insertSync(
             syncId = Uuid.random(),
             roomId = roomId,
-            maxMessages = syncConfig.value.syncMaxMessages,
             anchorLamport = anchorLamport,
             orphanLamport = orphanLamport,
             candidateAccounts = candidates,
-            nextAttemptAt = timeProvider.nowEpochSeconds() + syncConfig.value.gracePeriodSeconds,
+            nextAttemptAt = timeProvider.nowEpochSeconds() + orchestratorConfig.value.syncGracePeriodSeconds,
         )
     }
 

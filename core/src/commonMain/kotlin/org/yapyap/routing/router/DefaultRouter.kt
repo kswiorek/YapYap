@@ -9,7 +9,6 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
@@ -51,7 +50,6 @@ class DefaultRouter(
     val transportLimits: StateFlow<TransportLimits>,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
-    val syncConfig: StateFlow<SyncConfig>,
 ): Router {
 
 
@@ -136,7 +134,6 @@ class DefaultRouter(
         peerPolicy = peerPolicy,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         maxIdlePollSeconds = retryLoopMaxIdlePollSeconds,
-        syncConfig = syncConfig,
     )
 
     private var started = false

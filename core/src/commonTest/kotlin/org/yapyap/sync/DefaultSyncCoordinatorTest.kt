@@ -3,9 +3,9 @@ package org.yapyap.sync
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.FakeIdentityResolver
@@ -45,11 +45,7 @@ class DefaultSyncCoordinatorTest {
             identityResolver = FakeIdentityResolver(localAccount, localDevice),
             pendingSyncRepository = pendingRepo,
             timeProvider = time,
-            syncConfig = MutableStateFlow(SyncConfig(
-                gracePeriodSeconds = 60,
-                syncMaxMessages = 20,
-                deviceOfflineRetryDelaySeconds = 60,
-            )),
+            orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
         )
     }
 
@@ -96,7 +92,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         roomRepo.updateLocalSeq(roomId, 5L)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 5L, orphanLamport = 8L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -123,7 +119,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         roomRepo.updateLocalSeq(roomId, 5L)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 5L, orphanLamport = 12L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -162,7 +158,7 @@ class DefaultSyncCoordinatorTest {
     fun becameOrphan_higherLamport_raisesOrphan() = runTest {
         val coordinator = buildCoordinator()
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 6L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -195,7 +191,7 @@ class DefaultSyncCoordinatorTest {
         messageRepo.insert(anchorMsg, isOrphaned = false)
         messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -217,7 +213,7 @@ class DefaultSyncCoordinatorTest {
         messageRepo.insert(anchorMsg, isOrphaned = false)
         // No message at orphan lamport 9 -> gap is still open, a continuation sync must be created.
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -254,7 +250,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         roomRepo.updateLocalSeq(roomId, 5L)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 5L, orphanLamport = 10L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -285,7 +281,7 @@ class DefaultSyncCoordinatorTest {
     fun becameOrphan_sameLamportAsOrphan_isNoOp() = runTest {
         val coordinator = buildCoordinator()
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 8L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -314,7 +310,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -345,7 +341,7 @@ class DefaultSyncCoordinatorTest {
     fun becameOrphan_lowerLamport_noMessageAtOrphan_splitsIntoTwoSyncs() = runTest {
         val coordinator = buildCoordinator()
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -377,7 +373,7 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )
@@ -429,7 +425,7 @@ class DefaultSyncCoordinatorTest {
         messageRepo.insert(anchorMsg, isOrphaned = false)
         messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true)
         pendingRepo.insertSync(
-            syncId = Uuid.random(), roomId = roomId, maxMessages = 20,
+            syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )

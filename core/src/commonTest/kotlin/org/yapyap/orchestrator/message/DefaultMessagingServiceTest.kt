@@ -30,6 +30,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
 import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
+import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 /**
@@ -668,7 +669,7 @@ private class RecordingRouter : Router {
         )
     }
 
-    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, intervalSeconds: Int) = Unit
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, interval: Duration) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

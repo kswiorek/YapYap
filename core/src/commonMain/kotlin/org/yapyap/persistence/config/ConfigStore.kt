@@ -20,7 +20,6 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
@@ -37,9 +36,6 @@ class ConfigStore(
 
     private val _router = MutableStateFlow(RuntimeConfig().router)
     val routerConfig: StateFlow<RouterConfig> = _router.asStateFlow()
-
-    private val _sync = MutableStateFlow(RuntimeConfig().sync)
-    val syncConfig: StateFlow<SyncConfig> = _sync.asStateFlow()
 
     private val _crypto = MutableStateFlow(RuntimeConfig().crypto)
     val cryptoConfig: StateFlow<CryptoSessionConfig> = _crypto.asStateFlow()
@@ -134,7 +130,6 @@ class ConfigStore(
         _tor.value = effective.tor
         _webRtc.value = effective.webRtc
         _router.value = effective.router
-        _sync.value = effective.sync
         _crypto.value = effective.crypto
         _orchestrator.value = effective.orchestrator
         val limits = MessageLimits.from(effective)

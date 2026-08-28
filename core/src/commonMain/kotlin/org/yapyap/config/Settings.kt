@@ -35,8 +35,8 @@ val FIELDS: List<Field> = listOf(
         source = FieldSource.USER,
         unit = "seconds",
         min = 0L,
-        readValue = { it.sync.gracePeriodSeconds },
-        writeValue = { cfg, v -> cfg.copy(sync = cfg.sync.copy(gracePeriodSeconds = v)) },
+        readValue = { it.orchestrator.syncGracePeriodSeconds },
+        writeValue = { cfg, v -> cfg.copy(orchestrator = cfg.orchestrator.copy(syncGracePeriodSeconds = v)) },
     ),
     NumberField(
         id = "messageLifetimeSeconds",

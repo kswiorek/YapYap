@@ -32,7 +32,7 @@ interface MessagingService {
     /**
      * Start/stop announcing that the local user is typing in [roomId]. While active, the
      * service announces to the room's members every
-     * [OrchestratorConfig.typingIndicatorIntervalSeconds]. The GUI calls this on typing-state
+     * [OrchestratorConfig.typingIndicatorInterval]. The GUI calls this on typing-state
      * changes (e.g. first keystroke after an idle pause / idle timeout); announcements are
      * periodic heartbeats, so there is no explicit "stopped typing" wire message.
      */

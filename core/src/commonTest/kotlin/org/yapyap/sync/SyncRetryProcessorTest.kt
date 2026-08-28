@@ -3,7 +3,6 @@ package org.yapyap.sync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
@@ -32,7 +31,6 @@ class SyncRetryProcessorTest {
             systemSender = stack.systemSender,
             peerPolicy = policy,
             peerAvailabilityRegistry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-            syncConfig = MutableStateFlow(SyncConfig(deviceOfflineRetryDelaySeconds = 60)),
             maxIdlePollSeconds = MutableStateFlow(1),
         )
 
@@ -46,7 +44,7 @@ class SyncRetryProcessorTest {
         val repo = FakePendingSyncRepository()
         val syncId = Uuid.random()
         repo.insertSync(
-            syncId = syncId, roomId = roomId, maxMessages = 20,
+            syncId = syncId, roomId = roomId,
             anchorLamport = 0L, orphanLamport = 5L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = now,
         )
@@ -72,7 +70,7 @@ class SyncRetryProcessorTest {
         val repo = FakePendingSyncRepository()
         val syncId = Uuid.random()
         repo.insertSync(
-            syncId = syncId, roomId = roomId, maxMessages = 20,
+            syncId = syncId, roomId = roomId,
             anchorLamport = 0L, orphanLamport = 5L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = now,
         )

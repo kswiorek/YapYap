@@ -3,10 +3,10 @@ package org.yapyap.sync
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.testfixtures.FakeMessageRepository
 import kotlin.test.Test
@@ -21,7 +21,7 @@ class DefaultSyncPayloadProviderTest {
     private val remoteDevice = PeerId("remote-device")
 
     private val messageRepo = FakeMessageRepository()
-    private val config = MutableStateFlow(SyncConfig(syncMaxMessages = 20))
+    private val config = MutableStateFlow(RouterConfig())
     private val provider = DefaultSyncPayloadProvider(messageRepo, config)
 
     private fun textMsg(lamport: Long): MessagePayload.Text =
@@ -41,13 +41,12 @@ class DefaultSyncPayloadProviderTest {
         lamports.forEach { messageRepo.insert(textMsg(it), isOrphaned = false) }
     }
 
-    private fun syncRequest(anchor: Long, orphan: Long, max: Int = 20): SystemPayload.SyncRequest =
+    private fun syncRequest(anchor: Long, orphan: Long): SystemPayload.SyncRequest =
         SystemPayload.SyncRequest(
             roomId = roomId,
             syncId = Uuid.random(),
             anchorLamport = anchor,
             orphanLamport = orphan,
-            maxMessages = max,
         )
 
     @Test
@@ -74,7 +73,11 @@ class DefaultSyncPayloadProviderTest {
     fun respectsMaxMessagesLimit() = runTest {
         seed(5L, 6L, 7L, 8L)
 
-        val result = provider.getMessages(syncRequest(anchor = 5L, orphan = 8L, max = 2))
+        val limitedProvider = DefaultSyncPayloadProvider(
+            messageRepo,
+            MutableStateFlow(RouterConfig(syncMaxMessages = 2)),
+        )
+        val result = limitedProvider.getMessages(syncRequest(anchor = 5L, orphan = 8L))
 
         assertEquals(2, result.size)
     }

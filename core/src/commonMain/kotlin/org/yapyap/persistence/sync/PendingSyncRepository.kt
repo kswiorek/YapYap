@@ -13,7 +13,6 @@ import kotlin.uuid.Uuid
 data class PendingSyncRow(
     val syncId: Uuid,
     val roomId: String,
-    val maxMessages: Int,
     val anchorLamport: Long,
     val orphanLamport: Long,
     val candidateAccounts: List<AccountId>,
@@ -25,7 +24,6 @@ data class PendingSyncRow(
         syncId = syncId,
         anchorLamport = anchorLamport,
         orphanLamport = orphanLamport,
-        maxMessages = maxMessages,
     )
 }
 
@@ -38,7 +36,6 @@ interface PendingSyncRepository {
     suspend fun insertSync(
         syncId: Uuid,
         roomId: String,
-        maxMessages: Int,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -75,7 +72,6 @@ class DefaultPendingSyncRepository(
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: String,
-        maxMessages: Int,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -85,7 +81,6 @@ class DefaultPendingSyncRepository(
             queries.insertPendingSync(
                 sync_id = syncId,
                 room_id = roomId,
-                max_messages = maxMessages.toLong(),
                 anchor_lamport = anchorLamport,
                 orphan_lamport = orphanLamport,
                 next_attempt_at = nextAttemptAt,
@@ -158,7 +153,6 @@ class DefaultPendingSyncRepository(
         return PendingSyncRow(
             syncId = sync_id,
             roomId = room_id,
-            maxMessages = max_messages.toInt(),
             anchorLamport = anchor_lamport,
             orphanLamport = orphan_lamport,
             candidateAccounts = candidates,

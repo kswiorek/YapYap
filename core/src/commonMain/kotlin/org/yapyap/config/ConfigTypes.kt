@@ -4,7 +4,6 @@ import kotlinx.serialization.Serializable
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.tor.backend.TorBackendConfig
@@ -22,7 +21,6 @@ data class RuntimeConfig(
     val tor: TorBackendConfig = TorBackendConfig(),
     val webRtc: WebRtcBackendConfig = WebRtcBackendConfig(),
     val router: RouterConfig = RouterConfig(),
-    val sync: SyncConfig = SyncConfig(),
     val crypto: CryptoSessionConfig = CryptoSessionConfig(),
     val orchestrator: OrchestratorConfig = OrchestratorConfig(),
 )

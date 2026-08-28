@@ -267,7 +267,7 @@ class DefaultOrchestrator(
         val syncRepo = DefaultPendingSyncRepository(database)
         val roomRepo = DefaultRoomRepository(database)
 
-        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.syncConfig)
+        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig)
 
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
@@ -287,7 +287,6 @@ class DefaultOrchestrator(
             envelopeProtectionService = envelopeProtectionService,
             syncPayloadProvider = syncPayloadProvider,
             syncRepository = syncRepo,
-            syncConfig = configStore.syncConfig,
             routerConfig = configStore.routerConfig,
             transportLimits = configStore.transportLimits,
         )
@@ -312,7 +311,7 @@ class DefaultOrchestrator(
             messageRepository = messageRepo,
             identityResolver = identityResolver,
             pendingSyncRepository = syncRepo,
-            syncConfig = configStore.syncConfig,
+            orchestratorConfig = configStore.orchestratorConfig,
         )
         syncCoordinator.start(orchestratorScope)
 

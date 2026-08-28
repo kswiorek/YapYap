@@ -164,7 +164,7 @@ internal class SystemInboundHandler(
                     fields = mapOf(
                         "source" to systemEnvelope.source,
                         "roomId" to payload.roomId,
-                        "intervalSeconds" to payload.intervalMillis,
+                        "intervalMillis" to payload.intervalMillis,
                     ),
                 )
                 val accountId = ctx.identityResolver.getAccountIdForDevice(systemEnvelope.source)

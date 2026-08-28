@@ -37,7 +37,6 @@ class SyncHandlerTest {
             syncId = Uuid.random(),
             anchorLamport = 0L,
             orphanLamport = 5L,
-            maxMessages = 20,
         )
 
     @Test
@@ -78,7 +77,7 @@ class SyncHandlerTest {
         val pendingRepo = FakePendingSyncRepository()
         val syncId = Uuid.random()
         pendingRepo.insertSync(
-            syncId = syncId, roomId = roomId, maxMessages = 20,
+            syncId = syncId, roomId = roomId,
             anchorLamport = 0L, orphanLamport = 5L,
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
         )

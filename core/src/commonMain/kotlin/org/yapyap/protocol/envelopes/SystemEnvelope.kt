@@ -176,18 +176,16 @@ sealed interface SystemPayload {
         data class SyncRequest(
             val roomId: String,
             val syncId: Uuid,
-            val maxMessages: Int,
             val anchorLamport: Long,
             val orphanLamport: Long,
         ): SystemPayload {
             override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
 
             override fun encode(): ByteArray {
-                val writer = ByteWriter(32 + roomId.length + Uuid.SIZE_BYTES + 4 + 8 + 8)
+                val writer = ByteWriter(32 + roomId.length + Uuid.SIZE_BYTES + 8 + 8)
                 writer.writeByte(kind.wireValue.toInt())
                 writer.writeString(roomId)
                 writer.writeUuid(syncId)
-                writer.writeInt(maxMessages)
                 writer.writeLong(anchorLamport)
                 writer.writeLong(orphanLamport)
                 return writer.toByteArray()
@@ -201,14 +199,12 @@ sealed interface SystemPayload {
                     }
                     val roomId = reader.readString()
                     val syncId = reader.readUuid()
-                    val maxMessages = reader.readInt()
                     val anchorLamport = reader.readLong()
                     val orphanLamport = reader.readLong()
                     reader.requireFullyRead()
                     return SyncRequest(
                         roomId = roomId,
                         syncId = syncId,
-                        maxMessages = maxMessages,
                         anchorLamport = anchorLamport,
                         orphanLamport = orphanLamport,
                     )

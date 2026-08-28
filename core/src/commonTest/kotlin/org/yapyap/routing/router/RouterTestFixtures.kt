@@ -13,7 +13,6 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -180,7 +179,6 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: String,
-        maxMessages: Int,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -189,7 +187,6 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
         rows[syncId] = PendingSyncRow(
             syncId = syncId,
             roomId = roomId,
-            maxMessages = maxMessages,
             anchorLamport = anchorLamport,
             orphanLamport = orphanLamport,
             candidateAccounts = candidateAccounts,
@@ -590,7 +587,6 @@ internal fun e2eeRouterUnderTest(
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
-        syncConfig = MutableStateFlow(SyncConfig()),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -644,5 +640,4 @@ internal fun defaultRouterUnderTest(
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
-        syncConfig = MutableStateFlow(SyncConfig()),
     )

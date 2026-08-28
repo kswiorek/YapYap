@@ -56,7 +56,6 @@ class FakePendingSyncRepository : PendingSyncRepository {
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: String,
-        maxMessages: Int,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -66,7 +65,6 @@ class FakePendingSyncRepository : PendingSyncRepository {
             PendingSyncRow(
                 syncId = syncId,
                 roomId = roomId,
-                maxMessages = maxMessages,
                 anchorLamport = anchorLamport,
                 orphanLamport = orphanLamport,
                 candidateAccounts = candidateAccounts,

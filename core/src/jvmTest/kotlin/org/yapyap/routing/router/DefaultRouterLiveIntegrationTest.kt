@@ -11,7 +11,6 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.orchestrator.sync.SyncConfig
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -118,7 +117,6 @@ class DefaultRouterLiveIntegrationTest {
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
-                syncConfig = MutableStateFlow(SyncConfig()),
             )
         val bobRouter =
             DefaultRouter(
@@ -133,7 +131,6 @@ class DefaultRouterLiveIntegrationTest {
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
-                syncConfig = MutableStateFlow(SyncConfig()),
             )
 
         try {

@@ -20,6 +20,10 @@ data class RouterConfig(
     val proactiveSessionRetryDelaySeconds: Long = 30,
     /** Default budget for [ProactiveSessionOpener.awaitSession] (best-effort REQUIRED mode). */
     val sessionAwaitTimeoutSeconds: Long = 45,
+    /** Max messages returned per sync response (responder-side page size). */
+    val syncMaxMessages: Int = 20,
+    /** Backoff when a pending sync has no candidate device that looks reachable. */
+    val syncOfflineRetryDelaySeconds: Long = 60,
 ) {
     init {
         require(binaryEnvelopeLifetimeSeconds > 0) { "messageLifetimeSeconds must be > 0" }
@@ -33,6 +37,8 @@ data class RouterConfig(
         require(proactiveSessionFreshnessSeconds > 0) { "proactiveSessionFreshnessSeconds must be > 0" }
         require(proactiveSessionRetryDelaySeconds > 0) { "proactiveSessionRetryDelaySeconds must be > 0" }
         require(sessionAwaitTimeoutSeconds > 0) { "sessionAwaitTimeoutSeconds must be > 0" }
+        require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
+        require(syncOfflineRetryDelaySeconds > 0) { "syncOfflineRetryDelaySeconds must be > 0" }
     }
     fun getRetryDelaySeconds(transport: RouterTransport): Long = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelaySeconds
