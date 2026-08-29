@@ -86,11 +86,18 @@ class DefaultRouter(
         maxIdlePollSeconds = retryLoopMaxIdlePollSeconds,
     )
 
+    private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider, routerConfig)
+    private val proactiveSessionOpener = ProactiveSessionOpener(
+        ctx = routingContext,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+    )
+
     private val outboundMessenger = OutboundMessenger(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
         transportPolicy = transportPolicy,
         outboxProcessor = outboxProcessor,
+        sessionOpener = proactiveSessionOpener,
     )
     private val webRtcBootstrapSignaler = WebRtcBootstrapSignaler(
         ctx = routingContext,
@@ -101,11 +108,6 @@ class DefaultRouter(
         syncPayloadProvider,
         syncRepository,
         systemSender)
-    private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider, routerConfig)
-    private val proactiveSessionOpener = ProactiveSessionOpener(
-        ctx = routingContext,
-        peerAvailabilityRegistry = peerAvailabilityRegistry,
-    )
     private val typingIndicatorDispatcher = TypingIndicatorDispatcher(
         ctx = routingContext,
         systemSender = systemSender,

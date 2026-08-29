@@ -27,7 +27,7 @@ internal class WebRtcBootstrapSignaler(
             envelope = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.SIGNAL,
-                dispositionRequested = true,
+                dispositionRequested = false,
                 createdAtEpochSeconds = protectContext.createdAtEpochSeconds,
                 expiresAtEpochSeconds = protectContext.createdAtEpochSeconds + 600,
                 source = ctx.localDeviceId,

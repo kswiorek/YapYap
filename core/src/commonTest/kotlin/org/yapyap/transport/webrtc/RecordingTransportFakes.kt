@@ -54,6 +54,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
     }
 
     override suspend fun openSession(target: PeerId) {
+        simulateEnvelopeChannelOpen(peer = target)
         openSessionCalls.add(target)
     }
 
@@ -73,7 +74,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
 
     override suspend fun closeSession(targetId: PeerId) {
         closeSessionCalls.add(targetId)
-        openChannelPeers.remove(targetId)
+        simulateEnvelopeChannelClosed(targetId)
     }
 
     override suspend fun handleBootstrapSignal(signal: WebRtcSignal) {

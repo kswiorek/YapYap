@@ -28,6 +28,7 @@ internal class OutboundMessenger(
     private val dispatcher: EnvelopeDispatcher,
     private val transportPolicy: OutboundPolicy,
     private val outboxProcessor: OutboxProcessor,
+    private val sessionOpener: ProactiveSessionOpener
 ) {
     suspend fun sendMessage(
         target: AccountId,
@@ -132,7 +133,7 @@ internal class OutboundMessenger(
             target = target,
             payload = messageEnvelope.encode(),
         )
-        // TODO opening WebRTC session on demand if not exists, fallback to Tor if session cannot be established, etc
+        sessionOpener.ensureSession(target)
 
         val plan = transportPolicy.resolve(
             target = target,
@@ -154,7 +155,7 @@ internal class OutboundMessenger(
             return PeerSendOutcome.PermanentFailure
         }
 
-        outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt) //TODO: check if doesn't send twice
+        outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.OUTBOX_MESSAGE_QUEUED,
