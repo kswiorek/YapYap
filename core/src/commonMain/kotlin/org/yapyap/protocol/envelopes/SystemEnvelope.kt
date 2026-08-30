@@ -298,8 +298,6 @@ sealed interface SystemPayload {
         }
 
         companion object {
-            private const val MAX_ROOMS = 4096
-            //TODO: agree on max room count
             fun decode(bytes: ByteArray): Ping {
                 val reader = ByteReader(bytes)
                 require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.PING) {
@@ -307,7 +305,6 @@ sealed interface SystemPayload {
                 }
                 val pingId = reader.readUuid()
                 val count = reader.readInt()
-                require(count in 0..MAX_ROOMS) { "room lamport count $count out of range" }
                 val roomLamports = HashMap<RoomId, Long>(count)
                 repeat(count) {
                     roomLamports[RoomId(reader.readUuid())] = reader.readLong()

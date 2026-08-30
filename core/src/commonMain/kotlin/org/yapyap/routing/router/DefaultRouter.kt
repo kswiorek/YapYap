@@ -79,6 +79,8 @@ class DefaultRouter(
     private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
     // Fed by SystemInboundHandler when a typing indicator system envelope is received.
     private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
+
+    private val pingPayloadFlow = MutableSharedFlow<Map<RoomId, Long>>(extraBufferCapacity = 64)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
@@ -153,6 +155,8 @@ class DefaultRouter(
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
+
+    override val pingPayloads: Flow<Map<RoomId, Long>> = pingPayloadFlow.asSharedFlow()
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
