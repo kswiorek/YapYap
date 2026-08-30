@@ -11,6 +11,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
 import kotlin.uuid.Uuid
@@ -70,14 +71,17 @@ class DatabaseFactory(
                 ),
                 room_membersAdapter = Room_members.Adapter(
                     roleAdapter = EnumColumnAdapter(),
+                    room_idAdapter = RoomIdAdapter(),
                 ),
                 roomsAdapter = Rooms.Adapter(
                     typeAdapter = EnumColumnAdapter(),
+                    room_idAdapter = RoomIdAdapter(),
                 ),
                 messagesAdapter = Messages.Adapter(
                     payload_typeAdapter = EnumColumnAdapter(),
                     message_idAdapter = UuidAdapter(),
                     prev_idAdapter = UuidAdapter(),
+                    room_idAdapter = RoomIdAdapter(),
                 ),
                 causal_holdAdapter = Causal_hold.Adapter(
                     gap_idAdapter = UuidAdapter(),
@@ -89,6 +93,7 @@ class DatabaseFactory(
                 ),
                 pending_syncsAdapter = Pending_syncs.Adapter(
                     sync_idAdapter = UuidAdapter(),
+                    room_idAdapter = RoomIdAdapter(),
                 ),
                 pending_sync_attempted_peersAdapter = Pending_sync_attempted_peers.Adapter(
                     sync_idAdapter = UuidAdapter(),
@@ -116,6 +121,11 @@ class UuidAdapter: ColumnAdapter<Uuid, String> {
         return value.toHexString()
     }
 
+}
+
+class RoomIdAdapter : ColumnAdapter<RoomId, String> {
+    override fun decode(databaseValue: String) = RoomId(Uuid.parseHex(databaseValue))
+    override fun encode(value: RoomId) = value.value.toHexString()
 }
 
 class AccountIdAdapter: ColumnAdapter<AccountId, String> {

@@ -5,6 +5,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -23,7 +24,7 @@ class DefaultSyncCoordinatorTest {
     private val remoteAccount = AccountId("remote-account")
     private val localDevice = PeerId("local-device")
     private val remoteDevice = PeerId("remote-device")
-    private val roomId = "sync-room"
+    private val roomId = RoomId(Uuid.random())
 
     private val pipeline = FakeInboundMessagePipeline()
     private lateinit var roomRepo: FakeRoomRepository
@@ -50,7 +51,7 @@ class DefaultSyncCoordinatorTest {
     }
 
     private fun textMsg(
-        roomId: String,
+        roomId: RoomId,
         lamport: Long,
         prevId: Uuid?,
         sender: AccountId = remoteAccount,

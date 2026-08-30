@@ -2,6 +2,7 @@ package org.yapyap.sync
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -16,7 +17,7 @@ class SyncHandlerTest {
     private val localDevice = PeerId("handler-local-device")
     private val remoteDevice = PeerId("handler-remote-device")
     private val remoteAccount = AccountId("handler-remote-account")
-    private val roomId = "handler-room"
+    private val roomId = RoomId(Uuid.random())
 
     private fun textMsg(lamport: Long): MessagePayload.Text =
         MessagePayload.Text(

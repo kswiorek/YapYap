@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.protocol.PeerId
@@ -45,7 +46,7 @@ class SyncIntegrationTest {
     private val remoteAccount = AccountId("it-remote-account")
     private val localDevice = PeerId("it-local-device")
     private val remoteDevice = PeerId("it-remote-device")
-    private val roomId = "it-room"
+    private val roomId = RoomId(Uuid.random())
 
     private val localTime = FixedEpochProvider(now)
 
@@ -324,7 +325,7 @@ private class RecordingRouter : Router {
         )
     }
 
-    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: String, interval: Duration) = Unit
+    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

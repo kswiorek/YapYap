@@ -5,9 +5,9 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.uuid.Uuid
 
 interface DagEngine {
-    suspend fun append(roomId: String, draft: MessageDraft): MessagePayload
+    suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload
     suspend fun ingest(payload: MessagePayload): IngestResult?
-    suspend fun getMessagesInRoom(roomId: String): List<MessagePayload>
+    suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload>
 
     /**
      * Paginated room view ordered by display order
@@ -20,12 +20,12 @@ interface DagEngine {
      *         oldest→newest rendering should reverse the result.
      */
     suspend fun getMessagesInRoom(
-        roomId: String,
+        roomId: RoomId,
         limit: Int,
         before: MessageCursor? = null,
     ): List<MessagePayload>
 
-    suspend fun ancestorsOf(roomId: String, messageId: Uuid, limit: Int): List<MessagePayload>
-    suspend fun openGaps(roomId: String): List<Gap>
+    suspend fun ancestorsOf(roomId: RoomId, messageId: Uuid, limit: Int): List<MessagePayload>
+    suspend fun openGaps(roomId: RoomId): List<Gap>
     suspend fun openGaps(): List<Gap>  // optional: all rooms, for sync/boot
 }

@@ -1,6 +1,7 @@
 package org.yapyap.protocol
 
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class ByteReaderWriterTest {
 
@@ -28,6 +29,16 @@ class ByteReaderWriterTest {
         w.writeByteArray(byteArrayOf())
         val r = ByteReader(w.toByteArray())
         assertContentEquals(byteArrayOf(), r.readByteArray())
+        r.requireFullyRead()
+    }
+
+    @Test
+    fun uuid_roundTrip() {
+        val uuid = Uuid.random()
+        val w = ByteWriter(16)
+        w.writeUuid(uuid)
+        val r = ByteReader(w.toByteArray())
+        assertEquals(uuid, r.readUuid())  // or write then read the same value
         r.requireFullyRead()
     }
 

@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
@@ -66,7 +67,7 @@ class DefaultSyncCoordinator(
      * the sync does exist and includes pingLamport => ignore
      */
 
-    override suspend fun requestRangeSync(roomId: String, pingLamport: Long) {
+    override suspend fun requestRangeSync(roomId: RoomId, pingLamport: Long) {
         syncMutex.withLock {
             val localSeqN = roomRepository.getLocalSeq(roomId) ?: error("unknown room $roomId")
             if (localSeqN >= pingLamport) return
@@ -179,7 +180,7 @@ class DefaultSyncCoordinator(
     // Helpers
     // ------------------------------------------------------------------
 
-    private suspend fun insertNewGapSync(roomId: String, anchorLamport: Long, orphanLamport: Long) {
+    private suspend fun insertNewGapSync(roomId: RoomId, anchorLamport: Long, orphanLamport: Long) {
         val candidates = candidateAccountsFor(roomId)
         pendingSyncRepository.insertSync(
             syncId = Uuid.random(),
@@ -191,7 +192,7 @@ class DefaultSyncCoordinator(
         )
     }
 
-    private suspend fun candidateAccountsFor(roomId: String): List<org.yapyap.crypto.identity.AccountId> {
+    private suspend fun candidateAccountsFor(roomId: RoomId): List<org.yapyap.crypto.identity.AccountId> {
         return roomRepository.membersOfRoom(roomId)
             .filter { it != identityResolver.getLocalAccountId() }
     }

@@ -76,7 +76,7 @@ class BinaryEnvelopeCodecTest {
         assertFailsWith<IllegalArgumentException> {
             BinaryEnvelope(
                 packetId = sampleId,
-                packetType = PacketType.ACK,
+                packetType = PacketType.SYSTEM,
                 dispositionRequested = false,
                 createdAtEpochSeconds = 10L,
                 expiresAtEpochSeconds = 9L,
@@ -110,7 +110,7 @@ class BinaryEnvelopeCodecTest {
     fun decode_rejectsUnsupportedVersion() {
         val good = BinaryEnvelope(
             packetId = sampleId,
-            packetType = PacketType.DISCOVERY,
+            packetType = PacketType.SYSTEM,
             dispositionRequested = false,
             createdAtEpochSeconds = 1L,
             expiresAtEpochSeconds = 1L,

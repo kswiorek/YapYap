@@ -5,11 +5,9 @@ package org.yapyap.protocol.packet
  */
 enum class PacketType(val wireValue: Byte) {
     MESSAGE(1),
-    ACK(2),
-    DISCOVERY(3),
-    SIGNAL(4),
-    FILE(5),
-    SYSTEM(6);
+    SIGNAL(2),
+    FILE(3),
+    SYSTEM(4);
 
     companion object {
         fun fromWireValue(value: Byte): PacketType =

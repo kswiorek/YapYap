@@ -7,6 +7,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -31,7 +32,7 @@ internal class TypingIndicatorDispatcher(
 ) {
     suspend fun dispatch(
         targets: Collection<AccountId>,
-        roomId: String,
+        roomId: RoomId,
         interval: Duration,
     ) {
         if (targets.isEmpty()) return

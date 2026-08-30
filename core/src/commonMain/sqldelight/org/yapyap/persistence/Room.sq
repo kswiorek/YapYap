@@ -1,8 +1,9 @@
+import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.RoomMemberRole;
 import org.yapyap.persistence.db.RoomType;
 
 CREATE TABLE rooms (
-    room_id TEXT NOT NULL PRIMARY KEY,
+    room_id TEXT AS RoomId NOT NULL PRIMARY KEY,
     space_id TEXT,
     type TEXT AS RoomType NOT NULL,
     name TEXT NOT NULL,
@@ -11,7 +12,7 @@ CREATE TABLE rooms (
 );
 
 CREATE TABLE room_members (
-    room_id TEXT NOT NULL,
+    room_id TEXT AS RoomId NOT NULL,
     account_id TEXT NOT NULL,
     role TEXT AS RoomMemberRole NOT NULL,
     joined_timestamp INTEGER NOT NULL,

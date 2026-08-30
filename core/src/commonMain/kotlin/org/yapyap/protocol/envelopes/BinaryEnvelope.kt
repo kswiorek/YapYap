@@ -22,7 +22,7 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     }
 
     fun encode(): ByteArray {
-        val writer = ByteWriter(128 + payload.size)
+        val writer = ByteWriter(ENCODED_HEADER_BYTES + payload.size)
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
         writer.writeByte(packetType.wireValue.toInt())
@@ -63,11 +63,11 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
 
         /**
          * Fixed bytes added by [encode] around [payload], excluding the payload itself.
-         * MAGIC(4) + VERSION(1) + packetType(1) + dispositionRequested(1) + createdAt(8) + expiresAt(8) + packetId(4+16)
-         * + source(2+64) + target(2+64) + payload length prefix(4) = 179.
+         * MAGIC(4) + VERSION(1) + packetType(1) + dispositionRequested(1) + createdAt(8) + expiresAt(8) + packetId(16)
+         * + source(2+64) + target(2+64) + payload length prefix(4) = 175.
          * Assumes a 64-char hex [PeerId] (SHA-256 of the signing key).
          */
-        const val ENCODED_HEADER_BYTES: Int = 179
+        const val ENCODED_HEADER_BYTES: Int = 175
 
             fun decode(bytes: ByteArray): BinaryEnvelope {
             val reader = ByteReader(bytes)

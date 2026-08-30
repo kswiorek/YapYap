@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.runtime.message
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.routing.router.SendMessageResult
 
 interface MessagingService {
@@ -18,16 +19,16 @@ interface MessagingService {
      * Backend for the GUI "typing…" display. The local account's own announcements
      * (e.g. from another device) are excluded.
      */
-    val typingState: StateFlow<Map<String, Set<AccountId>>>
+    val typingState: StateFlow<Map<RoomId, Set<AccountId>>>
 
     /** Outbound: append to local DAG, fan out to room members via router. */
-    suspend fun sendTextMessage(roomId: String, text: String): SendMessageResult
+    suspend fun sendTextMessage(roomId: RoomId, text: String): SendMessageResult
 
     /**
      * Open a room for viewing. Returns a paginated window.
      * Caller must call [RoomMessageWindow.close] when navigating away.
      */
-    suspend fun openRoom(roomId: String, initialPageSize: Int = 100): RoomMessageWindow
+    suspend fun openRoom(roomId: RoomId, initialPageSize: Int = 100): RoomMessageWindow
 
     /**
      * Start/stop announcing that the local user is typing in [roomId]. While active, the
@@ -36,5 +37,5 @@ interface MessagingService {
      * changes (e.g. first keystroke after an idle pause / idle timeout); announcements are
      * periodic heartbeats, so there is no explicit "stopped typing" wire message.
      */
-    suspend fun setTyping(roomId: String, isTyping: Boolean)
+    suspend fun setTyping(roomId: RoomId, isTyping: Boolean)
 }

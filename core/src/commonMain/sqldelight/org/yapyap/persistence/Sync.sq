@@ -1,10 +1,11 @@
 import kotlin.uuid.Uuid;
 import org.yapyap.crypto.identity.AccountId;
+import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.protocol.PeerId;
 
 CREATE TABLE pending_syncs(
     sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
-    room_id TEXT NOT NULL,
+    room_id TEXT AS RoomId NOT NULL,
     anchor_lamport INTEGER NOT NULL,
     orphan_lamport INTEGER NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,

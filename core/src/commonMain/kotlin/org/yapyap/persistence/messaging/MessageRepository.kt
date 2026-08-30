@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -40,34 +41,34 @@ interface MessageRepository {
     suspend fun findById(messageId: Uuid): MessageRow?
 
     /** Highest-lamport message in the room; tie-break by createdAt DESC, messageId DESC. Null if room is empty. */
-    suspend fun findRoomTail(roomId: String): MessageRow?
+    suspend fun findRoomTail(roomId: RoomId): MessageRow?
 
     suspend fun findMessagesInRoomPageDesc(
-        roomId: String,
+        roomId: RoomId,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow>
 
-    suspend fun findAllInRoom(roomId: String): List<MessageRow>
+    suspend fun findAllInRoom(roomId: RoomId): List<MessageRow>
 
     /** Max lamport_clock in the room (null if empty) used to reconstruct rooms.local_seq_n on boot. */
-    suspend fun maxLamportInRoom(roomId: String): Long?
+    suspend fun maxLamportInRoom(roomId: RoomId): Long?
 
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
 
-    suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean
+    suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean
 
-    suspend fun maxLamportBelow(roomId: String, lamport: Long): Long?
+    suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long?
 
     suspend fun findMessagesInLamportRange(
-        roomId: String,
+        roomId: RoomId,
         lowerInclusive: Long,
         upperInclusive: Long,
         limit: Int,
     ): List<MessageRow>
 
     /** Number of messages in [roomId] at exactly [lamport] (branching detection). */
-    suspend fun countAtLamport(roomId: String, lamport: Long): Long
+    suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long
 }
 
 class DefaultMessageRepository(
@@ -145,7 +146,7 @@ class DefaultMessageRepository(
             row
         }
 
-    override suspend fun findRoomTail(roomId: String): MessageRow? =
+    override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
         withContext(dbDispatcher) {
             val row = queries.selectRoomTail(roomId).executeAsOneOrNull()?.toRow()
             if (row == null) {
@@ -171,7 +172,7 @@ class DefaultMessageRepository(
         }
 
     override suspend fun findMessagesInRoomPageDesc(
-        roomId: String,
+        roomId: RoomId,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow> =
@@ -197,7 +198,7 @@ class DefaultMessageRepository(
             rows
         }
 
-    override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
+    override suspend fun findAllInRoom(roomId: RoomId): List<MessageRow> =
         withContext(dbDispatcher) {
             val rows = queries.selectAllMessagesInRoom(roomId).executeAsList().map { it.toRow() }
             AppLog.debug(
@@ -212,7 +213,7 @@ class DefaultMessageRepository(
             rows
         }
 
-    override suspend fun maxLamportInRoom(roomId: String): Long? =
+    override suspend fun maxLamportInRoom(roomId: RoomId): Long? =
         withContext(dbDispatcher) {
             val max = queries.selectMaxLamportInRoom(roomId).executeAsOne().MAX
             AppLog.debug(
@@ -242,7 +243,7 @@ class DefaultMessageRepository(
         }
     }
 
-    override suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean =
+    override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
         withContext(dbDispatcher) {
             val isOrphan = queries.selectIsOrphanAtLamport(roomId, lamport).executeAsOne()
             AppLog.debug(
@@ -258,7 +259,7 @@ class DefaultMessageRepository(
             isOrphan
         }
 
-    override suspend fun maxLamportBelow(roomId: String, lamport: Long): Long? =
+    override suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long? =
         withContext(dbDispatcher) {
             val max = queries.selectMaxLamportBelow(roomId, lamport).executeAsOne().MAX
             AppLog.debug(
@@ -275,7 +276,7 @@ class DefaultMessageRepository(
         }
 
     override suspend fun findMessagesInLamportRange(
-        roomId: String, lowerInclusive: Long, upperInclusive: Long, limit: Int,
+        roomId: RoomId, lowerInclusive: Long, upperInclusive: Long, limit: Int,
     ): List<MessageRow> = withContext(dbDispatcher) {
         val rows = queries.selectMessagesInLamportRange(roomId, lowerInclusive, upperInclusive, limit.toLong())
             .executeAsList().map { it.toRow() }
@@ -294,7 +295,7 @@ class DefaultMessageRepository(
         rows
     }
 
-    override suspend fun countAtLamport(roomId: String, lamport: Long): Long =
+    override suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long =
         withContext(dbDispatcher) {
             val count = queries.selectMessageCountAtLamport(roomId, lamport).executeAsOne()
             AppLog.debug(

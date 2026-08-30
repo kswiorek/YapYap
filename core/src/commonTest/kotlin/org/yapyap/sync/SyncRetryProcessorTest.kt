@@ -3,6 +3,7 @@ package org.yapyap.sync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
@@ -17,7 +18,7 @@ class SyncRetryProcessorTest {
     private val localDevice = PeerId("retry-local-device")
     private val remoteDevice = PeerId("retry-remote-device")
     private val remoteAccount = AccountId("retry-remote-account")
-    private val roomId = "retry-room"
+    private val roomId = RoomId(Uuid.random())
     private val now = 10_000L
 
     private fun buildProcessor(

@@ -1,5 +1,6 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.packet.PacketType
@@ -50,7 +51,7 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemPayload_syncRequest_encodeDecode_roundTrip() {
         val original = SystemPayload.SyncRequest(
-            roomId = "room-a",
+            roomId = RoomId(Uuid.random()),
             syncId = Uuid.random(),
             anchorLamport = 42L,
             orphanLamport = 7L,
@@ -114,7 +115,7 @@ class SystemEnvelopeCodecTest {
     @Test
     fun systemEnvelope_full_encodeDecode_syncRequest_roundTrip() {
         val syncRequest = SystemPayload.SyncRequest(
-            roomId = "room-a",
+            roomId = RoomId(Uuid.random()),
             syncId = Uuid.random(),
             anchorLamport = 1234L,
             orphanLamport = 10L,

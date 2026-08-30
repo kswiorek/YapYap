@@ -6,20 +6,21 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 
 interface RoomRepository {
-    suspend fun membersOfRoom(roomId: String): List<AccountId>
-    suspend fun updateLocalSeq(roomId: String, seqN: Long)
-    suspend fun getLocalSeq(roomId: String): Long?
+    suspend fun membersOfRoom(roomId: RoomId): List<AccountId>
+    suspend fun updateLocalSeq(roomId: RoomId, seqN: Long)
+    suspend fun getLocalSeq(roomId: RoomId): Long?
 }
 
 class DefaultRoomRepository(
     private val database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : RoomRepository {
-    override suspend fun membersOfRoom(roomId: String): List<AccountId> =
+    override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         withContext(dbDispatcher) {
             val members = database.roomQueries.selectAllMembersForRoom(roomId)
                 .executeAsList()
@@ -36,7 +37,7 @@ class DefaultRoomRepository(
             members
         }
 
-    override suspend fun updateLocalSeq(roomId: String, seqN: Long) {
+    override suspend fun updateLocalSeq(roomId: RoomId, seqN: Long) {
         withContext(dbDispatcher) {
             database.roomQueries.updateRoomLocalSeq(seqN, roomId)
             AppLog.debug(
@@ -51,7 +52,7 @@ class DefaultRoomRepository(
         }
     }
 
-    override suspend fun getLocalSeq(roomId: String): Long? =
+    override suspend fun getLocalSeq(roomId: RoomId): Long? =
         withContext(dbDispatcher) {
             val localSeq = database.roomQueries.selectRoomLocalSeq(roomId).executeAsOneOrNull()
             AppLog.debug(

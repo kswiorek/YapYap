@@ -9,6 +9,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
@@ -278,7 +279,7 @@ class DefaultRouter(
 
     override suspend fun sendTypingIndicator(
         targets: Collection<AccountId>,
-        roomId: String,
+        roomId: RoomId,
         interval: Duration,
     ) {
         check(started) { "Router must be started before sending typing indicators" }

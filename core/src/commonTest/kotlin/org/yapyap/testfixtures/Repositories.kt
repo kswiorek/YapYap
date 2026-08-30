@@ -2,6 +2,7 @@ package org.yapyap.testfixtures
 
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.SignatureProvider
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -32,7 +33,7 @@ class FakeMessageRepository : MessageRepository {
 
     override suspend fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
-    override suspend fun findRoomTail(roomId: String): MessageRow? =
+    override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
         byId.values
             .filter { it.payload.roomId == roomId }
             .maxWithOrNull(
@@ -42,7 +43,7 @@ class FakeMessageRepository : MessageRepository {
             )
 
     override suspend fun findMessagesInRoomPageDesc(
-        roomId: String,
+        roomId: RoomId,
         limit: Int,
         cursor: MessageCursor?
     ): List<MessageRow> {
@@ -68,7 +69,7 @@ class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override suspend fun findAllInRoom(roomId: String): List<MessageRow> =
+    override suspend fun findAllInRoom(roomId: RoomId): List<MessageRow> =
         byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
@@ -77,7 +78,7 @@ class FakeMessageRepository : MessageRepository {
                     .thenByDescending { it.payload.messageId }
             )
 
-    override suspend fun maxLamportInRoom(roomId: String): Long? =
+    override suspend fun maxLamportInRoom(roomId: RoomId): Long? =
         byId.values
             .filter { it.payload.roomId == roomId }
             .maxOfOrNull { it.payload.lamportClock }
@@ -87,16 +88,16 @@ class FakeMessageRepository : MessageRepository {
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
 
-    override suspend fun isOrphanAtLamport(roomId: String, lamport: Long): Boolean =
+    override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
         byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }
 
-    override suspend fun maxLamportBelow(roomId: String, lamport: Long): Long? =
+    override suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long? =
         byId.values
             .filter { it.payload.roomId == roomId && it.payload.lamportClock < lamport }
             .maxOfOrNull { it.payload.lamportClock }
 
     override suspend fun findMessagesInLamportRange(
-        roomId: String,
+        roomId: RoomId,
         lowerInclusive: Long,
         upperInclusive: Long,
         limit: Int,
@@ -111,7 +112,7 @@ class FakeMessageRepository : MessageRepository {
             )
             .take(limit)
 
-    override suspend fun countAtLamport(roomId: String, lamport: Long): Long =
+    override suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long =
         byId.values.count { it.payload.roomId == roomId && it.payload.lamportClock == lamport }.toLong()
 }
 
@@ -120,18 +121,18 @@ class FakeMessageRepository : MessageRepository {
  * (roomId -> accountIds); defaults to empty when not supplied.
  */
 class FakeRoomRepository(
-    private val members: Map<String, List<AccountId>> = emptyMap(),
+    private val members: Map<RoomId, List<AccountId>> = emptyMap(),
 ) : RoomRepository {
-    private val seqs = mutableMapOf<String, Long>()
+    private val seqs = mutableMapOf<RoomId, Long>()
 
-    override suspend fun membersOfRoom(roomId: String): List<AccountId> =
+    override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         members[roomId].orEmpty()
 
-    override suspend fun updateLocalSeq(roomId: String, seqN: Long) {
+    override suspend fun updateLocalSeq(roomId: RoomId, seqN: Long) {
         seqs[roomId] = seqN
     }
 
-    override suspend fun getLocalSeq(roomId: String): Long? = seqs[roomId]
+    override suspend fun getLocalSeq(roomId: RoomId): Long? = seqs[roomId]
 }
 
 class FakeCausalHoldRepository(
@@ -146,7 +147,7 @@ class FakeCausalHoldRepository(
     override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
         rows.filter { it.missingPrevId == missingPrevId }
 
-    override suspend fun findByRoom(roomId: String): List<CausalHoldRow> =
+    override suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow> =
         // Mirror the SQL JOIN: a causal_hold row belongs to the room of its orphaned message.
         rows.filter { row ->
             val orphan = messageRepo.findById(row.orphanedMessageId)

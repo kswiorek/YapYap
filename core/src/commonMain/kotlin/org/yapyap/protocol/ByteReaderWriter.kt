@@ -29,7 +29,7 @@ class ByteReader(private val bytes: ByteArray) {
     }
 
     fun readUuid(): Uuid {
-        return Uuid.fromByteArray(readByteArray(Uuid.SIZE_BYTES))
+        return Uuid.fromByteArray(readBytes(Uuid.SIZE_BYTES))
     }
 
     fun readInt(): Int {
@@ -53,9 +53,11 @@ class ByteReader(private val bytes: ByteArray) {
     }
 
     fun readNullableUuid(): Uuid? {
-        val len = readInt()
-        if (len == -1) return null
-        return Uuid.fromByteArray(readBytes(len))
+        return when (val marker = readUnsignedByte()) {
+            0 -> null
+            1 -> Uuid.fromByteArray(readBytes(Uuid.SIZE_BYTES))
+            else -> error("invalid nullable uuid marker: $marker")
+        }
     }
 
     fun readNullableString(): String? {
@@ -75,9 +77,11 @@ class ByteReader(private val bytes: ByteArray) {
     }
 
     fun readNullableByteArray(): ByteArray? {
-        val len = readInt()
-        if (len < 0) return null
-        return readBytes(len)
+        return when (val marker = readUnsignedByte()) {
+            0 -> null
+            1 -> readByteArray()
+            else -> error("invalid nullable byte array marker: $marker")
+        }
     }
 
     fun readMagic(expected: ByteArray) {
@@ -118,7 +122,7 @@ class ByteWriter(initialCapacity: Int) {
     }
 
     fun writeUuid(value: Uuid) {
-        writeByteArray(value.toByteArray())
+        writeBytes(value.toByteArray())   // raw 16 bytes, no length prefix
     }
 
     fun writeInt(value: Int) {
@@ -147,10 +151,11 @@ class ByteWriter(initialCapacity: Int) {
 
     fun writeNullableUuid(value: Uuid?) {
         if (value == null) {
-            writeInt(-1)
+            writeByte(0)          // 0 = null
             return
         }
-        writeByteArray(value.toByteArray())
+        writeByte(1)              // 1 = present
+        writeBytes(value.toByteArray())
     }
 
     fun writeNullableString(value: String?) {
@@ -169,9 +174,10 @@ class ByteWriter(initialCapacity: Int) {
 
     fun writeNullableByteArray(value: ByteArray?) {
         if (value == null) {
-            writeInt(-1)
+            writeByte(0)
             return
         }
+        writeByte(1)
         writeByteArray(value)
     }
 

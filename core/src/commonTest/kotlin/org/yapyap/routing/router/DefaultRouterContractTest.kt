@@ -6,6 +6,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -438,7 +439,7 @@ class DefaultRouterContractTest {
 private fun sampleTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
         messageId = Uuid.random(),
-        roomId = "room-1",
+        roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-sender"),
         prevId = null,
         lamportClock = 0L,

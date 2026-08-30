@@ -10,6 +10,7 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.crypto.primitives.SigningKeyPair
 import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -45,7 +46,7 @@ internal fun sampleEnvelopeContext(
 internal fun sampleTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
         messageId = Uuid.random(),
-        roomId = "room-1",
+        roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-1"),
         prevId = null,
         lamportClock = 0L,

@@ -28,7 +28,7 @@ class DefaultDagEngineTest {
     private val remoteAccount = AccountId("dag-remote-account")
     private val testDeviceId = PeerId("test-device-id")
     private val remoteDeviceId = PeerId("remote-device-id")
-    private val roomId = "dag-test-room"
+    private val roomId = RoomId(Uuid.random())
 
     @BeforeTest
     fun setup() {
@@ -327,7 +327,7 @@ class DefaultDagEngineTest {
         dagEngine.ingest(orphan1)
 
         // Orphan in a second room.
-        val otherRoom = "other-room"
+        val otherRoom = RoomId(Uuid.random())
         val orphan2 = MessagePayload.Text(
             messageId = msg2Uuid,
             roomId = otherRoom,
@@ -358,7 +358,7 @@ class DefaultDagEngineTest {
         val payload = dagEngine.append(roomId, MessageDraft.GlobalEvent(byteArrayOf(0x01, 0x02)))
 
         assertTrue(payload is MessagePayload.GlobalEvent)
-        assertEquals(roomId, payload.roomId)
+        assertEquals(RoomId.GLOBAL, payload.roomId)
         assertContentEquals(byteArrayOf(0x01, 0x02), payload.eventBytes)
         assertEquals(0L, payload.lamportClock)
     }

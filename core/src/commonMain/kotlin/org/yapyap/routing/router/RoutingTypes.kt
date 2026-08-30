@@ -5,6 +5,7 @@ import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
@@ -50,7 +51,7 @@ data class SendMessageResult(
  */
 data class TypingIndicatorEvent(
     val senderAccountId: AccountId,
-    val roomId: String,
+    val roomId: RoomId,
     val interval: Duration,
     val receivedAtEpochSeconds: Long,
 )

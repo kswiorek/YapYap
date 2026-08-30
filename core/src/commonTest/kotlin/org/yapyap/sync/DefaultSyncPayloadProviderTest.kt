@@ -3,6 +3,7 @@ package org.yapyap.sync
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -16,7 +17,7 @@ import kotlin.uuid.Uuid
 
 class DefaultSyncPayloadProviderTest {
 
-    private val roomId = "payload-room"
+    private val roomId = RoomId(Uuid.random())
     private val remoteAccount = AccountId("remote-account")
     private val remoteDevice = PeerId("remote-device")
 

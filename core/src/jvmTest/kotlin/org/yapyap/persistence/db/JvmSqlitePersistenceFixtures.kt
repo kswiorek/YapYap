@@ -4,6 +4,7 @@ import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import org.yapyap.crypto.identity.*
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.protocol.PeerId
@@ -72,7 +73,7 @@ internal val FixtureRemotePeerId =
  */
 internal fun seedRoom(
     database: YapYapDatabase,
-    roomId: String = "test-room",
+    roomId: RoomId = RoomId(Uuid.random()),
     name: String = "Test Room",
     localSeqN: Long = 0L,
 ) {

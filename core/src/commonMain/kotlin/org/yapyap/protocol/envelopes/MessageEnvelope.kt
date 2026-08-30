@@ -1,6 +1,7 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
@@ -69,11 +70,11 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
 
         /**
          * Bytes added by [encode] around [payload] for the ENCRYPTED_AND_SIGNED message path
-         * (worst case): MAGIC(4) + VERSION(1) + messageId(4+16) + source(2+64) + target(2+64)
-         * + createdAt(8) + nonce(4+24) + scheme(1) + signature(4+64) + payload length prefix(4) = 266.
+         * (worst case): MAGIC(4) + VERSION(1) + messageId(16) + source(2+64) + target(2+64)
+         * + createdAt(8) + nonce(4+24) + scheme(1) + signature(1+4+64) + payload length prefix(4) = 263.
          * Nonce is 24 bytes (ENCRYPTED_AND_SIGNED), signature is 64 bytes (Ed25519).
          */
-        const val ENCODED_OVERHEAD_BYTES: Int = 266
+        const val ENCODED_OVERHEAD_BYTES: Int = 263
 
             fun decode(bytes: ByteArray): MessageEnvelope {
             val reader = ByteReader(bytes)
@@ -147,7 +148,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
  */
 sealed interface MessagePayload {
     val messageId: Uuid
-    val roomId: String
+    val roomId: RoomId
     val senderAccountId: AccountId
     val authorDeviceId: PeerId
     val prevId: Uuid?
@@ -170,7 +171,7 @@ sealed interface MessagePayload {
 
     data class Text(
         override val messageId: Uuid,
-        override val roomId: String,
+        override val roomId: RoomId,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
         override val prevId: Uuid?,
@@ -180,7 +181,6 @@ sealed interface MessagePayload {
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
-            require(roomId.isNotBlank()) { "roomId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
             require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
             if (authorSignature != null) {
@@ -210,10 +210,10 @@ sealed interface MessagePayload {
         companion object {
             /**
              * Generous reserve for the fixed [Text] header bytes added by [encode] around the
-             * text content: version(1) + type(1) + messageId(4+16) + roomId(2+n) + accountId(2+n)
-             * + authorDeviceId(2+64) + prevId(4+16) + lamportClock(8) + createdAt(8) + text length
-             * prefix(2) + authorSignature(4+64). The variable `roomId`/`accountId` portions are
-             * the reason for the margin; the fixed portion is ~200 bytes.
+             * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
+             * + authorDeviceId(2+64) + prevId(1+16) + lamportClock(8) + createdAt(8) + text length
+             * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
+             * for the margin; the fixed portion is ~135 bytes.
              */
             const val ENCODED_HEADER_RESERVE_BYTES: Int = 512
 
@@ -274,7 +274,6 @@ sealed interface MessagePayload {
 
     data class GlobalEvent @OptIn(ExperimentalUuidApi::class) constructor(
         override val messageId: Uuid,
-        override val roomId: String = "GLOBAL",
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
         override val prevId: Uuid?,
@@ -283,8 +282,8 @@ sealed interface MessagePayload {
         val eventBytes: ByteArray,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
+        override val roomId = RoomId.GLOBAL
         init {
-            require(roomId.isNotBlank()) { "roomId must not be blank" }
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
             require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
             if (authorSignature != null) {
@@ -313,7 +312,7 @@ sealed interface MessagePayload {
         }
 
         companion object {
-                    fun decode(bytes: ByteArray): GlobalEvent {
+            fun decode(bytes: ByteArray): GlobalEvent {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.GLOBAL_EVENT)
                 // TODO: Decode typed global control events once schema is finalized.
@@ -322,7 +321,6 @@ sealed interface MessagePayload {
                 reader.requireFullyRead()
                 return GlobalEvent(
                     messageId = header.messageId,
-                    roomId = header.roomId,
                     senderAccountId = header.senderAccountId,
                     authorDeviceId = header.authorDeviceId,
                     prevId = header.prevId,
@@ -350,7 +348,7 @@ sealed interface MessagePayload {
 
 private data class MessagePayloadHeader(
     val messageId: Uuid,
-    val roomId: String,
+    val roomId: RoomId,
     val senderAccountId: AccountId,
     val authorDeviceId: PeerId,
     val prevId: Uuid?,
@@ -371,7 +369,7 @@ private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writeByte(PAYLOAD_HEADER_VERSION.toInt())
     writer.writeByte(payloadType.wireValue.toInt())
     writer.writeUuid(messageId)
-    writer.writeString(roomId)
+    writer.writeUuid(roomId.value)
     writer.writeString(senderAccountId.id)
     writer.writePeerId(authorDeviceId)
     writer.writeNullableUuid(prevId)
@@ -386,7 +384,7 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
     }
     return MessagePayloadHeader(
         messageId = reader.readUuid(),
-        roomId = reader.readString(),
+        roomId = RoomId(reader.readUuid()),
         senderAccountId = AccountId(reader.readString()),
         authorDeviceId = reader.readPeerId(),
         prevId = reader.readNullableUuid(),

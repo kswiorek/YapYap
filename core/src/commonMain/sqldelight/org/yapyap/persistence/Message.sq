@@ -1,10 +1,11 @@
 import kotlin.Boolean;
 import kotlin.uuid.Uuid;
+import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.MessagePayloadType;
 
 CREATE TABLE messages (
     message_id TEXT AS Uuid NOT NULL PRIMARY KEY,
-    room_id TEXT NOT NULL,
+    room_id TEXT AS RoomId NOT NULL,
     sender_account_id TEXT NOT NULL,
     author_device_id TEXT NOT NULL,
     prev_id TEXT AS Uuid,

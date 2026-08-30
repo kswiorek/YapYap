@@ -11,6 +11,7 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
@@ -56,7 +57,7 @@ class FakePendingSyncRepository : PendingSyncRepository {
 
     override suspend fun insertSync(
         syncId: Uuid,
-        roomId: String,
+        roomId: RoomId,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -114,7 +115,7 @@ class FakePendingSyncRepository : PendingSyncRepository {
         entries[syncId]?.let { it.row = it.row.copy(attemptedDevices = it.row.attemptedDevices + deviceId) }
     }
 
-    override suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow? =
+    override suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow? =
         entries.values.firstOrNull { it.row.roomId == roomId && it.row.anchorLamport == anchorLamport }?.row
 
     fun all(): List<PendingSyncRow> = entries.values.map { it.row }

@@ -2,6 +2,7 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
 
@@ -33,7 +34,7 @@ interface Router {
      */
     suspend fun sendTypingIndicator(
         targets: Collection<AccountId>,
-        roomId: String,
+        roomId: RoomId,
         interval: Duration,
     )
 

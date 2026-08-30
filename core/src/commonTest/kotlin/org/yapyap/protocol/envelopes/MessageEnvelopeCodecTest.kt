@@ -1,6 +1,7 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -20,7 +21,7 @@ class MessageEnvelopeCodecTest {
     fun messagePayload_text_encodeDecode_roundTrip() {
         val original = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "room-a",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
@@ -38,7 +39,6 @@ class MessageEnvelopeCodecTest {
     fun messagePayload_globalEvent_encodeDecode_roundTrip() {
         val original = MessagePayload.GlobalEvent(
             messageId = Uuid.random(),
-            roomId = "GLOBAL",
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
@@ -56,7 +56,7 @@ class MessageEnvelopeCodecTest {
     fun messagePayload_encodeForAuthorSigning_excludesSignature() {
         val payload = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "room-a",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
@@ -75,7 +75,6 @@ class MessageEnvelopeCodecTest {
     fun messageEnvelope_full_encodeDecode_globalEvent_roundTrip() {
         val payload = MessagePayload.GlobalEvent(
             messageId = Uuid.random(),
-            roomId = "GLOBAL",
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
@@ -102,7 +101,7 @@ class MessageEnvelopeCodecTest {
     fun messageEnvelope_full_encodeDecode_text_roundTrip() {
         val payload = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "room-b",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
@@ -129,7 +128,7 @@ class MessageEnvelopeCodecTest {
     fun messageEnvelope_encodeForSigning_omitsSignatureBytes() {
         val payload = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "r",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
@@ -158,7 +157,7 @@ class MessageEnvelopeCodecTest {
     fun messageEnvelope_full_encodeDecode_signedSignatureBytes_roundTrip() {
         val payload = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "r",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,
@@ -192,7 +191,7 @@ class MessageEnvelopeCodecTest {
     fun messagePayload_types_matchDiscriminant() {
         val text = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "r",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = authorAccountId,
             authorDeviceId = authorDeviceId,
             prevId = null,

@@ -45,7 +45,7 @@ class DefaultDagEngine(
      */
     private val mutex = Mutex()
 
-    override suspend fun append(roomId: String, draft: MessageDraft): MessagePayload = mutex.withLock {
+    override suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload = mutex.withLock {
         val senderAccountId = identityResolver.getLocalAccountId()
         val authorDeviceId = identityResolver.getLocalDeviceId()
         val createdAt = timeProvider.nowEpochSeconds()
@@ -68,7 +68,6 @@ class DefaultDagEngine(
             )
             is MessageDraft.GlobalEvent -> MessagePayload.GlobalEvent(
                 messageId = messageId,
-                roomId = roomId,
                 senderAccountId = senderAccountId,
                 authorDeviceId = authorDeviceId,
                 prevId = prevId,
@@ -230,12 +229,12 @@ class DefaultDagEngine(
         }
     }
 
-    override suspend fun getMessagesInRoom(roomId: String): List<MessagePayload> {
+    override suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload> {
         return messageRepository.findAllInRoom(roomId).map { it.payload }
     }
 
     override suspend fun getMessagesInRoom(
-        roomId: String,
+        roomId: RoomId,
         limit: Int,
         before: MessageCursor?,
     ): List<MessagePayload> {
@@ -246,7 +245,7 @@ class DefaultDagEngine(
         ).map { it.payload }
     }
 
-    override suspend fun ancestorsOf(roomId: String, messageId: Uuid, limit: Int): List<MessagePayload> {
+    override suspend fun ancestorsOf(roomId: RoomId, messageId: Uuid, limit: Int): List<MessagePayload> {
         val result = mutableListOf<MessagePayload>()
         var current = messageRepository.findById(messageId) ?: return result
         var steps = 0
@@ -262,7 +261,7 @@ class DefaultDagEngine(
         return result
     }
 
-    override suspend fun openGaps(roomId: String): List<Gap> {
+    override suspend fun openGaps(roomId: RoomId): List<Gap> {
         return causalHoldRepository.findByRoom(roomId).map { row ->
             Gap(
                 missingPrevId = row.missingPrevId,

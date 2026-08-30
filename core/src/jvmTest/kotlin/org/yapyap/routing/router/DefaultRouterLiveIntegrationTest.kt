@@ -11,6 +11,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -51,7 +52,7 @@ class DefaultRouterLiveIntegrationTest {
     private fun sampleText(): MessagePayload.Text =
         MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = "room-live",
+            roomId = RoomId(Uuid.random()),
             senderAccountId = AccountId("alice-acct"),
             prevId = null,
             lamportClock = 1L,

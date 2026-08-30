@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.dag
 
 import org.yapyap.protocol.envelopes.MessagePayload
+import kotlin.jvm.JvmInline
 import kotlin.uuid.Uuid
 
 sealed interface MessageDraft {
@@ -26,4 +27,11 @@ sealed interface IngestResult {
         val missingPrevId: Uuid,
         val anchorLamport: Long,
     ) : IngestResult
+}
+@JvmInline
+value class RoomId(val value: Uuid) {
+    companion object {
+        /** The single global control room shared by every device. */
+        val GLOBAL = RoomId(Uuid.NIL)
+    }
 }

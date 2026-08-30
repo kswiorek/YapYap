@@ -15,6 +15,7 @@ import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.Gap
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.MessageDraft
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomRepository
@@ -44,20 +45,20 @@ internal class DefaultMessagingService(
      * Map of open windows per room. Guarded by [windowsMapMutex].
      */
     private val windowsMapMutex = Mutex()
-    private val openWindows = mutableMapOf<String, DefaultRoomMessageWindow>()
+    private val openWindows = mutableMapOf<RoomId, DefaultRoomMessageWindow>()
 
     // --- Typing: outbound announcements -------------------------------------------------
 
     /** Per-room announcement loops started by [setTyping]. Guarded by [typingSendMutex]. */
     private val typingSendMutex = Mutex()
-    private val typingSendJobs = mutableMapOf<String, Job>()
+    private val typingSendJobs = mutableMapOf<RoomId, Job>()
 
     // --- Typing: inbound state -----------------------------------------------------------
 
-    private data class TypingKey(val roomId: String, val accountId: AccountId)
+    private data class TypingKey(val roomId: RoomId, val accountId: AccountId)
 
-    private val _typingState = MutableStateFlow<Map<String, Set<AccountId>>>(emptyMap())
-    override val typingState: StateFlow<Map<String, Set<AccountId>>> = _typingState.asStateFlow()
+    private val _typingState = MutableStateFlow<Map<RoomId, Set<AccountId>>>(emptyMap())
+    override val typingState: StateFlow<Map<RoomId, Set<AccountId>>> = _typingState.asStateFlow()
 
     /**
      * Idle-timeout jobs keyed by (roomId, account). Guarded by [typingTimeoutMutex]. Each
@@ -121,7 +122,7 @@ internal class DefaultMessagingService(
         }
     }
 
-    override suspend fun setTyping(roomId: String, isTyping: Boolean) {
+    override suspend fun setTyping(roomId: RoomId, isTyping: Boolean) {
         typingSendMutex.withLock {
             val existing = typingSendJobs[roomId]
             if (isTyping) {
@@ -141,7 +142,7 @@ internal class DefaultMessagingService(
      * changes during a long composition are respected; the interval is re-read so hot config
      * reloads take effect.
      */
-    private suspend fun announceTyping(roomId: String) {
+    private suspend fun announceTyping(roomId: RoomId) {
         while (true) {
             val interval = orchestratorConfig.value.typingIndicatorInterval
             val members = roomRepository.membersOfRoom(roomId)
@@ -201,7 +202,7 @@ internal class DefaultMessagingService(
     }
 
     override suspend fun sendTextMessage(
-        roomId: String,
+        roomId: RoomId,
         text: String,
     ): SendMessageResult {
         val textBytes = text.encodeToByteArray()
@@ -270,7 +271,7 @@ internal class DefaultMessagingService(
         return aggregateRoomSendResults(results)
     }
 
-    override suspend fun openRoom(roomId: String, initialPageSize: Int): RoomMessageWindow {
+    override suspend fun openRoom(roomId: RoomId, initialPageSize: Int): RoomMessageWindow {
         windowsMapMutex.withLock {
             check(openWindows[roomId] == null) {
                 "Room $roomId is already open; close it first"
@@ -361,7 +362,7 @@ internal class DefaultMessagingService(
     }
 
     private inner class DefaultRoomMessageWindow(
-        private val roomId: String,
+        private val roomId: RoomId,
         private val initialPageSize: Int,
         scope: CoroutineScope,
     ) : RoomMessageWindow {

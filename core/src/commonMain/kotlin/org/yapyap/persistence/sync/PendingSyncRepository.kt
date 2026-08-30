@@ -3,6 +3,7 @@ package org.yapyap.persistence.sync
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.Pending_syncs
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
@@ -12,7 +13,7 @@ import kotlin.uuid.Uuid
 
 data class PendingSyncRow(
     val syncId: Uuid,
-    val roomId: String,
+    val roomId: RoomId,
     val anchorLamport: Long,
     val orphanLamport: Long,
     val candidateAccounts: List<AccountId>,
@@ -35,7 +36,7 @@ interface PendingSyncRepository {
      */
     suspend fun insertSync(
         syncId: Uuid,
-        roomId: String,
+        roomId: RoomId,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -59,7 +60,7 @@ interface PendingSyncRepository {
     suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId)
 
     // Finds the sync with the given [anchorLamport] in the given [roomId].
-    suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow?
+    suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow?
 }
 
 class DefaultPendingSyncRepository(
@@ -71,7 +72,7 @@ class DefaultPendingSyncRepository(
 
     override suspend fun insertSync(
         syncId: Uuid,
-        roomId: String,
+        roomId: RoomId,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -142,7 +143,7 @@ class DefaultPendingSyncRepository(
         }
     }
 
-    override suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow? =
+    override suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow? =
         withContext(dbDispatcher) {
             queries.findGapSyncsByAnchor(roomId, anchorLamport).executeAsList().firstOrNull()?.toRow()
         }

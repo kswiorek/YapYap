@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.Causal_hold
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
@@ -23,7 +24,7 @@ interface CausalHoldRepository {
 
     suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow>
 
-    suspend fun findByRoom(roomId: String): List<CausalHoldRow>
+    suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow>
 
     suspend fun findAll(): List<CausalHoldRow>
 
@@ -71,7 +72,7 @@ class DefaultCausalHoldRepository(
             rows
         }
 
-    override suspend fun findByRoom(roomId: String): List<CausalHoldRow> =
+    override suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow> =
         withContext(dbDispatcher) {
             val rows = queries.selectCausalHoldsByRoom(roomId).executeAsList().map { it.toRow() }
             AppLog.debug(

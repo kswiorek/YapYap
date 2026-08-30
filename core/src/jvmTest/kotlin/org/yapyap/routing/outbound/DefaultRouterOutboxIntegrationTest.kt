@@ -8,6 +8,7 @@ import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.packet.DefaultPacketOutbox
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
@@ -174,7 +175,7 @@ class DefaultRouterOutboxIntegrationTest {
 private fun sampleTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
         messageId = Uuid.random(),
-        roomId = "room-integration",
+        roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("acct-sender"),
         prevId = null,
         lamportClock = 0L,

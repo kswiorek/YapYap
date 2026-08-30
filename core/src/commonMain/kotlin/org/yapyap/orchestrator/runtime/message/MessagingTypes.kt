@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.orchestrator.dag.RoomId
 import kotlin.uuid.Uuid
 
 sealed interface MessageDisplayItem {
@@ -32,7 +33,7 @@ sealed interface MessageDisplayItem {
 }
 
 data class IncomingMessageEvent(
-    val roomId: String,
+    val roomId: RoomId,
     val senderAccountId: AccountId,
     val messagePreview: String,   // first ~80 chars of text
     val timestamp: Long,

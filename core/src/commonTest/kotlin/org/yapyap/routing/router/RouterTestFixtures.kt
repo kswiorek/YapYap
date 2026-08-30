@@ -13,6 +13,7 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -178,7 +179,7 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
 
     override suspend fun insertSync(
         syncId: Uuid,
-        roomId: String,
+        roomId: RoomId,
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
@@ -224,7 +225,7 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
         rows[syncId]?.let { rows[syncId] = it.copy(attemptedDevices = it.attemptedDevices + deviceId) }
     }
 
-    override suspend fun findGapSyncByAnchor(roomId: String, anchorLamport: Long): PendingSyncRow? =
+    override suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow? =
         rows.values.firstOrNull { it.roomId == roomId && it.anchorLamport == anchorLamport }
 }
 

@@ -1,5 +1,6 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
@@ -111,7 +112,7 @@ sealed interface SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PACKET_ACK
 
             override fun encode(): ByteArray {
-            val writer = ByteWriter(32 + Uuid.SIZE_BYTES)
+            val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 1)
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(packetId)
             writer.writeByte(packetType.wireValue.toInt())
@@ -144,7 +145,7 @@ sealed interface SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PACKET_NACK
 
             override fun encode(): ByteArray {
-            val writer = ByteWriter(48 + Uuid.SIZE_BYTES + (reasonText?.length ?: 0))
+            val writer = ByteWriter(21 + (reasonText?.length ?: 0))
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(packetId)
             writer.writeByte(packetType.wireValue.toInt())
@@ -174,7 +175,7 @@ sealed interface SystemPayload {
         }
     }
         data class SyncRequest(
-            val roomId: String,
+            val roomId: RoomId,
             val syncId: Uuid,
             val anchorLamport: Long,
             val orphanLamport: Long,
@@ -182,9 +183,9 @@ sealed interface SystemPayload {
             override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
 
             override fun encode(): ByteArray {
-                val writer = ByteWriter(32 + roomId.length + Uuid.SIZE_BYTES + 8 + 8)
+                val writer = ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + 8)
                 writer.writeByte(kind.wireValue.toInt())
-                writer.writeString(roomId)
+                writer.writeUuid(roomId.value)
                 writer.writeUuid(syncId)
                 writer.writeLong(anchorLamport)
                 writer.writeLong(orphanLamport)
@@ -197,7 +198,7 @@ sealed interface SystemPayload {
                     require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
                         "Expected SYNC_REQUEST payload kind"
                     }
-                    val roomId = reader.readString()
+                    val roomId = RoomId(reader.readUuid())
                     val syncId = reader.readUuid()
                     val anchorLamport = reader.readLong()
                     val orphanLamport = reader.readLong()
@@ -217,7 +218,7 @@ sealed interface SystemPayload {
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_NACK
         override fun encode(): ByteArray {
-            val writer = ByteWriter(32 + reason.length + Uuid.SIZE_BYTES)
+            val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 2 + reason.length)
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(syncId)
             writer.writeString(reason)
@@ -247,15 +248,15 @@ sealed interface SystemPayload {
      * no further indicator within roughly 2x this interval considers the author idle.
      */
     data class TypingIndicator(
-        val roomId: String,
+        val roomId: RoomId,
         val intervalMillis: Int,
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.TYPING_INDICATOR
 
         override fun encode(): ByteArray {
-            val writer = ByteWriter(16 + roomId.length)
+            val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 4)
             writer.writeByte(kind.wireValue.toInt())
-            writer.writeString(roomId)
+            writer.writeUuid(roomId.value)
             writer.writeInt(intervalMillis)
             return writer.toByteArray()
         }
@@ -266,13 +267,53 @@ sealed interface SystemPayload {
                 require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.TYPING_INDICATOR) {
                     "Expected TYPING_INDICATOR payload kind"
                 }
-                val roomId = reader.readString()
+                val roomId = RoomId(reader.readUuid())
                 val intervalMillis = reader.readInt()
                 reader.requireFullyRead()
                 return TypingIndicator(
                     roomId = roomId,
                     intervalMillis = intervalMillis,
                 )
+            }
+        }
+    }
+
+    data class Ping(
+        val pingId: Uuid,
+        val roomLamports: Map<RoomId, Long>,
+    ): SystemPayload {
+        //TODO: round trip tests
+        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
+        override fun encode(): ByteArray {
+            val writer = ByteWriter(16 + Uuid.SIZE_BYTES + roomLamports.size * (Uuid.SIZE_BYTES + 8))
+            writer.writeByte(kind.wireValue.toInt())
+            writer.writeUuid(pingId)
+            writer.writeInt(roomLamports.size)
+            roomLamports.entries
+                .forEach { (roomId, lamport) ->
+                    writer.writeUuid(roomId.value)
+                    writer.writeLong(lamport)
+                }
+            return writer.toByteArray()
+        }
+
+        companion object {
+            private const val MAX_ROOMS = 4096
+            //TODO: agree on max room count
+            fun decode(bytes: ByteArray): Ping {
+                val reader = ByteReader(bytes)
+                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.PING) {
+                    "Expected PING payload kind"
+                }
+                val pingId = reader.readUuid()
+                val count = reader.readInt()
+                require(count in 0..MAX_ROOMS) { "room lamport count $count out of range" }
+                val roomLamports = HashMap<RoomId, Long>(count)
+                repeat(count) {
+                    roomLamports[RoomId(reader.readUuid())] = reader.readLong()
+                }
+                reader.requireFullyRead()
+                return Ping(pingId, roomLamports)
             }
         }
     }
@@ -286,6 +327,7 @@ sealed interface SystemPayload {
                 SystemEnvelopeKind.SYNC_REQUEST -> SyncRequest.decode(bytes)
                 SystemEnvelopeKind.SYNC_NACK -> SyncNack.decode(bytes)
                 SystemEnvelopeKind.TYPING_INDICATOR -> TypingIndicator.decode(bytes)
+                SystemEnvelopeKind.PING -> Ping.decode(bytes)
             }
         }
     }
@@ -296,7 +338,8 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
     PACKET_NACK(2),
     SYNC_REQUEST(3),
     SYNC_NACK(4),
-    TYPING_INDICATOR(5);
+    TYPING_INDICATOR(5),
+    PING(6);
 
     companion object {
         fun fromWireValue(value: Byte): SystemEnvelopeKind =

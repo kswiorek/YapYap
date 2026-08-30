@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.first
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
@@ -160,7 +161,7 @@ class DefaultRouterE2eeIntegrationTest {
 private fun sampleE2eeTextPayload(): MessagePayload.Text =
     MessagePayload.Text(
         messageId = Uuid.random(),
-        roomId = "room-e2ee-integration",
+        roomId = RoomId(Uuid.random()),
         senderAccountId = AccountId("alice-e2ee-account"),
         prevId = null,
         lamportClock = 1L,
