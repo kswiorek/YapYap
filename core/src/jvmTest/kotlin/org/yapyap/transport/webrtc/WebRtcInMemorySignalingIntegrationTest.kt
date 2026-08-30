@@ -102,6 +102,85 @@ class WebRtcInMemorySignalingIntegrationTest {
         }
     }
 
+    @Test
+    fun defaultWebRtcTransport_twoPeers_deliversMaxSize() = runBlocking {
+        val peerA = PeerId("a".repeat(64))
+        val peerB = PeerId("b".repeat(64))
+
+        val config = MutableStateFlow(WebRtcBackendConfig())
+
+        val backendA = JvmWebRtcBackend(config)
+        val backendB = JvmWebRtcBackend(config)
+        val alice = DefaultWebRtcTransport(backendA)
+        val bob = DefaultWebRtcTransport(backendB)
+
+        val relayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val relayJobs = mutableListOf<Job>()
+
+        val payload = ByteArray(size = WebRtcBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_HEADER_BYTES)
+        try {
+            alice.start(peerA)
+            bob.start(peerB)
+
+            relayJobs += relayScope.launch {
+                alice.outgoingBootstrapSignals.collect { sig ->
+                    bob.handleBootstrapSignal(sig)
+                }
+            }
+            relayJobs += relayScope.launch {
+                bob.outgoingBootstrapSignals.collect { sig ->
+                    alice.handleBootstrapSignal(sig)
+                }
+            }
+
+            val (received, envelope) =
+                withTimeout(30L.seconds) {
+                    coroutineScope {
+                        val inbound = async {
+                            bob.incomingEnvelopes.first { it.source == peerA }
+                        }
+                        yield()
+
+                        alice.openSession(peerB)
+
+                        alice.sessionStates.first {
+                            it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
+                        }
+                        bob.sessionStates.first {
+                            it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
+                        }
+
+                        val t0 = 1_800_000_000L
+                        val out =
+                            BinaryEnvelope(
+                                packetId = Uuid.random(),
+                                packetType = PacketType.MESSAGE,
+                                dispositionRequested = true,
+                                createdAtEpochSeconds = t0,
+                                expiresAtEpochSeconds = t0 + 3_600L,
+                                source = peerA,
+                                target = peerB,
+                                payload = payload,
+                            )
+
+                        sendEnvelopeWhenChannelReady(alice, peerB, out)
+
+                        Pair(inbound.await(), out)
+                    }
+                }
+
+            assertEquals(peerA, received.source)
+            assertEquals(envelope.packetId, received.envelope.packetId)
+            assertEquals(envelope.packetType, received.envelope.packetType)
+            assertEquals(envelope.payload.size, received.envelope.payload.size)
+        } finally {
+            relayJobs.forEach { it.cancel() }
+            relayScope.cancel()
+            runCatching { alice.stop() }
+            runCatching { bob.stop() }
+        }
+    }
+
     /**
      * Offer-side may report CONNECTED before the outbound data channel is open for send.
      */

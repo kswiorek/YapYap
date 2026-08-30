@@ -141,6 +141,7 @@ sqldelight {
     databases {
         create("YapYapDatabase") {
             packageName.set("org.yapyap.persistence")
+            verifyMigrations.set(true)
         }
     }
 }

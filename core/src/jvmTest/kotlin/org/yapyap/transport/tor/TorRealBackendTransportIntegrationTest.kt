@@ -30,7 +30,7 @@ import kotlin.uuid.Uuid
  */
 class TorRealBackendTransportIntegrationTest {
     @Test
-    fun defaultTorTransport_withKmpTorNoExecBackend_sendsToSelfAndDecodesIncoming() = runBlocking {
+    fun defaultTorTransport_withKmpTorBackend_sendsToSelfAndDecodesIncoming() = runBlocking {
         val tempDir = Path(SystemTemporaryDirectory, "yapyap-tor-it-${Uuid.random()}")
         SystemFileSystem.createDirectories(tempDir)
         val backend = KmpTorBackend(
@@ -74,6 +74,58 @@ class TorRealBackendTransportIntegrationTest {
             assertEquals(out.source, received.envelope.source)
             assertEquals(out.target, received.envelope.target)
             assertContentEquals(out.payload, received.envelope.payload)
+        } finally {
+            runCatching { transport.stop() }
+            runCatching { deleteRecursively(tempDir) }
+        }
+    }
+
+    @Test
+    fun defaultTorTransport_sendsMaximumSizeMessage() = runBlocking {
+        val tempDir = Path(SystemTemporaryDirectory, "yapyap-tor-it-${Uuid.random()}")
+        SystemFileSystem.createDirectories(tempDir)
+        val backend = KmpTorBackend(
+            torStateRootPath = tempDir,
+            config = MutableStateFlow(TorBackendConfig(
+                startupTimeout = 180.seconds,
+            )),
+        )
+        val transport = DefaultTorTransport(backend = backend)
+        val local = PeerId("0".repeat(64))
+        val remote = PeerId("1".repeat(64))
+        val t0 = 1_700_000_000L
+        val payload = ByteArray(TorBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_HEADER_BYTES)
+        val out = BinaryEnvelope(
+            packetId = Uuid.random(),
+            packetType = PacketType.MESSAGE,
+            dispositionRequested = true,
+            createdAtEpochSeconds = t0,
+            expiresAtEpochSeconds = t0 + 3_600L,
+            source = local,
+            target = remote,
+            payload = payload,
+        )
+        try {
+            val localEndpoint = transport.start()
+            assertTrue(localEndpoint.onionAddress.endsWith(".onion"), "expected .onion from Tor")
+            val received = withTimeout(300_000L.milliseconds) {
+                coroutineScope {
+                    val waitInbound = async {
+                        transport.incoming.first()
+                    }
+                    transport.send(localEndpoint, out)
+                    waitInbound.await()
+                }
+            }
+            assertEquals(localEndpoint.onionAddress, received.source.onionAddress)
+            assertEquals(localEndpoint.port, received.source.port)
+            assertEquals(out.packetType, received.envelope.packetType)
+            assertEquals(out.packetId, received.envelope.packetId)
+            assertEquals(out.createdAtEpochSeconds, received.envelope.createdAtEpochSeconds)
+            assertEquals(out.expiresAtEpochSeconds, received.envelope.expiresAtEpochSeconds)
+            assertEquals(out.source, received.envelope.source)
+            assertEquals(out.target, received.envelope.target)
+            assertEquals(out.payload.size, received.envelope.payload.size)
         } finally {
             runCatching { transport.stop() }
             runCatching { deleteRecursively(tempDir) }

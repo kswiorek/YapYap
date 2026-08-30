@@ -3,6 +3,9 @@ package org.yapyap.persistence.messaging
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 
@@ -18,19 +21,48 @@ class DefaultRoomRepository(
 ) : RoomRepository {
     override suspend fun membersOfRoom(roomId: String): List<AccountId> =
         withContext(dbDispatcher) {
-            database.roomQueries.selectAllMembersForRoom(roomId)
+            val members = database.roomQueries.selectAllMembersForRoom(roomId)
                 .executeAsList()
                 .map { AccountId(it.account_id) }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.ROOM_MEMBERS_QUERIED,
+                message = "Fetched room members",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "memberCount" to members.size,
+                ),
+            )
+            members
         }
 
     override suspend fun updateLocalSeq(roomId: String, seqN: Long) {
         withContext(dbDispatcher) {
             database.roomQueries.updateRoomLocalSeq(seqN, roomId)
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.ROOM_LOCAL_SEQ_UPDATED,
+                message = "Updated room local sequence",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "seqN" to seqN,
+                ),
+            )
         }
     }
 
     override suspend fun getLocalSeq(roomId: String): Long? =
         withContext(dbDispatcher) {
-            database.roomQueries.selectRoomLocalSeq(roomId).executeAsOneOrNull()
+            val localSeq = database.roomQueries.selectRoomLocalSeq(roomId).executeAsOneOrNull()
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.ROOM_LOCAL_SEQ_QUERIED,
+                message = "Queried room local sequence",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "seqN" to (localSeq ?: "null"),
+                ),
+            )
+            localSeq
         }
 }
