@@ -11,8 +11,10 @@ import org.yapyap.config.*
 import org.yapyap.persistence.config.ConfigStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.fail
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class ConfigServiceTest {
@@ -23,6 +25,22 @@ class ConfigServiceTest {
         return dir
     }
 
+    // Select fields dynamically from FIELDS so the tests exercise the generic
+    // structure/logic rather than pinning specific settings.
+    private fun userNumberField(): NumberField =
+        FIELDS.filterIsInstance<NumberField>().first { it.source == FieldSource.USER }
+
+    private fun networkPeriodField(): PeriodField =
+        FIELDS.filterIsInstance<PeriodField>().first { it.source == FieldSource.NETWORK }
+
+    private fun nonEditableField(): Field = FIELDS.first { it.source != FieldSource.USER }
+
+    private fun defaultNumber(field: NumberField): Long =
+        (field.read(RuntimeConfig()) as ConfigValue.Number).value
+
+    private fun defaultPeriod(field: PeriodField): Duration =
+        (field.read(RuntimeConfig()) as ConfigValue.Period).value
+
     private fun number(service: ConfigService, id: String): Long =
         (service.settings.value.first { it.id == id } as NumberSetting).value
 
@@ -30,6 +48,14 @@ class ConfigServiceTest {
         withTimeout(10_000) {
             service.settings.first { settings ->
                 (settings.first { it.id == id } as NumberSetting).value == expected
+            }
+        }
+    }
+
+    private suspend fun awaitPeriod(service: ConfigService, id: String, expected: Duration) {
+        withTimeout(10_000) {
+            service.settings.first { settings ->
+                (settings.first { it.id == id } as PeriodSetting).value == expected
             }
         }
     }
@@ -59,10 +85,12 @@ class ConfigServiceTest {
             val service = DefaultConfigService(store)
             service.start(scope)
 
-            val settings = service.settings.value
-            assertEquals(FIELDS.size, settings.size)
-            assertTrue(settings.first { it.id == "outboxMaxSizeBytes" }.editable)
-            assertFalse(settings.first { it.id == "messageLifetimeSeconds" }.editable)
+            val byId = service.settings.value.associateBy { it.id }
+            assertEquals(FIELDS.size, byId.size)
+            for (field in FIELDS) {
+                val setting = byId[field.id] ?: fail("missing setting for ${field.id}")
+                assertEquals(field.editable, setting.editable, "editable mismatch for ${field.id}")
+            }
         } finally {
             scope.cancel()
             deleteRecursively(dir)
@@ -78,8 +106,10 @@ class ConfigServiceTest {
             val service = DefaultConfigService(store)
             service.start(scope)
 
-            assertEquals(UpdateResult.Success, service.update("outboxMaxSizeBytes", ConfigValue.Number(4096L)))
-            awaitNumber(service, "outboxMaxSizeBytes", 4096L)
+            val field = userNumberField()
+            val newValue = defaultNumber(field) + 1
+            assertEquals(UpdateResult.Success, service.update(field.id, ConfigValue.Number(newValue)))
+            awaitNumber(service, field.id, newValue)
         } finally {
             scope.cancel()
             deleteRecursively(dir)
@@ -95,11 +125,15 @@ class ConfigServiceTest {
             val service = DefaultConfigService(store)
             service.start(scope)
 
-            service.update("outboxMaxSizeBytes", ConfigValue.Number(4096L))
-            awaitNumber(service, "outboxMaxSizeBytes", 4096L)
+            val field = userNumberField()
+            val defaultValue = defaultNumber(field)
+            val newValue = defaultValue + 1
 
-            service.update("outboxMaxSizeBytes", null)
-            awaitNumber(service, "outboxMaxSizeBytes", 10485760L) // default restored
+            service.update(field.id, ConfigValue.Number(newValue))
+            awaitNumber(service, field.id, newValue)
+
+            service.update(field.id, null)
+            awaitNumber(service, field.id, defaultValue) // default restored
         } finally {
             scope.cancel()
             deleteRecursively(dir)
@@ -115,8 +149,15 @@ class ConfigServiceTest {
             val service = DefaultConfigService(store)
             service.start(scope)
 
-            assertTrue(service.update("messageLifetimeSeconds", ConfigValue.Number(1L)) is UpdateResult.Failure)
-            assertTrue(service.update("outboxMaxSizeBytes", ConfigValue.Number(-1L)) is UpdateResult.Failure)
+            assertTrue(service.update(nonEditableField().id, ConfigValue.Number(1L)) is UpdateResult.Failure)
+
+            val userNumber = userNumberField()
+            // Type mismatch → rejected by Field.write()'s type check.
+            assertTrue(service.update(userNumber.id, ConfigValue.Period(1.seconds)) is UpdateResult.Failure)
+            // Below declared min, for every number field that declares one.
+            for (withMin in FIELDS.filterIsInstance<NumberField>().filter { it.min != null }) {
+                assertTrue(service.update(withMin.id, ConfigValue.Number(withMin.min!! - 1)) is UpdateResult.Failure)
+            }
         } finally {
             scope.cancel()
             deleteRecursively(dir)
@@ -132,15 +173,20 @@ class ConfigServiceTest {
             val service = DefaultConfigService(store)
             service.start(scope)
 
+            val networkField = networkPeriodField()
+            val userField = userNumberField()
+            val newNet = defaultPeriod(networkField) + 999.seconds
+            val userDefault = defaultNumber(userField)
+
             store.applyNetwork(
                 mapOf(
-                    "messageLifetimeSeconds" to ConfigValue.Number(999L),
-                    "outboxMaxSizeBytes" to ConfigValue.Number(1L), // USER id → ignored
+                    networkField.id to ConfigValue.Period(newNet),
+                    userField.id to ConfigValue.Number(userDefault + 1), // USER id → ignored
                 )
             )
 
-            awaitNumber(service, "messageLifetimeSeconds", 999L)
-            assertEquals(10485760L, number(service, "outboxMaxSizeBytes"))
+            awaitPeriod(service, networkField.id, newNet)
+            assertEquals(userDefault, number(service, userField.id))
         } finally {
             scope.cancel()
             deleteRecursively(dir)
@@ -157,11 +203,13 @@ class ConfigServiceTest {
             val service = DefaultConfigService(store)
             service.start(scope)
 
-            val overrides: Overrides = mapOf("outboxMaxSizeBytes" to ConfigValue.Number(777L))
+            val field = userNumberField()
+            val newValue = defaultNumber(field) + 1
+            val overrides: Overrides = mapOf(field.id to ConfigValue.Number(newValue))
             writeFile(userFile, overrides.toTomlText())
 
             store.onUserSettingsFileChanged()
-            awaitNumber(service, "outboxMaxSizeBytes", 777L)
+            awaitNumber(service, field.id, newValue)
         } finally {
             scope.cancel()
             deleteRecursively(dir)

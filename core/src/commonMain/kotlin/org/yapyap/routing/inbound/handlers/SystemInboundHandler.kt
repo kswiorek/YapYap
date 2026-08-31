@@ -192,6 +192,18 @@ internal class SystemInboundHandler(
                 )
                 InboundHandleResult.Success(listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)))
             }
+            is SystemPayload.LogOff -> {
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.LOG_OFF_HANDLED,
+                    message = "Received log off",
+                    fields = mapOf(
+                        "source" to systemEnvelope.source,
+                    )
+                )
+
+                InboundHandleResult.Success(listOf(InboundSideEffect.PeerOffline(systemEnvelope.source)))
+            }
             // TODO Sprint 4: SystemPayload.Ping/Pong -> InboundSideEffect.PeerHeartbeat(...)
             else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}
         }

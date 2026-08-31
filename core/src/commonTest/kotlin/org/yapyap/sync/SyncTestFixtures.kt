@@ -31,6 +31,7 @@ import org.yapyap.time.EpochProvider
 import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /** [InboundMessagePipeline] whose [ingestResults] can be driven manually. */
@@ -185,7 +186,7 @@ internal fun buildSyncRoutingStack(
     val dispatcher = EnvelopeDispatcher(ctx)
     val policy = SessionOrTorPolicy(MutableStateFlow(RouterConfig()))
     val outbox = TrackingPacketOutbox()
-    val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePollSeconds = MutableStateFlow(60))
+    val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePoll = MutableStateFlow(60.seconds))
     val proactiveSessionOpener = ProactiveSessionOpener(ctx, PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig())))
     val outboundMessenger = OutboundMessenger(ctx, dispatcher, policy, outboxProcessor, sessionOpener = proactiveSessionOpener)
     val systemSender = SystemSender(ctx, policy, dispatcher)

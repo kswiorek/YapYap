@@ -212,6 +212,8 @@ internal class FakeIdentityResolverForProtection(
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId) = error("not used")
 
+    override suspend fun getAllPeers(): List<PeerId> = error("not used")
+
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
 
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")

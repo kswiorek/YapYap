@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class PeerAvailabilityRegistryTest {
 
@@ -35,7 +36,8 @@ class PeerAvailabilityRegistryTest {
     @Test
     fun isOnline_expiresAfterThreshold() {
         val time = FixedEpochProvider(1_000L)
-        val registry = PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig().copy(onlineThresholdSeconds = 60)))
+        val registry =
+            PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig().copy(onlineThreshold = 60.seconds)))
         registry.markReachable(peer("a"), 1_000L)
         assertTrue(registry.isOnline(peer("a")))
 

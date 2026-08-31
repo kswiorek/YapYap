@@ -164,6 +164,7 @@ internal class InboundEnvelopeProcessor(
                 is InboundSideEffect.MarkPeerAttempted ->
                     syncHandler.onMarkPeerAttempted(effect.syncId, effect.peerId)
                 is InboundSideEffect.PeerHeartbeat -> pingProvider.handlePing(effect.peerId, effect.ping)
+                is InboundSideEffect.PeerOffline -> peerAvailabilityRegistry.markOffline(effect.peerId)
             }
         }
     }

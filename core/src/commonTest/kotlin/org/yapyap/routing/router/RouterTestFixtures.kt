@@ -33,6 +33,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.ping.LamportSnapshotProvider
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.time.EpochProvider
@@ -323,6 +324,8 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
+    override suspend fun getAllPeers(): List<PeerId> = peersByAccount.values.flatten().distinct()
+
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         peersByAccount.entries.firstOrNull { deviceId in it.value }?.key
 
@@ -479,6 +482,8 @@ internal class E2eeIdentityResolverForRouter(
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
+    override suspend fun getAllPeers(): List<PeerId> = peers.keys.toList()
+
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         peersByAccount.entries.firstOrNull { deviceId in it.value }?.key
 
@@ -566,6 +571,10 @@ internal fun buildE2eeRouterStack(
     )
 }
 
+internal class FakeLamportSnapshotProvider : LamportSnapshotProvider {
+    override suspend fun latestRoomLamports(peerId: PeerId): List<Pair<RoomId, Long>> = emptyList()
+}
+
 internal fun e2eeRouterUnderTest(
     stack: E2eeRouterTestStack,
     tor: RecordingTorTransport,
@@ -588,6 +597,7 @@ internal fun e2eeRouterUnderTest(
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
+        lamportSnapshotProvider = FakeLamportSnapshotProvider(),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -614,7 +624,7 @@ internal fun outboxProcessorUnderTest(
         dispatcher = EnvelopeDispatcher(ctx),
         transportPolicy = SessionOrTorPolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
-        maxIdlePollSeconds = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
+        maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
     )
 }
 
@@ -641,4 +651,5 @@ internal fun defaultRouterUnderTest(
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
+        lamportSnapshotProvider = FakeLamportSnapshotProvider(),
     )

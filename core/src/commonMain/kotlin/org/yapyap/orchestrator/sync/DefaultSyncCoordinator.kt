@@ -69,7 +69,7 @@ class DefaultSyncCoordinator(
 
     override suspend fun requestRangeSync(roomId: RoomId, pingLamport: Long) {
         syncMutex.withLock {
-            val localSeqN = roomRepository.getLocalSeq(roomId) ?: error("unknown room $roomId")
+            val localSeqN = roomRepository.getLocalSeq(roomId) ?: return
             if (localSeqN >= pingLamport) return
             val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, localSeqN)
 

@@ -26,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class DefaultRouterOutboxIntegrationTest {
@@ -56,10 +57,10 @@ class DefaultRouterOutboxIntegrationTest {
 
         val now = 10_000L
         assertTrue(outbox.listDue(now).isEmpty())
-        assertEquals(now + RouterConfig().torRetryDelay, outbox.earliestPendingRetryAt())
-        assertEquals(1, tor.sends.size)
+        assertEquals(now + RouterConfig().torRetryDelay.inWholeSeconds, outbox.earliestPendingRetryAt())
+        assertEquals(1, tor.sendsExcludingHeartbeat().size)
 
-        val packetId = tor.sends.single().second.packetId
+        val packetId = tor.sendsExcludingHeartbeat().single().second.packetId
         tor.tryEmitIncoming(inboundTorAck(packetId, FixtureTorEndpoint))
         delay(400.milliseconds)
 
@@ -92,8 +93,8 @@ class DefaultRouterOutboxIntegrationTest {
         delay(500.milliseconds)
         router.stop()
 
-        assertEquals(1, tor.sends.size)
-        assertEquals(packetId, tor.sends.single().second.packetId)
+        assertEquals(1, tor.sendsExcludingHeartbeat().size)
+        assertEquals(packetId, tor.sendsExcludingHeartbeat().single().second.packetId)
         assertEquals(1, outbox.listAllForTarget(remotePeer).size)
         assertEquals(1L, outbox.listAllForTarget(remotePeer).single().attempts)
     }
@@ -113,7 +114,7 @@ class DefaultRouterOutboxIntegrationTest {
             identity = identity,
             outbox = outbox,
             time = FixedEpochProvider(10_000L),
-            routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1),
+            routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1.seconds),
         )
     }
 

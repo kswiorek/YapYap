@@ -40,11 +40,18 @@ internal class PeerAvailabilityRegistry(
             lastSeenEpoch[deviceId] = now
             if (!wasOnline) {
                 transitioned = true
-                onlineDevicesFlow.value = onlineDevicesFlow.value + deviceId
+                onlineDevicesFlow.value += deviceId
             }
         }
         // Emit outside the lock to avoid side-effects inside synchronized.
         if (transitioned) onlineEventsFlow.tryEmit(deviceId)
+    }
+
+    @OptIn(InternalCoroutinesApi::class)
+    fun markOffline(deviceId: PeerId) {
+        synchronized(lock) {
+            onlineDevicesFlow.value -= deviceId
+        }
     }
 
     @OptIn(InternalCoroutinesApi::class)

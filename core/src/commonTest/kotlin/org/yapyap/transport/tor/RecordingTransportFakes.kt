@@ -9,6 +9,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration.Companion.milliseconds
@@ -38,15 +41,33 @@ class RecordingTorTransport(
     }
 
     override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
-        if (failNextSend) {
+        if (failNextSend && !envelope.isHeartbeat()) {
             failNextSend = false
             error("simulated Tor send failure")
         }
         sends.add(target to envelope)
     }
 
+    /** [sends] excluding heartbeat envelopes (ping / log-off), for assertions on message traffic. */
+    fun sendsExcludingHeartbeat(): List<Pair<TorEndpoint, BinaryEnvelope>> =
+        sends.filterNot { (_, envelope) -> envelope.isHeartbeat() }
+
+    private fun BinaryEnvelope.isHeartbeat(): Boolean {
+        if (packetType != PacketType.SYSTEM) return false
+        val payload = runCatching { SystemEnvelope.decode(payload).decodePayload() }.getOrNull()
+            ?: return false
+        return payload is SystemPayload.Ping || payload is SystemPayload.LogOff
+    }
+
     suspend fun awaitSendCount(count: Int) {
         while (sends.size < count) {
+            yield()
+        }
+    }
+
+    /** Waits until there are at least [count] non-heartbeat sends. */
+    suspend fun awaitMessageSendCount(count: Int) {
+        while (sendsExcludingHeartbeat().size < count) {
             yield()
         }
     }

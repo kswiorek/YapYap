@@ -76,7 +76,7 @@ class SyncIntegrationTest {
         identityResolver = localIdentity,
         pendingSyncRepository = pendingRepo,
         timeProvider = localTime,
-        orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = 0)),
+        orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = Duration.ZERO)),
     )
 
     private fun textMsg(
@@ -149,7 +149,7 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-                maxIdlePoll = MutableStateFlow(1),
+                maxIdlePoll = MutableStateFlow(1.seconds),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
@@ -246,7 +246,7 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-                maxIdlePoll = MutableStateFlow(1),
+                maxIdlePoll = MutableStateFlow(1.seconds),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
@@ -304,6 +304,8 @@ private class RecordingRouter : Router {
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+
+    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
 
     val sent = mutableListOf<MessagePayload>()
 

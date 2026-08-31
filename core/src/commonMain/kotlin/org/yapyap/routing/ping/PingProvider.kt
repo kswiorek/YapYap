@@ -12,8 +12,6 @@ import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
-
-//TODO: PingProvider
 internal class PingProvider(
     private val ctx: RoutingContext,
     private val config: StateFlow<RouterConfig>,

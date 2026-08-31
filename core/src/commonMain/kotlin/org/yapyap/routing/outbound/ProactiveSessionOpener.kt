@@ -65,12 +65,13 @@ internal class ProactiveSessionOpener(
         val config = ctx.routerConfig.value
 
         val lastAttempt = lastAttemptOf(peerId)
-        if (lastAttempt != null && now - lastAttempt < config.proactiveSessionRetryDelay) return
+        if (lastAttempt != null && now - lastAttempt < config.proactiveSessionRetryDelay.inWholeSeconds) return
 
         // Freshness gate: only spend signaling (Tor round-trips) on peers that recently
         // showed signs of life.
         val lastSeen = peerAvailabilityRegistry.lastSeenEpoch(peerId) ?: return
-        if (now - lastSeen >= config.proactiveSessionFreshness) return
+        if (!peerAvailabilityRegistry.isOnline(peerId)) return
+        if (now - lastSeen >= config.proactiveSessionFreshness.inWholeSeconds) return
 
         recordAttempt(peerId, now)
         runCatching { ctx.webRtcTransport.openSession(peerId) }

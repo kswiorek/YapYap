@@ -59,6 +59,8 @@ internal class TestIdentityResolver(
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         error("not used in crypto session tests")
 
+    override suspend fun getAllPeers(): List<PeerId> = peers.keys.toList()
+
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         error("not used in crypto session tests")
 

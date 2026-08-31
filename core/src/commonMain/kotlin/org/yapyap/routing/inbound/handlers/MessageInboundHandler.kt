@@ -51,7 +51,7 @@ internal class MessageInboundHandler(
                 packetType = PacketType.MESSAGE,
                 dispositionRequested = true,
                 createdAtEpochSeconds = now,
-                expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetime,
+                expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetime.inWholeSeconds,
                 source = ctx.localDeviceId,
                 target = messageEnvelope.target,
                 payload = messageEnvelope.encode(),

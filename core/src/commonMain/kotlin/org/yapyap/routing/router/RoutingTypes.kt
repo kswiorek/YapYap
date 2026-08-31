@@ -63,6 +63,7 @@ internal sealed interface InboundSideEffect {
     data class SyncRequested(val peerId: PeerId, val sync: SyncRequest) : InboundSideEffect
     data class MarkPeerAttempted(val peerId: PeerId, val syncId: Uuid) : InboundSideEffect
     data class PeerHeartbeat(val peerId: PeerId, val ping: SystemPayload.Ping) : InboundSideEffect
+    data class PeerOffline(val peerId: PeerId) : InboundSideEffect
     // TODO Sprint 4: data class PeerHeartbeat(...) : InboundSideEffect
 }
 

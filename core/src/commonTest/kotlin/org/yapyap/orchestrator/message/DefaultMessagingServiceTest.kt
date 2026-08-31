@@ -491,6 +491,8 @@ private class FakeRoomRepository(
     override suspend fun updateLocalSeq(roomId: RoomId, seqN: Long) = Unit
 
     override suspend fun getLocalSeq(roomId: RoomId): Long? = null
+
+    override suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>> = emptyList()
 }
 
 private class FakeMessageRepository : MessageRepository {
@@ -636,6 +638,7 @@ private class FakeIdentityResolver(
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
+    override suspend fun getAllPeers(): List<PeerId> = error("not used")
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
@@ -648,6 +651,8 @@ private class RecordingRouter : Router {
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+
+    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
 
     val sentTargets = mutableListOf<AccountId>()
 

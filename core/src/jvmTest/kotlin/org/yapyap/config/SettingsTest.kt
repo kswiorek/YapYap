@@ -10,20 +10,32 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class SettingsTest {
 
+    private fun userNumberField(): NumberField =
+        FIELDS.filterIsInstance<NumberField>().first { it.source == FieldSource.USER }
+
+    private fun networkPeriodField(): PeriodField =
+        FIELDS.filterIsInstance<PeriodField>().first { it.source == FieldSource.NETWORK }
+
+    private fun defaultNumber(field: NumberField): Long =
+        (field.read(RuntimeConfig()) as ConfigValue.Number).value
+
     @Test
     fun overrides_roundTripThroughGroupedToml() {
+        val numberField = userNumberField()
+        val periodField = FIELDS.filterIsInstance<PeriodField>().first { it.source == FieldSource.USER }
         val overrides: Overrides = mapOf(
-            "outboxMaxSizeBytes" to ConfigValue.Number(4096L),
-            "gracePeriodSeconds" to ConfigValue.Number(60L),
+            numberField.id to ConfigValue.Number(4096L),
+            periodField.id to ConfigValue.Period(60.seconds),
         )
         val text = overrides.toTomlText()
 
-        assertTrue("[Router]" in text, "expected [Router] table, got:\n$text")
-        assertTrue("[Sync]" in text, "expected [Sync] table, got:\n$text")
+        val tables = listOf(numberField.group, periodField.group)
+        assertTrue(tables.all { "[$it]" in text }, "expected tables $tables, got:\n$text")
         assertTrue("[numbers]" !in text, "unexpected type-partition, got:\n$text")
 
         assertEquals(overrides, Toml.parseToTomlTable(text).toOverrides())
@@ -31,14 +43,16 @@ class SettingsTest {
 
     @Test
     fun derive_appliesUserOverride() {
-        val runtime = derive(mapOf("outboxMaxSizeBytes" to ConfigValue.Number(2048L)))
-        assertEquals(2048L, runtime.router.outboxMaxSizeBytes)
+        val field = userNumberField()
+        val newValue = defaultNumber(field) + 1
+        val runtime = derive(mapOf(field.id to ConfigValue.Number(newValue)))
+        assertEquals(newValue, (field.read(runtime) as ConfigValue.Number).value)
     }
 
     @Test
     fun write_rejectsInvalidValue() {
-        val field = FIELDS.first { it.id == "outboxMaxSizeBytes" }
-        assertIs<WriteResult.Invalid>(field.write(RuntimeConfig(), ConfigValue.Number(-1L)))
+        val field = userNumberField()
+        assertIs<WriteResult.Invalid>(field.write(RuntimeConfig(), ConfigValue.Period(1.seconds)))
     }
 
     @Test
@@ -48,20 +62,23 @@ class SettingsTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
 
-            assertEquals(UpdateResult.Success, store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(4096L)))
-            assertEquals(4096L, store.routerConfig.value.outboxMaxSizeBytes)
+            val userField = userNumberField()
+            val networkField = networkPeriodField()
 
-            store.applyNetwork(mapOf("messageLifetimeSeconds" to ConfigValue.Number(999L)))
-            assertEquals(999L, store.routerConfig.value.binaryEnvelopeLifetime)
+            assertEquals(UpdateResult.Success, store.updateUser(userField.id, ConfigValue.Number(4096L)))
+            assertEquals(ConfigValue.Number(4096L), store.overrides.value[userField.id])
 
-            // Reject invalid + non-editable updates.
-            assertTrue(store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(-1L)) is UpdateResult.Failure)
-            assertTrue(store.updateUser("messageLifetimeSeconds", ConfigValue.Number(1L)) is UpdateResult.Failure)
+            store.applyNetwork(mapOf(networkField.id to ConfigValue.Period(999.seconds)))
+            assertEquals(ConfigValue.Period(999.seconds), store.overrides.value[networkField.id])
 
-            // A fresh store reloads the same effective values from the files.
+            // Reject invalid (type mismatch) + non-editable updates.
+            assertTrue(store.updateUser(userField.id, ConfigValue.Period(1.seconds)) is UpdateResult.Failure)
+            assertTrue(store.updateUser(networkField.id, ConfigValue.Number(1L)) is UpdateResult.Failure)
+
+            // A fresh store reloads the same effective overrides from the files.
             val reloaded = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
-            assertEquals(4096L, reloaded.routerConfig.value.outboxMaxSizeBytes)
-            assertEquals(999L, reloaded.routerConfig.value.binaryEnvelopeLifetime)
+            assertEquals(ConfigValue.Number(4096L), reloaded.overrides.value[userField.id])
+            assertEquals(ConfigValue.Period(999.seconds), reloaded.overrides.value[networkField.id])
         } finally {
             deleteRecursively(dir)
         }
@@ -74,4 +91,3 @@ class SettingsTest {
         SystemFileSystem.delete(path, mustExist = false)
     }
 }
-

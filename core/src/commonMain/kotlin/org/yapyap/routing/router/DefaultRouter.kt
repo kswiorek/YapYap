@@ -83,7 +83,7 @@ class DefaultRouter(
     // Fed by SystemInboundHandler when a typing indicator system envelope is received.
     private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
 
-    private val pingPayloadFlow = MutableSharedFlow<List<Pair<RoomId, Long>>>(extraBufferCapacity = 64)
+    private val pingPayloadFlow = MutableSharedFlow<List<Pair<RoomId, Long>>>(extraBufferCapacity = 64, replay = 4)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
@@ -140,6 +140,7 @@ class DefaultRouter(
         outboxProcessor = outboxProcessor,
         syncHandler = syncHandler,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
+        pingProvider = pingProvider,
     )
 
     private val peerPolicy = DefaultSyncPeerPolicy(routingContext, peerAvailabilityRegistry)

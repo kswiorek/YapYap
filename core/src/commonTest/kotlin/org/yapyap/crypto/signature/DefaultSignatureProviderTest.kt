@@ -186,6 +186,8 @@ class DefaultSignatureProviderTest {
 
         override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used in test")
 
+        override suspend fun getAllPeers(): List<PeerId> = error("not used in test")
+
         override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used in test")
 
         override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used in test")

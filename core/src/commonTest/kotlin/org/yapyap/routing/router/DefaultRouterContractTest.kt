@@ -143,7 +143,7 @@ class DefaultRouterContractTest {
         assertEquals(SendMessageStatus.SUCCESS, result.status)
         assertEquals(2, result.peersTotal)
         assertEquals(2, result.peersQueued)
-        assertEquals(2, tor.sends.size)
+        assertEquals(2, tor.sendsExcludingHeartbeat().size)
         assertTrue(
             tracking.maxConcurrentProtects >= 2,
             "expected concurrent protectMessage calls but max was ${tracking.maxConcurrentProtects}",
@@ -172,9 +172,9 @@ class DefaultRouterContractTest {
         assertEquals(1, result.peersQueued)
         assertEquals(1, result.peersTotal)
         assertEquals(null, result.failureKind)
-        assertEquals(1, tor.sends.size)
-        assertEquals(peerTor, tor.sends[0].first)
-        assertEquals(PacketType.MESSAGE, tor.sends[0].second.packetType)
+        assertEquals(1, tor.sendsExcludingHeartbeat().size)
+        assertEquals(peerTor, tor.sendsExcludingHeartbeat()[0].first)
+        assertEquals(PacketType.MESSAGE, tor.sendsExcludingHeartbeat()[0].second.packetType)
         router.stop()
     }
 
@@ -192,9 +192,9 @@ class DefaultRouterContractTest {
         tor.tryEmitIncoming(incoming)
         delay(400.milliseconds)
 
-        assertEquals(1, tor.sends.size)
+        assertEquals(1, tor.sendsExcludingHeartbeat().size)
         assertSystemAck(
-            envelope = tor.sends.single().second,
+            envelope = tor.sendsExcludingHeartbeat().single().second,
             expectedPacketId = packetId,
             expectedPacketType = PacketType.MESSAGE,
         )
@@ -232,9 +232,9 @@ class DefaultRouterContractTest {
         assertTrue(!recordingDedup.firstSeenResults[1])
         assertTrue(recordingDedup.markNackedCalls.isEmpty())
 
-        assertEquals(2, tor.sends.size)
-        assertSystemAck(tor.sends[0].second, packetId, PacketType.MESSAGE)
-        assertSystemAck(tor.sends[1].second, packetId, PacketType.MESSAGE)
+        assertEquals(2, tor.sendsExcludingHeartbeat().size)
+        assertSystemAck(tor.sendsExcludingHeartbeat()[0].second, packetId, PacketType.MESSAGE)
+        assertSystemAck(tor.sendsExcludingHeartbeat()[1].second, packetId, PacketType.MESSAGE)
 
         router.stop()
     }
@@ -270,9 +270,9 @@ class DefaultRouterContractTest {
         assertEquals(1, recordingDedup.markNackedCalls.size)
         assertEquals(PacketNackReason.EXPIRED, recordingDedup.markNackedCalls.single().third)
 
-        assertEquals(2, tor.sends.size)
-        assertSystemNack(tor.sends[0].second, packetId, PacketNackReason.EXPIRED)
-        assertSystemNack(tor.sends[1].second, packetId, PacketNackReason.EXPIRED)
+        assertEquals(2, tor.sendsExcludingHeartbeat().size)
+        assertSystemNack(tor.sendsExcludingHeartbeat()[0].second, packetId, PacketNackReason.EXPIRED)
+        assertSystemNack(tor.sendsExcludingHeartbeat()[1].second, packetId, PacketNackReason.EXPIRED)
 
         router.stop()
     }
@@ -307,9 +307,9 @@ class DefaultRouterContractTest {
         assertEquals(1, recordingDedup.markNackedCalls.size)
         assertEquals(PacketNackReason.WRONG_TARGET, recordingDedup.markNackedCalls.single().third)
 
-        assertEquals(2, tor.sends.size)
-        assertSystemNack(tor.sends[0].second, packetId, PacketNackReason.WRONG_TARGET)
-        assertSystemNack(tor.sends[1].second, packetId, PacketNackReason.WRONG_TARGET)
+        assertEquals(2, tor.sendsExcludingHeartbeat().size)
+        assertSystemNack(tor.sendsExcludingHeartbeat()[0].second, packetId, PacketNackReason.WRONG_TARGET)
+        assertSystemNack(tor.sendsExcludingHeartbeat()[1].second, packetId, PacketNackReason.WRONG_TARGET)
 
         router.stop()
     }
@@ -352,9 +352,9 @@ class DefaultRouterContractTest {
         assertEquals(1, recordingDedup.markNackedCalls.size)
         assertEquals(PacketNackReason.DECODE_FAILED, recordingDedup.markNackedCalls.single().third)
 
-        assertEquals(2, tor.sends.size)
-        assertSystemNack(tor.sends[0].second, packetId, PacketNackReason.DECODE_FAILED)
-        assertSystemNack(tor.sends[1].second, packetId, PacketNackReason.DECODE_FAILED)
+        assertEquals(2, tor.sendsExcludingHeartbeat().size)
+        assertSystemNack(tor.sendsExcludingHeartbeat()[0].second, packetId, PacketNackReason.DECODE_FAILED)
+        assertSystemNack(tor.sendsExcludingHeartbeat()[1].second, packetId, PacketNackReason.DECODE_FAILED)
 
         router.stop()
     }

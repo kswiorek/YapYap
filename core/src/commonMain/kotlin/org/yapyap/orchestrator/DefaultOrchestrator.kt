@@ -42,6 +42,7 @@ import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
+import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.time.SystemEpochProvider
@@ -269,6 +270,8 @@ class DefaultOrchestrator(
 
         val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig)
 
+        val lamportSnapshotProvider = DefaultLamportSnapshotProvider(roomRepo)
+
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
                 PacketStoreMaintenance(packetOutbox, packetDeduplicator, configStore.routerConfig)::run,
@@ -289,6 +292,7 @@ class DefaultOrchestrator(
             syncRepository = syncRepo,
             routerConfig = configStore.routerConfig,
             transportLimits = configStore.transportLimits,
+            lamportSnapshotProvider = lamportSnapshotProvider
         )
 
         router.start()
@@ -314,6 +318,14 @@ class DefaultOrchestrator(
             orchestratorConfig = configStore.orchestratorConfig,
         )
         syncCoordinator.start(orchestratorScope)
+
+        orchestratorScope.launch {
+            router.pingPayloads.collect { roomLamports ->
+                roomLamports.forEach { (roomId, pingLamport) ->
+                    syncCoordinator.requestRangeSync(roomId, pingLamport)
+                }
+            }
+        }
 
         if (bootConfig.mode == NodeMode.FULL_CLIENT) {
             orchestratorRuntime = DefaultOrchestratorRuntime(

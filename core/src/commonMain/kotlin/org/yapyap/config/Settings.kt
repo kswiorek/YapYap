@@ -35,7 +35,7 @@ val FIELDS: List<Field> = listOf(
         writeValue = { cfg, v -> cfg.copy(orchestrator = cfg.orchestrator.copy(syncGracePeriod = v)) },
     ),
     PeriodField(
-        id = "messageLifetimeSeconds",
+        id = "messageLifetime",
         title = "Message lifetime",
         description = "How long messages are retained. Controlled by the network.",
         group = "Router",
@@ -45,7 +45,7 @@ val FIELDS: List<Field> = listOf(
         writeValue = { cfg, v -> cfg.copy(router = cfg.router.copy(binaryEnvelopeLifetime = v)) },
     ),
     PeriodField(
-        id = "dedupRetentionSeconds",
+        id = "dedupRetention",
         title = "Dedup retention",
         description = "How long deduplication entries are retained. Controlled by the network.",
         group = "Router",

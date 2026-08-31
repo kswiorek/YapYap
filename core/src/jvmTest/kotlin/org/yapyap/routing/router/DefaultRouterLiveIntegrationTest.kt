@@ -118,6 +118,7 @@ class DefaultRouterLiveIntegrationTest {
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
+                lamportSnapshotProvider = FakeLamportSnapshotProvider(),
             )
         val bobRouter =
             DefaultRouter(
@@ -132,6 +133,7 @@ class DefaultRouterLiveIntegrationTest {
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
+                lamportSnapshotProvider = FakeLamportSnapshotProvider(),
             )
 
         try {

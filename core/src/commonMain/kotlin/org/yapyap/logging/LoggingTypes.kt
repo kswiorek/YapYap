@@ -100,6 +100,7 @@ enum class LogEvent {
     PING_SENT,
     PING_NO_PEERS,
     PING_HANDLED,
+    LOG_OFF_HANDLED,
 }
 
 enum class LogComponent {

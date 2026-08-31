@@ -42,7 +42,7 @@ class DefaultRouterE2eeIntegrationTest {
                 assertEquals(SendMessageStatus.SUCCESS, sendResult.status)
                 assertEquals(1, sendResult.peersQueued)
 
-                val (_, binaryEnvelope) = it.aliceTor.sends.single()
+                val (_, binaryEnvelope) = it.aliceTor.sendsExcludingHeartbeat().single()
                 assertEncryptedWireEnvelope(binaryEnvelope, outbound)
 
                 it.deliverAliceToBob(binaryEnvelope)
@@ -66,9 +66,9 @@ class DefaultRouterE2eeIntegrationTest {
 
             val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound, RouterTransport.TOR)
             assertEquals(SendMessageStatus.SUCCESS, sendResult.status)
-            assertEquals(1, it.aliceTor.sends.size)
+            assertEquals(1, it.aliceTor.sendsExcludingHeartbeat().size)
 
-            val binaryEnvelope = it.aliceTor.sends.single().second
+            val binaryEnvelope = it.aliceTor.sendsExcludingHeartbeat().single().second
             assertEncryptedWireEnvelope(binaryEnvelope, outbound)
 
             it.bobRouter.start()

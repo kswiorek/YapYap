@@ -140,6 +140,9 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
         accountIds.flatMap { getAllPeerDevicesForAccount(it) }.distinct()
 
+    override suspend fun getAllDeviceIds(): List<PeerId> =
+        devices.keys.map { PeerId(it) }.sortedBy { it.id }
+
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         deviceToAccount[deviceId.id]?.let { AccountId(it) }
 

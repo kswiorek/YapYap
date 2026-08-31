@@ -11,6 +11,7 @@ import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class RetryLoopTest {
@@ -31,7 +32,7 @@ class RetryLoopTest {
                     error("boom")
                 }
             },
-            maxIdlePollSeconds = MutableStateFlow(1),
+            maxIdlePoll = MutableStateFlow(1.seconds),
         )
 
         val scope = CoroutineScope(SupervisorJob())
@@ -53,7 +54,7 @@ class RetryLoopTest {
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochProvider(1_000L),
             processDue = { calls++ },
-            maxIdlePollSeconds = MutableStateFlow(60),
+            maxIdlePoll = MutableStateFlow(60.seconds),
         )
 
         val scope = CoroutineScope(SupervisorJob())
@@ -77,7 +78,7 @@ class RetryLoopTest {
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
             time = FixedEpochProvider(1_000L),
             processDue = { calls++ },
-            maxIdlePollSeconds = MutableStateFlow(60),
+            maxIdlePoll = MutableStateFlow(60.seconds),
         )
 
         val scope = CoroutineScope(SupervisorJob())

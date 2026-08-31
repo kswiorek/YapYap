@@ -11,6 +11,7 @@ import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class SyncRetryProcessorTest {
@@ -32,7 +33,7 @@ class SyncRetryProcessorTest {
             systemSender = stack.systemSender,
             peerPolicy = policy,
             peerAvailabilityRegistry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-            maxIdlePoll = MutableStateFlow(1),
+            maxIdlePoll = MutableStateFlow(1.seconds),
         )
 
     @Test

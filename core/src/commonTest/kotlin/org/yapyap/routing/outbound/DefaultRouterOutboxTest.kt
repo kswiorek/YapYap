@@ -52,7 +52,7 @@ class DefaultRouterOutboxTest {
         assertEquals(1, outbox.enqueued.size)
         val packetId = outbox.enqueued.single().packetId
         assertTrue(outbox.contains(packetId))
-        assertEquals(10_000L + RouterConfig().torRetryDelay, outbox.getNextRetryAt(packetId))
+        assertEquals(10_000L + RouterConfig().torRetryDelay.inWholeSeconds, outbox.getNextRetryAt(packetId))
     }
 
     @Test
@@ -123,8 +123,8 @@ class DefaultRouterOutboxTest {
         delay(500.milliseconds)
         router.stop()
 
-        assertEquals(1, tor.sends.size)
-        assertEquals(packetId, tor.sends.single().second.packetId)
+        assertEquals(1, tor.sendsExcludingHeartbeat().size)
+        assertEquals(packetId, tor.sendsExcludingHeartbeat().single().second.packetId)
     }
 
     @Test
@@ -151,13 +151,13 @@ class DefaultRouterOutboxTest {
         )
 
         router.start()
-        withTimeout(10.seconds) {tor.awaitSendCount(2)}
+        withTimeout(10.seconds) { tor.awaitMessageSendCount(2) }
         router.stop()
 
-        assertEquals(2, tor.sends.size)
+        assertEquals(2, tor.sendsExcludingHeartbeat().size)
         assertEquals(
             setOf(packetId1, packetId2),
-            tor.sends.map { it.second.packetId }.toSet(),
+            tor.sendsExcludingHeartbeat().map { it.second.packetId }.toSet(),
         )
     }
 
@@ -220,7 +220,7 @@ class DefaultRouterOutboxTest {
         delay(400.milliseconds)
         router.stop()
 
-        assertEquals(now+router.routerConfig.value.webRtcRetryDelay, outbox.getNextRetryAt(packetId))
+        assertEquals(now + router.routerConfig.value.webRtcRetryDelay.inWholeSeconds, outbox.getNextRetryAt(packetId))
         assertEquals(1, outbox.setDueForTargetCalls.size)
         assertEquals(remotePeer, outbox.setDueForTargetCalls.single().first)
     }
@@ -245,7 +245,7 @@ class DefaultRouterOutboxTest {
             identity = identity,
             outbox = outbox,
             time = FixedEpochProvider(10_000L),
-            routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1),
+            routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1.seconds),
         )
     }
 
