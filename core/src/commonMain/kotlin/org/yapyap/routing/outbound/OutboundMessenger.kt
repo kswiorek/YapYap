@@ -128,7 +128,7 @@ internal class OutboundMessenger(
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
             createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetimeSeconds,
+            expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetime,
             source = ctx.localDeviceId,
             target = target,
             payload = messageEnvelope.encode(),
@@ -141,7 +141,7 @@ internal class OutboundMessenger(
             retries = 0,
             forced = forceTransport,
         )
-        val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelaySeconds
+        val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelay
 
         if (binaryEnvelope.encode().size.toLong() > ctx.transportLimits.value.maxRoutableBytes) {
             AppLog.warn(

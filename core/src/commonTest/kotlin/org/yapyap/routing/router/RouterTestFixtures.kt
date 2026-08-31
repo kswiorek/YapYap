@@ -614,7 +614,7 @@ internal fun outboxProcessorUnderTest(
         dispatcher = EnvelopeDispatcher(ctx),
         transportPolicy = SessionOrTorPolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
-        maxIdlePollSeconds = MutableStateFlow(routerConfig.retryLoopMaxIdlePollSeconds),
+        maxIdlePollSeconds = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
     )
 }
 

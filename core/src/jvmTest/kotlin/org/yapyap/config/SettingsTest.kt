@@ -52,7 +52,7 @@ class SettingsTest {
             assertEquals(4096L, store.routerConfig.value.outboxMaxSizeBytes)
 
             store.applyNetwork(mapOf("messageLifetimeSeconds" to ConfigValue.Number(999L)))
-            assertEquals(999L, store.routerConfig.value.binaryEnvelopeLifetimeSeconds)
+            assertEquals(999L, store.routerConfig.value.binaryEnvelopeLifetime)
 
             // Reject invalid + non-editable updates.
             assertTrue(store.updateUser("outboxMaxSizeBytes", ConfigValue.Number(-1L)) is UpdateResult.Failure)
@@ -61,7 +61,7 @@ class SettingsTest {
             // A fresh store reloads the same effective values from the files.
             val reloaded = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
             assertEquals(4096L, reloaded.routerConfig.value.outboxMaxSizeBytes)
-            assertEquals(999L, reloaded.routerConfig.value.binaryEnvelopeLifetimeSeconds)
+            assertEquals(999L, reloaded.routerConfig.value.binaryEnvelopeLifetime)
         } finally {
             deleteRecursively(dir)
         }

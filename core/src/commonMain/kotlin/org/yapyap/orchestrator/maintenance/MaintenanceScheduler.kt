@@ -9,7 +9,6 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import kotlin.time.Duration.Companion.seconds
 
 class MaintenanceScheduler(
     private val tasks: List<suspend () -> Unit>,
@@ -28,10 +27,10 @@ class MaintenanceScheduler(
     }
 
     fun start(scope: CoroutineScope): Job = scope.launch {
-        config.map { it.maintenanceIntervalSeconds }
+        config.map { it.maintenanceInterval }
             .distinctUntilChanged()
             .collectLatest { interval ->
-                while (isActive) { delay(interval.seconds); runOnce() }
+                while (isActive) { delay(interval); runOnce() }
             }
     }
 }

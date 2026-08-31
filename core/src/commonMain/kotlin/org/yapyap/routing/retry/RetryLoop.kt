@@ -8,13 +8,14 @@ import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import org.yapyap.time.EpochProvider
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 internal class RetryLoop(
     private val earliestPendingRetryAt: suspend () -> Long?,
     private val time: EpochProvider,
     private val processDue: suspend () -> Unit,
-    private val maxIdlePollSeconds: StateFlow<Long>,
+    private val maxIdlePoll: StateFlow<Duration>,
     private val onProcessFailed: (Throwable) -> Unit = {},
 ) {
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -24,7 +25,7 @@ internal class RetryLoop(
     @OptIn(ExperimentalCoroutinesApi::class)
     fun runIn(scope: CoroutineScope): Job = scope.launch {
         val configWatch = launch {
-            maxIdlePollSeconds.drop(1).collect { wake.trySend(Unit) }
+            maxIdlePoll.drop(1).collect { wake.trySend(Unit) }
         }
         try {
             runProcessDueSafely()
@@ -52,7 +53,7 @@ internal class RetryLoop(
 
     private suspend fun computeSleepSeconds(): Long {
         val now = time.nowEpochSeconds()
-        val next = earliestPendingRetryAt() ?: return maxIdlePollSeconds.value
-        return (next - now).coerceAtLeast(0).coerceAtMost(maxIdlePollSeconds.value)
+        val next = earliestPendingRetryAt() ?: return maxIdlePoll.value.inWholeSeconds
+        return (next - now).coerceAtLeast(0).coerceAtMost(maxIdlePoll.value.inWholeSeconds)
     }
 }

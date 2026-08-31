@@ -9,11 +9,13 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.protocol.PeerId
 
 interface RoomRepository {
     suspend fun membersOfRoom(roomId: RoomId): List<AccountId>
     suspend fun updateLocalSeq(roomId: RoomId, seqN: Long)
     suspend fun getLocalSeq(roomId: RoomId): Long?
+    suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>>
 }
 
 class DefaultRoomRepository(
@@ -24,7 +26,7 @@ class DefaultRoomRepository(
         withContext(dbDispatcher) {
             val members = database.roomQueries.selectAllMembersForRoom(roomId)
                 .executeAsList()
-                .map { AccountId(it.account_id) }
+                .map {it.account_id}
             AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.ROOM_MEMBERS_QUERIED,
@@ -65,5 +67,10 @@ class DefaultRoomRepository(
                 ),
             )
             localSeq
+        }
+
+    override suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>> =
+        withContext(dbDispatcher) {
+            database.roomQueries.selectLocalSeqNForRoomsOfPeer(peerId).executeAsList().map { Pair(it.room_id, it.local_seq_n) }
         }
 }

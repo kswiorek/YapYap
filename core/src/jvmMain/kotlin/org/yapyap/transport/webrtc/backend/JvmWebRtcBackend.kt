@@ -17,7 +17,8 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 class JvmWebRtcBackend(
     private val config: StateFlow<WebRtcBackendConfig>,
@@ -53,6 +54,11 @@ class JvmWebRtcBackend(
     }
 
     override suspend fun stop() {
+        val drainTimeout = config.value.drainChannelTimeout
+
+        // Drain envelope channels so buffered LogOff/outbound data hits the wire first.
+        sessions.values.forEach { it.drainEnvelopeChannel(drainTimeout) }
+
         sessions.values.forEach { it.dispose() }
         sessions.clear()
         scope?.cancel()
@@ -594,9 +600,9 @@ class JvmWebRtcBackend(
             WebRtcDataType.ENVELOPE_BINARY -> session.envelopeChannelOpen
             WebRtcDataType.AV_DATA -> session.avChannelOpen
         }
-        withTimeoutOrNull(CHANNEL_OPEN_TIMEOUT) {
+        withTimeoutOrNull(config.value.channelOpenTimeout) {
             deferred.await()
-        } ?: error("Channel did not open within $CHANNEL_OPEN_TIMEOUT for ${session.remotePeer}")
+        } ?: error("Channel did not open within ${config.value.channelOpenTimeout} for ${session.remotePeer}")
     }
 
     private fun emitSignal(signal: WebRtcSignal) {
@@ -672,10 +678,16 @@ class JvmWebRtcBackend(
             }
             runCatching { peerConnection.close() }
         }
-    }
 
-    private companion object {
-        val CHANNEL_OPEN_TIMEOUT = 30.seconds
+        suspend fun drainEnvelopeChannel(timeout: Duration) {
+            val channel = envelopeDataChannel ?: return
+            withTimeoutOrNull(timeout) {
+                while (channel.bufferedAmount > 0) {
+                    // rely on onBufferedAmountChange to signal progress; or poll
+                    delay(10.milliseconds)
+                }
+            }
+        }
     }
 }
 

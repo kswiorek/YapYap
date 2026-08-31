@@ -14,6 +14,7 @@ import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 
 internal class SyncRetryProcessor(
     private val ctx: RoutingContext,
@@ -21,13 +22,13 @@ internal class SyncRetryProcessor(
     private val systemSender: SystemSender,
     private val peerPolicy: SyncPeerPolicy,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
-    maxIdlePollSeconds: StateFlow<Long>,
+    maxIdlePoll: StateFlow<Duration>,
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { pendingSyncs.earliestDueAt() },
         time = ctx.timeProvider,
         processDue = { processDue() },
-        maxIdlePollSeconds = maxIdlePollSeconds,
+        maxIdlePoll = maxIdlePoll,
         onProcessFailed = { error ->
             AppLog.error(
                 component = LogComponent.ROUTER,
@@ -94,7 +95,7 @@ internal class SyncRetryProcessor(
         val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.attemptedDevices)
 
         if (nextDevice == null) {
-            pendingSyncs.updateAttemptAt(row.syncId, now + ctx.routerConfig.value.syncOfflineRetryDelaySeconds)
+            pendingSyncs.updateAttemptAt(row.syncId, now + ctx.routerConfig.value.syncOfflineRetryDelay.inWholeSeconds)
             return
         }
 

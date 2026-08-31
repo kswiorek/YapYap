@@ -14,6 +14,7 @@ import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 internal class OutboxProcessor(
@@ -21,13 +22,13 @@ internal class OutboxProcessor(
     private val dispatcher: EnvelopeDispatcher,
     private val transportPolicy: OutboundPolicy,
     private val packetOutbox: PacketOutbox,
-    maxIdlePollSeconds: StateFlow<Long>,
+    maxIdlePoll: StateFlow<Duration>,
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { packetOutbox.earliestPendingRetryAt() },
         time = ctx.timeProvider,
         processDue = { processDue() },
-        maxIdlePollSeconds = maxIdlePollSeconds,
+        maxIdlePoll = maxIdlePoll,
         onProcessFailed = { error ->
             AppLog.error(
                 component = LogComponent.ROUTER,
@@ -113,7 +114,7 @@ internal class OutboxProcessor(
             retries = entry.attempts,
             hasWebRtcSession = ctx.webRtcTransport.hasSession(envelope.target),
         )
-        val nextRetryAt = now + outbound.retryDelaySeconds
+        val nextRetryAt = now + outbound.retryDelay.inWholeSeconds
         runCatching {
             dispatcher.dispatch(envelope, outbound.transport)
         }.onSuccess {

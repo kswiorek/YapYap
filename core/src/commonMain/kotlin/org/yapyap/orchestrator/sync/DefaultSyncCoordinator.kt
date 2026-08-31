@@ -188,7 +188,7 @@ class DefaultSyncCoordinator(
             anchorLamport = anchorLamport,
             orphanLamport = orphanLamport,
             candidateAccounts = candidates,
-            nextAttemptAt = timeProvider.nowEpochSeconds() + orchestratorConfig.value.syncGracePeriodSeconds,
+            nextAttemptAt = timeProvider.nowEpochSeconds() + orchestratorConfig.value.syncGracePeriod.inWholeSeconds,
         )
     }
 

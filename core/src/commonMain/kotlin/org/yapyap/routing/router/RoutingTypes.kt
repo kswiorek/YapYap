@@ -11,6 +11,7 @@ import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.time.EpochProvider
 import org.yapyap.transport.tor.transport.TorTransport
@@ -61,6 +62,7 @@ internal sealed interface InboundSideEffect {
     data class RemoveFromOutbox(val packetId: Uuid) : InboundSideEffect
     data class SyncRequested(val peerId: PeerId, val sync: SyncRequest) : InboundSideEffect
     data class MarkPeerAttempted(val peerId: PeerId, val syncId: Uuid) : InboundSideEffect
+    data class PeerHeartbeat(val peerId: PeerId, val ping: SystemPayload.Ping) : InboundSideEffect
     // TODO Sprint 4: data class PeerHeartbeat(...) : InboundSideEffect
 }
 

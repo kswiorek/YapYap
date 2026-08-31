@@ -180,6 +180,18 @@ internal class SystemInboundHandler(
                 }
                 InboundHandleResult.Success()
             }
+            is SystemPayload.Ping -> {
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.PING_HANDLED,
+                    message = "Received ping",
+                    fields = mapOf(
+                        "source" to systemEnvelope.source,
+                        "roomPayloadCount" to payload.roomLamports.size,
+                        ),
+                )
+                InboundHandleResult.Success(listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)))
+            }
             // TODO Sprint 4: SystemPayload.Ping/Pong -> InboundSideEffect.PeerHeartbeat(...)
             else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}
         }

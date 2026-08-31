@@ -1,6 +1,8 @@
 package org.yapyap.transport.webrtc.backend
 
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 @Serializable
 data class WebRtcIceServerConfig(
@@ -23,5 +25,7 @@ data class WebRtcBackendConfig(
     val maxRetransmits: Int? = null,
     val maxPacketLifeTimeMs: Int? = null,
     val maxPayloadBytes: Int = 1024 * 1024 * 1,
+    val channelOpenTimeout: Duration = 30.seconds,
+    val drainChannelTimeout: Duration = 5.seconds,
 ) {
 }

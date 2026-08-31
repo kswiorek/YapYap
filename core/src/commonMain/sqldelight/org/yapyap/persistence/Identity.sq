@@ -208,6 +208,10 @@ selectAllDevices:
 SELECT *
 FROM devices;
 
+selectAllDeviceIds:
+SELECT device_id
+FROM devices;
+
 updateDeviceSigningKey:
 UPDATE devices
 SET

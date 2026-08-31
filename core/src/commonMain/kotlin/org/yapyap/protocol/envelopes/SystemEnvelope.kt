@@ -280,7 +280,7 @@ sealed interface SystemPayload {
 
     data class Ping(
         val pingId: Uuid,
-        val roomLamports: Map<RoomId, Long>,
+        val roomLamports: List<Pair<RoomId, Long>>,
     ): SystemPayload {
         //TODO: round trip tests
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
@@ -289,7 +289,7 @@ sealed interface SystemPayload {
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(pingId)
             writer.writeInt(roomLamports.size)
-            roomLamports.entries
+            roomLamports
                 .forEach { (roomId, lamport) ->
                     writer.writeUuid(roomId.value)
                     writer.writeLong(lamport)
@@ -305,13 +305,30 @@ sealed interface SystemPayload {
                 }
                 val pingId = reader.readUuid()
                 val count = reader.readInt()
-                val roomLamports = HashMap<RoomId, Long>(count)
-                repeat(count) {
-                    roomLamports[RoomId(reader.readUuid())] = reader.readLong()
-                }
+                val roomLamports = List(
+                    count,
+                    init = {RoomId(reader.readUuid()) to reader.readLong() },
+                )
                 reader.requireFullyRead()
                 return Ping(pingId, roomLamports)
             }
+        }
+    }
+
+    object LogOff : SystemPayload {
+        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.LOG_OFF
+        override fun encode(): ByteArray {
+            val writer = ByteWriter(1)
+            writer.writeByte(kind.wireValue.toInt())
+            return writer.toByteArray()
+        }
+        fun decode(bytes: ByteArray): LogOff {
+            val reader = ByteReader(bytes)
+            require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.LOG_OFF) {
+                "Expected LOG_OFF payload kind"
+            }
+            reader.requireFullyRead()
+            return this
         }
     }
 
@@ -325,6 +342,7 @@ sealed interface SystemPayload {
                 SystemEnvelopeKind.SYNC_NACK -> SyncNack.decode(bytes)
                 SystemEnvelopeKind.TYPING_INDICATOR -> TypingIndicator.decode(bytes)
                 SystemEnvelopeKind.PING -> Ping.decode(bytes)
+                SystemEnvelopeKind.LOG_OFF -> LogOff.decode(bytes)
             }
         }
     }
@@ -336,7 +354,8 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
     SYNC_REQUEST(3),
     SYNC_NACK(4),
     TYPING_INDICATOR(5),
-    PING(6);
+    PING(6),
+    LOG_OFF(7);
 
     companion object {
         fun fromWireValue(value: Byte): SystemEnvelopeKind =

@@ -4,6 +4,7 @@ import net.peanuuutz.tomlkt.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import kotlin.time.Duration
 
 // ---------------------------------------------------------------------------
 // Value representation (uniform type for the override map).
@@ -13,6 +14,7 @@ sealed interface ConfigValue {
     data class Number(val value: Long) : ConfigValue
     data class Text(val value: String) : ConfigValue
     data class Toggle(val value: Boolean) : ConfigValue
+    data class Period(val value: Duration) : ConfigValue
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,15 @@ data class ToggleSetting(
     override val group: String,
     override val editable: Boolean,
     val value: Boolean,
+) : Setting
+
+data class PeriodSetting(
+    override val id: String,
+    override val title: String,
+    override val description: String,
+    override val group: String,
+    override val editable: Boolean,
+    val value: Duration,
 ) : Setting
 
 // ---------------------------------------------------------------------------
@@ -188,6 +199,35 @@ class ToggleField(
     )
 }
 
+class PeriodField(
+    id: String,
+    title: String,
+    description: String,
+    group: String,
+    source: FieldSource,
+    private val readValue: (RuntimeConfig) -> Duration,
+    private val writeValue: ((RuntimeConfig, Duration) -> RuntimeConfig)? = null,
+) : Field(id, title, description, group, source) {
+    override fun read(cfg: RuntimeConfig): ConfigValue = ConfigValue.Period(readValue(cfg))
+
+    override fun write(cfg: RuntimeConfig, value: ConfigValue): WriteResult {
+        val setter = writeValue ?: return WriteResult.Invalid("$id is read-only")
+        val v = (value as? ConfigValue.Period)?.value
+            ?: return WriteResult.Invalid("$id expects a number value")
+        return try {
+            WriteResult.Ok(setter(cfg, v))
+        } catch (e: IllegalArgumentException) {
+            WriteResult.Invalid(e.message ?: "invalid value for $id")
+        }
+    }
+
+    override fun setting(value: ConfigValue): Setting = PeriodSetting(
+        id = id, title = title, description = description, group = group,
+        editable = editable,
+        value = (value as ConfigValue.Period).value,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Overrides: absence of a key means "use the default".
 // ---------------------------------------------------------------------------
@@ -211,6 +251,7 @@ fun TomlTable.toOverrides(): Overrides = buildMap {
             is NumberField -> put(field.id, ConfigValue.Number(literal.toLong()))
             is TextField -> put(field.id, ConfigValue.Text(literal.toString()))
             is ToggleField -> put(field.id, ConfigValue.Toggle(literal.toBoolean()))
+            is PeriodField -> put(field.id, ConfigValue.Period(Duration.parse(literal.toString())))
         }
     }
 }
@@ -219,6 +260,7 @@ private val ConfigValue.raw: Any get() = when (this) {
     is ConfigValue.Number -> value
     is ConfigValue.Text -> value
     is ConfigValue.Toggle -> value
+    is ConfigValue.Period -> value.toString()
 }
 
 // ---------------------------------------------------------------------------

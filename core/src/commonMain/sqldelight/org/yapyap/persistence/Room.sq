@@ -1,3 +1,4 @@
+import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.RoomMemberRole;
 import org.yapyap.persistence.db.RoomType;
@@ -13,7 +14,7 @@ CREATE TABLE rooms (
 
 CREATE TABLE room_members (
     room_id TEXT AS RoomId NOT NULL,
-    account_id TEXT NOT NULL,
+    account_id TEXT AS AccountId NOT NULL,
     role TEXT AS RoomMemberRole NOT NULL,
     joined_timestamp INTEGER NOT NULL,
     PRIMARY KEY (room_id, account_id),
@@ -37,6 +38,13 @@ UPDATE rooms SET local_seq_n = :seqN WHERE room_id = :roomId AND local_seq_n < :
 
 selectRoomLocalSeq:
 SELECT local_seq_n FROM rooms WHERE room_id = ?;
+
+selectLocalSeqNForRoomsOfPeer:
+SELECT r.room_id, r.local_seq_n
+FROM rooms r
+JOIN room_members rm ON rm.room_id = r.room_id
+JOIN devices d ON d.account_id = rm.account_id
+WHERE d.device_id = :deviceId;
 
 CREATE INDEX rooms_space_idx ON rooms(space_id);
 CREATE INDEX room_members_account_idx ON room_members(account_id);

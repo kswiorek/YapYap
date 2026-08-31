@@ -20,7 +20,7 @@ class SessionOrTorPolicy(
             transport = RouterTransport.TOR
         }
 
-        var retryDelay = configSnapshot.standbyRetryDelaySeconds
+        var retryDelay = configSnapshot.standbyRetryDelay
 
         if (retries <= configSnapshot.messageMaxRetries) {
             retryDelay = configSnapshot.getRetryDelaySeconds(transport)

@@ -170,6 +170,53 @@ internal class SystemSender(
         )
     }
 
+    suspend fun sendPing(
+        target: PeerId,
+        payload: SystemPayload.Ping,
+    )  {
+        val context = EnvelopeProtectContext(
+            sourceDeviceId = ctx.localDeviceId,
+            targetDeviceId = target,
+            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+        )
+
+        val transport = transportPolicy.resolve(
+            target,
+            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
+            retries = 0
+        ).transport
+
+        sendSystemEnvelope(payload, transport, context)
+        AppLog.debug(
+            component = LogComponent.ROUTER,
+            event = LogEvent.PING_SENT,
+            message = "Ping sent",
+            fields = mapOf(
+                "target" to target,
+            ),
+        )
+    }
+
+    suspend fun sendLogOff(
+        target: PeerId,
+    )  {
+        val context = EnvelopeProtectContext(
+            sourceDeviceId = ctx.localDeviceId,
+            targetDeviceId = target,
+            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            securityScheme = SignalSecurityScheme.SIGNED,
+        )
+
+        val transport = transportPolicy.resolve(
+            target,
+            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
+            retries = 0
+        ).transport
+
+        sendSystemEnvelope(SystemPayload.LogOff, transport, context)
+    }
+
     private suspend fun sendSystemEnvelope(
         payload: SystemPayload,
         transport: RouterTransport,
@@ -182,7 +229,7 @@ internal class SystemSender(
             packetType = PacketType.SYSTEM,
             dispositionRequested = false,
             createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + ctx.routerConfig.value.ackLifetimeSeconds,
+            expiresAtEpochSeconds = now + ctx.routerConfig.value.ackLifetime.inWholeSeconds,
             source = ctx.localDeviceId,
             target = context.targetDeviceId,
             payload = protected.encode(),

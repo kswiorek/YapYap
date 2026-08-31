@@ -8,6 +8,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
@@ -19,7 +20,8 @@ internal class InboundEnvelopeProcessor(
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
     private val outboxProcessor: OutboxProcessor,
     private val syncHandler: SyncHandler,
-    private val peerAvailabilityRegistry: PeerAvailabilityRegistry
+    private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
+    private val pingProvider: PingProvider,
 ) {
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
         if (inbound.source != ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)) {
@@ -161,7 +163,7 @@ internal class InboundEnvelopeProcessor(
                     syncHandler.onSyncRequested(effect.sync, effect.peerId)
                 is InboundSideEffect.MarkPeerAttempted ->
                     syncHandler.onMarkPeerAttempted(effect.syncId, effect.peerId)
-                // TODO Sprint 4: is InboundSideEffect.PeerHeartbeat -> peerPresenceService.record(result)
+                is InboundSideEffect.PeerHeartbeat -> pingProvider.handlePing(effect.peerId, effect.ping)
             }
         }
     }

@@ -15,7 +15,7 @@ interface Router {
      */
     val typingIndicators: Flow<TypingIndicatorEvent>
 
-    val pingPayloads: Flow<Map<RoomId, Long>>
+    val pingPayloads: Flow<List<Pair<RoomId, Long>>>
 
     suspend fun start()
     suspend fun stop()

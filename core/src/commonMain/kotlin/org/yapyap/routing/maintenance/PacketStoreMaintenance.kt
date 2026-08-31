@@ -15,7 +15,7 @@ class PacketStoreMaintenance(
 ) {
     suspend fun run() {
         val now = timeProvider.nowEpochSeconds()
-        dedup.prune(now - config.value.dedupRetentionSeconds)
+        dedup.prune(now - config.value.dedupRetention.inWholeSeconds)
         outbox.pruneRelayOverCapacity(config.value.outboxMaxSizeBytes)
     }
 }

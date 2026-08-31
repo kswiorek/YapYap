@@ -72,6 +72,7 @@ class DatabaseFactory(
                 room_membersAdapter = Room_members.Adapter(
                     roleAdapter = EnumColumnAdapter(),
                     room_idAdapter = RoomIdAdapter(),
+                    account_idAdapter = AccountIdAdapter(),
                 ),
                 roomsAdapter = Rooms.Adapter(
                     typeAdapter = EnumColumnAdapter(),

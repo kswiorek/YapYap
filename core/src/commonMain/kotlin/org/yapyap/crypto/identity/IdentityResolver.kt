@@ -45,4 +45,6 @@ interface IdentityResolver {
 
     /** Resolves a local SPK by wire id (supports archived keys after rotation). */
     suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord
+
+    suspend fun getAllPeers(): List<PeerId>
 }

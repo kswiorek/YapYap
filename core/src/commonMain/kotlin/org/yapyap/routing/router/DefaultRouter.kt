@@ -24,6 +24,8 @@ import org.yapyap.routing.inbound.handlers.MessageInboundHandler
 import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.*
+import org.yapyap.routing.ping.LamportSnapshotProvider
+import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
@@ -51,14 +53,15 @@ class DefaultRouter(
     val transportLimits: StateFlow<TransportLimits>,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
+    val lamportSnapshotProvider: LamportSnapshotProvider,
 ): Router {
 
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val retryLoopMaxIdlePollSeconds: StateFlow<Long> = routerConfig
-        .map { it.retryLoopMaxIdlePollSeconds }
-        .stateIn(scope, SharingStarted.Eagerly, routerConfig.value.retryLoopMaxIdlePollSeconds)
+    private val retryLoopMaxIdlePollSeconds: StateFlow<Duration> = routerConfig
+        .map { it.retryLoopMaxIdlePoll }
+        .stateIn(scope, SharingStarted.Eagerly, routerConfig.value.retryLoopMaxIdlePoll)
 
 
     private val routingContext = RoutingContext(
@@ -80,13 +83,13 @@ class DefaultRouter(
     // Fed by SystemInboundHandler when a typing indicator system envelope is received.
     private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
 
-    private val pingPayloadFlow = MutableSharedFlow<Map<RoomId, Long>>(extraBufferCapacity = 64)
+    private val pingPayloadFlow = MutableSharedFlow<List<Pair<RoomId, Long>>>(extraBufferCapacity = 64)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
         transportPolicy = transportPolicy,
         packetOutbox = packetOutbox,
-        maxIdlePollSeconds = retryLoopMaxIdlePollSeconds,
+        maxIdlePoll = retryLoopMaxIdlePollSeconds,
     )
 
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider, routerConfig)
@@ -106,6 +109,15 @@ class DefaultRouter(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
     )
+
+    private val pingProvider = PingProvider(
+        ctx = routingContext,
+        config = routerConfig,
+        pingPayloadFlow = pingPayloadFlow,
+        lamportSnapshotProvider = lamportSnapshotProvider,
+        systemSender = systemSender,
+    )
+
     private val syncHandler = SyncHandler(
         outboundMessenger,
         syncPayloadProvider,
@@ -138,7 +150,7 @@ class DefaultRouter(
         systemSender = systemSender,
         peerPolicy = peerPolicy,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
-        maxIdlePollSeconds = retryLoopMaxIdlePollSeconds,
+        maxIdlePoll = retryLoopMaxIdlePollSeconds,
     )
 
     private var started = false
@@ -156,7 +168,7 @@ class DefaultRouter(
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
 
-    override val pingPayloads: Flow<Map<RoomId, Long>> = pingPayloadFlow.asSharedFlow()
+    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = pingPayloadFlow.asSharedFlow()
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
@@ -229,6 +241,8 @@ class DefaultRouter(
 
         syncRetryJob = syncProcessor.runIn(scope)
 
+        pingProvider.runIn(scope)
+
         AppLog.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STARTED,
@@ -236,10 +250,15 @@ class DefaultRouter(
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )
         started = true
+
+        pingProvider.ping()
     }
 
     override suspend fun stop() {
         if (!started) return
+
+        pingProvider.stop()
+        pingProvider.logOff()
 
         webRtcTransport.stop()
         torTransport.stop()

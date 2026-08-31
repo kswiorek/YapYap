@@ -6,9 +6,9 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.packet.DefaultPacketOutbox
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
@@ -56,7 +56,7 @@ class DefaultRouterOutboxIntegrationTest {
 
         val now = 10_000L
         assertTrue(outbox.listDue(now).isEmpty())
-        assertEquals(now + RouterConfig().torRetryDelaySeconds, outbox.earliestPendingRetryAt())
+        assertEquals(now + RouterConfig().torRetryDelay, outbox.earliestPendingRetryAt())
         assertEquals(1, tor.sends.size)
 
         val packetId = tor.sends.single().second.packetId
@@ -113,7 +113,7 @@ class DefaultRouterOutboxIntegrationTest {
             identity = identity,
             outbox = outbox,
             time = FixedEpochProvider(10_000L),
-            routerConfig = RouterConfig(retryLoopMaxIdlePollSeconds = 1),
+            routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1),
         )
     }
 

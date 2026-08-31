@@ -2,6 +2,7 @@ package org.yapyap.routing.policy
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.RouterTransport
+import kotlin.time.Duration
 
 interface OutboundPolicy {
     fun resolve(
@@ -14,5 +15,5 @@ interface OutboundPolicy {
 
 data class ResolvedOutbound(
     val transport: RouterTransport,
-    val retryDelaySeconds: Long,
+    val retryDelay: Duration,
 )

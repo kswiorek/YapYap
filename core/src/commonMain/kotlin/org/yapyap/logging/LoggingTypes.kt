@@ -97,6 +97,9 @@ enum class LogEvent {
     CAUSAL_HOLD_INSERTED,
     CAUSAL_HOLD_QUERIED,
     CAUSAL_HOLD_DELETED,
+    PING_SENT,
+    PING_NO_PEERS,
+    PING_HANDLED,
 }
 
 enum class LogComponent {

@@ -42,4 +42,6 @@ interface IdentityKeyRepository {
     suspend fun insertSignedPreKey(spk: SignedPreKeyRecord)
 
     suspend fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord)
+
+    suspend fun getAllDeviceIds(): List<PeerId>
 }

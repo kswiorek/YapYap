@@ -62,6 +62,6 @@ internal class PeerAvailabilityRegistry(
 
     private fun isOnlineLocked(deviceId: PeerId, now: Long): Boolean {
         val last = lastSeenEpoch[deviceId] ?: return false
-        return now - last < routerConfig.value.onlineThresholdSeconds
+        return now - last < routerConfig.value.onlineThreshold.inWholeSeconds
     }
 }

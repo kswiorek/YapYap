@@ -76,7 +76,7 @@ class SyncIntegrationTest {
         identityResolver = localIdentity,
         pendingSyncRepository = pendingRepo,
         timeProvider = localTime,
-        orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriodSeconds = 0)),
+        orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = 0)),
     )
 
     private fun textMsg(
@@ -149,7 +149,7 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-                maxIdlePollSeconds = MutableStateFlow(1),
+                maxIdlePoll = MutableStateFlow(1),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
@@ -246,7 +246,7 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
-                maxIdlePollSeconds = MutableStateFlow(1),
+                maxIdlePoll = MutableStateFlow(1),
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
