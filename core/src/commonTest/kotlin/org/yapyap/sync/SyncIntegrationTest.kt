@@ -148,7 +148,11 @@ class SyncIntegrationTest {
                 pendingSyncs = pendingRepo,
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
-                peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
+                peerAvailabilityRegistry = PeerAvailabilityRegistry(
+                    localStack.ctx.timeProvider,
+                    MutableStateFlow(RouterConfig()),
+                    FakePeerAvailabilityStore()
+                ),
                 maxIdlePoll = MutableStateFlow(1.seconds),
             )
             val remoteHandler = SyncHandler(
@@ -245,7 +249,11 @@ class SyncIntegrationTest {
                 pendingSyncs = pendingRepo,
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
-                peerAvailabilityRegistry = PeerAvailabilityRegistry(localStack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
+                peerAvailabilityRegistry = PeerAvailabilityRegistry(
+                    localStack.ctx.timeProvider,
+                    MutableStateFlow(RouterConfig()),
+                    FakePeerAvailabilityStore()
+                ),
                 maxIdlePoll = MutableStateFlow(1.seconds),
             )
             val remoteHandler = SyncHandler(
@@ -312,6 +320,7 @@ private class RecordingRouter : Router {
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
+    override suspend fun announceOnline() = Unit
 
     override suspend fun sendMessage(
         target: AccountId,

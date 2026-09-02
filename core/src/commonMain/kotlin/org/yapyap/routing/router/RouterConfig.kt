@@ -18,7 +18,6 @@ data class RouterConfig(
     val retryLoopMaxIdlePoll: Duration = 60.seconds,
     val outboxMaxSizeBytes: Long = 1024 * 1024 * 10,
     val dedupRetention: Duration = 30.days,
-    val onlineThreshold: Duration = 2.minutes,
     /** A peer must have sent us traffic within this window for proactive session pre-warming. */
     val proactiveSessionFreshness: Duration = 60.seconds,
     /** Minimum interval between proactive open attempts to the same peer after a failed/closed session. */
@@ -31,6 +30,20 @@ data class RouterConfig(
     val syncOfflineRetryDelay: Duration = 60.seconds,
 
     val pingInterval: Duration = 5.minutes,
+    /**
+     * How often [PeerAvailabilityRegistry]'s sweep samples peer availability: for each peer it
+     * looks at whether we saw any traffic from them within the last [sweepInterval] (boost) or,
+     * failing that, whether one of our pings went unanswered (decay). Independent of [pingInterval];
+     * should be a few times larger so a ping early in a window has time to draw a reply.
+     */
+    val sweepInterval: Duration = 15.minutes,
+    /**
+     * Time constant for the complementary filter on a peer's reliability score: the deficit to 1
+     * (when traffic is seen) and the score itself (when our ping goes unanswered) halve each
+     * [reliabilityHalfLife] of observed time. Expressed in wall-clock time (not per-sweep) so the
+     * score's dynamics are unaffected by [sweepInterval] or how long the app is awake for.
+     */
+    val reliabilityHalfLife: Duration = 24.hours,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "messageLifetimeSeconds must be > 0" }
@@ -46,6 +59,9 @@ data class RouterConfig(
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeoutSeconds must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelaySeconds must be > 0" }
+        require(pingInterval > Duration.ZERO) { "pingInterval must be > 0" }
+        require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }
+        require(reliabilityHalfLife > Duration.ZERO) { "reliabilityHalfLife must be > 0" }
     }
     fun getRetryDelaySeconds(transport: RouterTransport): Duration = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelay

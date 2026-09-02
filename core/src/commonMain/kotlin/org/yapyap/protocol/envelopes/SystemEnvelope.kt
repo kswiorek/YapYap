@@ -280,14 +280,25 @@ sealed interface SystemPayload {
 
     data class Ping(
         val pingId: Uuid,
+        /**
+         * Distinguishes an original probe from an echo/response.
+         * - `false` (probe): the sender is probing us and expects a reply echoing [pingId].
+         * - `true` (reply): an answer to a probe we sent earlier; it must never be re-echoed.
+         *
+         * Making this explicit (rather than inferring "reply" from whether [pingId] is in our own
+         * pending set) means a delayed/lost reply can never be mistaken for a fresh probe and cause
+         * an endless ping-pong between two nodes.
+         */
+        val isReply: Boolean = false,
         val roomLamports: List<Pair<RoomId, Long>>,
     ): SystemPayload {
         //TODO: round trip tests
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
         override fun encode(): ByteArray {
-            val writer = ByteWriter(16 + Uuid.SIZE_BYTES + roomLamports.size * (Uuid.SIZE_BYTES + 8))
+            val writer = ByteWriter(16 + Uuid.SIZE_BYTES + 1 + roomLamports.size * (Uuid.SIZE_BYTES + 8))
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(pingId)
+            writer.writeByte(if (isReply) 1 else 0)
             writer.writeInt(roomLamports.size)
             roomLamports
                 .forEach { (roomId, lamport) ->
@@ -304,13 +315,14 @@ sealed interface SystemPayload {
                     "Expected PING payload kind"
                 }
                 val pingId = reader.readUuid()
+                val isReply = reader.readByte().toInt() == 1
                 val count = reader.readInt()
                 val roomLamports = List(
                     count,
                     init = {RoomId(reader.readUuid()) to reader.readLong() },
                 )
                 reader.requireFullyRead()
-                return Ping(pingId, roomLamports)
+                return Ping(pingId, isReply, roomLamports)
             }
         }
     }

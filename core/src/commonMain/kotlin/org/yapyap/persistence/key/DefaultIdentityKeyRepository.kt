@@ -202,8 +202,7 @@ class DefaultIdentityKeyRepository(
                     key_signature = identity.keySignature,
                     current_signed_prekey_id = identity.signedPreKey?.keyId,
                     push_token = defaults.pushToken,
-                    ping_attempts = defaults.pingAttempts,
-                    ping_successes = defaults.pingSuccesses,
+                    reliability_score = defaults.reliabilityScore,
                     last_seen_timestamp = defaults.lastSeenTimestamp,
                 )
                 identity.signedPreKey?.let { spk ->
@@ -337,8 +336,7 @@ class DefaultIdentityKeyRepository(
                     key_signature = identity.keySignature,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,
-                    ping_attempts = defaults.pingAttempts,
-                    ping_successes = defaults.pingSuccesses,
+                    reliability_score = defaults.reliabilityScore,
                     last_seen_timestamp = defaults.lastSeenTimestamp,
                 )
                 identity.signedPreKey?.let { spk ->

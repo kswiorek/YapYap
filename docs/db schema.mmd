@@ -23,8 +23,7 @@ erDiagram
         string device_type "APPLE, ANDROID, DESKTOP, or HEADLESS"
         string onion_address "The Tor V3 Address for this specific device"
         string push_token "FCM/APNs token (Nullable for Desktop/Headless)"
-        integer ping_attempts "Used for peer uptime math"
-        integer ping_successes "Used for peer uptime math"
+        float reliability_score "Decaying relay reliability in [0,1] (complementary filter)"
         integer last_seen_timestamp "Epoch for TTL calculations"
     }
 

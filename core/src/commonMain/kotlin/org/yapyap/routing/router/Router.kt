@@ -21,6 +21,17 @@ interface Router {
     suspend fun stop()
     fun isRunning(): Boolean
 
+    /**
+     * Immediately pings every known peer, advertising our presence and exchanging lamport clock
+     * snapshots so listeners can trigger range syncs.
+     *
+     * The orchestrator calls this once, after the subsystems that consume [pingPayloads] (e.g. the
+     * sync coordinator) are running, rather than having it fire inside [start]. Idempotent and
+     * best-effort: failures to individual peers are swallowed. Returns once the pings are handed to
+     * the transport.
+     */
+    suspend fun announceOnline()
+
     suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,

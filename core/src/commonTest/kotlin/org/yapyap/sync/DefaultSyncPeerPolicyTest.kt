@@ -20,7 +20,11 @@ class DefaultSyncPeerPolicyTest {
     fun prefersWebRtcSessionOverOnlinePeer() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
         stack.webRtc.openSession(peerA)
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
+        val registry = PeerAvailabilityRegistry(
+            stack.ctx.timeProvider,
+            MutableStateFlow(RouterConfig()),
+            FakePeerAvailabilityStore()
+        )
         registry.markReachable(peerB, stack.ctx.timeProvider.nowEpochSeconds())
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
@@ -30,7 +34,11 @@ class DefaultSyncPeerPolicyTest {
     @Test
     fun prefersOnlinePeerOverOfflinePeer() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
+        val registry = PeerAvailabilityRegistry(
+            stack.ctx.timeProvider,
+            MutableStateFlow(RouterConfig()),
+            FakePeerAvailabilityStore()
+        )
         registry.markReachable(peerB, stack.ctx.timeProvider.nowEpochSeconds())
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
@@ -40,7 +48,11 @@ class DefaultSyncPeerPolicyTest {
     @Test
     fun returnsNullWhenNoPeerOnlineOrSessioned() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
+        val registry = PeerAvailabilityRegistry(
+            stack.ctx.timeProvider,
+            MutableStateFlow(RouterConfig()),
+            FakePeerAvailabilityStore()
+        )
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
         assertNull(policy.pickNextDevice(listOf(peerA, peerB), emptySet()))
@@ -49,7 +61,11 @@ class DefaultSyncPeerPolicyTest {
     @Test
     fun skipsAttemptedPeersEvenIfOnline() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig()))
+        val registry = PeerAvailabilityRegistry(
+            stack.ctx.timeProvider,
+            MutableStateFlow(RouterConfig()),
+            FakePeerAvailabilityStore()
+        )
         registry.markReachable(peerB, stack.ctx.timeProvider.nowEpochSeconds())
         val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 

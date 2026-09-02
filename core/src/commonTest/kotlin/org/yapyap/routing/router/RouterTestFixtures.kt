@@ -36,6 +36,7 @@ import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.LamportSnapshotProvider
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
+import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.time.EpochProvider
 import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -598,6 +599,7 @@ internal fun e2eeRouterUnderTest(
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
         lamportSnapshotProvider = FakeLamportSnapshotProvider(),
+        peerAvailabilityStore = FakePeerAvailabilityStore(),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -652,4 +654,5 @@ internal fun defaultRouterUnderTest(
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
         lamportSnapshotProvider = FakeLamportSnapshotProvider(),
+        peerAvailabilityStore = FakePeerAvailabilityStore(),
     )

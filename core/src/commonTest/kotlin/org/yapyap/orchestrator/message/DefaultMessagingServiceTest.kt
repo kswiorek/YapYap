@@ -659,6 +659,7 @@ private class RecordingRouter : Router {
     override suspend fun start() {}
     override suspend fun stop() {}
     override fun isRunning(): Boolean = true
+    override suspend fun announceOnline() = Unit
 
     override suspend fun sendMessage(
         target: AccountId,

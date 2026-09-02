@@ -71,6 +71,37 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
+    fun systemPayload_ping_probe_encodeDecode_roundTrip() {
+        val original = SystemPayload.Ping(
+            pingId = samplePacketId,
+            isReply = false,
+            roomLamports = listOf(RoomId(Uuid.random()) to 7L, RoomId(Uuid.random()) to 42L),
+        )
+        val decoded = SystemPayload.Ping.decode(original.encode())
+        assertPingEquals(original, decoded)
+        assertFalse(decoded.isReply, "probe must round-trip as a non-reply")
+    }
+
+    @Test
+    fun systemPayload_ping_reply_encodeDecode_roundTrip() {
+        val original = SystemPayload.Ping(
+            pingId = samplePacketId,
+            isReply = true,
+            roomLamports = emptyList(),
+        )
+        val decoded = SystemPayload.Ping.decode(original.encode())
+        assertPingEquals(original, decoded)
+        assertTrue(decoded.isReply, "reply must round-trip as a reply")
+    }
+
+    @Test
+    fun systemPayload_ping_emptyLamports_encodeDecode_roundTrip() {
+        val original = SystemPayload.Ping(pingId = samplePacketId, isReply = false, roomLamports = emptyList())
+        val decoded = SystemPayload.Ping.decode(original.encode())
+        assertPingEquals(original, decoded)
+    }
+
+    @Test
     fun systemEnvelope_full_encodeDecode_packetAck_roundTrip() {
         val payload = SystemPayload.PacketAck(
             packetId = samplePacketId,
@@ -191,6 +222,8 @@ class SystemEnvelopeCodecTest {
                 assertSyncRequestEquals(expected, actual)
             expected is SystemPayload.SyncNack && actual is SystemPayload.SyncNack ->
                 assertSyncNackEquals(expected, actual)
+            expected is SystemPayload.Ping && actual is SystemPayload.Ping ->
+                assertPingEquals(expected, actual)
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }
@@ -217,5 +250,11 @@ class SystemEnvelopeCodecTest {
     private fun assertSyncNackEquals(expected: SystemPayload.SyncNack, actual: SystemPayload.SyncNack) {
         assertEquals(expected.syncId, actual.syncId)
         assertEquals(expected.reason, actual.reason)
+    }
+
+    private fun assertPingEquals(expected: SystemPayload.Ping, actual: SystemPayload.Ping) {
+        assertEquals(expected.pingId, actual.pingId)
+        assertEquals(expected.isReply, actual.isReply)
+        assertEquals(expected.roomLamports, actual.roomLamports)
     }
 }

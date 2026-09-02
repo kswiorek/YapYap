@@ -25,6 +25,7 @@ import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.availability.DefaultPeerAvailabilityStore
 import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
 import org.yapyap.persistence.db.DatabaseFactory
@@ -272,6 +273,8 @@ class DefaultOrchestrator(
 
         val lamportSnapshotProvider = DefaultLamportSnapshotProvider(roomRepo)
 
+        val peerAvailabilityStore = DefaultPeerAvailabilityStore(database)
+
         val maintenance = MaintenanceScheduler(
             tasks = listOf(
                 PacketStoreMaintenance(packetOutbox, packetDeduplicator, configStore.routerConfig)::run,
@@ -292,7 +295,8 @@ class DefaultOrchestrator(
             syncRepository = syncRepo,
             routerConfig = configStore.routerConfig,
             transportLimits = configStore.transportLimits,
-            lamportSnapshotProvider = lamportSnapshotProvider
+            lamportSnapshotProvider = lamportSnapshotProvider,
+            peerAvailabilityStore = peerAvailabilityStore,
         )
 
         router.start()
@@ -340,7 +344,9 @@ class DefaultOrchestrator(
             orchestratorRuntime.start(orchestratorScope)
         }
 
-        // TODO ping, request sync etc
+        // Announce presence + exchange lamport snapshots now that the subsystems consuming
+        // pingPayloads (sync coordinator) are up and subscribed.
+        router.announceOnline()
     }
 
     override suspend fun stop() {

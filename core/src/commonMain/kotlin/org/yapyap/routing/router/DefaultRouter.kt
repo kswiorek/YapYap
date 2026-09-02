@@ -10,6 +10,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.availability.PeerAvailabilityStore
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
@@ -54,6 +55,7 @@ class DefaultRouter(
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
     val lamportSnapshotProvider: LamportSnapshotProvider,
+    val peerAvailabilityStore: PeerAvailabilityStore,
 ): Router {
 
 
@@ -92,7 +94,11 @@ class DefaultRouter(
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
     )
 
-    private val peerAvailabilityRegistry = PeerAvailabilityRegistry(timeProvider = timeProvider, routerConfig)
+    private val peerAvailabilityRegistry = PeerAvailabilityRegistry(
+        timeProvider = timeProvider,
+        routerConfig,
+        store = peerAvailabilityStore,
+    )
     private val proactiveSessionOpener = ProactiveSessionOpener(
         ctx = routingContext,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
@@ -116,6 +122,7 @@ class DefaultRouter(
         pingPayloadFlow = pingPayloadFlow,
         lamportSnapshotProvider = lamportSnapshotProvider,
         systemSender = systemSender,
+        onPingTransmitted = { peer -> peerAvailabilityRegistry.notePingSent(peer) },
     )
 
     private val syncHandler = SyncHandler(
@@ -244,6 +251,8 @@ class DefaultRouter(
 
         pingProvider.runIn(scope)
 
+        peerAvailabilityRegistry.start(scope)
+
         AppLog.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STARTED,
@@ -251,14 +260,13 @@ class DefaultRouter(
             fields = mapOf("torEndpoint" to torEndpoint.toString()),
         )
         started = true
-
-        pingProvider.ping()
     }
 
     override suspend fun stop() {
         if (!started) return
 
         pingProvider.stop()
+        peerAvailabilityRegistry.stop()
         pingProvider.logOff()
 
         webRtcTransport.stop()
@@ -291,6 +299,12 @@ class DefaultRouter(
     }
 
     override fun isRunning(): Boolean = started
+
+    override suspend fun announceOnline() {
+        check(started) { "Router must be started before announcing online" }
+        // Best-effort: a transient send failure to one peer must not propagate out of the announce.
+        runCatching { pingProvider.ping() }
+    }
 
     override suspend fun sendMessage(
         target: AccountId,

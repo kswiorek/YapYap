@@ -187,7 +187,10 @@ internal fun buildSyncRoutingStack(
     val policy = SessionOrTorPolicy(MutableStateFlow(RouterConfig()))
     val outbox = TrackingPacketOutbox()
     val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePoll = MutableStateFlow(60.seconds))
-    val proactiveSessionOpener = ProactiveSessionOpener(ctx, PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig())))
+    val proactiveSessionOpener = ProactiveSessionOpener(
+        ctx,
+        PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig()), FakePeerAvailabilityStore())
+    )
     val outboundMessenger = OutboundMessenger(ctx, dispatcher, policy, outboxProcessor, sessionOpener = proactiveSessionOpener)
     val systemSender = SystemSender(ctx, policy, dispatcher)
     return SyncRoutingStack(

@@ -32,8 +32,7 @@ CREATE TABLE devices (
     key_signature BLOB,
     current_signed_prekey_id TEXT,
     push_token TEXT,
-    ping_attempts INTEGER NOT NULL,
-    ping_successes INTEGER NOT NULL,
+    reliability_score REAL NOT NULL,
     last_seen_timestamp INTEGER NOT NULL,
     FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 );
@@ -96,10 +95,9 @@ INSERT OR REPLACE INTO devices (
     key_signature,
     current_signed_prekey_id,
     push_token,
-    ping_attempts,
-    ping_successes,
+    reliability_score,
     last_seen_timestamp
-) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateDeviceCurrentSignedPreKey:
 UPDATE devices
@@ -210,9 +208,7 @@ FROM devices;
 
 selectAllDeviceIds:
 SELECT device_id
-FROM devices;
-
-updateDeviceSigningKey:
+FROM devices;updateDeviceSigningKey:
 UPDATE devices
 SET
     signing_pub_key = ?,
@@ -238,6 +234,33 @@ SET
     encryption_key_id = ?,
     encryption_key_version = ?
 WHERE device_id = ?;
+
+markDeviceLastSeen:
+UPDATE devices
+SET last_seen_timestamp = ?
+WHERE device_id = ?;
+
+updateDeviceReliability:
+UPDATE devices
+SET
+    reliability_score = ?,
+    last_seen_timestamp = COALESCE(?, last_seen_timestamp)
+WHERE device_id = ?;
+
+selectDeviceAvailabilityById:
+SELECT
+    device_id AS deviceId,
+    reliability_score AS reliabilityScore,
+    last_seen_timestamp AS lastSeenEpoch
+FROM devices
+WHERE device_id = ?;
+
+selectAllDeviceAvailability:
+SELECT
+    device_id AS deviceId,
+    reliability_score AS reliabilityScore,
+    last_seen_timestamp AS lastSeenEpoch
+FROM devices;
 
 CREATE INDEX devices_account_idx ON devices(account_id);
 CREATE INDEX signed_prekeys_device_idx ON signed_prekeys(device_id);

@@ -32,7 +32,11 @@ class SyncRetryProcessorTest {
             pendingSyncs = repo,
             systemSender = stack.systemSender,
             peerPolicy = policy,
-            peerAvailabilityRegistry = PeerAvailabilityRegistry(stack.ctx.timeProvider, MutableStateFlow(RouterConfig())),
+            peerAvailabilityRegistry = PeerAvailabilityRegistry(
+                stack.ctx.timeProvider,
+                MutableStateFlow(RouterConfig()),
+                FakePeerAvailabilityStore()
+            ),
             maxIdlePoll = MutableStateFlow(1.seconds),
         )
 

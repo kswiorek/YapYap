@@ -15,6 +15,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.time.FixedEpochProvider
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
@@ -119,6 +120,7 @@ class DefaultRouterLiveIntegrationTest {
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 lamportSnapshotProvider = FakeLamportSnapshotProvider(),
+                peerAvailabilityStore = FakePeerAvailabilityStore(),
             )
         val bobRouter =
             DefaultRouter(
@@ -134,6 +136,7 @@ class DefaultRouterLiveIntegrationTest {
                 syncRepository = InMemoryPendingSyncRepository(),
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 lamportSnapshotProvider = FakeLamportSnapshotProvider(),
+                peerAvailabilityStore = FakePeerAvailabilityStore(),
             )
 
         try {
