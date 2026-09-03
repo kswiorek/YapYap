@@ -38,7 +38,7 @@ class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId }
             .maxWithOrNull(
                 compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.createdAt }
                     .thenBy { it.payload.messageId }
             )
 
@@ -50,7 +50,7 @@ class FakeMessageRepository : MessageRepository {
         val all = byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAtEpochSeconds }
+                compareByDescending<MessageRow> { it.payload.createdAt }
                     .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
@@ -58,12 +58,12 @@ class FakeMessageRepository : MessageRepository {
             all
         } else {
             all.filter { row ->
-                val rowCreated = row.payload.createdAtEpochSeconds
+                val rowCreated = row.payload.createdAt
                 val rowLamport = row.payload.lamportClock
                 val rowId = row.payload.messageId
-                rowCreated < cursor.createdAtEpochSeconds ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport < cursor.lamportClock) ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
+                rowCreated < cursor.createdAt ||
+                        (rowCreated == cursor.createdAt && rowLamport < cursor.lamportClock) ||
+                        (rowCreated == cursor.createdAt && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
             }
         }
         return filtered.take(limit)
@@ -73,7 +73,7 @@ class FakeMessageRepository : MessageRepository {
         byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAtEpochSeconds }
+                compareByDescending<MessageRow> { it.payload.createdAt }
                     .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
@@ -107,7 +107,7 @@ class FakeMessageRepository : MessageRepository {
             .filter { it.payload.lamportClock in lowerInclusive..upperInclusive }
             .sortedWith(
                 compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.createdAt }
                     .thenBy { it.payload.messageId }
             )
             .take(limit)

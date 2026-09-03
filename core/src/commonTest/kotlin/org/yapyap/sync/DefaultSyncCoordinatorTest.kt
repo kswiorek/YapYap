@@ -9,10 +9,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.testfixtures.FakeIdentityResolver
-import org.yapyap.testfixtures.FakeMessageRepository
-import org.yapyap.testfixtures.FakeRoomRepository
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -30,7 +27,7 @@ class DefaultSyncCoordinatorTest {
     private lateinit var roomRepo: FakeRoomRepository
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var pendingRepo: FakePendingSyncRepository
-    private lateinit var time: FixedEpochProvider
+    private lateinit var clock: FakeClock
 
     private fun buildCoordinator(
         roomMembers: List<AccountId> = listOf(localAccount, remoteAccount),
@@ -38,14 +35,14 @@ class DefaultSyncCoordinatorTest {
         roomRepo = FakeRoomRepository(mapOf(roomId to roomMembers))
         messageRepo = FakeMessageRepository()
         pendingRepo = FakePendingSyncRepository()
-        time = FixedEpochProvider(1_000L)
+        clock = FakeClock(epochSeconds(1_000L))
         return DefaultSyncCoordinator(
             pipeline = pipeline,
             roomRepository = roomRepo,
             messageRepository = messageRepo,
             identityResolver = FakeIdentityResolver(localAccount, localDevice),
             pendingSyncRepository = pendingRepo,
-            timeProvider = time,
+            clock = clock,
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
         )
     }
@@ -64,7 +61,7 @@ class DefaultSyncCoordinatorTest {
             authorSignature = byteArrayOf(1),
             prevId = prevId,
             lamportClock = lamport,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "m$lamport",
         )
 

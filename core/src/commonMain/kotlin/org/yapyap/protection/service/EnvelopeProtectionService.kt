@@ -4,6 +4,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.transport.webrtc.types.WebRtcSignal
+import kotlin.time.Instant
 
 interface EnvelopeProtectionService {
     suspend fun protectSignal(
@@ -48,7 +49,7 @@ interface EnvelopeProtectionService {
 }
 
 data class EnvelopeProtectContext(
-    val createdAtEpochSeconds: Long,
+    val createdAt: Instant,
     val sourceDeviceId: PeerId,
     val targetDeviceId: PeerId,
     val securityScheme: SignalSecurityScheme,

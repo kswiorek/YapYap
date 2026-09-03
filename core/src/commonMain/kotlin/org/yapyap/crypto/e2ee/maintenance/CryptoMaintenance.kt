@@ -6,30 +6,30 @@ import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 class CryptoMaintenance(
     private val sessionStore: CryptoSessionStore,
     private val opkRepository: OpkRepository,
     private val sessionConfig: StateFlow<CryptoSessionConfig>,
-    private val timeProvider: EpochProvider = SystemEpochProvider,
+    private val clock: Clock = Clock.System,
 ) {
 
     suspend fun run() {
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         val prunedOpkIds = opkRepository.pruneExpiredOffers(
-            cutoffEpochSeconds = now - sessionConfig.value.offeredOpkRetentionSeconds,
+            cutoff = now - sessionConfig.value.offeredOpkRetention,
         )
         if (prunedOpkIds.isNotEmpty()) {
-            sessionStore.clearOfferedOpkIds(prunedOpkIds, updatedAtEpochSeconds = now)
+            sessionStore.clearOfferedOpkIds(prunedOpkIds, updatedAt = now)
         }
         for (peerDeviceId in sessionStore.listPeerDeviceIds()) {
             maintainPeerSessions(
                 sessionStore = sessionStore,
                 sessionConfig = sessionConfig.value,
                 peerDeviceId = peerDeviceId,
-                nowEpochSeconds = now,
+                now = now,
             )
         }
     }
@@ -39,31 +39,31 @@ internal suspend fun maintainPeerSessions(
     sessionStore: CryptoSessionStore,
     sessionConfig: CryptoSessionConfig,
     peerDeviceId: PeerId,
-    nowEpochSeconds: Long,
+    now: Instant,
 ) {
     val sessions = sessionStore.listByPeer(peerDeviceId)
-    val idleCutoff = nowEpochSeconds - sessionConfig.canonicalIdleSupersedeSeconds
+    val idleCutoff = now - sessionConfig.canonicalIdleSupersede
     for (record in sessions) {
         if (record.canonical &&
             record.meta.status == SessionStatus.ACTIVE &&
-            record.meta.updatedAtEpochSeconds < idleCutoff
+            record.meta.updatedAt < idleCutoff
         ) {
             sessionStore.markSuperseded(
                 peerDeviceId,
                 record.sessionEpoch,
                 record.meta.role,
                 record.meta.sessionGeneration,
-                nowEpochSeconds,
+                now,
             )
         }
     }
 
-    val pendingEpoch2Cutoff = nowEpochSeconds - sessionConfig.pendingEpoch2RetentionSeconds
-    val supersededPruneCutoff = nowEpochSeconds - sessionConfig.supersededRetentionSeconds
+    val pendingEpoch2Cutoff = now - sessionConfig.pendingEpoch2Retention
+    val supersededPruneCutoff = now - sessionConfig.supersededRetention
     for (record in sessions) {
         if (record.sessionEpoch == 2 &&
             record.meta.status == SessionStatus.PENDING &&
-            record.meta.updatedAtEpochSeconds < pendingEpoch2Cutoff
+            record.meta.updatedAt < pendingEpoch2Cutoff
         ) {
             sessionStore.deleteSession(
                 peerDeviceId,
@@ -74,7 +74,7 @@ internal suspend fun maintainPeerSessions(
             continue
         }
         if (record.meta.status == SessionStatus.SUPERSEDED &&
-            record.meta.updatedAtEpochSeconds < supersededPruneCutoff
+            record.meta.updatedAt < supersededPruneCutoff
         ) {
             sessionStore.deleteSession(
                 peerDeviceId,

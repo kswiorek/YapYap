@@ -1,6 +1,7 @@
 package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.LocalOneTimePreKey
+import kotlin.time.Instant
 
 /**
  * Local pool of one-time prekeys (OPKs) consumed during optional 4-DH session upgrade.
@@ -22,8 +23,8 @@ interface OpkRepository {
     suspend fun loadOffered(opkId: String): LocalOneTimePreKey?
 
     /**
-     * Delete OFFERED OPKs offered before [cutoffEpochSeconds].
+     * Delete OFFERED OPKs offered before [cutoff].
      * Private key material is removed. Returns pruned opk ids.
      */
-    suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String>
+    suspend fun pruneExpiredOffers(cutoff: Instant): List<String>
 }

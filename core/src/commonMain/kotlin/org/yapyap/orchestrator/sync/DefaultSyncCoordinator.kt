@@ -14,9 +14,8 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
 import kotlin.concurrent.Volatile
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 class DefaultSyncCoordinator(
@@ -25,7 +24,7 @@ class DefaultSyncCoordinator(
     private val messageRepository: MessageRepository,
     private val identityResolver: IdentityResolver,
     private val pendingSyncRepository: PendingSyncRepository,
-    private val timeProvider: EpochProvider = SystemEpochProvider,
+    private val clock: Clock = Clock.System,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>
 ) : SyncCoordinator {
 
@@ -188,7 +187,7 @@ class DefaultSyncCoordinator(
             anchorLamport = anchorLamport,
             orphanLamport = orphanLamport,
             candidateAccounts = candidates,
-            nextAttemptAt = timeProvider.nowEpochSeconds() + orchestratorConfig.value.syncGracePeriod.inWholeSeconds,
+            nextAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod,
         )
     }
 

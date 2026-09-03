@@ -26,7 +26,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
             lamportClock = 42L,
-            createdAtEpochSeconds = 1_700_000_042L,
+            createdAt = 1_700_000_042L,
             text = "hello",
             authorSignature = testSignature,
         )
@@ -43,7 +43,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = 1_700_000_000L,
+            createdAt = 1_700_000_000L,
             eventBytes = byteArrayOf(0x01, 0x02),
             authorSignature = testSignature,
         )
@@ -61,7 +61,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
             lamportClock = 42L,
-            createdAtEpochSeconds = 1_700_000_042L,
+            createdAt = 1_700_000_042L,
             text = "hello",
             authorSignature = testSignature,
         )
@@ -79,7 +79,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
             lamportClock = 99L,
-            createdAtEpochSeconds = 1_700_000_099L,
+            createdAt = 1_700_000_099L,
             eventBytes = byteArrayOf(0xab.toByte()),
             authorSignature = testSignature,
         )
@@ -106,7 +106,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 1L,
-            createdAtEpochSeconds = 1_700_000_001L,
+            createdAt = 1_700_000_001L,
             text = "",
             authorSignature = testSignature,
         )
@@ -133,7 +133,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "\u0009",
             authorSignature = testSignature,
         )
@@ -162,7 +162,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "\u0009",
             authorSignature = testSignature,
         )
@@ -196,7 +196,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "",
             authorSignature = testSignature,
         )
@@ -208,7 +208,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             eventBytes = byteArrayOf(),
             authorSignature = testSignature,
         )
@@ -246,7 +246,7 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.authorDeviceId, actual.authorDeviceId)
         assertEquals(expected.prevId, actual.prevId)
         assertEquals(expected.lamportClock, actual.lamportClock)
-        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
+        assertEquals(expected.createdAt, actual.createdAt)
         assertEquals(expected.text, actual.text)
         assertContentEquals(expected.authorSignature, actual.authorSignature)
     }
@@ -261,7 +261,7 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.authorDeviceId, actual.authorDeviceId)
         assertEquals(expected.prevId, actual.prevId)
         assertEquals(expected.lamportClock, actual.lamportClock)
-        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
+        assertEquals(expected.createdAt, actual.createdAt)
         assertContentEquals(expected.eventBytes, actual.eventBytes)
         assertContentEquals(expected.authorSignature, actual.authorSignature)
     }

@@ -8,6 +8,7 @@ import org.yapyap.persistence.SelectCryptoSessionsByPeerWithKeys
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
+import kotlin.time.Instant
 
 class DefaultCryptoSessionStore(
     private val database: YapYapDatabase,
@@ -70,8 +71,8 @@ class DefaultCryptoSessionStore(
                     initiator_ephemeral_public_key = meta.initiatorEphemeralPublicKey,
                     offered_opk_id = meta.offeredOpkId,
                     status = meta.status,
-                    created_at_epoch_seconds = meta.createdAtEpochSeconds,
-                    updated_at_epoch_seconds = meta.updatedAtEpochSeconds,
+                    created_at_epoch_seconds = meta.createdAt,
+                    updated_at_epoch_seconds = meta.updatedAt,
                 )
                 queries.deleteCryptoSessionSkippedKeysBySession(session_id = sid)
                 for ((keyId, messageKey) in ratchet.skippedMessageKeys) {
@@ -167,12 +168,12 @@ class DefaultCryptoSessionStore(
         sessionEpoch: Int,
         role: SessionRole,
         sessionGeneration: Int,
-        updatedAtEpochSeconds: Long,
+        updatedAt: Instant,
     ) {
         withContext(dbDispatcher) {
             queries.markCryptoSessionSupersededByRoleAndGeneration(
                 status = SessionStatus.SUPERSEDED,
-                updated_at_epoch_seconds = updatedAtEpochSeconds,
+                updated_at_epoch_seconds = updatedAt,
                 peer_device_id = peerDeviceId,
                 session_epoch = sessionEpoch.toLong(),
                 role = role,
@@ -184,12 +185,12 @@ class DefaultCryptoSessionStore(
     override suspend fun markEpochSuperseded(
         peerDeviceId: PeerId,
         sessionEpoch: Int,
-        updatedAtEpochSeconds: Long,
+        updatedAt: Instant,
     ) {
         withContext(dbDispatcher) {
             queries.markCryptoSessionSuperseded(
                 status = SessionStatus.SUPERSEDED,
-                updated_at_epoch_seconds = updatedAtEpochSeconds,
+                updated_at_epoch_seconds = updatedAt,
                 peer_device_id = peerDeviceId,
                 session_epoch = sessionEpoch.toLong(),
             )
@@ -218,11 +219,11 @@ class DefaultCryptoSessionStore(
                 .executeAsList()
         }
 
-    override suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAtEpochSeconds: Long) {
+    override suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAt: Instant) {
         withContext(dbDispatcher) {
             for (opkId in opkIds) {
                 queries.clearOfferedOpkId(
-                    updated_at_epoch_seconds = updatedAtEpochSeconds,
+                    updated_at_epoch_seconds = updatedAt,
                     offered_opk_id = opkId,
                 )
             }
@@ -358,8 +359,8 @@ class DefaultCryptoSessionStore(
                 offeredOpkId = first.offeredOpkId,
                 status = first.status,
                 sessionGeneration = first.sessionGeneration.toInt(),
-                createdAtEpochSeconds = first.createdAtEpochSeconds,
-                updatedAtEpochSeconds = first.updatedAtEpochSeconds,
+                createdAt = first.createdAtEpochSeconds,
+                updatedAt = first.updatedAtEpochSeconds,
             ),
         )
     }

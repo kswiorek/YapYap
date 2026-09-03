@@ -13,9 +13,9 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
-import org.yapyap.time.EpochProvider
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
@@ -90,7 +90,7 @@ internal class RoutingContext(
     val envelopeProtectionService: EnvelopeProtectionService,
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
-    val timeProvider: EpochProvider,
+    val clock: Clock,
     val routerConfig: StateFlow<RouterConfig>,
     val transportLimits: StateFlow<TransportLimits>,
 ) {

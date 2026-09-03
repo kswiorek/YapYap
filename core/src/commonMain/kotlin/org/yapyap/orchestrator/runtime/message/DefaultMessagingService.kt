@@ -11,18 +11,14 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.dag.DagEngine
-import org.yapyap.orchestrator.dag.Gap
-import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.orchestrator.dag.MessageDraft
-import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
-import org.yapyap.time.EpochProvider
 import kotlin.concurrent.Volatile
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 internal class DefaultMessagingService(
@@ -31,7 +27,7 @@ internal class DefaultMessagingService(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
-    private val timeProvider: EpochProvider,
+    private val clock: Clock,
     private val messageLimits: StateFlow<MessageLimits>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
 ) : MessagingService {
@@ -290,7 +286,7 @@ internal class DefaultMessagingService(
         val orphanGap: MessageDisplayItem.Gap? = (result as? IngestResult.BecameOrphan)?.let {
             MessageDisplayItem.Gap(
                 accountId = payload.senderAccountId,
-                timestamp = payload.createdAtEpochSeconds,
+                timestamp = payload.createdAt,
                 displayOrderId = payload.lamportClock,
                 missingPrevId = it.missingPrevId,
             )
@@ -315,7 +311,7 @@ internal class DefaultMessagingService(
                         roomId = payload.roomId,
                         senderAccountId = payload.senderAccountId,
                         messagePreview = preview,
-                        timestamp = timeProvider.nowEpochSeconds(),
+                        timestamp = clock.now().epochSeconds,
                     )
                 )
             }
@@ -354,7 +350,7 @@ internal class DefaultMessagingService(
     private fun MessagePayload.toDisplayItem(): MessageDisplayItem? = when (this) {
         is MessagePayload.Text -> MessageDisplayItem.Text(
             accountId = senderAccountId,
-            timestamp = createdAtEpochSeconds,
+            timestamp = createdAt,
             displayOrderId = lamportClock,
             text = text,
         )
@@ -404,7 +400,7 @@ internal class DefaultMessagingService(
             windowMutex.withLock {
                 val oldest = page.last()
                 oldestCursor = MessageCursor(
-                    createdAtEpochSeconds = oldest.createdAtEpochSeconds,
+                    createdAt = oldest.createdAt,
                     lamportClock = oldest.lamportClock,
                     messageId = oldest.messageId,
                 )
@@ -427,7 +423,7 @@ internal class DefaultMessagingService(
             return windowMutex.withLock {
                 val oldest = page.last()
                 oldestCursor = MessageCursor(
-                    createdAtEpochSeconds = oldest.createdAtEpochSeconds,
+                    createdAt = oldest.createdAt,
                     lamportClock = oldest.lamportClock,
                     messageId = oldest.messageId,
                 )
@@ -505,7 +501,7 @@ internal class DefaultMessagingService(
                 items.add(
                     MessageDisplayItem.Text(
                         accountId = msg.senderAccountId,
-                        timestamp = msg.createdAtEpochSeconds,
+                        timestamp = msg.createdAt,
                         displayOrderId = msg.lamportClock,
                         text = msg.text,
                     )
@@ -516,7 +512,7 @@ internal class DefaultMessagingService(
                     items.add(
                         MessageDisplayItem.Gap(
                             accountId = msg.senderAccountId,
-                            timestamp = msg.createdAtEpochSeconds,
+                            timestamp = msg.createdAt,
                             displayOrderId = msg.lamportClock,
                             missingPrevId = orphanedGap.missingPrevId,
                         )

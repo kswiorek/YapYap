@@ -7,6 +7,7 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -14,7 +15,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     val messageEnvelopeId: Uuid,
     val source: PeerId,
     val target: PeerId,
-    val createdAtEpochSeconds: Long,
+    val createdAt: Instant,
     val nonce: ByteArray,
     val securityScheme: SignalSecurityScheme,
     val signature: ByteArray?,
@@ -34,7 +35,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         writer.writeUuid(messageEnvelopeId)
         writer.writePeerId(source)
         writer.writePeerId(target)
-        writer.writeLong(createdAtEpochSeconds)
+        writer.writeLong(createdAt.epochSeconds)
         writer.writeByteArray(nonce)
         writer.writeByte(securityScheme.wireValue.toInt())
         writer.writeNullableByteArray(signature)
@@ -47,7 +48,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         Fields.MESSAGE_ID to messageEnvelopeId,
         Fields.SOURCE to source,
         Fields.TARGET to target,
-        Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
+        Fields.CREATED_AT to createdAt,
         Fields.NONCE to nonce,
         Fields.SECURITY_SCHEME to securityScheme,
         Fields.SIGNATURE to signature,
@@ -58,7 +59,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
             const val MESSAGE_ID = "messageId"
             const val SOURCE = "source"
             const val TARGET = "target"
-            const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
+            const val CREATED_AT = "createdAt"
             const val NONCE = "nonce"
             const val SECURITY_SCHEME = "securityScheme"
             const val SIGNATURE = "signature"
@@ -87,7 +88,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
             val messageEnvelopeId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
-            val createdAtEpochSeconds = reader.readLong()
+                val createdAt = Instant.fromEpochSeconds(reader.readLong())
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()
@@ -98,7 +99,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
                 messageEnvelopeId = messageEnvelopeId,
                 source = source,
                 target = target,
-                createdAtEpochSeconds = createdAtEpochSeconds,
+                createdAt = createdAt,
                 nonce = nonce,
                 securityScheme = securityScheme,
                 signature = signature,
@@ -113,7 +114,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
 
         other as MessageEnvelope
 
-        if (createdAtEpochSeconds != other.createdAtEpochSeconds) return false
+        if (createdAt != other.createdAt) return false
         if (messageEnvelopeId != other.messageEnvelopeId) return false
         if (source != other.source) return false
         if (target != other.target) return false
@@ -126,7 +127,7 @@ data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     }
 
     override fun hashCode(): Int {
-        var result = createdAtEpochSeconds.hashCode()
+        var result = createdAt.hashCode()
         result = 31 * result + messageEnvelopeId.hashCode()
         result = 31 * result + source.hashCode()
         result = 31 * result + target.hashCode()
@@ -156,10 +157,10 @@ sealed interface MessagePayload {
     /**
      * Sender's wall-clock composition time, set once by [org.yapyap.orchestrator.dag.DagEngine.append]
      * at send time and carried on the wire unchanged. Distinct from
-     * [MessageEnvelope.createdAtEpochSeconds] (transport-level, set at envelope assembly).
+     * [MessageEnvelope.createdAt] (transport-level, set at envelope assembly).
      * Used as the primary GUI display-order key.
      */
-    val createdAtEpochSeconds: Long
+    val createdAt: Instant
     val payloadType: MessagePayloadType
     val authorSignature: ByteArray?
 
@@ -176,13 +177,12 @@ sealed interface MessagePayload {
         override val authorDeviceId: PeerId,
         override val prevId: Uuid?,
         override val lamportClock: Long,
-        override val createdAtEpochSeconds: Long,
+        override val createdAt: Instant,
         val text: String,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
-            require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
             if (authorSignature != null) {
                 require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
             }
@@ -230,7 +230,7 @@ sealed interface MessagePayload {
                     authorDeviceId = header.authorDeviceId,
                     prevId = header.prevId,
                     lamportClock = header.lamportClock,
-                    createdAtEpochSeconds = header.createdAtEpochSeconds,
+                    createdAt = header.createdAt,
                     text = text,
                     authorSignature = authorSignature,
                 )
@@ -244,7 +244,7 @@ sealed interface MessagePayload {
             other as Text
 
             if (lamportClock != other.lamportClock) return false
-            if (createdAtEpochSeconds != other.createdAtEpochSeconds) return false
+            if (createdAt != other.createdAt) return false
             if (messageId != other.messageId) return false
             if (roomId != other.roomId) return false
             if (senderAccountId != other.senderAccountId) return false
@@ -259,7 +259,7 @@ sealed interface MessagePayload {
 
         override fun hashCode(): Int {
             var result = lamportClock.hashCode()
-            result = 31 * result + createdAtEpochSeconds.hashCode()
+            result = 31 * result + createdAt.hashCode()
             result = 31 * result + messageId.hashCode()
             result = 31 * result + roomId.hashCode()
             result = 31 * result + senderAccountId.hashCode()
@@ -278,14 +278,13 @@ sealed interface MessagePayload {
         override val authorDeviceId: PeerId,
         override val prevId: Uuid?,
         override val lamportClock: Long,
-        override val createdAtEpochSeconds: Long,
+        override val createdAt: Instant,
         val eventBytes: ByteArray,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         override val roomId = RoomId.GLOBAL
         init {
             require(lamportClock >= 0) { "lamportClock must be >= 0" }
-            require(createdAtEpochSeconds >= 0) { "createdAtEpochSeconds must be >= 0" }
             if (authorSignature != null) {
                 require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
             }
@@ -325,7 +324,7 @@ sealed interface MessagePayload {
                     authorDeviceId = header.authorDeviceId,
                     prevId = header.prevId,
                     lamportClock = header.lamportClock,
-                    createdAtEpochSeconds = header.createdAtEpochSeconds,
+                    createdAt = header.createdAt,
                     eventBytes = eventBytes,
                     authorSignature = authorSignature,
                 )
@@ -353,7 +352,7 @@ private data class MessagePayloadHeader(
     val authorDeviceId: PeerId,
     val prevId: Uuid?,
     val lamportClock: Long,
-    val createdAtEpochSeconds: Long,
+    val createdAt: Instant,
 )
 
 private const val PAYLOAD_HEADER_VERSION: Byte = 1
@@ -374,7 +373,7 @@ private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writePeerId(authorDeviceId)
     writer.writeNullableUuid(prevId)
     writer.writeLong(lamportClock)
-    writer.writeLong(createdAtEpochSeconds)
+    writer.writeLong(createdAt.epochSeconds)
 }
 
 private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): MessagePayloadHeader {
@@ -389,6 +388,6 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
         authorDeviceId = reader.readPeerId(),
         prevId = reader.readNullableUuid(),
         lamportClock = reader.readLong(),
-        createdAtEpochSeconds = reader.readLong(),
+        createdAt = Instant.fromEpochSeconds(reader.readLong()),
     )
 }

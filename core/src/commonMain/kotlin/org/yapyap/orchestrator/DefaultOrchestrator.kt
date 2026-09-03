@@ -46,13 +46,13 @@ import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
-import org.yapyap.time.SystemEpochProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
+import kotlin.time.Clock
 
 class DefaultOrchestrator(
     private val dataDirectory: Path,
@@ -143,7 +143,7 @@ class DefaultOrchestrator(
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
                 identityResolver,
-                SystemEpochProvider,
+                Clock.System,
             )
             try {
                 identityResolver.getLocalDeviceIdentityRecord()
@@ -308,7 +308,7 @@ class DefaultOrchestrator(
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
-            timeProvider = SystemEpochProvider,
+            clock = Clock.System,
         )
         pipeline = DefaultInboundMessagePipeline(router, dagEngine)
         pipeline.start(orchestratorScope)

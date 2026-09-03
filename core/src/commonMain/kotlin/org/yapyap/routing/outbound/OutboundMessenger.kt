@@ -113,7 +113,7 @@ internal class OutboundMessenger(
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
         )
 
@@ -125,14 +125,14 @@ internal class OutboundMessenger(
             return outboundResultForProtectionFailure(target, e)
         }
 
-        val now = ctx.timeProvider.nowEpochSeconds()
+        val now = ctx.clock.now()
 
         val binaryEnvelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetime.inWholeSeconds,
+            createdAt = now,
+            expiresAt = now + ctx.routerConfig.value.binaryEnvelopeLifetime,
             source = ctx.localDeviceId,
             target = target,
             payload = messageEnvelope.encode(),
@@ -145,7 +145,7 @@ internal class OutboundMessenger(
             retries = 0,
             forced = forceTransport,
         )
-        val nextRetryAt = ctx.timeProvider.nowEpochSeconds() + plan.retryDelay.inWholeSeconds
+        val nextRetryAt = ctx.clock.now() + plan.retryDelay
 
         if (binaryEnvelope.encode().size.toLong() > ctx.transportLimits.value.maxRoutableBytes) {
             AppLog.warn(
@@ -203,7 +203,7 @@ internal class OutboundMessenger(
             outboxProcessor.recordSendAttempt(
                 packetId = binaryEnvelope.packetId,
                 nextRetryAt = nextRetryAt,
-                now = ctx.timeProvider.nowEpochSeconds(),
+                at = ctx.clock.now(),
             )
         }
 
@@ -220,15 +220,15 @@ internal class OutboundMessenger(
     private suspend fun depositToRelays(targetDevice: PeerId, messageEnvelope: MessageEnvelope): Int {
         val relays = relaySelectionPolicy.selectRelays(targetDevice)
         if (relays.isEmpty()) return 0
-        val now = ctx.timeProvider.nowEpochSeconds()
-        val lifetime = ctx.routerConfig.value.binaryEnvelopeLifetime.inWholeSeconds
+        val now = ctx.clock.now()
+        val lifetime = ctx.routerConfig.value.binaryEnvelopeLifetime
         relays.forEach { relay ->
             val relayEnvelope = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.MESSAGE,
                 dispositionRequested = true,
-                createdAtEpochSeconds = now,
-                expiresAtEpochSeconds = now + lifetime,
+                createdAt = now,
+                expiresAt = now + lifetime,
                 source = ctx.localDeviceId,
                 target = relay,
                 payload = messageEnvelope.encode(),

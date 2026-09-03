@@ -6,7 +6,7 @@ import org.yapyap.crypto.e2ee.session.SessionRole
 import org.yapyap.crypto.e2ee.session.SessionWireFrame
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochProvider
+import kotlin.time.Clock
 
 internal object SimultaneousInitPolicy {
 
@@ -51,7 +51,7 @@ internal object SimultaneousInitPolicy {
 
     suspend fun handleInboundGenerationReset(
         sessionStore: CryptoSessionStore,
-        timeProvider: EpochProvider,
+        clock: Clock,
         remoteDeviceId: PeerId,
         frame: SessionWireFrame,
         canonicalRecord: CryptoSessionRecord?,
@@ -67,13 +67,13 @@ internal object SimultaneousInitPolicy {
             frame.sessionEpoch,
             canonicalRecord.meta.role,
             canonicalRecord.meta.sessionGeneration,
-            timeProvider.nowEpochSeconds(),
+            clock.now(),
         )
         if (frame.sessionEpoch == 1) {
             sessionStore.markEpochSuperseded(
                 remoteDeviceId,
                 sessionEpoch = 2,
-                updatedAtEpochSeconds = timeProvider.nowEpochSeconds(),
+                updatedAt = clock.now(),
             )
         }
     }

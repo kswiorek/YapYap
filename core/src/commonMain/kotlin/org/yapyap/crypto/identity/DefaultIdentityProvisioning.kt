@@ -12,14 +12,15 @@ import org.yapyap.persistence.key.KeyStore
 import org.yapyap.persistence.key.KeyType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.EpochProvider
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityKeyRepository,
     private val keyStore: KeyStore,
     private val identityResolver: IdentityResolver,
-    private val timeProvider: EpochProvider,
+    private val clock: Clock,
 ) : IdentityProvisioning {
     override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord {
         AppLog.info(
@@ -72,7 +73,7 @@ class DefaultIdentityProvisioning(
 
         val signedPreKey = provisionInitialSignedPreKey(
             signingPrivateKey = signingKey.privateKey,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             deviceId = deviceId,
         )
 
@@ -100,7 +101,7 @@ class DefaultIdentityProvisioning(
 
     private suspend fun provisionInitialSignedPreKey(
         signingPrivateKey: ByteArray,
-        createdAtEpochSeconds: Long,
+        createdAt: Instant,
         deviceId: PeerId
     ): SignedPreKeyRecord {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
@@ -112,7 +113,7 @@ class DefaultIdentityProvisioning(
             publicKey = spkPair.publicKey,
             signature = signature,
             privateKey = spkPair.privateKey,
-            createdAtEpochSeconds = createdAtEpochSeconds,
+            createdAt = createdAt,
         )
         return record
     }
@@ -129,7 +130,7 @@ class DefaultIdentityProvisioning(
             publicKey = spkPair.publicKey,
             signature = signature,
             privateKey = spkPair.privateKey,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
         )
 
         val spkRef = KeyReference(keyId = record.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)

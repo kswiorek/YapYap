@@ -9,6 +9,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 data class PendingSyncRow(
@@ -40,7 +41,7 @@ interface PendingSyncRepository {
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
-        nextAttemptAt: Long,
+        nextAttemptAt: Instant,
     )
 
     /** updates  the [orphanLamport] for a sync with [syncId]. */
@@ -51,12 +52,12 @@ interface PendingSyncRepository {
 
     // ---- retained for SyncRetryProcessor ----
 
-    suspend fun earliestDueAt(): Long?
-    suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow>
-    suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long)
+    suspend fun earliestDueAt(): Instant?
+    suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow>
+    suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant)
     suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId>
-    suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long)
-    suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long)
+    suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant)
+    suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant)
     suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId)
 
     // Finds the sync with the given [anchorLamport] in the given [roomId].
@@ -76,7 +77,7 @@ class DefaultPendingSyncRepository(
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
-        nextAttemptAt: Long,
+        nextAttemptAt: Instant,
     ) {
         withContext(dbDispatcher) {
             queries.insertPendingSync(
@@ -84,7 +85,7 @@ class DefaultPendingSyncRepository(
                 room_id = roomId,
                 anchor_lamport = anchorLamport,
                 orphan_lamport = orphanLamport,
-                next_attempt_at = nextAttemptAt,
+                next_attempt_at = nextAttemptAt.epochSeconds,
             )
             candidateAccounts.forEach { accountId ->
                 queries.insertPendingSyncCandidateAccount(sync_id = syncId, account_id = accountId)
@@ -104,19 +105,19 @@ class DefaultPendingSyncRepository(
         }
     }
 
-    override suspend fun earliestDueAt(): Long? =
+    override suspend fun earliestDueAt(): Instant? =
         withContext(dbDispatcher) {
-            queries.selectEarliestDueAt().executeAsOneOrNull()?.MIN
+            queries.selectEarliestDueAt().executeAsOneOrNull()?.MIN?.let { Instant.fromEpochSeconds(it) }
         }
 
-    override suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow> =
+    override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> =
         withContext(dbDispatcher) {
-            queries.selectDueSyncs(now, limit.toLong()).executeAsList().map { it.toRow() }
+            queries.selectDueSyncs(now.epochSeconds, limit.toLong()).executeAsList().map { it.toRow() }
         }
 
-    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long) {
+    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {
         withContext(dbDispatcher) {
-            queries.recordAttempt(next_attempt_at = nextAttemptAt, sync_id = syncId)
+            queries.recordAttempt(next_attempt_at = nextAttemptAt.epochSeconds, sync_id = syncId)
         }
     }
 
@@ -125,15 +126,15 @@ class DefaultPendingSyncRepository(
             queries.selectAttemptedPeersForSync(syncId).executeAsList().toSet()
         }
 
-    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long) {
+    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant) {
         withContext(dbDispatcher) {
-            queries.accelerateForOnlinePeer(now, deviceId)
+            queries.accelerateForOnlinePeer(at.epochSeconds, deviceId)
         }
     }
 
-    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long) {
+    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant) {
         withContext(dbDispatcher) {
-            queries.updateNextAttemptAt(nextAttemptAt, syncId)
+            queries.updateNextAttemptAt(nextAttemptAt.epochSeconds, syncId)
         }
     }
 

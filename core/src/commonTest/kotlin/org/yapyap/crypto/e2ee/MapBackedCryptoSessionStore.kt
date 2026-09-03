@@ -6,6 +6,7 @@ import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.persistence.crypto.CryptoSessionCanonicalInvariant
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.protocol.PeerId
+import kotlin.time.Instant
 
 /** In-memory [org.yapyap.persistence.crypto.CryptoSessionStore] for unit tests. */
 internal class MapBackedCryptoSessionStore : CryptoSessionStore {
@@ -109,14 +110,14 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         sessionEpoch: Int,
         role: SessionRole,
         sessionGeneration: Int,
-        updatedAtEpochSeconds: Long,
+        updatedAt: Instant,
     ) {
         val key = SessionKey(peerDeviceId.id, sessionEpoch, role, sessionGeneration)
         val record = records[key] ?: return
         records[key] = record.copy(
             meta = record.meta.copy(
                 status = SessionStatus.SUPERSEDED,
-                updatedAtEpochSeconds = updatedAtEpochSeconds,
+                updatedAtEpochSeconds = updatedAt,
             ),
         )
     }
@@ -124,14 +125,14 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
     override suspend fun markEpochSuperseded(
         peerDeviceId: PeerId,
         sessionEpoch: Int,
-        updatedAtEpochSeconds: Long,
+        updatedAt: Instant,
     ) {
         for ((key, record) in records) {
             if (record.peerDeviceId == peerDeviceId && record.sessionEpoch == sessionEpoch) {
                 records[key] = record.copy(
                     meta = record.meta.copy(
                         status = SessionStatus.SUPERSEDED,
-                        updatedAtEpochSeconds = updatedAtEpochSeconds,
+                        updatedAtEpochSeconds = updatedAt,
                     ),
                 )
             }
@@ -150,7 +151,7 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
     override suspend fun listPeerDeviceIds(): List<PeerId> =
         records.values.map { it.peerDeviceId }.distinct()
 
-    override suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAtEpochSeconds: Long) {
+    override suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAt: Instant) {
         if (opkIds.isEmpty()) return
         val targetIds = opkIds.toSet()
         for ((key, record) in records) {
@@ -159,7 +160,7 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             records[key] = record.copy(
                 meta = record.meta.copy(
                     offeredOpkId = null,
-                    updatedAtEpochSeconds = updatedAtEpochSeconds,
+                    updatedAtEpochSeconds = updatedAt,
                 ),
             )
         }

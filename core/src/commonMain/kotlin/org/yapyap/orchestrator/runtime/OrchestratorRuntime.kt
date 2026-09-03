@@ -14,7 +14,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.routing.router.Router
-import org.yapyap.time.SystemEpochProvider
+import kotlin.time.Clock
 
 interface OrchestratorRuntime {
     val messaging: MessagingService
@@ -45,7 +45,7 @@ internal class DefaultOrchestratorRuntime(
             pipeline = pipeline,
             roomRepository = DefaultRoomRepository(database),
             identityResolver = identityResolver,
-            timeProvider = SystemEpochProvider,
+            clock = Clock.System,
             messageLimits = messageLimits,
             orchestratorConfig = configStore.orchestratorConfig,
         )

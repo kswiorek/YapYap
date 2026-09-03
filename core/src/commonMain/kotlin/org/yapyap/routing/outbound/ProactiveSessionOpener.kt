@@ -11,6 +11,8 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Result of a REQUIRED-mode session request ([ProactiveSessionOpener.awaitSession]).
@@ -44,13 +46,13 @@ internal class ProactiveSessionOpener(
 ) {
     @OptIn(InternalCoroutinesApi::class)
     private val backoffLock = SynchronizedObject()
-    private val lastAttemptAt = mutableMapOf<PeerId, Long>()
+    private val lastAttemptAt = mutableMapOf<PeerId, Instant>()
 
-    private fun lastAttemptOf(peerId: PeerId): Long? =
+    private fun lastAttemptOf(peerId: PeerId): Instant? =
         @OptIn(InternalCoroutinesApi::class) synchronized(backoffLock) { lastAttemptAt[peerId] }
 
-    private fun recordAttempt(peerId: PeerId, now: Long) {
-        @OptIn(InternalCoroutinesApi::class) synchronized(backoffLock) { lastAttemptAt[peerId] = now }
+    private fun recordAttempt(peerId: PeerId, at: Instant) {
+        @OptIn(InternalCoroutinesApi::class) synchronized(backoffLock) { lastAttemptAt[peerId] = at }
     }
 
     /**
@@ -61,17 +63,17 @@ internal class ProactiveSessionOpener(
     suspend fun ensureSession(peerId: PeerId) {
         if (ctx.webRtcTransport.hasSession(peerId)) return
 
-        val now = ctx.timeProvider.nowEpochSeconds()
+        val now = ctx.clock.now()
         val config = ctx.routerConfig.value
 
         val lastAttempt = lastAttemptOf(peerId)
-        if (lastAttempt != null && now - lastAttempt < config.proactiveSessionRetryDelay.inWholeSeconds) return
+        if (lastAttempt != null && now - lastAttempt < config.proactiveSessionRetryDelay) return
 
         // Freshness gate: only spend signaling (Tor round-trips) on peers that recently
         // showed signs of life.
-        val lastSeen = peerAvailabilityRegistry.lastSeenEpoch(peerId) ?: return
+        val lastSeen = peerAvailabilityRegistry.lastSeen(peerId) ?: return
         if (!peerAvailabilityRegistry.isOnline(peerId)) return
-        if (now - lastSeen >= config.proactiveSessionFreshness.inWholeSeconds) return
+        if (now - lastSeen >= config.proactiveSessionFreshness) return
 
         recordAttempt(peerId, now)
         runCatching { ctx.webRtcTransport.openSession(peerId) }
@@ -80,7 +82,7 @@ internal class ProactiveSessionOpener(
                     component = LogComponent.ROUTER,
                     event = LogEvent.PROACTIVE_SESSION_OPENING,
                     message = "Proactively opening WebRTC session",
-                    fields = mapOf("peerId" to peerId, "lastSeenEpoch" to lastSeen),
+                    fields = mapOf("peerId" to peerId, "lastSeen" to lastSeen),
                 )
             }
             .onFailure { e ->
@@ -104,13 +106,13 @@ internal class ProactiveSessionOpener(
      * @return [SessionOutcome.Connected] as soon as the envelope channel is usable,
      *   [SessionOutcome.Timeout] once the budget is exhausted.
      */
-    suspend fun awaitSession(peerId: PeerId, timeoutSeconds: Long): SessionOutcome {
+    suspend fun awaitSession(peerId: PeerId, timeout: Duration): SessionOutcome {
         //TODO: event driven
-        val deadline = ctx.timeProvider.nowEpochSeconds() + timeoutSeconds
+        val deadline = ctx.clock.now() + timeout
         val pollMillis = SESSION_AWAIT_POLL_MILLIS
         while (true) {
             if (ctx.webRtcTransport.hasSession(peerId)) return SessionOutcome.Connected
-            if (ctx.timeProvider.nowEpochSeconds() >= deadline) return SessionOutcome.Timeout
+            if (ctx.clock.now() >= deadline) return SessionOutcome.Timeout
             try {
                 ctx.webRtcTransport.openSession(peerId)
             } catch (e: CancellationException) {

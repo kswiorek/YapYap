@@ -17,8 +17,8 @@ import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 
 internal data class TestPeerIdentity(
     val device: DeviceIdentityRecord,
@@ -158,7 +158,7 @@ internal fun managerForPeer(
     oneTimePreKeyStore: OpkRepository,
     upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    timeProvider: EpochProvider = SystemEpochProvider,
+    clock: FakeClock = FakeClock(epochSeconds(0)),
     cryptoLimits: CryptoLimits = testCryptoLimits(),
 ): DefaultCryptoSessionManager =
     DefaultCryptoSessionManager(
@@ -170,7 +170,7 @@ internal fun managerForPeer(
             peers = mapOf(peer.device.deviceId to peer),
         ),
         opkRepository = oneTimePreKeyStore,
-        timeProvider = timeProvider,
+        clock = clock,
         upgradePolicy = upgradePolicy,
         sessionConfig = MutableStateFlow(sessionConfig),
         cryptoLimits = MutableStateFlow(cryptoLimits),
@@ -196,11 +196,11 @@ internal fun cryptoHousekeepingFor(
     sessionStore: CryptoSessionStore,
     opkRepository: OpkRepository,
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
-    timeProvider: EpochProvider = SystemEpochProvider,
+    clock: FakeClock = FakeClock(epochSeconds(0)),
 ): CryptoMaintenance =
     CryptoMaintenance(
         sessionStore = sessionStore,
         opkRepository = opkRepository,
         sessionConfig = MutableStateFlow(sessionConfig),
-        timeProvider = timeProvider,
+        clock = clock,
     )

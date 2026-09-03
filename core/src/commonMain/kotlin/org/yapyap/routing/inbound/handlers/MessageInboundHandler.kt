@@ -45,13 +45,13 @@ internal class MessageInboundHandler(
                     "localDeviceId" to ctx.localDeviceId,
                 ),
             )
-            val now = ctx.timeProvider.nowEpochSeconds()
+            val now = ctx.clock.now()
             val binaryEnvelope = BinaryEnvelope(
                 packetId = Uuid.random(),
                 packetType = PacketType.MESSAGE,
                 dispositionRequested = true,
-                createdAtEpochSeconds = now,
-                expiresAtEpochSeconds = now + ctx.routerConfig.value.binaryEnvelopeLifetime.inWholeSeconds,
+                createdAt = now,
+                expiresAt = now + ctx.routerConfig.value.binaryEnvelopeLifetime,
                 source = ctx.localDeviceId,
                 target = messageEnvelope.target,
                 payload = messageEnvelope.encode(),

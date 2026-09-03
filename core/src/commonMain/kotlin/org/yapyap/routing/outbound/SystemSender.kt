@@ -50,7 +50,7 @@ internal class SystemSender(
         val ackContext = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = source,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
         val ackPayload = SystemPayload.PacketAck(
@@ -87,7 +87,7 @@ internal class SystemSender(
         val ackContext = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = source,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
         val ackPayload = SystemPayload.PacketNack(
@@ -115,7 +115,7 @@ internal class SystemSender(
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
         val transport = transportPolicy.resolve(
@@ -129,7 +129,7 @@ internal class SystemSender(
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
         val transport = transportPolicy.resolve(
@@ -154,7 +154,7 @@ internal class SystemSender(
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
         sendSystemEnvelope(payload, RouterTransport.WEBRTC, context)
@@ -177,7 +177,7 @@ internal class SystemSender(
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
 
@@ -204,7 +204,7 @@ internal class SystemSender(
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
-            createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+            createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
 
@@ -223,13 +223,13 @@ internal class SystemSender(
         context: EnvelopeProtectContext,
     ) {
         val protected = ctx.envelopeProtectionService.protectSystem(payload, context)
-        val now = ctx.timeProvider.nowEpochSeconds()
+        val now = ctx.clock.now()
         val envelope = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.SYSTEM,
             dispositionRequested = false,
-            createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + ctx.routerConfig.value.ackLifetime.inWholeSeconds,
+            createdAt = now,
+            expiresAt = now + ctx.routerConfig.value.ackLifetime,
             source = ctx.localDeviceId,
             target = context.targetDeviceId,
             payload = protected.encode(),

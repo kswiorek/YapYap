@@ -4,6 +4,7 @@ import org.yapyap.crypto.e2ee.session.CryptoSessionRecord
 import org.yapyap.crypto.e2ee.session.SessionRole
 import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.protocol.PeerId
+import kotlin.time.Instant
 
 interface CryptoSessionStore {
     /** Canonical [SessionStatus.ACTIVE] session for encrypt and session orchestration. */
@@ -33,14 +34,14 @@ interface CryptoSessionStore {
         sessionEpoch: Int,
         role: SessionRole,
         sessionGeneration: Int,
-        updatedAtEpochSeconds: Long,
+        updatedAt: Instant,
     )
 
     /** Marks every session row for the peer epoch superseded (e.g. epoch 1 after epoch 2 upgrade). */
     suspend fun markEpochSuperseded(
         peerDeviceId: PeerId,
         sessionEpoch: Int,
-        updatedAtEpochSeconds: Long,
+        updatedAt: Instant,
     )
 
     suspend fun deleteSession(
@@ -52,7 +53,7 @@ interface CryptoSessionStore {
 
     suspend fun listPeerDeviceIds(): List<PeerId>
 
-    suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAtEpochSeconds: Long)
+    suspend fun clearOfferedOpkIds(opkIds: Collection<String>, updatedAt: Instant)
 }
 
 internal object CryptoSessionCanonicalInvariant {

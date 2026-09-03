@@ -34,12 +34,11 @@ import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Clock
 import kotlin.time.Duration
 
 class DefaultRouter(
@@ -50,7 +49,7 @@ class DefaultRouter(
     val packetOutbox: PacketOutbox,
     val syncRepository: PendingSyncRepository,
     val envelopeProtectionService: EnvelopeProtectionService,
-    val timeProvider: EpochProvider = SystemEpochProvider,
+    val clock: Clock = Clock.System,
     val routerConfig: StateFlow<RouterConfig>,
     val transportLimits: StateFlow<TransportLimits>,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
@@ -73,7 +72,7 @@ class DefaultRouter(
         envelopeProtectionService = envelopeProtectionService,
         torTransport = torTransport,
         webRtcTransport = webRtcTransport,
-        timeProvider = timeProvider,
+        clock = clock,
         routerConfig = routerConfig,
         transportLimits = transportLimits,
     )
@@ -96,7 +95,7 @@ class DefaultRouter(
     )
 
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry(
-        timeProvider = timeProvider,
+        clock = clock,
         routerConfig,
         store = peerAvailabilityStore,
     )

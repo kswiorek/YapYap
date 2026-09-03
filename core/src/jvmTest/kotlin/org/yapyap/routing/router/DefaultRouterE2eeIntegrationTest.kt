@@ -165,7 +165,7 @@ private fun sampleE2eeTextPayload(): MessagePayload.Text =
         senderAccountId = AccountId("alice-e2ee-account"),
         prevId = null,
         lamportClock = 1L,
-        createdAtEpochSeconds = 0L,
+        createdAt = 0L,
         text = "hello-e2ee-router",
         authorDeviceId = PeerId("test-device"),
     )

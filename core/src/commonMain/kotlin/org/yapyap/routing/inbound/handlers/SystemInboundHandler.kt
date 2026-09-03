@@ -174,7 +174,7 @@ internal class SystemInboundHandler(
                             senderAccountId = accountId,
                             roomId = payload.roomId,
                             interval = payload.intervalMillis.milliseconds,
-                            receivedAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
+                            receivedAtEpochSeconds = ctx.clock.now().epochSeconds,
                         )
                     )
                 }

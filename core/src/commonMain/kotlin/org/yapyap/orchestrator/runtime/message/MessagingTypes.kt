@@ -3,22 +3,23 @@ package org.yapyap.orchestrator.runtime.message
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 sealed interface MessageDisplayItem {
     val accountId: AccountId
-    val timestamp: Long
+    val timestamp: Instant
     val displayOrderId: Long
 
     data class Text(
         override val accountId: AccountId,
-        override val timestamp: Long,
+        override val timestamp: Instant,
         override val displayOrderId: Long,
         val text: String,
     ): MessageDisplayItem
     data class File(
         override val accountId: AccountId,
-        override val timestamp: Long,
+        override val timestamp: Instant,
         override val displayOrderId: Long,
         val fileId: String,
         val fileName: String,
@@ -26,7 +27,7 @@ sealed interface MessageDisplayItem {
     ): MessageDisplayItem
     data class Gap(
         override val accountId: AccountId,
-        override val timestamp: Long,
+        override val timestamp: Instant,
         override val displayOrderId: Long,
         val missingPrevId: Uuid,
     ): MessageDisplayItem

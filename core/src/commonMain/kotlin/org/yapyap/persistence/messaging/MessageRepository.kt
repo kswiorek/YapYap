@@ -9,6 +9,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.envelopes.MessagePayload
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -28,7 +29,7 @@ data class MessageRow(
  * the oldest row of the currently-loaded window so the next page begins strictly below it.
  */
 data class MessageCursor(
-    val createdAtEpochSeconds: Long,
+    val createdAt: Instant,
     val lamportClock: Long,
     val messageId: Uuid,
 )
@@ -88,7 +89,7 @@ class DefaultMessageRepository(
             author_device_id = payload.authorDeviceId.id,
             prev_id = payload.prevId,
             lamport_clock = payload.lamportClock,
-            created_at_epoch_seconds = payload.createdAtEpochSeconds,
+            created_at_epoch_seconds = payload.createdAt.epochSeconds,
             payload_type = payload.payloadType,
             message_payload = payload.encode(),
             is_orphaned = isOrphaned,
@@ -179,7 +180,7 @@ class DefaultMessageRepository(
         withContext(dbDispatcher) {
             val rows = queries.selectMessagesInRoomPageDesc(
                 roomId = roomId,
-                cursorCreated = cursor?.createdAtEpochSeconds,
+                cursorCreated = cursor?.createdAt?.epochSeconds,
                 cursorLamport = cursor?.lamportClock,
                 cursorMessageId = cursor?.messageId,
                 limit = limit.toLong(),

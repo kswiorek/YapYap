@@ -11,7 +11,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochProvider
+import kotlin.time.Clock
 
 internal data class LoadedSession(
     val session: DoubleRatchetSession,
@@ -24,7 +24,7 @@ internal class SessionBootstrap(
     private val sessionStore: CryptoSessionStore,
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
-    private val timeProvider: EpochProvider,
+    private val clock: Clock,
 ) {
 
     suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId, sessionGeneration: Int): LoadedSession {
@@ -42,15 +42,15 @@ internal class SessionBootstrap(
         )
         val session = DoubleRatchetSession.createInitiator(crypto, result.ratchetBootstrap)
         zeroizeInitiatorEphemeralMaterial(ephemeral, result)
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         val meta = CryptoSessionMeta(
             role = SessionRole.INITIATOR,
             x3dhMode = X3dhMode.THREE_DH,
             handshakeSpkId = remote.signedPreKeyId,
             initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey,
             sessionGeneration = sessionGeneration,
-            createdAtEpochSeconds = now,
-            updatedAtEpochSeconds = now,
+            createdAt = now,
+            updatedAt = now,
         )
         persist(peerDeviceId, sessionEpoch = 1, session, meta)
         return LoadedSession(session, meta)
@@ -105,7 +105,7 @@ internal class SessionBootstrap(
         )
         val session = DoubleRatchetSession.createInitiator(crypto, result.ratchetBootstrap)
         zeroizeInitiatorEphemeralMaterial(ephemeral, result)
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         val meta = CryptoSessionMeta(
             role = SessionRole.INITIATOR,
             x3dhMode = X3dhMode.FOUR_DH,
@@ -113,8 +113,8 @@ internal class SessionBootstrap(
             handshakeOpkId = offer.opkId,
             initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey,
             status = SessionStatus.PENDING,
-            createdAtEpochSeconds = now,
-            updatedAtEpochSeconds = now,
+            createdAt = now,
+            updatedAt = now,
         )
         persist(peerDeviceId, sessionEpoch = 2, session, meta)
         AppLog.debug(
@@ -170,15 +170,15 @@ internal class SessionBootstrap(
             wire = wire,
         )
         val session = DoubleRatchetSession.createResponder(crypto, result.ratchetBootstrap)
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         val meta = CryptoSessionMeta(
             role = SessionRole.RESPONDER,
             x3dhMode = X3dhMode.THREE_DH,
             handshakeSpkId = localSpk.keyId,
             initiatorEphemeralPublicKey = wire.ephemeralPublicKey,
             sessionGeneration = wire.sessionGeneration,
-            createdAtEpochSeconds = now,
-            updatedAtEpochSeconds = now,
+            createdAt = now,
+            updatedAt = now,
         )
         return LoadedSession(session, meta)
     }
@@ -215,15 +215,15 @@ internal class SessionBootstrap(
             wire = wire,
         )
         val session = DoubleRatchetSession.createResponder(crypto, result.ratchetBootstrap)
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         val meta = CryptoSessionMeta(
             role = SessionRole.RESPONDER,
             x3dhMode = X3dhMode.FOUR_DH,
             handshakeSpkId = localSpk.keyId,
             handshakeOpkId = opk.keyId,
             sessionGeneration = wire.sessionGeneration,
-            createdAtEpochSeconds = now,
-            updatedAtEpochSeconds = now,
+            createdAt = now,
+            updatedAt = now,
         )
         return LoadedSession(session, meta)
     }
@@ -235,13 +235,13 @@ internal class SessionBootstrap(
         meta: CryptoSessionMeta,
         canonical: Boolean = true,
     ) {
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         sessionStore.save(
             CryptoSessionRecord(
                 peerDeviceId = peerDeviceId,
                 sessionEpoch = sessionEpoch,
                 ratchetState = session.snapshot(),
-                meta = meta.copy(updatedAtEpochSeconds = now),
+                meta = meta.copy(updatedAt = now),
                 canonical = canonical,
             ),
         )

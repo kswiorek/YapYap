@@ -26,7 +26,7 @@ class PlaintextFileProtection(
             transferId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
-            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            createdAt = context.createdAt,
             nonce = cryptoProvider.generateNonce(SignalSecurityScheme.PLAINTEXT_TEST_ONLY),
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -75,7 +75,7 @@ class PlaintextFileProtection(
             transferId = input.transferId,
             source = input.source.id,
             target = input.target.id,
-            createdAtEpochSeconds = input.createdAtEpochSeconds,
+            createdAtEpochSeconds = input.createdAt.epochSeconds,
             securityScheme = input.securityScheme,
             payload = payload,
         )

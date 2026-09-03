@@ -15,6 +15,7 @@ import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal class OutboxProcessor(
@@ -26,7 +27,7 @@ internal class OutboxProcessor(
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { packetOutbox.earliestPendingRetryAt() },
-        time = ctx.timeProvider,
+        clock = ctx.clock,
         processDue = { processDue() },
         maxIdlePoll = maxIdlePoll,
         onProcessFailed = { error ->
@@ -50,17 +51,17 @@ internal class OutboxProcessor(
         wake()
     }
 
-    suspend fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean = false) {
+    suspend fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Instant, relayMessage: Boolean = false) {
         packetOutbox.enqueue(envelope, nextRetryAt, relayMessage = relayMessage)
         wake()
     }
 
-    suspend fun recordSendAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
-        packetOutbox.recordAttempt(packetId, nextRetryAt, now)
+    suspend fun recordSendAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant) {
+        packetOutbox.recordAttempt(packetId, nextRetryAt, at)
     }
 
     suspend fun onWebRtcSessionConnected(peerId: PeerId) {
-        val now = ctx.timeProvider.nowEpochSeconds()
+        val now = ctx.clock.now()
         packetOutbox.setDueForTarget(peerId, now)
         wake()
         AppLog.info(
@@ -75,7 +76,7 @@ internal class OutboxProcessor(
     }
 
     suspend fun processDue() {
-        val now = ctx.timeProvider.nowEpochSeconds()
+        val now = ctx.clock.now()
         val pruned = packetOutbox.pruneExpired(now)
         val dueEntries = packetOutbox.listDue(now)
         if (dueEntries.isNotEmpty() || pruned > 0) {
@@ -107,14 +108,14 @@ internal class OutboxProcessor(
         }
     }
 
-    private suspend fun processDueEntry(entry: OutboxEntry, now: Long) {
+    private suspend fun processDueEntry(entry: OutboxEntry, now: Instant) {
         val envelope = entry.envelope
         val outbound = transportPolicy.resolve(
             target = envelope.target,
             retries = entry.attempts,
             hasWebRtcSession = ctx.webRtcTransport.hasSession(envelope.target),
         )
-        val nextRetryAt = now + outbound.retryDelay.inWholeSeconds
+        val nextRetryAt = now + outbound.retryDelay
         runCatching {
             dispatcher.dispatch(envelope, outbound.transport)
         }.onSuccess {

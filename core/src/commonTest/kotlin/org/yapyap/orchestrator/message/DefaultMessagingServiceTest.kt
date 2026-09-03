@@ -222,7 +222,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = remoteTimestamp,
+            createdAt = remoteTimestamp,
             text = "hello from remote",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -257,7 +257,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = prevUuid,
             lamportClock = 1L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "i am orphaned",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -291,7 +291,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = prevUuid,
             lamportClock = 1L,
-            createdAtEpochSeconds = 1_000_500L,
+            createdAt = 1_000_500L,
             text = "waiting",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -309,7 +309,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = 1_000_400L,
+            createdAt = 1_000_400L,
             text = "i am the prev",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -347,7 +347,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "hi from remote",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -368,7 +368,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = localAccount,
             prevId = null,
             lamportClock = 1L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "from me",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -399,7 +399,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = longText,
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -432,7 +432,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             eventBytes = byteArrayOf(0x01),
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -517,7 +517,7 @@ private class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId }
             .maxWithOrNull(
                 compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.createdAt }
                     .thenBy { it.payload.messageId }
             )
 
@@ -529,7 +529,7 @@ private class FakeMessageRepository : MessageRepository {
         val all = byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAtEpochSeconds }
+                compareByDescending<MessageRow> { it.payload.createdAt }
                     .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
@@ -538,12 +538,12 @@ private class FakeMessageRepository : MessageRepository {
         } else {
             // Strictly older than the cursor row (all three key sub-comparisons).
             all.filter { row ->
-                val rowCreated = row.payload.createdAtEpochSeconds
+                val rowCreated = row.payload.createdAt
                 val rowLamport = row.payload.lamportClock
                 val rowId = row.payload.messageId
-                rowCreated < cursor.createdAtEpochSeconds ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport < cursor.lamportClock) ||
-                        (rowCreated == cursor.createdAtEpochSeconds && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
+                rowCreated < cursor.createdAt ||
+                        (rowCreated == cursor.createdAt && rowLamport < cursor.lamportClock) ||
+                        (rowCreated == cursor.createdAt && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
             }
         }
         return filtered.take(limit)
@@ -553,7 +553,7 @@ private class FakeMessageRepository : MessageRepository {
         byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAtEpochSeconds }
+                compareByDescending<MessageRow> { it.payload.createdAt }
                     .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
@@ -587,7 +587,7 @@ private class FakeMessageRepository : MessageRepository {
             .filter { it.payload.lamportClock in lowerInclusive..upperInclusive }
             .sortedWith(
                 compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAtEpochSeconds }
+                    .thenBy { it.payload.createdAt }
                     .thenBy { it.payload.messageId }
             )
             .take(limit)

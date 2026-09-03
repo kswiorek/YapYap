@@ -12,7 +12,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochProvider
+import kotlin.time.Clock
 
 internal class Epoch2Upgrade(
     private val crypto: CryptoProvider,
@@ -20,7 +20,7 @@ internal class Epoch2Upgrade(
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
     private val sessionBootstrap: SessionBootstrap,
-    private val timeProvider: EpochProvider,
+    private val clock: Clock,
     private val upgradePolicy: SessionUpgradePolicy,
 ) {
 
@@ -150,7 +150,7 @@ internal class Epoch2Upgrade(
             sessionStore.markEpochSuperseded(
                 peerDeviceId,
                 sessionEpoch = 1,
-                updatedAtEpochSeconds = timeProvider.nowEpochSeconds(),
+                updatedAt = clock.now(),
             )
         }
     }
@@ -171,10 +171,10 @@ internal class Epoch2Upgrade(
         if (epoch1.meta.offeredOpkId == null) {
             return
         }
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         val updatedMeta = epoch1.meta.copy(
             offeredOpkId = null,
-            updatedAtEpochSeconds = now,
+            updatedAt = now,
         )
         sessionStore.save(
             epoch1.copy(
@@ -186,12 +186,12 @@ internal class Epoch2Upgrade(
 
     private suspend fun promotePendingEpoch2ForEncrypt(peerDeviceId: PeerId) {
         val pending = sessionBootstrap.loadPendingEpoch2Initiator(peerDeviceId) ?: return
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         sessionStore.save(
             pending.copy(
                 meta = pending.meta.copy(
                     status = SessionStatus.ACTIVE,
-                    updatedAtEpochSeconds = now,
+                    updatedAt = now,
                 ),
             ),
         )

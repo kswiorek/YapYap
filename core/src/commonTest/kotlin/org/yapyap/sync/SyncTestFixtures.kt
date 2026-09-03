@@ -28,8 +28,8 @@ import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncPayloadProvider
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.time.Duration.Companion.seconds
@@ -167,7 +167,7 @@ internal class SyncRoutingStack(
 internal fun buildSyncRoutingStack(
     localDevice: DeviceIdentityRecord,
     peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
-    time: EpochProvider = FixedEpochProvider(10_000L),
+    clock: FakeClock = FakeClock(epochSeconds(10_000L)),
 ): SyncRoutingStack {
     val tor = RecordingTorTransport()
     val webRtc = RecordingWebRtcTransport()
@@ -178,7 +178,7 @@ internal fun buildSyncRoutingStack(
         envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
         torTransport = tor,
         webRtcTransport = webRtc,
-        timeProvider = time,
+        clock = clock,
         routerConfig = MutableStateFlow(RouterConfig()),
         transportLimits = MutableStateFlow(testTransportLimits()),
     )
@@ -189,7 +189,7 @@ internal fun buildSyncRoutingStack(
     val outbox = TrackingPacketOutbox()
     val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePoll = MutableStateFlow(60.seconds))
     val availabilityRegistry =
-        PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig()), FakePeerAvailabilityStore())
+        PeerAvailabilityRegistry(clock, MutableStateFlow(RouterConfig()), FakePeerAvailabilityStore())
     val proactiveSessionOpener = ProactiveSessionOpener(ctx, availabilityRegistry)
     val relaySelectionPolicy = DefaultRelaySelectionPolicy(ctx, availabilityRegistry, MutableStateFlow(RouterConfig()))
     val outboundMessenger = OutboundMessenger(

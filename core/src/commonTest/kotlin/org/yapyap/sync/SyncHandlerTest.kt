@@ -28,7 +28,7 @@ class SyncHandlerTest {
             authorSignature = byteArrayOf(1),
             prevId = null,
             lamportClock = lamport,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "m$lamport",
         )
 

@@ -2,6 +2,7 @@ package org.yapyap.crypto.e2ee.session
 
 import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.protocol.PeerId
+import kotlin.time.Instant
 
 /**
  * Protocol-invariant wire-format constraints for crypto session payloads. These are fixed by the
@@ -113,8 +114,8 @@ data class CryptoSessionMeta(
     val offeredOpkId: String? = null,
     val status: SessionStatus = SessionStatus.ACTIVE,
     val sessionGeneration: Int = 1,
-    val createdAtEpochSeconds: Long,
-    val updatedAtEpochSeconds: Long,
+    val createdAt: Instant,
+    val updatedAt: Instant,
 )
 
 enum class SessionRole { INITIATOR, RESPONDER }

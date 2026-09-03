@@ -9,15 +9,14 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
+import kotlin.time.Clock
 
 class DefaultOpkRepository(
     private val database: YapYapDatabase,
     private val keyStore: KeyStore,
     private val crypto: CryptoProvider,
     private val localDeviceId: PeerId,
-    private val timeProvider: EpochProvider = SystemEpochProvider,
+    private val clock: Clock = Clock.System,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : OpkRepository {
 
@@ -29,7 +28,7 @@ class DefaultOpkRepository(
             publicKey = keyPair.publicKey,
             privateKey = keyPair.privateKey,
         )
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now().epochSeconds
         database.identityQueries.insertOneTimePreKey(
             opk_id = opk.keyId,
             device_id = localDeviceId,
@@ -47,7 +46,7 @@ class DefaultOpkRepository(
 
     override suspend fun markOffered(opkId: String) {
         withContext(dbDispatcher) {
-            val now = timeProvider.nowEpochSeconds()
+            val now = clock.now().epochSeconds
             database.identityQueries.markOneTimePreKeyOffered(
                 status = OpkStatus.OFFERED,
                 offered_at_epoch_seconds = now,

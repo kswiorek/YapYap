@@ -1,6 +1,7 @@
 package org.yapyap.crypto.identity
 
 import org.yapyap.protocol.PeerId
+import kotlin.time.Instant
 
 enum class IdentityKeyPurpose {
     SIGNING,
@@ -30,7 +31,7 @@ data class SignedPreKeyRecord(
     val privateKey: ByteArray?,
     val deviceId: PeerId,
     val isActive: Boolean = true,
-    val createdAtEpochSeconds: Long? = null,
+    val createdAt: Instant? = null,
 ) {
     init {
         require(keyId.isNotBlank()) { "keyId must not be blank" }

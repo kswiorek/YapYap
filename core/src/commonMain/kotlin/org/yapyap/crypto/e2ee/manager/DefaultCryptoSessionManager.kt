@@ -15,8 +15,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.crypto.CryptoSessionStore
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
+import kotlin.time.Clock
 
 class DefaultCryptoSessionManager(
     private val crypto: CryptoProvider,
@@ -25,7 +24,7 @@ class DefaultCryptoSessionManager(
     private val identityResolver: IdentityResolver,
     private val opkRepository: OpkRepository,
     private val cryptoLimits: StateFlow<CryptoLimits>,
-    private val timeProvider: EpochProvider = SystemEpochProvider,
+    private val clock: Clock = Clock.System,
     private val upgradePolicy: SessionUpgradePolicy = SessionUpgradePolicy.NEVER,
     private val sessionConfig: StateFlow<CryptoSessionConfig>,
 ) : CryptoSessionManager {
@@ -40,7 +39,7 @@ class DefaultCryptoSessionManager(
         sessionStore = sessionStore,
         identityResolver = identityResolver,
         opkRepository = opkRepository,
-        timeProvider = timeProvider,
+        clock = clock,
     )
 
     private val epoch2Upgrade = Epoch2Upgrade(
@@ -49,7 +48,7 @@ class DefaultCryptoSessionManager(
         identityResolver = identityResolver,
         opkRepository = opkRepository,
         sessionBootstrap = sessionBootstrap,
-        timeProvider = timeProvider,
+        clock = clock,
         upgradePolicy = upgradePolicy,
     )
 
@@ -90,7 +89,7 @@ class DefaultCryptoSessionManager(
                 sessionStore.markEpochSuperseded(
                     remoteDeviceId,
                     sessionEpoch = 2,
-                    updatedAtEpochSeconds = timeProvider.nowEpochSeconds(),
+                    updatedAt = clock.now(),
                 )
             }
             loaded = sessionBootstrap.bootstrapEpoch1Initiator(remoteDeviceId, generation)
@@ -170,7 +169,7 @@ class DefaultCryptoSessionManager(
 
         SimultaneousInitPolicy.handleInboundGenerationReset(
             sessionStore = sessionStore,
-            timeProvider = timeProvider,
+            clock = clock,
             remoteDeviceId = remoteDeviceId,
             frame = frame,
             canonicalRecord = canonicalRecord,
@@ -197,7 +196,7 @@ class DefaultCryptoSessionManager(
                     frame.sessionEpoch,
                     SessionRole.INITIATOR,
                     canonicalRecord.meta.sessionGeneration,
-                    timeProvider.nowEpochSeconds(),
+                    clock.now(),
                 )
             }
         }
@@ -217,7 +216,7 @@ class DefaultCryptoSessionManager(
                 frame.sessionEpoch,
                 SessionRole.RESPONDER,
                 frame.sessionGeneration,
-                timeProvider.nowEpochSeconds(),
+                clock.now(),
             )
         }
         if (frame.sessionEpoch == 2) {
@@ -350,13 +349,13 @@ class DefaultCryptoSessionManager(
         meta: CryptoSessionMeta,
         canonical: Boolean = true,
     ) {
-        val now = timeProvider.nowEpochSeconds()
+        val now = clock.now()
         sessionStore.save(
             CryptoSessionRecord(
                 peerDeviceId = peerDeviceId,
                 sessionEpoch = sessionEpoch,
                 ratchetState = session.snapshot(),
-                meta = meta.copy(updatedAtEpochSeconds = now),
+                meta = meta.copy(updatedAt = now),
                 canonical = canonical,
             ),
         )

@@ -39,11 +39,11 @@ class DefaultCryptoSessionStoreJvmTest {
         assertRecordEquals(epoch1, store.listByPeer(peer)[0])
         assertRecordEquals(epoch2, store.listByPeer(peer)[1])
 
-        store.markEpochSuperseded(peer, sessionEpoch = 1, updatedAtEpochSeconds = 3_000L)
+        store.markEpochSuperseded(peer, sessionEpoch = 1, updatedAt = 3_000L)
         assertNull(store.loadActiveCanonical(peer, sessionEpoch = 1))
         val superseded = store.loadSessions(peer, sessionEpoch = 1).single()
         assertEquals(SessionStatus.SUPERSEDED, superseded.meta.status)
-        assertEquals(3_000L, superseded.meta.updatedAtEpochSeconds)
+        assertEquals(3_000L, superseded.meta.updatedAt)
         assertEquals(SessionStatus.ACTIVE, store.loadActiveCanonical(peer, sessionEpoch = 2)!!.meta.status)
     }
 
@@ -152,7 +152,7 @@ class DefaultCryptoSessionStoreJvmTest {
             sessionEpoch = 1,
             role = SessionRole.INITIATOR,
             sessionGeneration = 1,
-            updatedAtEpochSeconds = 2_000L,
+            updatedAt = 2_000L,
         )
 
         assertEquals(SessionStatus.SUPERSEDED, store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.meta.status)
@@ -189,9 +189,9 @@ class DefaultCryptoSessionStoreJvmTest {
         assertContentEquals(expectedMeta.initiatorEphemeralPublicKey, actualMeta.initiatorEphemeralPublicKey)
         assertEquals(expectedMeta.offeredOpkId, actualMeta.offeredOpkId)
         assertEquals(expectedMeta.status, actualMeta.status)
-        assertEquals(expectedMeta.createdAtEpochSeconds, actualMeta.createdAtEpochSeconds)
+        assertEquals(expectedMeta.createdAt, actualMeta.createdAt)
         assertEquals(expectedMeta.sessionGeneration, actualMeta.sessionGeneration)
-        assertEquals(expectedMeta.updatedAtEpochSeconds, actualMeta.updatedAtEpochSeconds)
+        assertEquals(expectedMeta.updatedAt, actualMeta.updatedAt)
         assertEquals(expected.canonical, actual.canonical)
     }
 
@@ -229,8 +229,8 @@ class DefaultCryptoSessionStoreJvmTest {
                 initiatorEphemeralPublicKey = byteArrayOf(0x61),
                 offeredOpkId = if (sessionEpoch == 1) "opk-offered" else null,
                 status = status,
-                createdAtEpochSeconds = 1_000L + sessionEpoch,
-                updatedAtEpochSeconds = 2_000L + sessionEpoch,
+                createdAt = 1_000L + sessionEpoch,
+                updatedAt = 2_000L + sessionEpoch,
             ),
         )
 }

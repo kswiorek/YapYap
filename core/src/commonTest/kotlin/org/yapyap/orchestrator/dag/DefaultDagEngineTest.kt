@@ -57,7 +57,7 @@ class DefaultDagEngineTest {
         assertEquals(roomId, payload.roomId)
         assertEquals(testAccount, payload.senderAccountId)
         assertEquals("first", (payload as MessagePayload.Text).text)
-        assertEquals(timeProvider.nowEpochSeconds(), payload.createdAtEpochSeconds)
+        assertEquals(timeProvider.nowEpochSeconds(), payload.createdAt)
         assertFalse(messageRepo.findById(payload.messageId)!!.isOrphaned)
     }
 
@@ -96,7 +96,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = first.messageId,
             lamportClock = 1L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "from remote",
         )
 
@@ -132,7 +132,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 5L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "i am orphaned",
         )
 
@@ -162,7 +162,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 5L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "waiting for prev",
         )
         assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
@@ -178,7 +178,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 4L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "i am the prev",
         )
         val missingResult = dagEngine.ingest(missing)
@@ -207,7 +207,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 5L,
-            createdAtEpochSeconds = 10L,
+            createdAt = 10L,
             text = "a",
         )
         val orphan2 = MessagePayload.Text(
@@ -218,7 +218,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 6L,
-            createdAtEpochSeconds = 11L,
+            createdAt = 11L,
             text = "b",
         )
         dagEngine.ingest(orphan1)
@@ -233,7 +233,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 4L,
-            createdAtEpochSeconds = 9L,
+            createdAt = 9L,
             text = "the prev",
         )
         val result = dagEngine.ingest(missing)
@@ -261,7 +261,7 @@ class DefaultDagEngineTest {
 
         // Cursor = oldest row in page1.
         val cursor = MessageCursor(
-            createdAtEpochSeconds = page1[1].createdAtEpochSeconds,
+            createdAt = page1[1].createdAt,
             lamportClock = page1[1].lamportClock,
             messageId = page1[1].messageId,
         )
@@ -321,7 +321,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prev1Uuid,
             lamportClock = 1L,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "x",
         )
         dagEngine.ingest(orphan1)
@@ -336,7 +336,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prev2Uuid,
             lamportClock = 1L,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "y",
         )
         dagEngine.ingest(orphan2)
@@ -374,7 +374,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 1L,
-            createdAtEpochSeconds = timeProvider.nowEpochSeconds(),
+            createdAt = timeProvider.nowEpochSeconds(),
             text = "should be rejected",
         )
 

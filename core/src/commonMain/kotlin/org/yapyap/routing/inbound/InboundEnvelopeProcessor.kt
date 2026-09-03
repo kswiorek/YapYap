@@ -38,12 +38,12 @@ internal class InboundEnvelopeProcessor(
     }
 
     suspend fun handle(inbound: BinaryEnvelope, transport: RouterTransport) {
-        val receivedAtEpochSeconds = ctx.timeProvider.nowEpochSeconds()
-        peerAvailabilityRegistry.markReachable(inbound.source, receivedAtEpochSeconds)
+        val receivedAt = ctx.clock.now()
+        peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
         if (!ctx.packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
                 sourceDeviceId = inbound.source,
-                receivedAtEpochSeconds = receivedAtEpochSeconds,
+                receivedAt = receivedAt,
             )
         ) {
             AppLog.info(
@@ -54,7 +54,7 @@ internal class InboundEnvelopeProcessor(
                     "packetId" to inbound.packetId,
                     "packetType" to inbound.packetType,
                     "sourceDeviceId" to inbound.source,
-                    "receivedAtEpochSeconds" to receivedAtEpochSeconds,
+                    "receivedAt" to receivedAt,
                 ),
             )
             if (inbound.dispositionRequested) {
@@ -67,14 +67,14 @@ internal class InboundEnvelopeProcessor(
             return
         }
 
-        if (inbound.expiresAtEpochSeconds < receivedAtEpochSeconds) {
+        if (inbound.expiresAt < ctx.clock.now()) {
             AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_EXPIRED,
                 message = "Envelope expired",
                 fields = mapOf(
-                    "expiresAtEpochSeconds" to inbound.expiresAtEpochSeconds,
-                    "receivedAtEpochSeconds" to receivedAtEpochSeconds,
+                    "expiresAt" to inbound.expiresAt,
+                    "receivedAt" to receivedAt,
                 ),
             )
             if (inbound.dispositionRequested) {
@@ -154,7 +154,7 @@ internal class InboundEnvelopeProcessor(
                 is InboundSideEffect.EnqueueForRelay ->
                     outboxProcessor.enqueueAndWake(
                         effect.envelope,
-                        nextRetryAt = ctx.timeProvider.nowEpochSeconds(),
+                        nextRetryAt = ctx.clock.now() + ctx.routerConfig.value.ackLifetime,
                         relayMessage = true,
                     )
                 is InboundSideEffect.RemoveFromOutbox ->

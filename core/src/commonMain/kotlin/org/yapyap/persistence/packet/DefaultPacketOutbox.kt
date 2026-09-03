@@ -10,6 +10,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 class DefaultPacketOutbox(
@@ -18,7 +19,7 @@ class DefaultPacketOutbox(
 ) : PacketOutbox {
     val queries = database.outboxQueries
 
-    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
+    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Instant, relayMessage: Boolean) {
         withContext(dbDispatcher) {
             val envelopeBlob = envelope.encode()
             queries.insertOutbox(
@@ -26,11 +27,11 @@ class DefaultPacketOutbox(
                 target_device_id = envelope.target.id,
                 is_relay = relayMessage,
                 retry_count = 0,
-                expires_at = envelope.expiresAtEpochSeconds,
-                last_attempt_at = envelope.createdAtEpochSeconds,
+                expires_at = envelope.expiresAt.epochSeconds,
+                last_attempt_at = envelope.createdAt.epochSeconds,
                 envelope_blob = envelopeBlob,
                 blob_size = envelopeBlob.size.toLong(),
-                next_retry_at = nextRetryAt,
+                next_retry_at = nextRetryAt.epochSeconds,
             )
             AppLog.debug(
                 component = LogComponent.DATABASE,
@@ -42,7 +43,7 @@ class DefaultPacketOutbox(
                     "target" to envelope.target,
                     "isRelay" to relayMessage,
                     "nextRetryAt" to nextRetryAt,
-                    "expiresAt" to envelope.expiresAtEpochSeconds,
+                    "expiresAt" to envelope.expiresAt,
                     "blobSize" to envelopeBlob.size,
                 ),
             )
@@ -61,9 +62,9 @@ class DefaultPacketOutbox(
         }
     }
 
-    override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
+    override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant) {
         withContext(dbDispatcher) {
-            queries.setNextRetry(nextRetryAt, target.id)
+            queries.setNextRetry(nextRetryAt.epochSeconds, target.id)
             AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.OUTBOX_DUE_SET,
@@ -76,12 +77,12 @@ class DefaultPacketOutbox(
         }
     }
 
-    override suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
+    override suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant) {
         withContext(dbDispatcher) {
             queries.updateAttempt(
                 packet_id = packetId,
-                last_attempt_at = now,
-                next_retry_at = nextRetryAt,
+                last_attempt_at = at.epochSeconds,
+                next_retry_at = nextRetryAt.epochSeconds,
             )
             AppLog.debug(
                 component = LogComponent.DATABASE,
@@ -89,7 +90,7 @@ class DefaultPacketOutbox(
                 message = "Recorded outbox dispatch attempt",
                 fields = mapOf(
                     "packetId" to packetId,
-                    "lastAttemptAt" to now,
+                    "lastAttemptAt" to at,
                     "nextRetryAt" to nextRetryAt,
                 ),
             )
@@ -101,14 +102,14 @@ class DefaultPacketOutbox(
             queries.getAllForTargetDevice(target.id).executeAsList().mapNotNull { mapRowOrDrop(it) }
         }
 
-    override suspend fun listDue(now: Long): List<OutboxEntry> =
+    override suspend fun listDue(now: Instant): List<OutboxEntry> =
         withContext(dbDispatcher) {
-            queries.getDue(now).executeAsList().mapNotNull { mapRowOrDrop(it) }
+            queries.getDue(now.epochSeconds).executeAsList().mapNotNull { mapRowOrDrop(it) }
         }
 
-    override suspend fun pruneExpired(now: Long): Int =
+    override suspend fun pruneExpired(now: Instant): Int =
         withContext(dbDispatcher) {
-            val removed = queries.deleteExpired(now).value.toInt()
+            val removed = queries.deleteExpired(now.epochSeconds).value.toInt()
             if (removed > 0) {
                 AppLog.info(
                     component = LogComponent.DATABASE,
@@ -123,9 +124,9 @@ class DefaultPacketOutbox(
             removed
         }
 
-    override suspend fun earliestPendingRetryAt(): Long? =
+    override suspend fun earliestPendingRetryAt(): Instant? =
         withContext(dbDispatcher) {
-            queries.getEarliestRetryAt().executeAsOneOrNull()
+            queries.getEarliestRetryAt().executeAsOneOrNull()?.let { Instant.fromEpochSeconds(it) }
         }
 
     override suspend fun relayCacheBytes(): Long =
@@ -199,7 +200,7 @@ class DefaultPacketOutbox(
         return OutboxEntry(
             packetId = packetId,
             envelope = envelope,
-            nextRetryAt = row.next_retry_at,
+            nextRetryAt = row.next_retry_at?.let { Instant.fromEpochSeconds(it) },
             attempts = row.retry_count,
         )
     }

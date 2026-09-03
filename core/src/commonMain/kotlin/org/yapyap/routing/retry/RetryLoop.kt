@@ -6,14 +6,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
-import org.yapyap.time.EpochProvider
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 internal class RetryLoop(
-    private val earliestPendingRetryAt: suspend () -> Long?,
-    private val time: EpochProvider,
+    private val earliestPendingRetryAt: suspend () -> Instant?,
+    private val clock: Clock,
     private val processDue: suspend () -> Unit,
     private val maxIdlePoll: StateFlow<Duration>,
     private val onProcessFailed: (Throwable) -> Unit = {},
@@ -52,8 +53,9 @@ internal class RetryLoop(
     }
 
     private suspend fun computeSleepSeconds(): Long {
-        val now = time.nowEpochSeconds()
-        val next = earliestPendingRetryAt() ?: return maxIdlePoll.value.inWholeSeconds
-        return (next - now).coerceAtLeast(0).coerceAtMost(maxIdlePoll.value.inWholeSeconds)
+        val max = maxIdlePoll.value
+        val next = earliestPendingRetryAt() ?: return max.inWholeSeconds
+        val wait = (next - clock.now()).coerceAtLeast(Duration.ZERO)
+        return wait.coerceAtMost(max).inWholeSeconds.coerceAtLeast(0)
     }
 }

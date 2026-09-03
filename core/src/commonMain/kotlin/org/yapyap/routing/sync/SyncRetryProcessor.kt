@@ -15,6 +15,8 @@ import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 internal class SyncRetryProcessor(
     private val ctx: RoutingContext,
@@ -26,7 +28,7 @@ internal class SyncRetryProcessor(
 ) {
     private val retryLoop = RetryLoop(
         earliestPendingRetryAt = { pendingSyncs.earliestDueAt() },
-        time = ctx.timeProvider,
+        clock = ctx.clock,
         processDue = { processDue() },
         maxIdlePoll = maxIdlePoll,
         onProcessFailed = { error ->
@@ -53,13 +55,12 @@ internal class SyncRetryProcessor(
     }
 
     private suspend fun onPeerOnline(deviceId: PeerId) {
-        val now = ctx.timeProvider.nowEpochSeconds()
-        pendingSyncs.accelerateForOnlinePeer(deviceId, now)
+        pendingSyncs.accelerateForOnlinePeer(deviceId, ctx.clock.now())
         wake()
     }
 
     private suspend fun processDue() {
-        val now = ctx.timeProvider.nowEpochSeconds()
+        val now = ctx.clock.now()
         val dueRows = pendingSyncs.findDue(now, limit = 10)
         if (dueRows.isNotEmpty()) {
             AppLog.debug(
@@ -87,7 +88,7 @@ internal class SyncRetryProcessor(
         }
     }
 
-    private suspend fun processDueRow(row: PendingSyncRow, now: Long) {
+    private suspend fun processDueRow(row: PendingSyncRow, now: Instant) {
         val candidateDevices = ctx.identityResolver.getAllPeerDevicesForAccounts(row.candidateAccounts)
             .filter { it != ctx.localDeviceId }
             .distinct()
@@ -95,7 +96,7 @@ internal class SyncRetryProcessor(
         val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.attemptedDevices)
 
         if (nextDevice == null) {
-            pendingSyncs.updateAttemptAt(row.syncId, now + ctx.routerConfig.value.syncOfflineRetryDelay.inWholeSeconds)
+            pendingSyncs.updateAttemptAt(row.syncId, now + ctx.routerConfig.value.syncOfflineRetryDelay)
             return
         }
 
@@ -113,7 +114,7 @@ internal class SyncRetryProcessor(
             )
         }
 
-        val nextAttemptAt = now + computeBackoff(row.attempts)
+        val nextAttemptAt = now + computeBackoff(row.attempts).seconds
         pendingSyncs.recordAttempt(row.syncId, nextAttemptAt)
     }
 

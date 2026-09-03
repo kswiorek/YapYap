@@ -21,7 +21,6 @@ import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.*
-import org.yapyap.time.FixedEpochProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -48,7 +47,7 @@ class SyncIntegrationTest {
     private val remoteDevice = PeerId("it-remote-device")
     private val roomId = RoomId(Uuid.random())
 
-    private val localTime = FixedEpochProvider(now)
+    private val localTime = FakeClock(epochSeconds(now))
 
     // ------------------------------------------------------------------
     // Local node
@@ -64,7 +63,7 @@ class SyncIntegrationTest {
         roomRepository = localRoomRepo,
         identityResolver = localIdentity,
         signatureProvider = FakeSignatureProvider(),
-        timeProvider = localTime,
+        clock = localTime,
     )
     private val router = RecordingRouter()
     private val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
@@ -75,7 +74,7 @@ class SyncIntegrationTest {
         messageRepository = localMessageRepo,
         identityResolver = localIdentity,
         pendingSyncRepository = pendingRepo,
-        timeProvider = localTime,
+        clock = localTime,
         orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = Duration.ZERO)),
     )
 
@@ -92,7 +91,7 @@ class SyncIntegrationTest {
             authorSignature = byteArrayOf(1),
             prevId = prevId,
             lamportClock = lamport,
-            createdAtEpochSeconds = 0L,
+            createdAt = 0L,
             text = "m$lamport",
         )
 
@@ -136,12 +135,12 @@ class SyncIntegrationTest {
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
                 peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-                time = FixedEpochProvider(now),
+                clock = FakeClock(epochSeconds(now)),
             )
             val remoteStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(remoteDevice),
                 peersByAccount = mapOf(localAccount to listOf(localDevice)),
-                time = FixedEpochProvider(now),
+                clock = FakeClock(epochSeconds(now)),
             )
             val retryProcessor = SyncRetryProcessor(
                 ctx = localStack.ctx,
@@ -149,7 +148,7 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(
-                    localStack.ctx.timeProvider,
+                    localStack.ctx.clock,
                     MutableStateFlow(RouterConfig()),
                     FakePeerAvailabilityStore()
                 ),
@@ -237,12 +236,12 @@ class SyncIntegrationTest {
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
                 peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-                time = FixedEpochProvider(now),
+                clock = FakeClock(epochSeconds(now)),
             )
             val remoteStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(remoteDevice),
                 peersByAccount = mapOf(localAccount to listOf(localDevice)),
-                time = FixedEpochProvider(now),
+                clock = FakeClock(epochSeconds(now)),
             )
             val retryProcessor = SyncRetryProcessor(
                 ctx = localStack.ctx,
@@ -250,7 +249,7 @@ class SyncIntegrationTest {
                 systemSender = localStack.systemSender,
                 peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 peerAvailabilityRegistry = PeerAvailabilityRegistry(
-                    localStack.ctx.timeProvider,
+                    localStack.ctx.clock,
                     MutableStateFlow(RouterConfig()),
                     FakePeerAvailabilityStore()
                 ),

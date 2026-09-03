@@ -12,7 +12,7 @@ import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.time.EpochProvider
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 /**
@@ -22,7 +22,7 @@ import kotlin.uuid.Uuid
  * room's current highest-lamport tail (tie-break by createdAt DESC, messageId DESC).
  * Lamport clock = MAX(lamport_clock) in room + 1. Concurrent senders can collide on
  * lamport (sibling branches); display ordering resolves ties via the composite
- * (createdAtEpochSeconds, lamportClock, messageId).
+ * (createdAt, lamportClock, messageId).
  *
  * Gap model: when [ingest] receives a message whose [prevId] is not in the DB,
  * the message is inserted as an orphan (`is_orphaned = 1`) and a `causal_hold`
@@ -36,7 +36,7 @@ class DefaultDagEngine(
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val signatureProvider: SignatureProvider,
-    private val timeProvider: EpochProvider,
+    private val clock: Clock,
 ) : DagEngine {
 
     /**
@@ -48,7 +48,7 @@ class DefaultDagEngine(
     override suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload = mutex.withLock {
         val senderAccountId = identityResolver.getLocalAccountId()
         val authorDeviceId = identityResolver.getLocalDeviceId()
-        val createdAt = timeProvider.nowEpochSeconds()
+        val createdAt = clock.now()
         val tail = messageRepository.findRoomTail(roomId)
         val prevId = tail?.payload?.messageId
         val lamport = tail?.payload?.lamportClock?.let { it + 1 } ?: 0L
@@ -63,7 +63,7 @@ class DefaultDagEngine(
                 authorDeviceId = authorDeviceId,
                 prevId = prevId,
                 lamportClock = lamport,
-                createdAtEpochSeconds = createdAt,
+                createdAt = createdAt,
                 text = draft.text,
             )
             is MessageDraft.GlobalEvent -> MessagePayload.GlobalEvent(
@@ -72,7 +72,7 @@ class DefaultDagEngine(
                 authorDeviceId = authorDeviceId,
                 prevId = prevId,
                 lamportClock = lamport,
-                createdAtEpochSeconds = createdAt,
+                createdAt = createdAt,
                 eventBytes = draft.eventBytes,
             )
         }
@@ -188,7 +188,7 @@ class DefaultDagEngine(
                 gapId = gapId,
                 missingPrevId = payload.prevId!!,
                 orphanedMessageId = payload.messageId,
-                detectedTimestamp = timeProvider.nowEpochSeconds(),
+                detectedTimestamp = clock.now(),
             )
             AppLog.debug(
                 component = LogComponent.DAG,

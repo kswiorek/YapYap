@@ -180,7 +180,7 @@ private fun sampleTextPayload(): MessagePayload.Text =
         senderAccountId = AccountId("acct-sender"),
         prevId = null,
         lamportClock = 0L,
-        createdAtEpochSeconds = 0L,
+        createdAt = 0L,
         text = "hello-integration",
         authorDeviceId = PeerId("test-device"),
     )

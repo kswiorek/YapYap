@@ -9,6 +9,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 class DefaultPacketDeduplicator(
@@ -16,7 +17,7 @@ class DefaultPacketDeduplicator(
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PacketDeduplicator {
     private val queries = database.dedupQueries
-    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean =
+    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAt: Instant): Boolean =
         withContext(dbDispatcher) {
             val packetHex = packetId
             queries.transactionWithResult {
@@ -36,7 +37,7 @@ class DefaultPacketDeduplicator(
                     queries.insertDedup(
                         packet_id = packetHex,
                         source_device_id = sourceDeviceId.id,
-                        received_at = receivedAtEpochSeconds,
+                        received_at = receivedAt.epochSeconds,
                     )
                     AppLog.debug(
                         component = LogComponent.DATABASE,
@@ -72,14 +73,14 @@ class DefaultPacketDeduplicator(
                 ?.nack_reason
         }
 
-    override suspend fun prune(receivedBeforeEpochSeconds: Long) {
+    override suspend fun prune(receivedBefore: Instant) {
         withContext(dbDispatcher) {
-            queries.deleteDedupReceivedBefore(receivedBeforeEpochSeconds)
+            queries.deleteDedupReceivedBefore(receivedBefore.epochSeconds)
             AppLog.info(
                 component = LogComponent.DATABASE,
                 event = LogEvent.DEDUP_PRUNED,
                 message = "Pruned old deduplicator records",
-                fields = mapOf("receivedBeforeEpochSeconds" to receivedBeforeEpochSeconds),
+                fields = mapOf("receivedBefore" to receivedBefore),
             )
         }
     }

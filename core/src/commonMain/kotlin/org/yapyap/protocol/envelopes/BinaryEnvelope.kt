@@ -4,6 +4,7 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.packet.PacketType
+import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -11,14 +12,14 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     val packetId: Uuid,
     val packetType: PacketType,
     val dispositionRequested: Boolean,
-    val createdAtEpochSeconds: Long,
-    val expiresAtEpochSeconds: Long,
+    val createdAt: Instant,
+    val expiresAt: Instant,
     val source: PeerId,
     val target: PeerId,
     val payload: ByteArray,
 ) {
     init {
-        require(expiresAtEpochSeconds >= createdAtEpochSeconds) { "expiresAt must be >= createdAt" }
+        require(expiresAt >= createdAt) { "expiresAt must be >= createdAt" }
     }
 
     fun encode(): ByteArray {
@@ -27,8 +28,8 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         writer.writeByte(VERSION.toInt())
         writer.writeByte(packetType.wireValue.toInt())
         writer.writeByte(if (dispositionRequested) 1 else 0)
-        writer.writeLong(createdAtEpochSeconds)
-        writer.writeLong(expiresAtEpochSeconds)
+        writer.writeLong(createdAt.epochSeconds)
+        writer.writeLong(expiresAt.epochSeconds)
         writer.writeUuid(packetId)
         writer.writePeerId(source)
         writer.writePeerId(target)
@@ -40,8 +41,8 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         Fields.PACKET_ID to packetId,
         Fields.PACKET_TYPE to packetType,
         Fields.DISPOSITION_REQUESTED to dispositionRequested,
-        Fields.CREATED_AT_EPOCH_SECONDS to createdAtEpochSeconds,
-        Fields.EXPIRES_AT_EPOCH_SECONDS to expiresAtEpochSeconds,
+        Fields.CREATED_AT to createdAt,
+        Fields.EXPIRES_AT to expiresAt,
         Fields.SOURCE to source,
         Fields.TARGET to target,
     )
@@ -51,8 +52,8 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
             const val PACKET_ID = "packetId"
             const val PACKET_TYPE = "packetType"
             const val DISPOSITION_REQUESTED = "dispositionRequested"
-            const val CREATED_AT_EPOCH_SECONDS = "createdAtEpochSeconds"
-            const val EXPIRES_AT_EPOCH_SECONDS = "expiresAtEpochSeconds"
+            const val CREATED_AT = "createdAt"
+            const val EXPIRES_AT = "expiresAt"
             const val SOURCE = "source"
             const val TARGET = "target"
             const val PAYLOAD = "payload"
@@ -69,7 +70,7 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
          */
         const val ENCODED_HEADER_BYTES: Int = 175
 
-            fun decode(bytes: ByteArray): BinaryEnvelope {
+        fun decode(bytes: ByteArray): BinaryEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid envelope magic" }
@@ -79,8 +80,8 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
 
             val type = PacketType.fromWireValue(reader.readByte())
             val dispositionRequested = reader.readByte().toInt() != 0
-            val createdAt = reader.readLong()
-            val expiresAt = reader.readLong()
+            val createdAt = Instant.fromEpochSeconds(reader.readLong())
+            val expiresAt = Instant.fromEpochSeconds(reader.readLong())
             val packetId = reader.readUuid()
 
             val source = reader.readPeerId()
@@ -92,8 +93,8 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
                 packetId = packetId,
                 packetType = type,
                 dispositionRequested = dispositionRequested,
-                createdAtEpochSeconds = createdAt,
-                expiresAtEpochSeconds = expiresAt,
+                createdAt = createdAt,
+                expiresAt = expiresAt,
                 source = source,
                 target = target,
                 payload = payload,
@@ -101,5 +102,3 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         }
     }
 }
-
-
