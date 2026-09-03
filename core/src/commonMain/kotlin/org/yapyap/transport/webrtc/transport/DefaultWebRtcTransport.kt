@@ -12,7 +12,6 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.types.*
-import kotlin.time.Clock
 
 class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
@@ -379,7 +378,6 @@ class DefaultWebRtcTransport(
                 val invite = WebRtcIncomingAvSessionRequest(
                     source = frame.source,
                     options = message.options,
-                    receivedAtEpochSeconds = Clock.System.now().epochSeconds,
                 )
                 pendingIncomingCallByPeer[frame.source] = invite
                 incomingCallInviteFlow.emit(invite)

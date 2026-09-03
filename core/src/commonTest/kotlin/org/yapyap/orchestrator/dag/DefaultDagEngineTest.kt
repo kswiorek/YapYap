@@ -6,8 +6,8 @@ import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.*
-import org.yapyap.time.FixedEpochProvider
 import kotlin.test.*
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -22,7 +22,7 @@ class DefaultDagEngineTest {
     private lateinit var roomRepo: FakeRoomRepository
     private lateinit var identityResolver: FakeIdentityResolver
     private lateinit var signatureProvider: FakeSignatureProvider
-    private lateinit var timeProvider: FixedEpochProvider
+    private lateinit var clock: FakeClock
 
     private val testAccount = AccountId("dag-sender-account")
     private val remoteAccount = AccountId("dag-remote-account")
@@ -37,14 +37,14 @@ class DefaultDagEngineTest {
         roomRepo = FakeRoomRepository()
         identityResolver = FakeIdentityResolver(testAccount, testDeviceId)
         signatureProvider = FakeSignatureProvider()
-        timeProvider = FixedEpochProvider(1_000_000L)
+        clock = FakeClock(epochSeconds(1_000_000L))
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
-            timeProvider = timeProvider,
+            clock = clock,
         )
     }
 
@@ -57,14 +57,14 @@ class DefaultDagEngineTest {
         assertEquals(roomId, payload.roomId)
         assertEquals(testAccount, payload.senderAccountId)
         assertEquals("first", (payload as MessagePayload.Text).text)
-        assertEquals(timeProvider.nowEpochSeconds(), payload.createdAt)
+        assertEquals(clock.now(), payload.createdAt)
         assertFalse(messageRepo.findById(payload.messageId)!!.isOrphaned)
     }
 
     @Test
     fun append_chainsOffRoomTail_incrementsLamport() = runTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
-        timeProvider.advanceBy(1L)
+        clock.advanceBy(1L.seconds)
         val second = dagEngine.append(roomId, MessageDraft.Text("second"))
 
         assertEquals(1L, second.lamportClock)
@@ -96,7 +96,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = first.messageId,
             lamportClock = 1L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "from remote",
         )
 
@@ -132,7 +132,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 5L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "i am orphaned",
         )
 
@@ -162,7 +162,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 5L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "waiting for prev",
         )
         assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
@@ -178,7 +178,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 4L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "i am the prev",
         )
         val missingResult = dagEngine.ingest(missing)
@@ -207,7 +207,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 5L,
-            createdAt = 10L,
+            createdAt = epochSeconds(10L),
             text = "a",
         )
         val orphan2 = MessagePayload.Text(
@@ -218,7 +218,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prevUuid,
             lamportClock = 6L,
-            createdAt = 11L,
+            createdAt = epochSeconds(11L),
             text = "b",
         )
         dagEngine.ingest(orphan1)
@@ -233,7 +233,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 4L,
-            createdAt = 9L,
+            createdAt = epochSeconds(9L),
             text = "the prev",
         )
         val result = dagEngine.ingest(missing)
@@ -321,7 +321,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prev1Uuid,
             lamportClock = 1L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "x",
         )
         dagEngine.ingest(orphan1)
@@ -336,7 +336,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = prev2Uuid,
             lamportClock = 1L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "y",
         )
         dagEngine.ingest(orphan2)
@@ -374,7 +374,7 @@ class DefaultDagEngineTest {
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
             prevId = null,
             lamportClock = 1L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "should be rejected",
         )
 
@@ -385,7 +385,7 @@ class DefaultDagEngineTest {
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = FakeRejectingSignatureProvider(),
-            timeProvider = timeProvider,
+            clock = clock,
         )
 
         val result = rejectingEngine.ingest(remotePayload)

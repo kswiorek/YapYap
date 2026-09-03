@@ -1,4 +1,5 @@
 import kotlin.Boolean;
+import kotlin.time.Instant;
 import kotlin.uuid.Uuid;
 
 CREATE TABLE outbox (
@@ -8,9 +9,9 @@ CREATE TABLE outbox (
     target_device_id TEXT NOT NULL,
     is_relay INTEGER AS Boolean NOT NULL DEFAULT 0,
     retry_count INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    last_attempt_at INTEGER NOT NULL,
-    next_retry_at INTEGER NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL,
+    last_attempt_at INTEGER AS Instant NOT NULL,
+    next_retry_at INTEGER AS Instant NOT NULL,
     FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
 );
 

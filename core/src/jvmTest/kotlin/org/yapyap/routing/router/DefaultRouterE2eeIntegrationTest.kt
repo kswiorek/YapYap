@@ -11,7 +11,8 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.test.*
@@ -109,7 +110,7 @@ class DefaultRouterE2eeIntegrationTest {
         val alicePeer = buildTestPeerIdentity(crypto, "router-e2ee-alice")
         val bobPeer = buildTestPeerIdentity(crypto, "router-e2ee-bob")
         val bobAccount = AccountId("bob-e2ee-account")
-        val time = FixedEpochProvider(10_000L)
+        val clock = FakeClock(epochSeconds(10_000L))
 
         val aliceTor = RecordingTorTransport(TorEndpoint("alice-e2ee.onion", 80))
         val bobTor = RecordingTorTransport(TorEndpoint("bob-e2ee.onion", 80))
@@ -122,7 +123,7 @@ class DefaultRouterE2eeIntegrationTest {
             remote = bobPeer,
             peersByAccount = mapOf(bobAccount to listOf(bobPeer.device.deviceId)),
             torByPeer = torByAlice,
-            time = time,
+            clock = clock,
             crypto = crypto,
         )
         val bobStack = buildE2eeRouterStack(
@@ -130,13 +131,13 @@ class DefaultRouterE2eeIntegrationTest {
             remote = alicePeer,
             peersByAccount = emptyMap(),
             torByPeer = torByBob,
-            time = time,
+            clock = clock,
             crypto = crypto,
         )
 
         return E2eeTwoRouterFixture(
-            aliceRouter = e2eeRouterUnderTest(aliceStack, aliceTor, time = time),
-            bobRouter = e2eeRouterUnderTest(bobStack, bobTor, time = time),
+            aliceRouter = e2eeRouterUnderTest(aliceStack, aliceTor, clock = clock),
+            bobRouter = e2eeRouterUnderTest(bobStack, bobTor, clock = clock),
             aliceTor = aliceTor,
             bobTor = bobTor,
             bobAccount = bobAccount,
@@ -165,7 +166,7 @@ private fun sampleE2eeTextPayload(): MessagePayload.Text =
         senderAccountId = AccountId("alice-e2ee-account"),
         prevId = null,
         lamportClock = 1L,
-        createdAt = 0L,
+        createdAt = epochSeconds(0L),
         text = "hello-e2ee-router",
         authorDeviceId = PeerId("test-device"),
     )

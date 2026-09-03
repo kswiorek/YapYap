@@ -1,4 +1,5 @@
 import kotlin.Boolean;
+import kotlin.time.Instant;
 import org.yapyap.crypto.e2ee.session.SessionRole;
 import org.yapyap.crypto.e2ee.session.SessionStatus;
 import org.yapyap.crypto.e2ee.session.X3dhMode;
@@ -27,8 +28,8 @@ CREATE TABLE crypto_sessions (
     initiator_ephemeral_public_key BLOB,
     offered_opk_id TEXT,
     status TEXT AS SessionStatus NOT NULL,
-    created_at_epoch_seconds INTEGER NOT NULL,
-    updated_at_epoch_seconds INTEGER NOT NULL,
+    created_at_epoch_seconds INTEGER AS Instant NOT NULL,
+    updated_at_epoch_seconds INTEGER AS Instant NOT NULL,
     FOREIGN KEY (peer_device_id) REFERENCES devices(device_id)
 );
 

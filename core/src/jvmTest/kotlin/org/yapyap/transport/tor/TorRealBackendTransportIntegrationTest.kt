@@ -12,6 +12,7 @@ import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
@@ -19,7 +20,9 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -42,13 +45,13 @@ class TorRealBackendTransportIntegrationTest {
         val transport = DefaultTorTransport(backend = backend)
         val local = PeerId("0".repeat(64))
         val remote = PeerId("1".repeat(64))
-        val t0 = 1_700_000_000L
+        val t0 = epochSeconds(1_700_000_000L)
         val out = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = t0,
-            expiresAtEpochSeconds = t0 + 3_600L,
+            createdAt = t0,
+            expiresAt = t0 + 1.hours,
             source = local,
             target = remote,
             payload = byteArrayOf(0x0a, 0x0b, 0x0c),
@@ -69,8 +72,8 @@ class TorRealBackendTransportIntegrationTest {
             assertEquals(localEndpoint.port, received.source.port)
             assertEquals(out.packetType, received.envelope.packetType)
             assertEquals(out.packetId, received.envelope.packetId)
-            assertEquals(out.createdAtEpochSeconds, received.envelope.createdAtEpochSeconds)
-            assertEquals(out.expiresAtEpochSeconds, received.envelope.expiresAtEpochSeconds)
+            assertEquals(out.createdAt, received.envelope.createdAt)
+            assertEquals(out.expiresAt, received.envelope.expiresAt)
             assertEquals(out.source, received.envelope.source)
             assertEquals(out.target, received.envelope.target)
             assertContentEquals(out.payload, received.envelope.payload)
@@ -93,14 +96,14 @@ class TorRealBackendTransportIntegrationTest {
         val transport = DefaultTorTransport(backend = backend)
         val local = PeerId("0".repeat(64))
         val remote = PeerId("1".repeat(64))
-        val t0 = 1_700_000_000L
+        val t0 = epochSeconds(1_700_000_000L)
         val payload = ByteArray(TorBackendConfig().maxPayloadBytes - BinaryEnvelope.ENCODED_HEADER_BYTES)
         val out = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = t0,
-            expiresAtEpochSeconds = t0 + 3_600L,
+            createdAt = t0,
+            expiresAt = t0 + 1.hours,
             source = local,
             target = remote,
             payload = payload,
@@ -108,7 +111,7 @@ class TorRealBackendTransportIntegrationTest {
         try {
             val localEndpoint = transport.start()
             assertTrue(localEndpoint.onionAddress.endsWith(".onion"), "expected .onion from Tor")
-            val received = withTimeout(300_000L.milliseconds) {
+            val received = withTimeout(5.minutes) {
                 coroutineScope {
                     val waitInbound = async {
                         transport.incoming.first()
@@ -121,8 +124,8 @@ class TorRealBackendTransportIntegrationTest {
             assertEquals(localEndpoint.port, received.source.port)
             assertEquals(out.packetType, received.envelope.packetType)
             assertEquals(out.packetId, received.envelope.packetId)
-            assertEquals(out.createdAtEpochSeconds, received.envelope.createdAtEpochSeconds)
-            assertEquals(out.expiresAtEpochSeconds, received.envelope.expiresAtEpochSeconds)
+            assertEquals(out.createdAt, received.envelope.createdAt)
+            assertEquals(out.expiresAt, received.envelope.expiresAt)
             assertEquals(out.source, received.envelope.source)
             assertEquals(out.target, received.envelope.target)
             assertEquals(out.payload.size, received.envelope.payload.size)

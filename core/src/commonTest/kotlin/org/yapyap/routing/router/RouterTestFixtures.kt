@@ -37,13 +37,15 @@ import org.yapyap.routing.ping.LamportSnapshotProvider
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSignal
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionService {
@@ -54,7 +56,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             kind = input.kind,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
-            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            createdAt = context.createdAt,
             nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -88,7 +90,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             messageEnvelopeId = messageId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
-            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            createdAt = context.createdAt,
             nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -103,7 +105,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             systemEnvelopeId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
-            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            createdAt = context.createdAt,
             nonce = ByteArray(context.securityScheme.nonceSize) { 1 },
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -178,6 +180,7 @@ internal class FakeSyncPayloadProvider : SyncPayloadProvider{
 
 internal class InMemoryPendingSyncRepository : PendingSyncRepository {
     private val rows = mutableMapOf<Uuid, PendingSyncRow>()
+    private val nextAttempts = mutableMapOf<Uuid, Instant>()
 
     override suspend fun insertSync(
         syncId: Uuid,
@@ -185,7 +188,7 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
-        nextAttemptAt: Long,
+        nextAttemptAt: Instant,
     ) {
         rows[syncId] = PendingSyncRow(
             syncId = syncId,
@@ -196,6 +199,7 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
             attemptedDevices = emptySet(),
             attempts = 0,
         )
+        nextAttempts[syncId] = nextAttemptAt
     }
 
     override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
@@ -204,24 +208,28 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
 
     override suspend fun deleteSync(syncId: Uuid) {
         rows.remove(syncId)
+        nextAttempts.remove(syncId)
     }
 
-    override suspend fun earliestDueAt(): Long? =
-        rows.values.minOfOrNull { it.attempts.toLong() }
+    override suspend fun earliestDueAt(): Instant? =
+        nextAttempts.values.minOrNull()
 
-    override suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow> =
+    override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> =
         rows.values.toList().take(limit)
 
-    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long) {
+    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {
         rows[syncId]?.let { rows[syncId] = it.copy(attempts = it.attempts + 1) }
+        nextAttempts[syncId] = nextAttemptAt
     }
 
     override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> =
         rows[syncId]?.attemptedDevices ?: emptySet()
 
-    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long) = Unit
+    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant) = Unit
 
-    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long) = Unit
+    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant) {
+        nextAttempts[syncId] = nextAttemptAt
+    }
 
     override suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId) {
         rows[syncId]?.let { rows[syncId] = it.copy(attemptedDevices = it.attemptedDevices + deviceId) }
@@ -236,7 +244,7 @@ internal class InMemoryPacketDeduplicator : PacketDeduplicator {
     private val seen = mutableSetOf<Pair<PeerId, Uuid>>()
     private val nackReasons = mutableMapOf<Pair<PeerId, Uuid>, PacketNackReason>()
 
-    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
+    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAt: Instant): Boolean {
         val key = sourceDeviceId to packetId
         return seen.add(key)
     }
@@ -255,19 +263,19 @@ internal class InMemoryPacketDeduplicator : PacketDeduplicator {
     override suspend fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
         nackReasons[sourceDeviceId to packetId]
 
-    override suspend fun prune(receivedBeforeEpochSeconds: Long) {
+    override suspend fun prune(receivedBefore: Instant) {
         // No-op for router contract tests
     }
 }
 
 internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplicator) : PacketDeduplicator {
-    val firstSeenCalls = mutableListOf<Triple<Uuid, PeerId, Long>>()
+    val firstSeenCalls = mutableListOf<Triple<Uuid, PeerId, Instant>>()
     val firstSeenResults = mutableListOf<Boolean>()
     val markNackedCalls = mutableListOf<Triple<Uuid, PeerId, PacketNackReason>>()
 
-    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAtEpochSeconds: Long): Boolean {
-        firstSeenCalls.add(Triple(packetId, sourceDeviceId, receivedAtEpochSeconds))
-        val result = delegate.firstSeen(packetId, sourceDeviceId, receivedAtEpochSeconds)
+    override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAt: Instant): Boolean {
+        firstSeenCalls.add(Triple(packetId, sourceDeviceId, receivedAt))
+        val result = delegate.firstSeen(packetId, sourceDeviceId, receivedAt)
         firstSeenResults.add(result)
         return result
     }
@@ -290,8 +298,8 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
     override suspend fun getNackReason(packetId: Uuid, sourceDeviceId: PeerId): PacketNackReason? =
         delegate.getNackReason(packetId, sourceDeviceId)
 
-    override suspend fun prune(receivedBeforeEpochSeconds: Long) {
-        delegate.prune(receivedBeforeEpochSeconds)
+    override suspend fun prune(receivedBefore: Instant) {
+        delegate.prune(receivedBefore)
     }
 }
 
@@ -350,27 +358,27 @@ internal class FakeIdentityResolverForRouter(
 internal class TrackingPacketOutbox : PacketOutbox {
     private data class StoredEntry(
         val envelope: BinaryEnvelope,
-        var nextRetryAt: Long,
+        var nextRetryAt: Instant,
         var attempts: Long,
         val relayMessage: Boolean,
-        val expiresAtEpochSeconds: Long,
+        val expiresAt: Instant,
         val blobSize: Long,
     )
 
     private val entries = linkedMapOf<Uuid, StoredEntry>()
     val enqueued = mutableListOf<BinaryEnvelope>()
     val markDeliveredCalls = mutableListOf<Uuid>()
-    val recordAttemptCalls = mutableListOf<Triple<Uuid, Long, Long>>()
-    val setDueForTargetCalls = mutableListOf<Pair<PeerId, Long>>()
+    val recordAttemptCalls = mutableListOf<Triple<Uuid, Instant, Instant>>()
+    val setDueForTargetCalls = mutableListOf<Pair<PeerId, Instant>>()
 
-    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Long, relayMessage: Boolean) {
+    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Instant, relayMessage: Boolean) {
         val blobSize = envelope.encode().size.toLong()
         entries[envelope.packetId] = StoredEntry(
             envelope = envelope,
             nextRetryAt = nextRetryAt,
             attempts = 0,
             relayMessage = relayMessage,
-            expiresAtEpochSeconds = envelope.expiresAtEpochSeconds,
+            expiresAt = envelope.expiresAt,
             blobSize = blobSize,
         )
         enqueued.add(envelope)
@@ -381,7 +389,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         entries.remove(packetId)
     }
 
-    override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Long) {
+    override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant) {
         setDueForTargetCalls.add(target to nextRetryAt)
         for (entry in entries.values) {
             if (entry.envelope.target == target && entry.nextRetryAt > nextRetryAt) {
@@ -390,8 +398,8 @@ internal class TrackingPacketOutbox : PacketOutbox {
         }
     }
 
-    override suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Long, now: Long) {
-        recordAttemptCalls.add(Triple(packetId, nextRetryAt, now))
+    override suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant) {
+        recordAttemptCalls.add(Triple(packetId, nextRetryAt, at))
         val entry = entries[packetId] ?: return
         entry.attempts += 1
         entry.nextRetryAt = nextRetryAt
@@ -402,18 +410,18 @@ internal class TrackingPacketOutbox : PacketOutbox {
             .filter { it.envelope.target == target }
             .map { it.toOutboxEntry() }
 
-    override suspend fun listDue(now: Long): List<OutboxEntry> =
+    override suspend fun listDue(now: Instant): List<OutboxEntry> =
         entries.values
             .filter { it.nextRetryAt <= now }
             .map { it.toOutboxEntry() }
 
-    override suspend fun pruneExpired(now: Long): Int {
-        val expiredKeys = entries.filterValues { it.expiresAtEpochSeconds <= now }.keys
+    override suspend fun pruneExpired(now: Instant): Int {
+        val expiredKeys = entries.filterValues { it.expiresAt <= now }.keys
         expiredKeys.forEach { entries.remove(it) }
         return expiredKeys.size
     }
 
-    override suspend fun earliestPendingRetryAt(): Long? =
+    override suspend fun earliestPendingRetryAt(): Instant? =
         entries.values.minOfOrNull { it.nextRetryAt }
 
     override suspend fun relayCacheBytes(): Long =
@@ -424,7 +432,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         while (relayCacheBytes() > maxBytes) {
             val victim = entries.values
                 .filter { it.relayMessage }
-                .minWithOrNull(compareBy<StoredEntry> { it.expiresAtEpochSeconds }.thenBy { it.envelope.packetId })
+                .minWithOrNull(compareBy<StoredEntry> { it.expiresAt }.thenBy { it.envelope.packetId })
                 ?: break
             entries.remove(victim.envelope.packetId)
             evicted++
@@ -434,7 +442,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
 
     fun contains(packetId: Uuid): Boolean = entries.containsKey(packetId)
 
-    fun getNextRetryAt(packetId: Uuid): Long? = entries[packetId]?.nextRetryAt
+    fun getNextRetryAt(packetId: Uuid): Instant? = entries[packetId]?.nextRetryAt
 
     fun getAttempts(packetId: Uuid): Long = entries[packetId]?.attempts ?: 0L
 
@@ -537,7 +545,7 @@ internal fun buildE2eeRouterStack(
     remote: TestPeerIdentity,
     peersByAccount: Map<AccountId, List<PeerId>>,
     torByPeer: MutableMap<PeerId, TorEndpoint>,
-    time: EpochProvider = FixedEpochProvider(10_000L),
+    clock: Clock = FakeClock(epochSeconds(10_000L)),
     crypto: CryptoProvider = DefaultCryptoProvider(),
 ): E2eeRouterTestStack {
     val identity = E2eeIdentityResolverForRouter(
@@ -553,7 +561,7 @@ internal fun buildE2eeRouterStack(
         sessionStore = MapBackedCryptoSessionStore(),
         identityResolver = identity,
         opkRepository = InMemoryOpkRepository(crypto),
-        timeProvider = time,
+        clock = clock,
         cryptoLimits = MutableStateFlow(testCryptoLimits()),
         sessionConfig = MutableStateFlow(
             CryptoSessionConfig())
@@ -582,7 +590,7 @@ internal fun e2eeRouterUnderTest(
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    time: EpochProvider = FixedEpochProvider(10_000L),
+    clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
 ): DefaultRouter =
@@ -593,7 +601,7 @@ internal fun e2eeRouterUnderTest(
         packetDeduplicator = dedup,
         packetOutbox = outbox,
         envelopeProtectionService = stack.protection,
-        timeProvider = time,
+        clock = clock,
         routerConfig = MutableStateFlow(routerConfig),
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
@@ -607,7 +615,7 @@ internal fun outboxProcessorUnderTest(
     webRtc: RecordingWebRtcTransport = RecordingWebRtcTransport(),
     identity: FakeIdentityResolverForRouter,
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    time: EpochProvider = FixedEpochProvider(10_000L),
+    clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
 ): OutboxProcessor {
     val ctx =
@@ -617,7 +625,7 @@ internal fun outboxProcessorUnderTest(
             envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
             torTransport = tor,
             webRtcTransport = webRtc,
-            timeProvider = time,
+            clock = clock,
             routerConfig = MutableStateFlow(routerConfig),
             transportLimits = MutableStateFlow(testTransportLimits()),
         )
@@ -636,7 +644,7 @@ internal fun defaultRouterUnderTest(
     identity: FakeIdentityResolverForRouter,
     dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
     outbox: PacketOutbox = TrackingPacketOutbox(),
-    time: EpochProvider = FixedEpochProvider(10_000L),
+    clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
@@ -648,7 +656,7 @@ internal fun defaultRouterUnderTest(
         packetDeduplicator = dedup,
         packetOutbox = outbox,
         envelopeProtectionService = envelopeProtectionService,
-        timeProvider = time,
+        clock = clock,
         routerConfig = MutableStateFlow(routerConfig),
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),

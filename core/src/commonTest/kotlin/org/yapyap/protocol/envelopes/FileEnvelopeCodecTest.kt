@@ -2,6 +2,7 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -106,7 +107,7 @@ class FileEnvelopeCodecTest {
             transferId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 123L,
+            createdAt = epochSeconds(123L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -127,7 +128,7 @@ class FileEnvelopeCodecTest {
             transferId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 0L,
+            createdAt = epochSeconds(0L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(32) { 2 },
@@ -143,7 +144,7 @@ class FileEnvelopeCodecTest {
             transferId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 0L,
+            createdAt = epochSeconds(0L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -160,7 +161,7 @@ class FileEnvelopeCodecTest {
         assertEquals(expected.transferId, actual.transferId)
         assertEquals(expected.source, actual.source)
         assertEquals(expected.target, actual.target)
-        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
+        assertEquals(expected.createdAt, actual.createdAt)
         assertContentEquals(expected.nonce, actual.nonce)
         assertEquals(expected.securityScheme, actual.securityScheme)
         when {

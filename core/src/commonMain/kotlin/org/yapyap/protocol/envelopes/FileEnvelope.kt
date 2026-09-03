@@ -117,7 +117,7 @@ data class OpenedFileEnvelope(
     val transferId: Uuid,
     val source: String,
     val target: String,
-    val createdAtEpochSeconds: Long,
+    val createdAt: Instant,
     val securityScheme: SignalSecurityScheme,
     val payload: FilePayload,
 )

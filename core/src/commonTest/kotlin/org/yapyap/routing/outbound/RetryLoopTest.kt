@@ -7,7 +7,8 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -25,7 +26,7 @@ class RetryLoopTest {
         val outbox = TrackingPacketOutbox()
         val loop = RetryLoop(
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
-            time = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
             processDue = {
                 calls++
                 if (calls == 1) {
@@ -52,7 +53,7 @@ class RetryLoopTest {
 
         val loop = RetryLoop(
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
-            time = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
             processDue = { calls++ },
             maxIdlePoll = MutableStateFlow(60.seconds),
         )
@@ -76,7 +77,7 @@ class RetryLoopTest {
 
         val loop = RetryLoop(
             earliestPendingRetryAt = { outbox.earliestPendingRetryAt() },
-            time = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
             processDue = { calls++ },
             maxIdlePoll = MutableStateFlow(60.seconds),
         )
@@ -96,13 +97,13 @@ class RetryLoopTest {
                 packetId = Uuid.random(),
                 packetType = PacketType.MESSAGE,
                 dispositionRequested = true,
-                createdAtEpochSeconds = 1_000L,
-                expiresAtEpochSeconds = 9_999L,
+                createdAt = epochSeconds(1_000L),
+                expiresAt = epochSeconds(9_999L),
                 source = targetPeer,
                 target = targetPeer,
                 payload = byteArrayOf(0x01),
             ),
-            nextRetryAt = nextRetryAt,
+            nextRetryAt = epochSeconds(nextRetryAt),
         )
     }
 }

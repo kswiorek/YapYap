@@ -61,7 +61,7 @@ class DefaultSyncCoordinatorTest {
             authorSignature = byteArrayOf(1),
             prevId = prevId,
             lamportClock = lamport,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "m$lamport",
         )
 
@@ -82,7 +82,7 @@ class DefaultSyncCoordinatorTest {
         assertEquals(5L, sync.anchorLamport)
         assertEquals(10L, sync.orphanLamport)
         assertEquals(listOf(remoteAccount), sync.candidateAccounts)
-        assertEquals(1_000L + 60L, pendingRepo.nextAttemptAtOf(sync.syncId))
+        assertEquals(epochSeconds(1_000L + 60L), pendingRepo.nextAttemptAtOf(sync.syncId))
     }
 
     @Test
@@ -92,7 +92,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 5L, orphanLamport = 8L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
 
         coordinator.requestRangeSync(roomId, pingLamport = 10L)
@@ -119,7 +119,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 5L, orphanLamport = 12L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
 
         coordinator.requestRangeSync(roomId, pingLamport = 10L)
@@ -158,7 +158,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 6L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -191,7 +191,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -213,7 +213,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -250,7 +250,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 5L, orphanLamport = 10L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
 
         coordinator.requestRangeSync(roomId, pingLamport = 10L)
@@ -281,7 +281,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 8L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -310,7 +310,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -341,7 +341,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -373,7 +373,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -425,7 +425,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()

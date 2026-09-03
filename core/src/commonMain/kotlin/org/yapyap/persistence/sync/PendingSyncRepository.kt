@@ -85,7 +85,7 @@ class DefaultPendingSyncRepository(
                 room_id = roomId,
                 anchor_lamport = anchorLamport,
                 orphan_lamport = orphanLamport,
-                next_attempt_at = nextAttemptAt.epochSeconds,
+next_attempt_at = nextAttemptAt,
             )
             candidateAccounts.forEach { accountId ->
                 queries.insertPendingSyncCandidateAccount(sync_id = syncId, account_id = accountId)
@@ -107,17 +107,17 @@ class DefaultPendingSyncRepository(
 
     override suspend fun earliestDueAt(): Instant? =
         withContext(dbDispatcher) {
-            queries.selectEarliestDueAt().executeAsOneOrNull()?.MIN?.let { Instant.fromEpochSeconds(it) }
+            queries.selectEarliestDueAt().executeAsOneOrNull()?.MIN
         }
 
     override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> =
         withContext(dbDispatcher) {
-            queries.selectDueSyncs(now.epochSeconds, limit.toLong()).executeAsList().map { it.toRow() }
+            queries.selectDueSyncs(now, limit.toLong()).executeAsList().map { it.toRow() }
         }
 
     override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {
         withContext(dbDispatcher) {
-            queries.recordAttempt(next_attempt_at = nextAttemptAt.epochSeconds, sync_id = syncId)
+            queries.recordAttempt(next_attempt_at = nextAttemptAt, sync_id = syncId)
         }
     }
 
@@ -128,13 +128,13 @@ class DefaultPendingSyncRepository(
 
     override suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant) {
         withContext(dbDispatcher) {
-            queries.accelerateForOnlinePeer(at.epochSeconds, deviceId)
+            queries.accelerateForOnlinePeer(at, deviceId)
         }
     }
 
     override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant) {
         withContext(dbDispatcher) {
-            queries.updateNextAttemptAt(nextAttemptAt.epochSeconds, syncId)
+            queries.updateNextAttemptAt(nextAttemptAt, syncId)
         }
     }
 

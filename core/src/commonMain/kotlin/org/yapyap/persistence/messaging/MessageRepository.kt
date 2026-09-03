@@ -89,7 +89,7 @@ class DefaultMessageRepository(
             author_device_id = payload.authorDeviceId.id,
             prev_id = payload.prevId,
             lamport_clock = payload.lamportClock,
-            created_at_epoch_seconds = payload.createdAt.epochSeconds,
+            created_at_epoch_seconds = payload.createdAt,
             payload_type = payload.payloadType,
             message_payload = payload.encode(),
             is_orphaned = isOrphaned,
@@ -180,7 +180,7 @@ class DefaultMessageRepository(
         withContext(dbDispatcher) {
             val rows = queries.selectMessagesInRoomPageDesc(
                 roomId = roomId,
-                cursorCreated = cursor?.createdAt?.epochSeconds,
+                cursorCreated = cursor?.createdAt,
                 cursorLamport = cursor?.lamportClock,
                 cursorMessageId = cursor?.messageId,
                 limit = limit.toLong(),

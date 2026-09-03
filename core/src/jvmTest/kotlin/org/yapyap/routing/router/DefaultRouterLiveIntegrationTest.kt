@@ -16,7 +16,8 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.sync.FakePeerAvailabilityStore
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
@@ -57,7 +58,7 @@ class DefaultRouterLiveIntegrationTest {
             senderAccountId = AccountId("alice-acct"),
             prevId = null,
             lamportClock = 1L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "hello-live-router",
             authorDeviceId = alicePeer,
         )
@@ -105,7 +106,7 @@ class DefaultRouterLiveIntegrationTest {
                 torByPeer = bobTorMap,
             )
 
-        val time = FixedEpochProvider(10_000L)
+        val clock = FakeClock(epochSeconds(10_000L))
         val aliceRouter =
             DefaultRouter(
                 torTransport = aliceTorTransport,
@@ -114,7 +115,7 @@ class DefaultRouterLiveIntegrationTest {
                 packetDeduplicator = InMemoryPacketDeduplicator(),
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-                timeProvider = time,
+                clock = clock,
                 routerConfig = MutableStateFlow(RouterConfig()),
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),
@@ -130,7 +131,7 @@ class DefaultRouterLiveIntegrationTest {
                 packetDeduplicator = InMemoryPacketDeduplicator(),
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
-                timeProvider = time,
+                clock = clock,
                 routerConfig = MutableStateFlow(RouterConfig()),
                 transportLimits = MutableStateFlow(testTransportLimits()),
                 syncRepository = InMemoryPendingSyncRepository(),

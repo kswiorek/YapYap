@@ -37,7 +37,7 @@ class DefaultPacketDeduplicator(
                     queries.insertDedup(
                         packet_id = packetHex,
                         source_device_id = sourceDeviceId.id,
-                        received_at = receivedAt.epochSeconds,
+                        received_at = receivedAt,
                     )
                     AppLog.debug(
                         component = LogComponent.DATABASE,
@@ -75,7 +75,7 @@ class DefaultPacketDeduplicator(
 
     override suspend fun prune(receivedBefore: Instant) {
         withContext(dbDispatcher) {
-            queries.deleteDedupReceivedBefore(receivedBefore.epochSeconds)
+            queries.deleteDedupReceivedBefore(receivedBefore)
             AppLog.info(
                 component = LogComponent.DATABASE,
                 event = LogEvent.DEDUP_PRUNED,

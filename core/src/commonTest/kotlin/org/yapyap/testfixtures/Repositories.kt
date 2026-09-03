@@ -7,6 +7,7 @@ import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -143,7 +144,7 @@ class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<CausalHoldRow>()
 
-    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
+    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
         rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 

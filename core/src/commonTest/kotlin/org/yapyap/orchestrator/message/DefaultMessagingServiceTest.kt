@@ -29,9 +29,12 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -45,7 +48,7 @@ class DefaultMessagingServiceTest {
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var causalHoldRepo: FakeCausalHoldRepository
     private lateinit var identityResolver: FakeIdentityResolver
-    private lateinit var timeProvider: FixedEpochProvider
+    private lateinit var clock: FakeClock
     private lateinit var router: RecordingRouter
     private lateinit var roomMembershipRepo: FakeRoomRepository
 
@@ -58,7 +61,7 @@ class DefaultMessagingServiceTest {
         messageRepo = FakeMessageRepository()
         causalHoldRepo = FakeCausalHoldRepository(messageRepo)
         identityResolver = FakeIdentityResolver(localAccount)
-        timeProvider = FixedEpochProvider(1_000_000L)
+        clock = FakeClock(epochSeconds(1_000_000L))
         router = RecordingRouter()
         roomMembershipRepo = FakeRoomRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
         dagEngine = DefaultDagEngine(
@@ -66,7 +69,7 @@ class DefaultMessagingServiceTest {
             causalHoldRepository = causalHoldRepo,
             roomRepository = roomMembershipRepo,
             identityResolver = identityResolver,
-            timeProvider = timeProvider,
+            clock = clock,
             signatureProvider = FakeSignatureProvider(),
         )
     }
@@ -94,7 +97,7 @@ class DefaultMessagingServiceTest {
         pipeline = pipeline,
         roomRepository = roomMembershipRepo,
         identityResolver = identityResolver,
-        timeProvider = timeProvider,
+        clock = clock,
         messageLimits = MutableStateFlow(messageLimits),
         orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
     )
@@ -215,7 +218,7 @@ class DefaultMessagingServiceTest {
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
-        val remoteTimestamp = 1_000_500L
+        val remoteTimestamp = epochSeconds(1_000_500L)
         val incoming = MessagePayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
@@ -257,7 +260,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = prevUuid,
             lamportClock = 1L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "i am orphaned",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -291,7 +294,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = prevUuid,
             lamportClock = 1L,
-            createdAt = 1_000_500L,
+            createdAt = epochSeconds(1_000_500L),
             text = "waiting",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -309,7 +312,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAt = 1_000_400L,
+            createdAt = epochSeconds(1_000_400L),
             text = "i am the prev",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -347,7 +350,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "hi from remote",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -368,7 +371,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = localAccount,
             prevId = null,
             lamportClock = 1L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = "from me",
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -399,7 +402,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             text = longText,
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -432,7 +435,7 @@ class DefaultMessagingServiceTest {
             senderAccountId = remoteAccount,
             prevId = null,
             lamportClock = 0L,
-            createdAt = timeProvider.nowEpochSeconds(),
+            createdAt = clock.now(),
             eventBytes = byteArrayOf(0x01),
             authorDeviceId = PeerId("test-device"),
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -452,9 +455,9 @@ class DefaultMessagingServiceTest {
     fun loadOlder_paginatesBackward() = runTest(UnconfinedTestDispatcher()) {
         // Three messages: m1 (oldest), m2, m3 (newest).
         val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
-        timeProvider.advanceBy(1L)
+        clock.advanceBy(1L.seconds)
         val m2 = dagEngine.append(roomId, MessageDraft.Text("b"))
-        timeProvider.advanceBy(1L)
+        clock.advanceBy(1L.seconds)
         val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
 
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
@@ -601,7 +604,7 @@ private class FakeCausalHoldRepository(
 ) : CausalHoldRepository {
     private val rows = mutableListOf<CausalHoldRow>()
 
-    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
+    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
         rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 

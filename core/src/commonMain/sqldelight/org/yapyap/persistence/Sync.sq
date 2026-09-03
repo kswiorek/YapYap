@@ -1,4 +1,5 @@
 import kotlin.uuid.Uuid;
+import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.protocol.PeerId;
@@ -9,7 +10,7 @@ CREATE TABLE pending_syncs(
     anchor_lamport INTEGER NOT NULL,
     orphan_lamport INTEGER NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at INTEGER NOT NULL,
+    next_attempt_at INTEGER AS Instant NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id)
 );
 

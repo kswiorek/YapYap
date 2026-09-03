@@ -10,6 +10,7 @@ import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 class DefaultOpkRepository(
     private val database: YapYapDatabase,
@@ -28,7 +29,7 @@ class DefaultOpkRepository(
             publicKey = keyPair.publicKey,
             privateKey = keyPair.privateKey,
         )
-        val now = clock.now().epochSeconds
+        val now = clock.now()
         database.identityQueries.insertOneTimePreKey(
             opk_id = opk.keyId,
             device_id = localDeviceId,
@@ -46,7 +47,7 @@ class DefaultOpkRepository(
 
     override suspend fun markOffered(opkId: String) {
         withContext(dbDispatcher) {
-            val now = clock.now().epochSeconds
+            val now = clock.now()
             database.identityQueries.markOneTimePreKeyOffered(
                 status = OpkStatus.OFFERED,
                 offered_at_epoch_seconds = now,
@@ -86,12 +87,12 @@ class DefaultOpkRepository(
         )
     }
 
-    override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> =
+    override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> =
         withContext(dbDispatcher) {
             val expiredIds = database.identityQueries
                 .selectExpiredOfferedOneTimePreKeys(
                     device_id = localDeviceId,
-                    offered_at_epoch_seconds = cutoffEpochSeconds,
+                    offered_at_epoch_seconds = cutoff,
                 )
                 .executeAsList()
             for (opkId in expiredIds) {

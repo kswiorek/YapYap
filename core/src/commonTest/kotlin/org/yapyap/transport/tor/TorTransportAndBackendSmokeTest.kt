@@ -5,6 +5,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -67,8 +68,8 @@ private fun sampleBinaryEnvelope(): BinaryEnvelope {
         packetId = pid,
         packetType = PacketType.MESSAGE,
         dispositionRequested = true,
-        createdAtEpochSeconds = 1L,
-        expiresAtEpochSeconds = 2L,
+        createdAt = epochSeconds(1L),
+        expiresAt = epochSeconds(2L),
         source = src,
         target = dst,
         payload = byteArrayOf(0xAB.toByte()),

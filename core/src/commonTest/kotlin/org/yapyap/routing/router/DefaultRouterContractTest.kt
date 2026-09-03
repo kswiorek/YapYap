@@ -13,7 +13,8 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.packet.PacketType
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -21,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
@@ -249,7 +251,7 @@ class DefaultRouterContractTest {
                 tor = tor,
                 remoteTor = remoteTor,
                 dedup = recordingDedup,
-                time = FixedEpochProvider(10_001L),
+                clock = FakeClock(epochSeconds(10_001L)),
             )
 
         router.start()
@@ -259,7 +261,7 @@ class DefaultRouterContractTest {
             inboundTorMessage(
                 packetId = packetId,
                 remoteTor = remoteTor,
-                expiresAtEpochSeconds = 10_000L,
+                expiresAt = 10_000L,
             )
 
         tor.tryEmitIncoming(incoming)
@@ -336,8 +338,8 @@ class DefaultRouterContractTest {
                     packetId = packetId,
                     packetType = PacketType.MESSAGE,
                     dispositionRequested = true,
-                    createdAtEpochSeconds = 10_000L,
-                    expiresAtEpochSeconds = 11_000L,
+                    createdAt = epochSeconds(10_000L),
+                    expiresAt = epochSeconds(11_000L),
                     source = remotePeer,
                     target = localPeer,
                     payload = byteArrayOf(0x00, 0x01, 0x02),
@@ -363,7 +365,7 @@ class DefaultRouterContractTest {
         tor: RecordingTorTransport,
         remoteTor: TorEndpoint,
         dedup: PacketDeduplicator = InMemoryPacketDeduplicator(),
-        time: FixedEpochProvider = FixedEpochProvider(10_000L),
+        clock: Clock = FakeClock(epochSeconds(10_000L)),
     ): DefaultRouter {
         val torMap = mutableMapOf(remotePeer to remoteTor)
         val identity =
@@ -375,7 +377,7 @@ class DefaultRouterContractTest {
             tor = tor,
             identity = identity,
             dedup = dedup,
-            time = time,
+            clock = clock,
         )
     }
 
@@ -383,7 +385,7 @@ class DefaultRouterContractTest {
         packetId: Uuid,
         remoteTor: TorEndpoint,
         text: MessagePayload.Text = sampleTextPayload(),
-        expiresAtEpochSeconds: Long = 11_000L,
+        expiresAt: Long = 11_000L,
         target: PeerId = localPeer,
     ): TorIncomingEnvelope {
         val msgEnv =
@@ -391,7 +393,7 @@ class DefaultRouterContractTest {
                 messageEnvelopeId = text.messageId,
                 source = remotePeer,
                 target = target,
-                createdAtEpochSeconds = 10_000L,
+                createdAt = epochSeconds(10_000L),
                 nonce = ByteArray(24) { 3 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
@@ -402,8 +404,8 @@ class DefaultRouterContractTest {
                 packetId = packetId,
                 packetType = PacketType.MESSAGE,
                 dispositionRequested = true,
-                createdAtEpochSeconds = 10_000L,
-                expiresAtEpochSeconds = expiresAtEpochSeconds,
+                createdAt = epochSeconds(10_000L),
+                expiresAt = epochSeconds(expiresAt),
                 source = remotePeer,
                 target = target,
                 payload = msgEnv.encode(),
@@ -443,7 +445,7 @@ private fun sampleTextPayload(): MessagePayload.Text =
         senderAccountId = AccountId("acct-sender"),
         prevId = null,
         lamportClock = 0L,
-        createdAt = 0L,
+        createdAt = epochSeconds(0L),
         text = "hello-router",
         authorDeviceId = PeerId("test-device"),
     )

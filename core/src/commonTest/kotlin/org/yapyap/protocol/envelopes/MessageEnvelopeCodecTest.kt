@@ -5,6 +5,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -26,7 +27,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
             lamportClock = 42L,
-            createdAt = 1_700_000_042L,
+            createdAt = epochSeconds(1_700_000_042L),
             text = "hello",
             authorSignature = testSignature,
         )
@@ -43,7 +44,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAt = 1_700_000_000L,
+            createdAt = epochSeconds(1_700_000_000L),
             eventBytes = byteArrayOf(0x01, 0x02),
             authorSignature = testSignature,
         )
@@ -61,7 +62,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
             lamportClock = 42L,
-            createdAt = 1_700_000_042L,
+            createdAt = epochSeconds(1_700_000_042L),
             text = "hello",
             authorSignature = testSignature,
         )
@@ -79,7 +80,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = Uuid.random(),
             lamportClock = 99L,
-            createdAt = 1_700_000_099L,
+            createdAt = epochSeconds(1_700_000_099L),
             eventBytes = byteArrayOf(0xab.toByte()),
             authorSignature = testSignature,
         )
@@ -87,7 +88,7 @@ class MessageEnvelopeCodecTest {
             messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 5L,
+            createdAt = epochSeconds(5L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = byteArrayOf(1, 2, 3),
@@ -106,7 +107,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 1L,
-            createdAt = 1_700_000_001L,
+            createdAt = epochSeconds(1_700_000_001L),
             text = "",
             authorSignature = testSignature,
         )
@@ -114,7 +115,7 @@ class MessageEnvelopeCodecTest {
             messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 1_700_000_000L,
+            createdAt = epochSeconds(1_700_000_000L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -133,7 +134,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "\u0009",
             authorSignature = testSignature,
         )
@@ -142,7 +143,7 @@ class MessageEnvelopeCodecTest {
             messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 0L,
+            createdAt = epochSeconds(0L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = sig,
@@ -162,7 +163,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "\u0009",
             authorSignature = testSignature,
         )
@@ -171,7 +172,7 @@ class MessageEnvelopeCodecTest {
             messageEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 0L,
+            createdAt = epochSeconds(0L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = sig,
@@ -196,7 +197,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "",
             authorSignature = testSignature,
         )
@@ -208,7 +209,7 @@ class MessageEnvelopeCodecTest {
             authorDeviceId = authorDeviceId,
             prevId = null,
             lamportClock = 0L,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             eventBytes = byteArrayOf(),
             authorSignature = testSignature,
         )
@@ -219,7 +220,7 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.messageEnvelopeId, actual.messageEnvelopeId)
         assertEquals(expected.source, actual.source)
         assertEquals(expected.target, actual.target)
-        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
+        assertEquals(expected.createdAt, actual.createdAt)
         assertContentEquals(expected.nonce, actual.nonce)
         assertEquals(expected.securityScheme, actual.securityScheme)
         when {

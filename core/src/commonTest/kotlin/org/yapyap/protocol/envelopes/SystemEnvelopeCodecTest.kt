@@ -4,6 +4,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -118,7 +119,7 @@ class SystemEnvelopeCodecTest {
             systemEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 1_700_000_000L,
+            createdAt = epochSeconds(1_700_000_000L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64) { it.toByte() },
@@ -140,7 +141,7 @@ class SystemEnvelopeCodecTest {
             systemEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 42L,
+            createdAt = epochSeconds(42L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -162,7 +163,7 @@ class SystemEnvelopeCodecTest {
             systemEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 42L,
+            createdAt = epochSeconds(42L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -182,7 +183,7 @@ class SystemEnvelopeCodecTest {
             systemEnvelopeId = Uuid.random(),
             source = source,
             target = target,
-            createdAtEpochSeconds = 42L,
+            createdAt = epochSeconds(42L),
             nonce = nonce,
             securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             signature = null,
@@ -209,7 +210,7 @@ class SystemEnvelopeCodecTest {
         assertEquals(expected.systemEnvelopeId, actual.systemEnvelopeId)
         assertEquals(expected.source, actual.source)
         assertEquals(expected.target, actual.target)
-        assertEquals(expected.createdAtEpochSeconds, actual.createdAtEpochSeconds)
+        assertEquals(expected.createdAt, actual.createdAt)
         assertContentEquals(expected.nonce, actual.nonce)
         assertEquals(expected.securityScheme, actual.securityScheme)
         when {

@@ -6,6 +6,7 @@ import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.*
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -52,7 +53,7 @@ class WebRtcSignalProtectionTest {
             kind = input.kind,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
-            createdAtEpochSeconds = 1L,
+            createdAt = epochSeconds(1L),
             nonce = nonce24(),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64),

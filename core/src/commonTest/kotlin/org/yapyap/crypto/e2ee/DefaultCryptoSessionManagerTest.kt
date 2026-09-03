@@ -13,6 +13,7 @@ import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
 class SessionWireTypesTest {
@@ -450,8 +451,8 @@ class DefaultCryptoSessionManagerTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60,
-            supersededRetentionSeconds = 60 * 60,
+            canonicalIdleSupersede = 60.seconds,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -480,7 +481,7 @@ class DefaultCryptoSessionManagerTest {
         val gen1OfferFrame = bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
 
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
-        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAt = epochSeconds(0L))))
         testTime.advanceBy(100_000L.seconds)
         cryptoHousekeepingFor(
             sessionStore = aliceStore,
@@ -723,8 +724,8 @@ class DefaultCryptoSessionManagerTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60 * 60 * 24,
-            supersededRetentionSeconds = 60,
+            canonicalIdleSupersede = 24.hours,
+            supersededRetention = 60.seconds,
         )
         val bobOpkStore = InMemoryOpkRepository(crypto)
         val alice =
@@ -750,7 +751,7 @@ class DefaultCryptoSessionManagerTest {
         )
 
         val staleEpoch1 = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!
-        bobStore.save(staleEpoch1.copy(meta = staleEpoch1.meta.copy(updatedAtEpochSeconds = 0L)))
+        bobStore.save(staleEpoch1.copy(meta = staleEpoch1.meta.copy(updatedAt = epochSeconds(0L))))
 
         promoteAliceEpoch2Encrypt(alice, bob, alicePeer, bobPeer)
         bob.decryptMessage(
@@ -760,13 +761,13 @@ class DefaultCryptoSessionManagerTest {
 
         val supersededEpoch1 = bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1).single()
         assertEquals(SessionStatus.SUPERSEDED, supersededEpoch1.meta.status)
-        assertEquals(100_000L, supersededEpoch1.meta.updatedAt)
+        assertEquals(epochSeconds(100_000L), supersededEpoch1.meta.updatedAt)
 
         maintainPeerSessions(
             sessionStore = bobStore,
             sessionConfig = config,
             peerDeviceId = alicePeer.device.deviceId,
-            now = 100_030L,
+            now = epochSeconds(100_030L),
         )
         assertEquals(1, bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1).size)
 
@@ -774,7 +775,7 @@ class DefaultCryptoSessionManagerTest {
             sessionStore = bobStore,
             sessionConfig = config,
             peerDeviceId = alicePeer.device.deviceId,
-            now = 100_061L,
+            now = epochSeconds(100_061L),
         )
         assertEquals(0, bobStore.loadSessions(alicePeer.device.deviceId, sessionEpoch = 1).size)
     }
@@ -865,7 +866,7 @@ class DefaultCryptoSessionManagerTest {
             sessionEpoch = 1,
             role = SessionRole.INITIATOR,
             sessionGeneration = 1,
-            updatedAt = 99_950L,
+            updatedAt = epochSeconds(99_950L),
         )
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
@@ -893,8 +894,8 @@ class DefaultCryptoSessionManagerTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60,
-            supersededRetentionSeconds = 60 * 60,
+            canonicalIdleSupersede = 60.seconds,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -909,7 +910,7 @@ class DefaultCryptoSessionManagerTest {
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
         aliceStore.save(
             stale.copy(
-                meta = stale.meta.copy(updatedAtEpochSeconds = 0L),
+                meta = stale.meta.copy(updatedAt = epochSeconds(0L)),
             ),
         )
         cryptoHousekeepingFor(
@@ -932,8 +933,8 @@ class DefaultCryptoSessionManagerTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60 * 60 * 24,
-            supersededRetentionSeconds = 60,
+            canonicalIdleSupersede = 24.hours,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -951,7 +952,7 @@ class DefaultCryptoSessionManagerTest {
                 meta = initiator.meta.copy(
                     role = SessionRole.RESPONDER,
                     status = SessionStatus.SUPERSEDED,
-                    updatedAtEpochSeconds = 0L,
+                    updatedAt = epochSeconds(0L),
                 ),
                 canonical = false,
             ),
@@ -977,8 +978,8 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60,
-            supersededRetentionSeconds = 60 * 60,
+            canonicalIdleSupersede = 60.seconds,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1006,12 +1007,12 @@ class DefaultCryptoSessionManagerTest {
         assertEquals(1, codec.decodeSessionWireFrame(lateFromBob).sessionGeneration)
 
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
-        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAt = epochSeconds(0L))))
         maintainPeerSessions(
             sessionStore = aliceStore,
             sessionConfig = config,
             peerDeviceId = bobPeer.device.deviceId,
-            now = 100_000L,
+            now = epochSeconds(100_000L),
         )
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
@@ -1037,8 +1038,8 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60,
-            supersededRetentionSeconds = 60 * 60,
+            canonicalIdleSupersede = 60.seconds,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1063,12 +1064,12 @@ class DefaultCryptoSessionManagerTest {
         bob.decryptMessage(alicePeer.device.deviceId, first)
 
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
-        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAt = epochSeconds(0L))))
         maintainPeerSessions(
             sessionStore = aliceStore,
             sessionConfig = config,
             peerDeviceId = bobPeer.device.deviceId,
-            now = 100_000L,
+            now = epochSeconds(100_000L),
         )
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
@@ -1099,8 +1100,8 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60,
-            supersededRetentionSeconds = 60 * 60,
+            canonicalIdleSupersede = 60.seconds,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1125,12 +1126,12 @@ class DefaultCryptoSessionManagerTest {
         bob.decryptMessage(alicePeer.device.deviceId, first)
 
         val stale = aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!
-        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAtEpochSeconds = 0L)))
+        aliceStore.save(stale.copy(meta = stale.meta.copy(updatedAt = epochSeconds(0L))))
         maintainPeerSessions(
             sessionStore = aliceStore,
             sessionConfig = config,
             peerDeviceId = bobPeer.device.deviceId,
-            now = 100_000L,
+            now = epochSeconds(100_000L),
         )
 
         val reset = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(2))
@@ -1166,8 +1167,8 @@ class DefaultCryptoSessionManagerTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            canonicalIdleSupersede = 60 * 60 * 24,
-            supersededRetentionSeconds = 60,
+            canonicalIdleSupersede = 24.hours,
+            supersededRetention = 60.seconds,
         )
 
         val gen1 = CryptoSessionRecord(
@@ -1181,22 +1182,22 @@ class DefaultCryptoSessionManagerTest {
                 handshakeSpkId = "spk",
                 status = SessionStatus.SUPERSEDED,
                 sessionGeneration = 1,
-                createdAt = 0L,
-                updatedAt = 0L,
+                createdAt = epochSeconds(0L),
+                updatedAt = epochSeconds(0L),
             ),
         )
         val gen2 = gen1.copy(
             meta = gen1.meta.copy(
                 status = SessionStatus.SUPERSEDED,
                 sessionGeneration = 2,
-                updatedAtEpochSeconds = 99_950L,
+                updatedAt = epochSeconds(99_950L),
             ),
         )
         val active = gen1.copy(
             meta = gen1.meta.copy(
                 status = SessionStatus.ACTIVE,
                 sessionGeneration = 3,
-                updatedAtEpochSeconds = 100_000L,
+                updatedAt = epochSeconds(100_000L),
             ),
             canonical = true,
         )
@@ -1208,7 +1209,7 @@ class DefaultCryptoSessionManagerTest {
             sessionStore = aliceStore,
             sessionConfig = config,
             peerDeviceId = bobPeer.device.deviceId,
-            now = 100_000L,
+            now = epochSeconds(100_000L),
         )
 
         val remaining = aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 1)
@@ -1225,9 +1226,9 @@ class DefaultCryptoSessionManagerTest {
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
-            pendingEpoch2Retention = 60,
-            canonicalIdleSupersede = 60 * 60 * 24,
-            supersededRetentionSeconds = 60 * 60,
+            pendingEpoch2Retention = 60.seconds,
+            canonicalIdleSupersede = 24.hours,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1255,8 +1256,8 @@ class DefaultCryptoSessionManagerTest {
         aliceStore.save(
             pending.copy(
                 meta = pending.meta.copy(
-                    createdAtEpochSeconds = 0L,
-                    updatedAtEpochSeconds = 0L,
+                    createdAt = epochSeconds(0L),
+                    updatedAt = epochSeconds(0L),
                 ),
             ),
         )
@@ -1284,11 +1285,11 @@ class DefaultCryptoSessionManagerTest {
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val bobStore = MapBackedCryptoSessionStore()
-        val bobOpkStore = InMemoryOpkRepository(crypto, timeProvider = testTime)
+        val bobOpkStore = InMemoryOpkRepository(crypto, clock = testTime)
         val config = CryptoSessionConfig(
-            offeredOpkRetention = 60,
-            canonicalIdleSupersede = 60 * 60 * 24,
-            supersededRetentionSeconds = 60 * 60,
+            offeredOpkRetention = 60.seconds,
+            canonicalIdleSupersede = 24.hours,
+            supersededRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,

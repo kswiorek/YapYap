@@ -21,7 +21,7 @@ class SyncRetryProcessorTest {
     private val remoteDevice = PeerId("retry-remote-device")
     private val remoteAccount = AccountId("retry-remote-account")
     private val roomId = RoomId(Uuid.random())
-    private val now = 10_000L
+    private val now = epochSeconds(10_000L)
 
     private fun buildProcessor(
         stack: SyncRoutingStack,
@@ -46,7 +46,7 @@ class SyncRetryProcessorTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-            clock = FakeClock(epochSeconds(now)),
+            clock = FakeClock(now),
         )
         val repo = FakePendingSyncRepository()
         val syncId = Uuid.random()
@@ -72,7 +72,7 @@ class SyncRetryProcessorTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-            clock = FakeClock(epochSeconds(now)),
+            clock = FakeClock(now),
         )
         val repo = FakePendingSyncRepository()
         val syncId = Uuid.random()
@@ -90,6 +90,6 @@ class SyncRetryProcessorTest {
         scope.cancel()
 
         assertEquals(0, stack.tor.sends.size)
-        assertEquals(now + 60L, repo.nextAttemptAtOf(syncId))
+        assertEquals(now + 60L.seconds, repo.nextAttemptAtOf(syncId))
     }
 }

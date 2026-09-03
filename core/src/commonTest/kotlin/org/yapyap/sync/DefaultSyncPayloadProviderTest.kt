@@ -10,6 +10,7 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -34,7 +35,7 @@ class DefaultSyncPayloadProviderTest {
             authorSignature = byteArrayOf(1),
             prevId = null,
             lamportClock = lamport,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "m$lamport",
         )
 

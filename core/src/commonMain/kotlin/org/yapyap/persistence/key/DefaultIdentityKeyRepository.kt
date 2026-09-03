@@ -12,6 +12,7 @@ import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import kotlin.time.Instant
 
 class DefaultIdentityKeyRepository(
     private val database: YapYapDatabase,
@@ -360,7 +361,7 @@ class DefaultIdentityKeyRepository(
                         privateKey = null,
                         deviceId = it.device_id,
                         isActive = it.is_active,
-                        createdAtEpochSeconds = it.created_at_epoch_seconds,
+                        createdAt = it.created_at_epoch_seconds,
                     )
             }
         }
@@ -376,7 +377,7 @@ class DefaultIdentityKeyRepository(
                         privateKey = null,
                         deviceId = it.device_id,
                         isActive = it.is_active,
-                        createdAtEpochSeconds = it.created_at_epoch_seconds,
+                        createdAt = it.created_at_epoch_seconds,
                     )
             }
         }
@@ -389,7 +390,7 @@ class DefaultIdentityKeyRepository(
                 public_key = spk.publicKey,
                 signature = spk.signature,
                 is_active = spk.isActive,
-                created_at_epoch_seconds = spk.createdAtEpochSeconds ?: 0L,
+                created_at_epoch_seconds = spk.createdAt ?: Instant.fromEpochSeconds(0),
             )
         }
     }
@@ -457,7 +458,7 @@ class DefaultIdentityKeyRepository(
             public_key = spk.publicKey,
             signature = spk.signature,
             is_active = spk.isActive,
-            created_at_epoch_seconds = spk.createdAtEpochSeconds!!,
+            created_at_epoch_seconds = spk.createdAt!!,
         )
         if (activateOnDevice && spk.isActive) {
             database.identityQueries.updateDeviceCurrentSignedPreKey(

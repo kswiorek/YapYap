@@ -6,6 +6,7 @@ import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.*
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -138,7 +139,7 @@ class SystemProtectionTest {
             systemEnvelopeId = Uuid.random(),
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
-            createdAtEpochSeconds = 1L,
+            createdAt = epochSeconds(1L),
             nonce = nonce24(),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64),

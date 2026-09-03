@@ -11,6 +11,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.uuid.Uuid
 
 /** Plain JDBC SQLite (no SQLCipher) for JVM contract tests. */
@@ -127,8 +128,8 @@ internal fun sampleOutboxEnvelope(
         packetId = packetId,
         packetType = PacketType.MESSAGE,
         dispositionRequested = true,
-        createdAtEpochSeconds = now,
-        expiresAtEpochSeconds = expiresAt,
+        createdAt = epochSeconds(now),
+        expiresAt = epochSeconds(expiresAt),
         source = source,
         target = target,
         payload = payload,

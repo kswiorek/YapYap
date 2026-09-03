@@ -52,10 +52,10 @@ internal class PeerAvailabilityRegistry(
 
     private var localDeviceId: PeerId? = null
     private var selfScore: Double = 0.5
-    private var lastSelfActiveAt: Instant = NEVER
-    private var lastSelfSweepAt: Instant = NEVER
+    private var lastSelfActiveAt: Instant = Instant.DISTANT_PAST
+    private var lastSelfSweepAt: Instant = Instant.DISTANT_PAST
 
-    private var lastSweepAt: Instant = NEVER
+    private var lastSweepAt: Instant = Instant.DISTANT_PAST
     private var sweepJob: Job? = null
 
     val onlineDevices: Flow<Set<PeerId>> = onlineDevicesFlow.asStateFlow()
@@ -133,7 +133,7 @@ internal class PeerAvailabilityRegistry(
             }
             seededSelfActiveAt?.let {
                 // last_seen == NEVER means "never seen" (fresh provision); treat as no history.
-                if (it != NEVER) synchronized(lock) { lastSelfActiveAt = it }
+                if (it != Instant.DISTANT_PAST) synchronized(lock) { lastSelfActiveAt = it }
             }
         }
     }
@@ -149,7 +149,7 @@ internal class PeerAvailabilityRegistry(
         val local = localDeviceId ?: return
         // No history (fresh install, or a local row that was never seen-active) means no downtime
         // to bill; treat the boot moment as the start of our availability.
-        val freshStart = synchronized(lock) { lastSelfActiveAt == NEVER }
+        val freshStart = synchronized(lock) { lastSelfActiveAt == Instant.DISTANT_PAST }
         if (freshStart) {
             synchronized(lock) {
                 lastSelfActiveAt = now
@@ -284,7 +284,7 @@ internal class PeerAvailabilityRegistry(
 
         for (peer in peers) {
             val lastSeen = synchronized(lock) { lastSeen[peer] }
-            val pingedAt = synchronized(lock) { lastPingAt[peer] } ?: NEVER
+            val pingedAt = synchronized(lock) { lastPingAt[peer] } ?: Instant.DISTANT_PAST
 
             val score = synchronized(lock) { reliability[peer] }
                 ?: 0.5
@@ -347,9 +347,5 @@ internal class PeerAvailabilityRegistry(
         val local = localDeviceId ?: return
         val lastActive = synchronized(lock) { lastSelfActiveAt }
         runCatching { store.updateReliability(local, newScore, lastActive) }
-    }
-
-    private companion object {
-        val NEVER: Instant = Instant.fromEpochSeconds(0)
     }
 }

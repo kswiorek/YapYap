@@ -18,15 +18,18 @@ import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 class DefaultRouterOutboxIntegrationTest {
@@ -55,9 +58,9 @@ class DefaultRouterOutboxIntegrationTest {
         router.start()
         router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
 
-        val now = 10_000L
+        val now = epochSeconds(10_000L)
         assertTrue(outbox.listDue(now).isEmpty())
-        assertEquals(now + RouterConfig().torRetryDelay.inWholeSeconds, outbox.earliestPendingRetryAt())
+        assertEquals(now + RouterConfig().torRetryDelay, outbox.earliestPendingRetryAt())
         assertEquals(1, tor.sendsExcludingHeartbeat().size)
 
         val packetId = tor.sendsExcludingHeartbeat().single().second.packetId
@@ -76,7 +79,7 @@ class DefaultRouterOutboxIntegrationTest {
         val outbox = DefaultPacketOutbox(connection!!.database)
         val tor = RecordingTorTransport()
         val packetId = Uuid.random()
-        val now = 10_000L
+        val now = epochSeconds(10_000L)
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(
@@ -113,7 +116,7 @@ class DefaultRouterOutboxIntegrationTest {
             tor = tor,
             identity = identity,
             outbox = outbox,
-            time = FixedEpochProvider(10_000L),
+            clock = FakeClock(epochSeconds(10_000L)),
             routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1.seconds),
         )
     }
@@ -129,14 +132,14 @@ class DefaultRouterOutboxIntegrationTest {
         packetId: Uuid,
         source: PeerId,
         target: PeerId,
-        now: Long,
+        now: Instant,
     ): BinaryEnvelope =
         BinaryEnvelope(
             packetId = packetId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + 3_600,
+            createdAt = now,
+            expiresAt = now + 1.hours,
             source = source,
             target = target,
             payload = byteArrayOf(0x01, 0x02, 0x03),
@@ -152,7 +155,7 @@ class DefaultRouterOutboxIntegrationTest {
                 systemEnvelopeId = Uuid.random(),
                 source = remotePeer,
                 target = localPeer,
-                createdAtEpochSeconds = 10_000L,
+                createdAt = epochSeconds(10_000L),
                 nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 1 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
@@ -163,8 +166,8 @@ class DefaultRouterOutboxIntegrationTest {
                 packetId = Uuid.random(),
                 packetType = PacketType.SYSTEM,
                 dispositionRequested = false,
-                createdAtEpochSeconds = 10_000L,
-                expiresAtEpochSeconds = 11_000L,
+                createdAt = epochSeconds(10_000L),
+                expiresAt = epochSeconds(11_000L),
                 source = remotePeer,
                 target = localPeer,
                 payload = systemEnvelope.encode(),
@@ -180,7 +183,7 @@ private fun sampleTextPayload(): MessagePayload.Text =
         senderAccountId = AccountId("acct-sender"),
         prevId = null,
         lamportClock = 0L,
-        createdAt = 0L,
+        createdAt = epochSeconds(0L),
         text = "hello-integration",
         authorDeviceId = PeerId("test-device"),
     )

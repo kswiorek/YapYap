@@ -7,7 +7,8 @@ import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 
 class DefaultIdentityOrchestrationTest {
@@ -23,8 +24,8 @@ class DefaultIdentityOrchestrationTest {
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
         val resolver = DefaultIdentityResolver(crypto, repo, store)
-        val timeProvider = FixedEpochProvider(0L)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
+        val clock = FakeClock(epochSeconds(0L))
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, clock)
         return Triple(repo, store, Pair(resolver, provisioning))
     }
 

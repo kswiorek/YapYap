@@ -1,3 +1,4 @@
+import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.RoomMemberRole;
@@ -16,7 +17,7 @@ CREATE TABLE room_members (
     room_id TEXT AS RoomId NOT NULL,
     account_id TEXT AS AccountId NOT NULL,
     role TEXT AS RoomMemberRole NOT NULL,
-    joined_timestamp INTEGER NOT NULL,
+    joined_timestamp INTEGER AS Instant NOT NULL,
     PRIMARY KEY (room_id, account_id),
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
     FOREIGN KEY (account_id) REFERENCES accounts(account_id)

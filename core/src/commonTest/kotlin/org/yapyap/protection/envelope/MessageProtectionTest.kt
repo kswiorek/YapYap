@@ -13,6 +13,7 @@ import org.yapyap.protection.*
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -59,7 +60,7 @@ class MessageProtectionTest {
             messageEnvelopeId = payload.messageId,
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
-            createdAtEpochSeconds = 1L,
+            createdAt = epochSeconds(1L),
             nonce = nonce24(),
             securityScheme = SignalSecurityScheme.SIGNED,
             signature = ByteArray(64), // invalid but scheme check runs first

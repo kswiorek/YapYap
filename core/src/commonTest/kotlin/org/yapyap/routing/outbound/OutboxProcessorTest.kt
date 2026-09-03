@@ -11,7 +11,8 @@ import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.ConcurrencyTrackingTorTransport
 import org.yapyap.transport.tor.RecordingTorTransport
 import kotlin.test.Test
@@ -36,18 +37,18 @@ class OutboxProcessorTest {
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId1, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId2, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
         val processor = outboxProcessorUnderTest(
             tor = tor,
             outbox = outbox,
             identity = identityFor(remoteTor = TorEndpoint("peer.onion", 443)),
-            time = FixedEpochProvider(now),
+            clock = FakeClock(epochSeconds(now)),
         )
 
         processor.processDue()
@@ -74,14 +75,14 @@ class OutboxProcessorTest {
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
         val processor = outboxProcessorUnderTest(
             tor = tor,
             outbox = outbox,
             identity = identityFor(),
-            time = FixedEpochProvider(now),
+            clock = FakeClock(epochSeconds(now)),
         )
 
         processor.processDue()
@@ -114,8 +115,8 @@ class OutboxProcessorTest {
             packetId = packetId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + 3_600,
+            createdAt = epochSeconds(now),
+            expiresAt = epochSeconds(now + 3_600),
             source = source,
             target = target,
             payload = byteArrayOf(0x01, 0x02, 0x03),

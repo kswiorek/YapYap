@@ -1,10 +1,11 @@
 import kotlin.uuid.Uuid;
+import kotlin.time.Instant;
 import org.yapyap.protocol.envelopes.PacketNackReason;
 
 CREATE TABLE dedup (
     packet_id TEXT AS Uuid NOT NULL,
     source_device_id TEXT NOT NULL,
-    received_at INTEGER NOT NULL,
+    received_at INTEGER AS Instant NOT NULL,
     nack_reason TEXT AS PacketNackReason,
     PRIMARY KEY (source_device_id, packet_id),
     FOREIGN KEY (source_device_id) REFERENCES devices(device_id)

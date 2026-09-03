@@ -117,7 +117,7 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         records[key] = record.copy(
             meta = record.meta.copy(
                 status = SessionStatus.SUPERSEDED,
-                updatedAtEpochSeconds = updatedAt,
+                updatedAt = updatedAt,
             ),
         )
     }
@@ -132,7 +132,7 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
                 records[key] = record.copy(
                     meta = record.meta.copy(
                         status = SessionStatus.SUPERSEDED,
-                        updatedAtEpochSeconds = updatedAt,
+                        updatedAt = updatedAt,
                     ),
                 )
             }
@@ -160,7 +160,7 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
             records[key] = record.copy(
                 meta = record.meta.copy(
                     offeredOpkId = null,
-                    updatedAtEpochSeconds = updatedAt,
+                    updatedAt = updatedAt,
                 ),
             )
         }

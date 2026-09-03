@@ -11,7 +11,8 @@ import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -43,11 +44,11 @@ class PersistenceContractsJvmTest {
         val packetId = Uuid.random()
         val source = FixtureDevicePeerId
 
-        assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 10L))
-        assertTrue(!dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 11L))
+        assertTrue(dedup.firstSeen(packetId, source, receivedAt = epochSeconds(10L)))
+        assertTrue(!dedup.firstSeen(packetId, source, receivedAt = epochSeconds(11L)))
 
-        dedup.prune(receivedBeforeEpochSeconds = 15L)
-        assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 20L))
+        dedup.prune(receivedBefore = epochSeconds(15L))
+        assertTrue(dedup.firstSeen(packetId, source, receivedAt = epochSeconds(20L)))
     }
 
     @Test
@@ -60,12 +61,12 @@ class PersistenceContractsJvmTest {
         val packetId = Uuid.random()
         val source = FixtureDevicePeerId
 
-        assertTrue(dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 10L))
+        assertTrue(dedup.firstSeen(packetId, source, receivedAt = epochSeconds(10L)))
         assertEquals(null, dedup.getNackReason(packetId, source))
 
         dedup.markNacked(packetId, source, PacketNackReason.DECODE_FAILED)
         assertEquals(PacketNackReason.DECODE_FAILED, dedup.getNackReason(packetId, source))
-        assertTrue(!dedup.firstSeen(packetId, source, receivedAtEpochSeconds = 11L))
+        assertTrue(!dedup.firstSeen(packetId, source, receivedAt = epochSeconds(11L)))
     }
 
     @Test
@@ -163,9 +164,9 @@ class PersistenceContractsJvmTest {
         val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val timeProvider = FixedEpochProvider(0L)
+        val clock = FakeClock(epochSeconds(0L))
         val resolver = DefaultIdentityResolver(crypto, repo, store)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, clock)
 
         provisioning.createNewAccountIdentity(displayName = "KeySig User")
         val device = provisioning.createNewDeviceIdentity()
@@ -186,9 +187,9 @@ class PersistenceContractsJvmTest {
         val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val timeProvider = FixedEpochProvider(0L)
+        val clock = FakeClock(epochSeconds(0L))
         val resolver = DefaultIdentityResolver(crypto, repo, store)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, timeProvider)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, clock)
 
         provisioning.createNewAccountIdentity(displayName = "SPK User")
         val device = provisioning.createNewDeviceIdentity()
@@ -221,16 +222,16 @@ class PersistenceContractsJvmTest {
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(validPacketId, FixtureDevicePeerId, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(corruptPacketId, FixtureDevicePeerId, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
         corruptOutboxBlob(connection!!.driver, corruptPacketId)
 
-        val due = outbox.listDue(now)
+        val due = outbox.listDue(epochSeconds(now))
         assertEquals(1, due.size)
         assertEquals(validPacketId, due.single().packetId)
         assertEquals(1, outbox.listAllForTarget(FixtureDevicePeerId).size)
@@ -248,17 +249,17 @@ class PersistenceContractsJvmTest {
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(packetId, FixtureDevicePeerId, now = now),
-            nextRetryAt = now + 100,
+            nextRetryAt = epochSeconds(now + 100),
         )
-        assertTrue(outbox.listDue(now).isEmpty())
-        assertEquals(now + 100, outbox.earliestPendingRetryAt())
+        assertTrue(outbox.listDue(epochSeconds(now)).isEmpty())
+        assertEquals(epochSeconds(now + 100), outbox.earliestPendingRetryAt())
 
-        val due = outbox.listDue(now + 100)
+        val due = outbox.listDue(epochSeconds(now + 100))
         assertEquals(1, due.size)
         assertEquals(packetId, due.single().packetId)
 
         outbox.markDelivered(packetId)
-        assertTrue(outbox.listDue(now + 100).isEmpty())
+        assertTrue(outbox.listDue(epochSeconds(now + 100)).isEmpty())
         assertNull(outbox.earliestPendingRetryAt())
     }
 
@@ -274,13 +275,13 @@ class PersistenceContractsJvmTest {
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(packetId, FixtureDevicePeerId, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
-        outbox.recordAttempt(packetId, nextRetryAt = now + 60, now = now)
+        outbox.recordAttempt(packetId, nextRetryAt = epochSeconds(now + 60), at = epochSeconds(now))
 
-        assertTrue(outbox.listDue(now).isEmpty())
-        assertEquals(now + 60, outbox.earliestPendingRetryAt())
-        assertEquals(1L, outbox.listDue(now + 60).single().attempts)
+        assertTrue(outbox.listDue(epochSeconds(now)).isEmpty())
+        assertEquals(epochSeconds(now + 60), outbox.earliestPendingRetryAt())
+        assertEquals(1L, outbox.listDue(epochSeconds(now + 60)).single().attempts)
     }
 
     @Test
@@ -301,7 +302,7 @@ class PersistenceContractsJvmTest {
                 now = now - 200,
                 expiresAt = now - 1,
             ),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
@@ -310,11 +311,11 @@ class PersistenceContractsJvmTest {
                 now = now,
                 expiresAt = now + 100,
             ),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
-        assertEquals(1, outbox.pruneExpired(now))
-        assertEquals(validId, outbox.listDue(now).single().packetId)
+        assertEquals(1, outbox.pruneExpired(epochSeconds(now)))
+        assertEquals(validId, outbox.listDue(epochSeconds(now)).single().packetId)
     }
 
     @Test
@@ -330,16 +331,16 @@ class PersistenceContractsJvmTest {
 
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(dueId, FixtureDevicePeerId, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(futureId, FixtureDevicePeerId, now = now),
-            nextRetryAt = now + 120,
+            nextRetryAt = epochSeconds(now + 120),
         )
 
-        outbox.setDueForTarget(FixtureDevicePeerId, now)
+        outbox.setDueForTarget(FixtureDevicePeerId, epochSeconds(now))
 
-        val due = outbox.listDue(now).map { it.packetId }.toSet()
+        val due = outbox.listDue(epochSeconds(now)).map { it.packetId }.toSet()
         assertEquals(setOf(dueId, futureId), due)
     }
 
@@ -358,7 +359,7 @@ class PersistenceContractsJvmTest {
                 FixtureDevicePeerId,
                 now = now,
             ),
-            nextRetryAt = now + 200,
+            nextRetryAt = epochSeconds(now + 200),
         )
         outbox.enqueue(
             envelope = sampleOutboxEnvelope(
@@ -366,10 +367,10 @@ class PersistenceContractsJvmTest {
                 FixtureDevicePeerId,
                 now = now,
             ),
-            nextRetryAt = now + 100,
+            nextRetryAt = epochSeconds(now + 100),
         )
 
-        assertEquals(now + 100, outbox.earliestPendingRetryAt())
+        assertEquals(epochSeconds(now + 100), outbox.earliestPendingRetryAt())
     }
 
     @Test
@@ -390,7 +391,7 @@ class PersistenceContractsJvmTest {
                 now = now,
                 payload = relayPayload,
             ),
-            nextRetryAt = now + 60,
+            nextRetryAt = epochSeconds(now + 60),
             relayMessage = true,
         )
         outbox.enqueue(
@@ -400,7 +401,7 @@ class PersistenceContractsJvmTest {
                 now = now,
                 payload = localPayload,
             ),
-            nextRetryAt = now + 60,
+            nextRetryAt = epochSeconds(now + 60),
             relayMessage = false,
         )
 
@@ -437,7 +438,7 @@ class PersistenceContractsJvmTest {
                 expiresAt = now + 100,
                 payload = relayPayload,
             ),
-            nextRetryAt = now + 60,
+            nextRetryAt = epochSeconds(now + 60),
             relayMessage = true,
         )
         outbox.enqueue(
@@ -448,7 +449,7 @@ class PersistenceContractsJvmTest {
                 expiresAt = now + 200,
                 payload = relayPayload,
             ),
-            nextRetryAt = now + 60,
+            nextRetryAt = epochSeconds(now + 60),
             relayMessage = true,
         )
         outbox.enqueue(
@@ -458,7 +459,7 @@ class PersistenceContractsJvmTest {
                 now = now,
                 payload = localPayload,
             ),
-            nextRetryAt = now + 60,
+            nextRetryAt = epochSeconds(now + 60),
             relayMessage = false,
         )
 

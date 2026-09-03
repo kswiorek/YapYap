@@ -7,8 +7,9 @@ import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.SystemEpochProvider
+import org.yapyap.testfixtures.epochSeconds
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /** In-memory [KeyStore] for unit tests. */
 internal class InMemoryKeyStore : KeyStore {
@@ -68,7 +69,7 @@ internal class InMemoryIdentityKeyRepository(
                 deviceId = identity.deviceId,
                 signedPreKey = spk,
                 isActive = true,
-                createdAtEpochSeconds = 0L,
+                createdAt = epochSeconds(0L),
             )
         }
     }
@@ -95,7 +96,7 @@ internal class InMemoryIdentityKeyRepository(
                 deviceId = identity.deviceId,
                 signedPreKey = spk,
                 isActive = true,
-                createdAtEpochSeconds = 0L,
+                createdAt = epochSeconds(0L),
             )
         }
     }
@@ -173,7 +174,7 @@ internal class InMemoryIdentityKeyRepository(
             deviceId = deviceId,
             signedPreKey = spk,
             isActive = true,
-            createdAtEpochSeconds = spk.createdAtEpochSeconds?:0L,
+            createdAt = spk.createdAt,
         )
     }
 
@@ -181,7 +182,7 @@ internal class InMemoryIdentityKeyRepository(
         deviceId: PeerId,
         signedPreKey: SignedPreKeyRecord,
         isActive: Boolean,
-        createdAtEpochSeconds: Long,
+        createdAt: Instant?,
     ) {
         signedPreKeys.values
             .filter { it.deviceId == deviceId && it.isActive }
@@ -193,7 +194,7 @@ internal class InMemoryIdentityKeyRepository(
             privateKey = signedPreKey.privateKey,
             signature = signedPreKey.signature,
             isActive = isActive,
-            createdAtEpochSeconds = createdAtEpochSeconds,
+            createdAt = createdAt,
         )
         signedPreKeys[stored.keyId] = stored
         if (isActive) {
@@ -210,12 +211,12 @@ internal class InMemoryIdentityKeyRepository(
 /** In-memory [OpkRepository] for unit tests. */
 internal class InMemoryOpkRepository(
     private val crypto: CryptoProvider,
-    private val timeProvider: EpochProvider = SystemEpochProvider,
+    private val clock: Clock = Clock.System,
 ) : OpkRepository {
     private data class OpkEntry(
         val opk: LocalOneTimePreKey,
         var status: OpkStatus,
-        var offeredAtEpochSeconds: Long? = null,
+        var offeredAt: Instant? = null,
     )
 
     private val keys = mutableMapOf<String, OpkEntry>()
@@ -237,7 +238,7 @@ internal class InMemoryOpkRepository(
         val entry = keys[opkId] ?: error("Unknown OPK id=$opkId")
         require(entry.status == OpkStatus.ALLOCATED) { "OPK $opkId is not ALLOCATED" }
         entry.status = OpkStatus.OFFERED
-        entry.offeredAtEpochSeconds = timeProvider.nowEpochSeconds()
+        entry.offeredAt = clock.now()
     }
 
     override suspend fun consume(opkId: String): LocalOneTimePreKey? {
@@ -255,11 +256,11 @@ internal class InMemoryOpkRepository(
         }
     }
 
-    override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> {
+    override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> {
         val expired = keys.filterValues {
             it.status == OpkStatus.OFFERED &&
-                it.offeredAtEpochSeconds != null &&
-                it.offeredAtEpochSeconds!! < cutoffEpochSeconds
+                it.offeredAt != null &&
+                it.offeredAt!! < cutoff
         }.keys.toList()
         for (opkId in expired) {
             keys.remove(opkId)
@@ -281,5 +282,5 @@ internal class FailingAllocateOpkRepository : OpkRepository {
 
     override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? = null
 
-    override suspend fun pruneExpiredOffers(cutoffEpochSeconds: Long): List<String> = emptyList()
+    override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> = emptyList()
 }

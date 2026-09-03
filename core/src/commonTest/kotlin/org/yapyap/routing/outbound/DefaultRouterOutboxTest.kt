@@ -17,7 +17,8 @@ import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -52,7 +53,7 @@ class DefaultRouterOutboxTest {
         assertEquals(1, outbox.enqueued.size)
         val packetId = outbox.enqueued.single().packetId
         assertTrue(outbox.contains(packetId))
-        assertEquals(10_000L + RouterConfig().torRetryDelay.inWholeSeconds, outbox.getNextRetryAt(packetId))
+        assertEquals(epochSeconds(10_000L + RouterConfig().torRetryDelay.inWholeSeconds), outbox.getNextRetryAt(packetId))
     }
 
     @Test
@@ -111,7 +112,7 @@ class DefaultRouterOutboxTest {
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
         val router = routerForOutboxTests(
@@ -137,11 +138,11 @@ class DefaultRouterOutboxTest {
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId1, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId2, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
         val router = routerForOutboxTests(
@@ -171,7 +172,7 @@ class DefaultRouterOutboxTest {
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now,
+            nextRetryAt = epochSeconds(now),
         )
 
         val router = routerForOutboxTests(
@@ -198,7 +199,7 @@ class DefaultRouterOutboxTest {
 
         outbox.enqueue(
             envelope = outboxMessageEnvelope(packetId, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = now + 120,
+            nextRetryAt = epochSeconds(now + 120),
         )
 
         val router = routerForOutboxTests(
@@ -220,7 +221,7 @@ class DefaultRouterOutboxTest {
         delay(400.milliseconds)
         router.stop()
 
-        assertEquals(now + router.routerConfig.value.webRtcRetryDelay.inWholeSeconds, outbox.getNextRetryAt(packetId))
+        assertEquals(epochSeconds(now + router.routerConfig.value.webRtcRetryDelay.inWholeSeconds), outbox.getNextRetryAt(packetId))
         assertEquals(1, outbox.setDueForTargetCalls.size)
         assertEquals(remotePeer, outbox.setDueForTargetCalls.single().first)
     }
@@ -244,7 +245,7 @@ class DefaultRouterOutboxTest {
             webRtc = webRtc,
             identity = identity,
             outbox = outbox,
-            time = FixedEpochProvider(10_000L),
+            clock = FakeClock(epochSeconds(10_000L)),
             routerConfig = RouterConfig(retryLoopMaxIdlePoll = 1.seconds),
         )
     }
@@ -266,8 +267,8 @@ class DefaultRouterOutboxTest {
             packetId = packetId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = now,
-            expiresAtEpochSeconds = now + 3_600,
+            createdAt = epochSeconds(now),
+            expiresAt = epochSeconds(now + 3_600),
             source = source,
             target = target,
             payload = byteArrayOf(0x01, 0x02, 0x03),
@@ -283,7 +284,7 @@ class DefaultRouterOutboxTest {
                 systemEnvelopeId = Uuid.random(),
                 source = remotePeer,
                 target = localPeer,
-                createdAtEpochSeconds = 10_000L,
+                createdAt = epochSeconds(10_000L),
                 nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 1 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
@@ -294,8 +295,8 @@ class DefaultRouterOutboxTest {
                 packetId = Uuid.random(),
                 packetType = PacketType.SYSTEM,
                 dispositionRequested = false,
-                createdAtEpochSeconds = 10_000L,
-                expiresAtEpochSeconds = 11_000L,
+                createdAt = epochSeconds(10_000L),
+                expiresAt = epochSeconds(11_000L),
                 source = remotePeer,
                 target = localPeer,
                 payload = systemEnvelope.encode(),
@@ -319,7 +320,7 @@ class DefaultRouterOutboxTest {
                 systemEnvelopeId = Uuid.random(),
                 source = remotePeer,
                 target = localPeer,
-                createdAtEpochSeconds = 10_000L,
+                createdAt = epochSeconds(10_000L),
                 nonce = ByteArray(SignalSecurityScheme.SIGNED.nonceSize) { 2 },
                 securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
                 signature = null,
@@ -330,8 +331,8 @@ class DefaultRouterOutboxTest {
                 packetId = Uuid.random(),
                 packetType = PacketType.SYSTEM,
                 dispositionRequested = false,
-                createdAtEpochSeconds = 10_000L,
-                expiresAtEpochSeconds = 11_000L,
+                createdAt = epochSeconds(10_000L),
+                expiresAt = epochSeconds(11_000L),
                 source = remotePeer,
                 target = localPeer,
                 payload = systemEnvelope.encode(),

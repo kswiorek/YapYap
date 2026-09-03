@@ -1,4 +1,5 @@
 import kotlin.Boolean;
+import kotlin.time.Instant;
 import kotlin.uuid.Uuid;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.MessagePayloadType;
@@ -10,7 +11,7 @@ CREATE TABLE messages (
     author_device_id TEXT NOT NULL,
     prev_id TEXT AS Uuid,
     lamport_clock INTEGER NOT NULL,
-    created_at_epoch_seconds INTEGER NOT NULL,
+    created_at_epoch_seconds INTEGER AS Instant NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
     message_payload BLOB NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
@@ -23,7 +24,7 @@ CREATE TABLE causal_hold (
     gap_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     missing_prev_id TEXT AS Uuid NOT NULL,
     orphaned_message_id TEXT AS Uuid NOT NULL,
-    detected_timestamp INTEGER NOT NULL,
+    detected_timestamp INTEGER AS Instant NOT NULL,
     FOREIGN KEY (orphaned_message_id) REFERENCES messages(message_id)
 );
 

@@ -37,7 +37,7 @@ data class IncomingMessageEvent(
     val roomId: RoomId,
     val senderAccountId: AccountId,
     val messagePreview: String,   // first ~80 chars of text
-    val timestamp: Long,
+    val timestamp: Instant,
 )
 
 /**

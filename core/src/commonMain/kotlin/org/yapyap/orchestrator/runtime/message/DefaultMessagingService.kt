@@ -311,7 +311,7 @@ internal class DefaultMessagingService(
                         roomId = payload.roomId,
                         senderAccountId = payload.senderAccountId,
                         messagePreview = preview,
-                        timestamp = clock.now().epochSeconds,
+                        timestamp = clock.now(),
                     )
                 )
             }
@@ -482,7 +482,7 @@ internal class DefaultMessagingService(
 
         /**
          * True if `this` is strictly newer than [other] per the composite display order
-         * `(createdAtEpochSeconds, lamportClock, accountId)`.
+         * `(createdAt, lamportClock, accountId)`.
          */
         private fun MessageDisplayItem.isDisplayAfter(other: MessageDisplayItem): Boolean {
             if (timestamp != other.timestamp) return timestamp > other.timestamp

@@ -91,7 +91,7 @@ class SyncIntegrationTest {
             authorSignature = byteArrayOf(1),
             prevId = prevId,
             lamportClock = lamport,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "m$lamport",
         )
 

@@ -12,8 +12,8 @@ import kotlin.time.Instant
  * the last time a peer was seen and its decaying reliability score in [0, 1].
  *
  * Writes are cheap single-row UPDATEs and run on [databaseDispatcher]; all methods are suspend so
- * callers never block a thread on IO. Instants are converted to epoch seconds only when binding the
- * SQL queries.
+ * callers never block a thread on IO. Timestamps are mapped to/from epoch seconds by the SQLDelight
+ * column adapter.
  */
 interface PeerAvailabilityStore {
     /** Records that [deviceId] was seen at [at]. */
@@ -47,13 +47,13 @@ class DefaultPeerAvailabilityStore(
 
     override suspend fun markSeen(deviceId: PeerId, at: Instant) {
         withContext(dbDispatcher) {
-            queries.markDeviceLastSeen(at.epochSeconds, deviceId)
+            queries.markDeviceLastSeen(at, deviceId)
         }
     }
 
     override suspend fun updateReliability(deviceId: PeerId, score: Double, seenAt: Instant?) {
         withContext(dbDispatcher) {
-            queries.updateDeviceReliability(score, seenAt?.epochSeconds, deviceId)
+            queries.updateDeviceReliability(score, seenAt, deviceId)
         }
     }
 
@@ -61,13 +61,13 @@ class DefaultPeerAvailabilityStore(
         withContext(dbDispatcher) {
             queries.selectDeviceAvailabilityById(deviceId)
                 .executeAsOneOrNull()
-                ?.let { PeerAvailability(it.deviceId, it.reliabilityScore, Instant.fromEpochSeconds(it.lastSeenEpoch)) }
+                ?.let { PeerAvailability(it.deviceId, it.reliabilityScore, it.lastSeenEpoch) }
         }
 
     override suspend fun availabilityForAll(): List<PeerAvailability> =
         withContext(dbDispatcher) {
             queries.selectAllDeviceAvailability()
                 .executeAsList()
-                .map { PeerAvailability(it.deviceId, it.reliabilityScore, Instant.fromEpochSeconds(it.lastSeenEpoch)) }
+                .map { PeerAvailability(it.deviceId, it.reliabilityScore, it.lastSeenEpoch) }
         }
 }

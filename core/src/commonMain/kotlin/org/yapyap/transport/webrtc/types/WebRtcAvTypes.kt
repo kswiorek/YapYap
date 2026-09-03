@@ -19,7 +19,6 @@ data class AvSessionOptions(
 data class WebRtcIncomingAvSessionRequest(
     val source: PeerId,
     val options: AvSessionOptions? = null,
-    val receivedAtEpochSeconds: Long,
 )
 
 enum class WebRtcAvSessionPhase {

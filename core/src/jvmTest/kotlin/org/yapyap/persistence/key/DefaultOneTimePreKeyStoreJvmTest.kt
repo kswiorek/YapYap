@@ -5,9 +5,10 @@ import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.*
-import org.yapyap.time.EpochProvider
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
+import kotlin.time.Clock
 
 class DefaultOneTimePreKeyStoreJvmTest {
 
@@ -29,7 +30,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
         assertNotNull(row)
         assertEquals(FixtureDevicePeerId, row.device_id)
         assertEquals(OpkStatus.ALLOCATED, row.status)
-        assertEquals(1_000L, row.created_at_epoch_seconds)
+        assertEquals(epochSeconds(1_000L), row.created_at_epoch_seconds)
         assertNull(row.offered_at_epoch_seconds)
         assertContentEquals(opk.publicKey, row.public_key)
         assertContentEquals(opk.privateKey, fixture.keyStore.getKey(fixture.opkPrivateKeyRef(opk.keyId)))
@@ -44,7 +45,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
         val rowAfterOffer = fixture.database.identityQueries.selectOneTimePreKeyById(opk.keyId).executeAsOne()
         assertEquals(OpkStatus.OFFERED, rowAfterOffer.status)
-        assertEquals(2_000L, rowAfterOffer.offered_at_epoch_seconds)
+        assertEquals(epochSeconds(2_000L), rowAfterOffer.offered_at_epoch_seconds)
 
         val consumed = fixture.store.consume(opk.keyId)
         assertNotNull(consumed)
@@ -76,14 +77,14 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     @Test
     fun pruneExpiredOffers_deletesRowAndPrivateKey() = runTest {
-        val time = FixedEpochProvider(10_000L)
-        val fixture = openStore(timeProvider = time)
+        val time = FakeClock(epochSeconds(10_000L))
+        val fixture = openStore(clock = time)
 
         val opk = fixture.store.allocate()
         fixture.store.markOffered(opk.keyId)
 
-        time.advanceTo(10_120L)
-        val pruned = fixture.store.pruneExpiredOffers(cutoffEpochSeconds = 10_061L)
+        time.advanceTo(epochSeconds(10_120L))
+        val pruned = fixture.store.pruneExpiredOffers(cutoff = epochSeconds(10_061L))
 
         assertEquals(listOf(opk.keyId), pruned)
         assertNull(fixture.database.identityQueries.selectOneTimePreKeyById(opk.keyId).executeAsOneOrNull())
@@ -92,13 +93,13 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     @Test
     fun pruneExpiredOffers_keepsFreshOffers() = runTest {
-        val time = FixedEpochProvider(20_000L)
-        val fixture = openStore(timeProvider = time)
+        val time = FakeClock(epochSeconds(20_000L))
+        val fixture = openStore(clock = time)
 
         val opk = fixture.store.allocate()
         fixture.store.markOffered(opk.keyId)
 
-        val pruned = fixture.store.pruneExpiredOffers(cutoffEpochSeconds = 20_000L)
+        val pruned = fixture.store.pruneExpiredOffers(cutoff = epochSeconds(20_000L))
 
         assertEquals(emptyList(), pruned)
         assertNotNull(fixture.database.identityQueries.selectOneTimePreKeyById(opk.keyId).executeAsOneOrNull())
@@ -107,8 +108,8 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     @Test
     fun pruneExpiredOffers_ignoresAllocatedAndConsumed() = runTest {
-        val time = FixedEpochProvider(30_000L)
-        val fixture = openStore(timeProvider = time)
+        val time = FakeClock(epochSeconds(30_000L))
+        val fixture = openStore(clock = time)
 
         val allocatedOnly = fixture.store.allocate()
 
@@ -116,8 +117,8 @@ class DefaultOneTimePreKeyStoreJvmTest {
         fixture.store.markOffered(consumedOpk.keyId)
         fixture.store.consume(consumedOpk.keyId)
 
-        time.advanceTo(30_200L)
-        val pruned = fixture.store.pruneExpiredOffers(cutoffEpochSeconds = 30_001L)
+        time.advanceTo(epochSeconds(30_200L))
+        val pruned = fixture.store.pruneExpiredOffers(cutoff = epochSeconds(30_001L))
 
         assertEquals(emptyList(), pruned)
         assertEquals(OpkStatus.ALLOCATED, fixture.rowStatus(allocatedOnly.keyId))
@@ -138,7 +139,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
 
     private suspend fun openStore(
         nowEpochSeconds: Long = 0L,
-        timeProvider: EpochProvider = FixedEpochProvider(nowEpochSeconds),
+        clock: Clock = FakeClock(epochSeconds(nowEpochSeconds)),
     ): StoreFixture {
         connection = openMemoryDatabase()
         val database = connection!!.database
@@ -149,7 +150,7 @@ class DefaultOneTimePreKeyStoreJvmTest {
             keyStore = keyStore,
             crypto = DefaultCryptoProvider(),
             localDeviceId = FixtureDevicePeerId,
-            timeProvider = timeProvider,
+            clock = clock,
         )
         return StoreFixture(database, keyStore, store)
     }

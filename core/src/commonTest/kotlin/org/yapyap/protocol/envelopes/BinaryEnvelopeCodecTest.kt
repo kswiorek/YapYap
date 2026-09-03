@@ -2,6 +2,7 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -20,8 +21,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = 100L,
-            expiresAtEpochSeconds = 200L,
+            createdAt = epochSeconds(100L),
+            expiresAt = epochSeconds(200L),
             source = source,
             target = target,
             payload = byteArrayOf(),
@@ -29,8 +30,8 @@ class BinaryEnvelopeCodecTest {
         val decoded = BinaryEnvelope.decode(original.encode())
         assertEquals(original.packetType, decoded.packetType)
         assertEquals(original.dispositionRequested, decoded.dispositionRequested)
-        assertEquals(original.createdAtEpochSeconds, decoded.createdAtEpochSeconds)
-        assertEquals(original.expiresAtEpochSeconds, decoded.expiresAtEpochSeconds)
+        assertEquals(original.createdAt, decoded.createdAt)
+        assertEquals(original.expiresAt, decoded.expiresAt)
         assertEquals(original.source, decoded.source)
         assertEquals(original.target, decoded.target)
         assertEquals(original.packetId, decoded.packetId)
@@ -43,8 +44,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = false,
-            createdAtEpochSeconds = 100L,
-            expiresAtEpochSeconds = 200L,
+            createdAt = epochSeconds(100L),
+            expiresAt = epochSeconds(200L),
             source = source,
             target = target,
             payload = byteArrayOf(),
@@ -60,8 +61,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.FILE,
             dispositionRequested = true,
-            createdAtEpochSeconds = 0L,
-            expiresAtEpochSeconds = 0L,
+            createdAt = epochSeconds(0L),
+            expiresAt = epochSeconds(0L),
             source = source,
             target = target,
             payload = payload,
@@ -78,8 +79,8 @@ class BinaryEnvelopeCodecTest {
                 packetId = sampleId,
                 packetType = PacketType.SYSTEM,
                 dispositionRequested = false,
-                createdAtEpochSeconds = 10L,
-                expiresAtEpochSeconds = 9L,
+                createdAt = epochSeconds(10L),
+                expiresAt = epochSeconds(9L),
                 source = source,
                 target = target,
                 payload = byteArrayOf(),
@@ -93,8 +94,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.SIGNAL,
             dispositionRequested = true,
-            createdAtEpochSeconds = 1L,
-            expiresAtEpochSeconds = 2L,
+            createdAt = epochSeconds(1L),
+            expiresAt = epochSeconds(2L),
             source = source,
             target = target,
             payload = byteArrayOf(1),
@@ -112,8 +113,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.SYSTEM,
             dispositionRequested = false,
-            createdAtEpochSeconds = 1L,
-            expiresAtEpochSeconds = 1L,
+            createdAt = epochSeconds(1L),
+            expiresAt = epochSeconds(1L),
             source = source,
             target = target,
             payload = byteArrayOf(),
@@ -131,8 +132,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = 1L,
-            expiresAtEpochSeconds = 2L,
+            createdAt = epochSeconds(1L),
+            expiresAt = epochSeconds(2L),
             source = source,
             target = target,
             payload = byteArrayOf(1, 2, 3),
@@ -148,8 +149,8 @@ class BinaryEnvelopeCodecTest {
             packetId = sampleId,
             packetType = PacketType.MESSAGE,
             dispositionRequested = true,
-            createdAtEpochSeconds = 1L,
-            expiresAtEpochSeconds = 2L,
+            createdAt = epochSeconds(1L),
+            expiresAt = epochSeconds(2L),
             source = source,
             target = target,
             payload = byteArrayOf(),

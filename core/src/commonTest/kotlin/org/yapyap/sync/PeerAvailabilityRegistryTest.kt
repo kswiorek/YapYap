@@ -7,11 +7,14 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 import kotlin.test.*
+import kotlin.time.Clock
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class PeerAvailabilityRegistryTest {
@@ -19,17 +22,17 @@ class PeerAvailabilityRegistryTest {
     private fun peer(suffix: String) = PeerId("avail-$suffix")
 
     private fun registry(
-        time: FixedEpochProvider,
-        pingIntervalSeconds: Long = 300,
-        sweepIntervalSeconds: Long = 300,
-        halfLifeSeconds: Long = 86_400,
+        clock: Clock,
+        pingIntervalSeconds: Duration = 300.seconds,
+        sweepInterval: Duration = 300.seconds,
+        halfLife: Duration = 86_400.seconds,
     ) = PeerAvailabilityRegistry(
-        timeProvider = time,
+        clock = clock,
         routerConfig = MutableStateFlow(
             RouterConfig().copy(
-                pingInterval = pingIntervalSeconds.seconds,
-                sweepInterval = sweepIntervalSeconds.seconds,
-                reliabilityHalfLife = halfLifeSeconds.seconds,
+                pingInterval = pingIntervalSeconds,
+                sweepInterval = sweepInterval,
+                reliabilityHalfLife = halfLife,
             )
         ),
         store = FakePeerAvailabilityStore(),
@@ -37,14 +40,14 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun unknownPeer_isOffline() {
-        val registry = registry(FixedEpochProvider(1_000L))
+        val registry = registry(FakeClock(epochSeconds(1_000L)))
         assertFalse(registry.isOnline(peer("a")))
     }
 
     @Test
     fun markReachable_marksPeerOnlineAndAddsToOnlineDevices() = runTest {
-        val registry = registry(FixedEpochProvider(1_000L))
-        registry.markReachable(peer("a"), 1_000L)
+        val registry = registry(FakeClock(epochSeconds(1_000L)))
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
 
         assertTrue(registry.isOnline(peer("a")))
         assertEquals(setOf(peer("a")), registry.onlineDevices.first())
@@ -52,28 +55,28 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun isOnline_expiresAfterTwoPingIntervals() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, pingIntervalSeconds = 60)
-        registry.markReachable(peer("a"), 1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, pingIntervalSeconds = 60.seconds)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
         assertTrue(registry.isOnline(peer("a")))
 
         // 2 * 60s interval = 120s offline-after threshold.
-        time.advanceTo(1_119L)
+        time.advanceTo(epochSeconds(1_119L))
         assertTrue(registry.isOnline(peer("a")))
 
-        time.advanceTo(1_120L)
+        time.advanceTo(epochSeconds(1_120L))
         assertFalse(registry.isOnline(peer("a")))
     }
 
     @Test
     fun onlineEvents_emitsOncePerOfflineToOnlineTransition() = runTest {
-        val registry = registry(FixedEpochProvider(1_000L))
+        val registry = registry(FakeClock(epochSeconds(1_000L)))
         val events = mutableListOf<PeerId>()
         val job = launch { registry.onlineEvents.collect { events.add(it) } }
         testScheduler.runCurrent()
 
-        registry.markReachable(peer("a"), 1_000L)
-        registry.markReachable(peer("a"), 1_010L)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
+        registry.markReachable(peer("a"), epochSeconds(1_010L))
         testScheduler.runCurrent()
 
         assertEquals(listOf(peer("a")), events)
@@ -82,13 +85,13 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun onlineEvents_emitsForDistinctNewPeers() = runTest {
-        val registry = registry(FixedEpochProvider(1_000L))
+        val registry = registry(FakeClock(epochSeconds(1_000L)))
         val events = mutableListOf<PeerId>()
         val job = launch { registry.onlineEvents.collect { events.add(it) } }
         testScheduler.runCurrent()
 
-        registry.markReachable(peer("a"), 1_000L)
-        registry.markReachable(peer("b"), 1_000L)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
+        registry.markReachable(peer("b"), epochSeconds(1_000L))
         testScheduler.runCurrent()
 
         assertEquals(setOf(peer("a"), peer("b")), events.toSet())
@@ -97,9 +100,9 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun sweep_boostsScoreWhenTrafficSeenWithinWindow() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, sweepIntervalSeconds = 60, halfLifeSeconds = 3_600)
-        registry.markReachable(peer("a"), 1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, sweepInterval = 60.seconds, halfLife = 3_600.seconds)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
 
         registry.sweep()
 
@@ -111,12 +114,12 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun sweep_decaysScoreWhenPingSentButNoTraffic() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, sweepIntervalSeconds = 60, halfLifeSeconds = 3_600)
-        registry.markReachable(peer("a"), 1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, sweepInterval = 60.seconds, halfLife = 3_600.seconds)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
 
         // Silent: last traffic is outside the window, but we pinged the peer now.
-        time.advanceTo(2_000L)
+        time.advanceTo(epochSeconds(2_000L))
         registry.notePingSent(peer("a"))
         registry.sweep()
 
@@ -128,11 +131,11 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun sweep_leavesScoreAloneWhenNeitherSeenNorPinged() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, sweepIntervalSeconds = 60, halfLifeSeconds = 3_600)
-        registry.markReachable(peer("a"), 1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, sweepInterval = 60.seconds, halfLife = 3_600.seconds)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
 
-        time.advanceTo(2_000L)
+        time.advanceTo(epochSeconds(2_000L))
         registry.sweep()
 
         // No ping sent and no recent traffic: we cannot judge the peer, so keep the score untouched.
@@ -141,12 +144,12 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun sweep_marksPeerOfflineAfterTwoMissedIntervals() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, pingIntervalSeconds = 60)
-        registry.markReachable(peer("a"), 1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, pingIntervalSeconds = 60.seconds)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
         assertTrue(registry.onlineDevices.first().contains(peer("a")))
 
-        time.advanceTo(1_121L)
+        time.advanceTo(epochSeconds(1_121L))
         registry.sweep()
 
         assertFalse(registry.isOnline(peer("a")))
@@ -155,14 +158,14 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun sweep_persistsUpdatedScoreToStore() = runTest {
-        val time = FixedEpochProvider(1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
         val fake = FakePeerAvailabilityStore()
         val registry = PeerAvailabilityRegistry(
-            timeProvider = time,
+            clock = time,
             routerConfig = MutableStateFlow(RouterConfig().copy(sweepInterval = 60.seconds)),
             store = fake,
         )
-        registry.markReachable(peer("a"), 1_000L)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
         registry.sweep()
 
         val stored = fake.reliability[peer("a")]
@@ -171,13 +174,13 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun start_seedsStoredScoreAndOnlineStatusFromStore() = runTest {
-        val time = FixedEpochProvider(1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
         val fake = FakePeerAvailabilityStore()
-        fake.updateReliability(peer("online"), 0.9, seenAtEpochSeconds = 1_000L)
-        fake.updateReliability(peer("stale"), 0.2, seenAtEpochSeconds = 0L)
+        fake.updateReliability(peer("online"), 0.9, seenAt = epochSeconds(1_000L))
+        fake.updateReliability(peer("stale"), 0.2, seenAt = epochSeconds(0L))
 
         val registry = PeerAvailabilityRegistry(
-            timeProvider = time,
+            clock = time,
             routerConfig = MutableStateFlow(RouterConfig().copy(pingInterval = 60.seconds)),
             store = fake,
         )
@@ -218,22 +221,22 @@ class PeerAvailabilityRegistryTest {
         // Half-life long relative to the sweep so the score smooths out the per-window ripple and
         // converges to the long-run mean (matching the real 24h-half-life / 15min-sweep config).
         val halfLife = sweep * 30
-        val time = FixedEpochProvider(0L)
-        val registry = registry(time, sweepIntervalSeconds = sweep, halfLifeSeconds = halfLife)
+        val time = FakeClock(epochSeconds(0L))
+        val registry = registry(time, sweepInterval = sweep.seconds, halfLife = halfLife.seconds)
 
         var t = 0L
         repeat(40) {
             // 3 alive windows …
             repeat(3) {
                 t += sweep
-                time.advanceTo(t)
-                registry.markReachable(peer("a"), t)
+                time.advanceTo(epochSeconds(t))
+                registry.markReachable(peer("a"), epochSeconds(t))
                 registry.sweep()
             }
             // … then 1 genuinely-silent window: advance just past the evidence window so the prior
             // traffic falls out of it, but still probe so the silence counts against the peer.
             t += sweep + 1
-            time.advanceTo(t)
+            time.advanceTo(epochSeconds(t))
             registry.notePingSent(peer("a"))
             registry.sweep()
         }
@@ -243,13 +246,13 @@ class PeerAvailabilityRegistryTest {
     }
 
     private suspend fun runAlwaysAlive(sweepSeconds: Long, steps: Int, halfLifeSeconds: Long): Double {
-        val time = FixedEpochProvider(0L)
-        val registry = registry(time, sweepIntervalSeconds = sweepSeconds, halfLifeSeconds = halfLifeSeconds)
+        val time = FakeClock(epochSeconds(0L))
+        val registry = registry(time, sweepInterval = sweepSeconds.seconds, halfLife = halfLifeSeconds.seconds)
         var t = 0L
         repeat(steps) {
             t += sweepSeconds
-            time.advanceTo(t)
-            registry.markReachable(peer("a"), t)
+            time.advanceTo(epochSeconds(t))
+            registry.markReachable(peer("a"), epochSeconds(t))
             registry.sweep()
         }
         return registry.reliabilityScore(peer("a"))!!
@@ -257,9 +260,9 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun reliabilityScore_geometricMeanOfMeasuredAndReported() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, sweepIntervalSeconds = 60, halfLifeSeconds = 3_600)
-        registry.markReachable(peer("a"), 1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, sweepInterval = 60.seconds, halfLife = 3_600.seconds)
+        registry.markReachable(peer("a"), epochSeconds(1_000L))
         registry.sweep()
 
         // No report yet → effective == measured.
@@ -271,7 +274,7 @@ class PeerAvailabilityRegistryTest {
 
         // A peer declining relay duty severs its effective score.
         registry.noteSelfReported(peer("b"), 0.0)
-        registry.markReachable(peer("b"), 1_000L)
+        registry.markReachable(peer("b"), epochSeconds(1_000L))
         registry.sweep()
         assertEquals(0.0, registry.reliabilityScore(peer("b"))!!)
 
@@ -281,15 +284,15 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun start_billsSelfDowntimeGapFromPersistedStamp() = runTest {
-        val startedAt = 10_000L
-        val time = FixedEpochProvider(startedAt)
+        val startedAt = epochSeconds(10_000L)
+        val time = FakeClock(startedAt)
         val self = peer("self")
         val fake = FakePeerAvailabilityStore()
         // Last active 1h ago at the default reliability half-life of 1h → score halves from 0.8 to 0.4.
-        fake.updateReliability(self, 0.8, seenAtEpochSeconds = startedAt - 3_600L)
+        fake.updateReliability(self, 0.8, seenAt = startedAt - 3_600.seconds)
 
         val registry = PeerAvailabilityRegistry(
-            timeProvider = time,
+            clock = time,
             routerConfig = MutableStateFlow(RouterConfig().copy(reliabilityHalfLife = 3_600.seconds)),
             store = fake,
         )
@@ -300,8 +303,8 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun start_freshInstallDoesNotBillDowntime() = runTest {
-        val time = FixedEpochProvider(1_000L)
-        val registry = registry(time, halfLifeSeconds = 3_600)
+        val time = FakeClock(epochSeconds(1_000L))
+        val registry = registry(time, halfLife = 3_600.seconds)
         registry.start(backgroundScope, peer("self"))
 
         assertEquals(0.5, registry.currentSelfScore(), absoluteTolerance = 1e-9)
@@ -309,11 +312,11 @@ class PeerAvailabilityRegistryTest {
 
     @Test
     fun selfSweep_boostsWhenActivityStampedAndPersists() = runTest {
-        val time = FixedEpochProvider(1_000L)
+        val time = FakeClock(epochSeconds(1_000L))
         val self = peer("self")
         val fake = FakePeerAvailabilityStore()
         val registry = PeerAvailabilityRegistry(
-            timeProvider = time,
+            clock = time,
             routerConfig = MutableStateFlow(
                 RouterConfig().copy(
                     sweepInterval = 60.seconds,
@@ -324,7 +327,7 @@ class PeerAvailabilityRegistryTest {
         )
         registry.start(backgroundScope, self) // fresh start: score 0.5, active stamp = now
 
-        time.advanceTo(1_060L)
+        time.advanceTo(epochSeconds(1_060L))
         registry.notePingSent(peer("other")) // a successful ping proves we are up
         registry.sweep()
 

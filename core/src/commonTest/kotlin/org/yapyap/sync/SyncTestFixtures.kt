@@ -33,6 +33,7 @@ import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /** [InboundMessagePipeline] whose [ingestResults] can be driven manually. */
@@ -52,7 +53,7 @@ class FakeInboundMessagePipeline : InboundMessagePipeline {
 class FakePendingSyncRepository : PendingSyncRepository {
     private class Entry(
         var row: PendingSyncRow,
-        var nextAttemptAt: Long,
+        var nextAttemptAt: Instant,
     )
 
     private val entries = mutableMapOf<Uuid, Entry>()
@@ -63,7 +64,7 @@ class FakePendingSyncRepository : PendingSyncRepository {
         anchorLamport: Long,
         orphanLamport: Long,
         candidateAccounts: List<AccountId>,
-        nextAttemptAt: Long,
+        nextAttemptAt: Instant,
     ) {
         entries[syncId] = Entry(
             PendingSyncRow(
@@ -87,17 +88,17 @@ class FakePendingSyncRepository : PendingSyncRepository {
         entries.remove(syncId)
     }
 
-    override suspend fun earliestDueAt(): Long? =
+    override suspend fun earliestDueAt(): Instant? =
         entries.values.minOfOrNull { it.nextAttemptAt }
 
-    override suspend fun findDue(now: Long, limit: Int): List<PendingSyncRow> =
+    override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> =
         entries.values
             .filter { it.nextAttemptAt <= now }
             .sortedBy { it.nextAttemptAt }
             .take(limit)
             .map { it.row }
 
-    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Long) {
+    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {
         entries[syncId]?.let {
             it.row = it.row.copy(attempts = it.row.attempts + 1)
             it.nextAttemptAt = nextAttemptAt
@@ -107,9 +108,9 @@ class FakePendingSyncRepository : PendingSyncRepository {
     override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> =
         entries[syncId]?.row?.attemptedDevices ?: emptySet()
 
-    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, now: Long) = Unit
+    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant) = Unit
 
-    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Long) {
+    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant) {
         entries[syncId]?.let { it.nextAttemptAt = nextAttemptAt }
     }
 
@@ -122,7 +123,7 @@ class FakePendingSyncRepository : PendingSyncRepository {
 
     fun all(): List<PendingSyncRow> = entries.values.map { it.row }
 
-    fun nextAttemptAtOf(syncId: Uuid): Long? = entries[syncId]?.nextAttemptAt
+    fun nextAttemptAtOf(syncId: Uuid): Instant? = entries[syncId]?.nextAttemptAt
 }
 
 /** Records sync requests and returns a configurable batch of messages. */

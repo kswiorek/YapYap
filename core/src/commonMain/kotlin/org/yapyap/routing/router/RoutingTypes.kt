@@ -17,6 +17,7 @@ import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 enum class RouterTransport {
@@ -54,7 +55,7 @@ data class TypingIndicatorEvent(
     val senderAccountId: AccountId,
     val roomId: RoomId,
     val interval: Duration,
-    val receivedAtEpochSeconds: Long,
+    val receivedAt: Instant,
 )
 
 internal sealed interface InboundSideEffect {

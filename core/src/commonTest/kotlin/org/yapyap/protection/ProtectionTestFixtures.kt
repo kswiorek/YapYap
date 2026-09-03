@@ -20,8 +20,10 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal object FixturePeerIds {
@@ -35,9 +37,9 @@ internal fun sampleEnvelopeContext(
     scheme: SignalSecurityScheme,
     source: PeerId,
     target: PeerId,
-    createdAtEpochSeconds: Long = 1_700_000_000L,
+    createdAt: Instant = epochSeconds(1_700_000_000L),
 ): EnvelopeProtectContext = EnvelopeProtectContext(
-    createdAtEpochSeconds = createdAtEpochSeconds,
+    createdAt = createdAt,
     sourceDeviceId = source,
     targetDeviceId = target,
     securityScheme = scheme,
@@ -50,7 +52,7 @@ internal fun sampleTextPayload(): MessagePayload.Text =
         senderAccountId = AccountId("acct-1"),
         prevId = null,
         lamportClock = 0L,
-        createdAt = 0L,
+        createdAt = epochSeconds(0L),
         text = "hello",
         authorDeviceId = PeerId("test-device"),
         authorSignature = byteArrayOf(0x01, 0x02, 0x03),
@@ -239,7 +241,7 @@ internal class PassthroughFileProtection : FileProtection {
             transferId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
-            createdAtEpochSeconds = context.createdAtEpochSeconds,
+            createdAt = context.createdAt,
             nonce = ByteArray(context.securityScheme.nonceSize) { 7 },
             securityScheme = context.securityScheme,
             signature = null,
@@ -251,7 +253,7 @@ internal class PassthroughFileProtection : FileProtection {
             transferId = input.transferId,
             source = input.source.id,
             target = input.target.id,
-            createdAtEpochSeconds = input.createdAtEpochSeconds,
+            createdAt = input.createdAt,
             securityScheme = input.securityScheme,
             payload = input.decodePayload(),
         )

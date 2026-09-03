@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.persistence.db.*
 import org.yapyap.protocol.PeerId
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 
 class DefaultCryptoSessionStoreJvmTest {
@@ -39,11 +40,11 @@ class DefaultCryptoSessionStoreJvmTest {
         assertRecordEquals(epoch1, store.listByPeer(peer)[0])
         assertRecordEquals(epoch2, store.listByPeer(peer)[1])
 
-        store.markEpochSuperseded(peer, sessionEpoch = 1, updatedAt = 3_000L)
+        store.markEpochSuperseded(peer, sessionEpoch = 1, updatedAt = epochSeconds(3_000L))
         assertNull(store.loadActiveCanonical(peer, sessionEpoch = 1))
         val superseded = store.loadSessions(peer, sessionEpoch = 1).single()
         assertEquals(SessionStatus.SUPERSEDED, superseded.meta.status)
-        assertEquals(3_000L, superseded.meta.updatedAt)
+        assertEquals(epochSeconds(3_000L), superseded.meta.updatedAt)
         assertEquals(SessionStatus.ACTIVE, store.loadActiveCanonical(peer, sessionEpoch = 2)!!.meta.status)
     }
 
@@ -152,7 +153,7 @@ class DefaultCryptoSessionStoreJvmTest {
             sessionEpoch = 1,
             role = SessionRole.INITIATOR,
             sessionGeneration = 1,
-            updatedAt = 2_000L,
+            updatedAt = epochSeconds(2_000L),
         )
 
         assertEquals(SessionStatus.SUPERSEDED, store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.meta.status)
@@ -229,8 +230,8 @@ class DefaultCryptoSessionStoreJvmTest {
                 initiatorEphemeralPublicKey = byteArrayOf(0x61),
                 offeredOpkId = if (sessionEpoch == 1) "opk-offered" else null,
                 status = status,
-                createdAt = 1_000L + sessionEpoch,
-                updatedAt = 2_000L + sessionEpoch,
+                createdAt = epochSeconds(1_000L + sessionEpoch),
+                updatedAt = epochSeconds(2_000L + sessionEpoch),
             ),
         )
 }

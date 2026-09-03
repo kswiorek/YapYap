@@ -9,7 +9,8 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.sync.buildSyncRoutingStack
 import org.yapyap.sync.testDeviceIdentity
-import org.yapyap.time.FixedEpochProvider
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -99,11 +100,11 @@ class RelaySelectionPolicyTest {
                 AccountId("acct-t") to listOf(target, sibling),
                 AccountId("acct-o") to listOf(other),
             ),
-            time = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
         )
 
         val registry = PeerAvailabilityRegistry(
-            timeProvider = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
             routerConfig = MutableStateFlow(RouterConfig()),
             store = FakePeerAvailabilityStore(),
         )
@@ -133,11 +134,11 @@ class RelaySelectionPolicyTest {
                 AccountId("acct-t") to listOf(target),
                 AccountId("acct-k") to listOf(known, unknown),
             ),
-            time = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
         )
 
         val registry = PeerAvailabilityRegistry(
-            timeProvider = FixedEpochProvider(1_000L),
+            clock = FakeClock(epochSeconds(1_000L)),
             routerConfig = MutableStateFlow(RouterConfig()),
             store = FakePeerAvailabilityStore(),
         )
@@ -152,7 +153,7 @@ class RelaySelectionPolicyTest {
 
     /** Boosts measured scores with one sweep, then sets reported so effective == [scores]. */
     private suspend fun seedEffectiveScores(registry: PeerAvailabilityRegistry, scores: Map<PeerId, Double>) {
-        val t0 = 1_000L
+        val t0 = epochSeconds(1_000L)
         scores.keys.forEach { registry.markReachable(it, t0) }
         registry.sweep()
         scores.forEach { (peer, effective) ->

@@ -14,6 +14,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -54,25 +55,32 @@ class DatabaseFactory(
                     device_typeAdapter = EnumColumnAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
+                    last_seen_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 dedupAdapter = Dedup.Adapter(
                     nack_reasonAdapter = EnumColumnAdapter(),
                     packet_idAdapter = UuidAdapter(),
+                    received_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 crypto_sessionsAdapter = Crypto_sessions.Adapter(
                     roleAdapter = EnumColumnAdapter(),
                     x3dh_modeAdapter = EnumColumnAdapter<X3dhMode>(),
                     statusAdapter = EnumColumnAdapter(),
                     peer_device_idAdapter = PeerIdAdapter(),
+                    created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
+                    updated_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
                 one_time_prekeysAdapter = One_time_prekeys.Adapter(
                     statusAdapter = EnumColumnAdapter(),
                     device_idAdapter = PeerIdAdapter(),
+                    created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
+                    offered_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
                 room_membersAdapter = Room_members.Adapter(
                     roleAdapter = EnumColumnAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
+                    joined_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 roomsAdapter = Rooms.Adapter(
                     typeAdapter = EnumColumnAdapter(),
@@ -83,25 +91,32 @@ class DatabaseFactory(
                     message_idAdapter = UuidAdapter(),
                     prev_idAdapter = UuidAdapter(),
                     room_idAdapter = RoomIdAdapter(),
+                    created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
                 causal_holdAdapter = Causal_hold.Adapter(
                     gap_idAdapter = UuidAdapter(),
                     missing_prev_idAdapter = UuidAdapter(),
-                    orphaned_message_idAdapter = UuidAdapter()
+                    orphaned_message_idAdapter = UuidAdapter(),
+                    detected_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 outboxAdapter = Outbox.Adapter(
-                    packet_idAdapter = UuidAdapter()
+                    packet_idAdapter = UuidAdapter(),
+                    expires_atAdapter = InstantEpochSecondsAdapter,
+                    last_attempt_atAdapter = InstantEpochSecondsAdapter,
+                    next_retry_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_syncsAdapter = Pending_syncs.Adapter(
                     sync_idAdapter = UuidAdapter(),
                     room_idAdapter = RoomIdAdapter(),
+                    next_attempt_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_sync_attempted_peersAdapter = Pending_sync_attempted_peers.Adapter(
                     sync_idAdapter = UuidAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                 ),
                 signed_prekeysAdapter = Signed_prekeys.Adapter(
-                    device_idAdapter = PeerIdAdapter()
+                    device_idAdapter = PeerIdAdapter(),
+                    created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_sync_candidate_accountsAdapter = Pending_sync_candidate_accounts.Adapter(
                     sync_idAdapter = UuidAdapter(),
@@ -122,6 +137,11 @@ class UuidAdapter: ColumnAdapter<Uuid, String> {
         return value.toHexString()
     }
 
+}
+
+object InstantEpochSecondsAdapter : ColumnAdapter<Instant, Long> {
+    override fun decode(databaseValue: Long): Instant = Instant.fromEpochSeconds(databaseValue)
+    override fun encode(value: Instant): Long = value.epochSeconds
 }
 
 class RoomIdAdapter : ColumnAdapter<RoomId, String> {

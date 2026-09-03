@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.first
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.packet.PacketType
+import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
@@ -13,6 +14,7 @@ import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -71,14 +73,14 @@ class WebRtcInMemorySignalingIntegrationTest {
                             it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
                         }
 
-                        val t0 = 1_800_000_000L
+                        val t0 = epochSeconds(1_800_000_000L)
                         val out =
                             BinaryEnvelope(
                                 packetId = Uuid.random(),
                                 packetType = PacketType.MESSAGE,
                                 dispositionRequested = true,
-                                createdAtEpochSeconds = t0,
-                                expiresAtEpochSeconds = t0 + 3_600L,
+                                createdAt = t0,
+                                expiresAt = t0 + 1.hours,
                                 source = peerA,
                                 target = peerB,
                                 payload = byteArrayOf(0x01, 0x02, 0x03, 0x04),
@@ -150,14 +152,14 @@ class WebRtcInMemorySignalingIntegrationTest {
                             it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
                         }
 
-                        val t0 = 1_800_000_000L
+                        val t0 = epochSeconds(1_800_000_000L)
                         val out =
                             BinaryEnvelope(
                                 packetId = Uuid.random(),
                                 packetType = PacketType.MESSAGE,
                                 dispositionRequested = true,
-                                createdAtEpochSeconds = t0,
-                                expiresAtEpochSeconds = t0 + 3_600L,
+                                createdAt = t0,
+                                expiresAt = t0 + 1.hours,
                                 source = peerA,
                                 target = peerB,
                                 payload = payload,

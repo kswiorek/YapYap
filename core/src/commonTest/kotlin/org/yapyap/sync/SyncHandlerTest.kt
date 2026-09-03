@@ -7,6 +7,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.sync.SyncHandler
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -28,7 +29,7 @@ class SyncHandlerTest {
             authorSignature = byteArrayOf(1),
             prevId = null,
             lamportClock = lamport,
-            createdAt = 0L,
+            createdAt = epochSeconds(0L),
             text = "m$lamport",
         )
 
@@ -80,7 +81,7 @@ class SyncHandlerTest {
         pendingRepo.insertSync(
             syncId = syncId, roomId = roomId,
             anchorLamport = 0L, orphanLamport = 5L,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = 1_000L,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         val handler = SyncHandler(stack.outboundMessenger, RecordingSyncPayloadProvider(), pendingRepo, stack.systemSender)
 

@@ -9,18 +9,19 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.Causal_hold
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 data class CausalHoldRow(
     val gapId: Uuid,
     val missingPrevId: Uuid,
     val orphanedMessageId: Uuid,
-    val detectedTimestamp: Long,
+    val detectedTimestamp: Instant,
 )
 
 interface CausalHoldRepository {
 
-    suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long)
+    suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant)
 
     suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow>
 
@@ -40,7 +41,7 @@ class DefaultCausalHoldRepository(
 
     private val queries = database.messageQueries
 
-    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Long) {
+    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
         withContext(dbDispatcher) {
             queries.insertCausalHold(gapId, missingPrevId, orphanedMessageId, detectedTimestamp)
             AppLog.info(
