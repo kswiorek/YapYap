@@ -390,7 +390,7 @@ class DefaultIdentityKeyRepository(
                 public_key = spk.publicKey,
                 signature = spk.signature,
                 is_active = spk.isActive,
-                created_at_epoch_seconds = spk.createdAt ?: Instant.fromEpochSeconds(0),
+                created_at_epoch_seconds = spk.createdAt ?: Instant.DISTANT_PAST,
             )
         }
     }

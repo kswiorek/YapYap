@@ -53,7 +53,7 @@ class DefaultRouterOutboxTest {
         assertEquals(1, outbox.enqueued.size)
         val packetId = outbox.enqueued.single().packetId
         assertTrue(outbox.contains(packetId))
-        assertEquals(epochSeconds(10_000L + RouterConfig().torRetryDelay.inWholeSeconds), outbox.getNextRetryAt(packetId))
+        assertEquals(epochSeconds(10_000L) + RouterConfig().torRetryDelay, outbox.getNextRetryAt(packetId))
     }
 
     @Test
@@ -221,7 +221,7 @@ class DefaultRouterOutboxTest {
         delay(400.milliseconds)
         router.stop()
 
-        assertEquals(epochSeconds(now + router.routerConfig.value.webRtcRetryDelay.inWholeSeconds), outbox.getNextRetryAt(packetId))
+        assertEquals(epochSeconds(now) + router.routerConfig.value.webRtcRetryDelay, outbox.getNextRetryAt(packetId))
         assertEquals(1, outbox.setDueForTargetCalls.size)
         assertEquals(remotePeer, outbox.setDueForTargetCalls.single().first)
     }

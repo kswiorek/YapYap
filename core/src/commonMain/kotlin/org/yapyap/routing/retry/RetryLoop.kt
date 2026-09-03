@@ -9,7 +9,6 @@ import kotlinx.coroutines.selects.select
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 internal class RetryLoop(
@@ -31,10 +30,10 @@ internal class RetryLoop(
         try {
             runProcessDueSafely()
             while (isActive) {
-                val sleepSeconds = computeSleepSeconds()
+                val sleepSeconds = computeSleep()
                 select {
                     wake.onReceive { }
-                    onTimeout(sleepSeconds.seconds) { }
+                    onTimeout(sleepSeconds) { }
                 }
                 runProcessDueSafely()
             }
@@ -52,10 +51,10 @@ internal class RetryLoop(
             }
     }
 
-    private suspend fun computeSleepSeconds(): Long {
+    private suspend fun computeSleep(): Duration {
         val max = maxIdlePoll.value
-        val next = earliestPendingRetryAt() ?: return max.inWholeSeconds
+        val next = earliestPendingRetryAt() ?: return max
         val wait = (next - clock.now()).coerceAtLeast(Duration.ZERO)
-        return wait.coerceAtMost(max).inWholeSeconds.coerceAtLeast(0)
+        return wait.coerceIn(Duration.ZERO..max)
     }
 }

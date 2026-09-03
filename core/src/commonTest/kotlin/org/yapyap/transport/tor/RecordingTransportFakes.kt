@@ -28,6 +28,8 @@ class RecordingTorTransport(
         private set
     var stopCalls = 0
         private set
+
+    private val sendsMutex = Mutex()
     val sends = mutableListOf<Pair<TorEndpoint, BinaryEnvelope>>()
     var failNextSend: Boolean = false
 
@@ -45,7 +47,7 @@ class RecordingTorTransport(
             failNextSend = false
             error("simulated Tor send failure")
         }
-        sends.add(target to envelope)
+        sendsMutex.withLock { sends.add(target to envelope) }
     }
 
     /** [sends] excluding heartbeat envelopes (ping / log-off), for assertions on message traffic. */
@@ -67,7 +69,8 @@ class RecordingTorTransport(
 
     /** Waits until there are at least [count] non-heartbeat sends. */
     suspend fun awaitMessageSendCount(count: Int) {
-        while (sendsExcludingHeartbeat().size < count) {
+        while (true) {
+            if (sendsMutex.withLock { sendsExcludingHeartbeat().size } >= count) return
             yield()
         }
     }

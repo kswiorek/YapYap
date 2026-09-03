@@ -286,8 +286,8 @@ internal class PeerAvailabilityRegistry(
             val lastSeen = synchronized(lock) { lastSeen[peer] }
             val pingedAt = synchronized(lock) { lastPingAt[peer] } ?: Instant.DISTANT_PAST
 
-            val score = synchronized(lock) { reliability[peer] }
-                ?: 0.5
+            val score = synchronized(lock) { reliability[peer] } ?: 0.5
+            val hadScore = synchronized(lock) { reliability.containsKey(peer) }
 
             val sawTraffic = lastSeen != null && lastSeen >= now - window
             val probedButSilent = pingedAt >= now - window
@@ -297,9 +297,11 @@ internal class PeerAvailabilityRegistry(
             } else if (probedButSilent) {
                 newScore = score * distanceToOneFactor
             }
-            // Else: we neither saw the peer nor got a probe of ours out this window; leave it alone.
 
-            if (newScore != score) {
+            // A peer with fresh evidence this window is no longer "unknown": record its (possibly
+            // still-default) measured score even when no gain/decay applied yet, e.g. two sweeps at the
+            // same instant leave boostFraction == 0.
+            if (newScore != score || (!hadScore && (sawTraffic || probedButSilent))) {
                 synchronized(lock) { reliability[peer] = newScore }
             }
 

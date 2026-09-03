@@ -929,6 +929,7 @@ class DefaultCryptoSessionManagerTest {
 
     @Test
     fun peerMaintenance_prunesStaleSupersededRow() = runTest {
+        val testTime = FakeClock(epochSeconds(100_000L))
         val alicePeer = buildTestPeerIdentity(crypto, "alice")
         val bobPeer = buildTestPeerIdentity(crypto, "bob")
         val aliceStore = MapBackedCryptoSessionStore()
@@ -943,6 +944,7 @@ class DefaultCryptoSessionManagerTest {
             sessionStore = aliceStore,
             oneTimePreKeyStore = InMemoryOpkRepository(crypto),
             sessionConfig = config,
+            clock = testTime,
         )
 
         alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1))
