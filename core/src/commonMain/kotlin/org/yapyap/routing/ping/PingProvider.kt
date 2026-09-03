@@ -9,6 +9,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload.Ping
 import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
@@ -19,9 +20,7 @@ internal class PingProvider(
     private val pingPayloadFlow: MutableSharedFlow<List<Pair<RoomId, Long>>>,
     private val lamportSnapshotProvider: LamportSnapshotProvider,
     private val systemSender: SystemSender,
-    /** Invoked after an originating probe is actually transmitted, so the caller (availability
-     *  tracking) knows this peer received a real attempt and a silent response is meaningful. */
-    private val onPingTransmitted: ((PeerId) -> Unit)? = null,
+    private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
 ) {
     private var pingLoopJob: Job? = null
 
@@ -87,6 +86,7 @@ internal class PingProvider(
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
         pingPayloadFlow.emit(ping.roomLamports)
+        peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
 
         if (!ping.isReply) {
             // A new probe from [peerId]: echo it back so they can correlate.
@@ -99,11 +99,12 @@ internal class PingProvider(
         val ping = Ping(
             pingId = echoPingId ?: Uuid.random(),
             isReply = echoPingId != null,
+            selfReportedAvailability = peerAvailabilityRegistry.currentSelfScore(),
             roomLamports = lamportSnapshotProvider.latestRoomLamports(peerId),
         )
         systemSender.sendPing(peerId, ping)
         // Only an originating probe (not an echo) is a real liveness attempt we want tracked.
-        if (echoPingId == null) onPingTransmitted?.invoke(peerId)
+        if (echoPingId == null) peerAvailabilityRegistry.notePingSent(peerId)
     }
 
     private suspend fun sendLogOff(peerId: PeerId) {

@@ -78,7 +78,8 @@ internal sealed interface InboundHandleResult {
 }
 
 internal sealed interface PeerSendOutcome {
-    data object Queued : PeerSendOutcome
+    /** Direct delivery queued; [relaysDeposited] is how many extra relay copies were enqueued. */
+    data class Queued(val relaysDeposited: Int = 0) : PeerSendOutcome
     data object NotReady : PeerSendOutcome
     data object PermanentFailure : PeerSendOutcome
 }

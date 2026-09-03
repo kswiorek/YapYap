@@ -75,6 +75,7 @@ class SystemEnvelopeCodecTest {
         val original = SystemPayload.Ping(
             pingId = samplePacketId,
             isReply = false,
+            selfReportedAvailability = 0.2,
             roomLamports = listOf(RoomId(Uuid.random()) to 7L, RoomId(Uuid.random()) to 42L),
         )
         val decoded = SystemPayload.Ping.decode(original.encode())
@@ -87,6 +88,7 @@ class SystemEnvelopeCodecTest {
         val original = SystemPayload.Ping(
             pingId = samplePacketId,
             isReply = true,
+            selfReportedAvailability = 0.8,
             roomLamports = emptyList(),
         )
         val decoded = SystemPayload.Ping.decode(original.encode())
@@ -96,7 +98,12 @@ class SystemEnvelopeCodecTest {
 
     @Test
     fun systemPayload_ping_emptyLamports_encodeDecode_roundTrip() {
-        val original = SystemPayload.Ping(pingId = samplePacketId, isReply = false, roomLamports = emptyList())
+        val original = SystemPayload.Ping(
+            pingId = samplePacketId,
+            isReply = false,
+            selfReportedAvailability = 1.0,
+            roomLamports = emptyList(),
+        )
         val decoded = SystemPayload.Ping.decode(original.encode())
         assertPingEquals(original, decoded)
     }
@@ -256,5 +263,11 @@ class SystemEnvelopeCodecTest {
         assertEquals(expected.pingId, actual.pingId)
         assertEquals(expected.isReply, actual.isReply)
         assertEquals(expected.roomLamports, actual.roomLamports)
+        // The wire value is quantised to a byte (1/255 granularity).
+        assertEquals(
+            expected.selfReportedAvailability,
+            actual.selfReportedAvailability,
+            absoluteTolerance = 1.0 / 255.0
+        )
     }
 }

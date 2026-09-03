@@ -204,7 +204,6 @@ internal class SystemInboundHandler(
 
                 InboundHandleResult.Success(listOf(InboundSideEffect.PeerOffline(systemEnvelope.source)))
             }
-            // TODO Sprint 4: SystemPayload.Ping/Pong -> InboundSideEffect.PeerHeartbeat(...)
             else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}
         }
     }

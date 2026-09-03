@@ -27,6 +27,7 @@ import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.outbound.*
 import org.yapyap.routing.ping.LamportSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
+import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
@@ -103,6 +104,11 @@ class DefaultRouter(
         ctx = routingContext,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
     )
+    private val relaySelectionPolicy = DefaultRelaySelectionPolicy(
+        ctx = routingContext,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+        routerConfig = routerConfig,
+    )
 
     private val outboundMessenger = OutboundMessenger(
         ctx = routingContext,
@@ -110,6 +116,7 @@ class DefaultRouter(
         transportPolicy = transportPolicy,
         outboxProcessor = outboxProcessor,
         sessionOpener = proactiveSessionOpener,
+        relaySelectionPolicy = relaySelectionPolicy,
     )
     private val webRtcBootstrapSignaler = WebRtcBootstrapSignaler(
         ctx = routingContext,
@@ -122,7 +129,7 @@ class DefaultRouter(
         pingPayloadFlow = pingPayloadFlow,
         lamportSnapshotProvider = lamportSnapshotProvider,
         systemSender = systemSender,
-        onPingTransmitted = { peer -> peerAvailabilityRegistry.notePingSent(peer) },
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
     )
 
     private val syncHandler = SyncHandler(
@@ -251,7 +258,7 @@ class DefaultRouter(
 
         pingProvider.runIn(scope)
 
-        peerAvailabilityRegistry.start(scope)
+        peerAvailabilityRegistry.start(scope, localDeviceIdentity!!.deviceId)
 
         AppLog.info(
             component = LogComponent.ROUTER,

@@ -44,6 +44,13 @@ data class RouterConfig(
      * score's dynamics are unaffected by [sweepInterval] or how long the app is awake for.
      */
     val reliabilityHalfLife: Duration = 24.hours,
+    val maxBillableGap: Duration = 30.days,
+    /** Desired chance that at least one selected relay is online when a message needs relaying. */
+    val relayTargetSuccessProbability: Double = 0.9,
+    /** Hard cap on the number of relays a message is deposited with. */
+    val maxRelays: Int = 3,
+    /** Relays below this reliability score are never used (score 0 = opted out). */
+    val minRelayScore: Double = 0.1,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "messageLifetimeSeconds must be > 0" }
@@ -62,6 +69,10 @@ data class RouterConfig(
         require(pingInterval > Duration.ZERO) { "pingInterval must be > 0" }
         require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }
         require(reliabilityHalfLife > Duration.ZERO) { "reliabilityHalfLife must be > 0" }
+        require(maxBillableGap > Duration.ZERO) { "maxBillableGap must be > 0" }
+        require(relayTargetSuccessProbability in 0.0..1.0) { "relayTargetSuccessProbability must be in [0,1]" }
+        require(maxRelays > 0) { "maxRelays must be > 0" }
+        require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }
     }
     fun getRetryDelaySeconds(transport: RouterTransport): Duration = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelay

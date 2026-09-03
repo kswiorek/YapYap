@@ -10,6 +10,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.time.FixedEpochProvider
 import kotlin.math.abs
 import kotlin.math.pow
+import kotlin.math.sqrt
 import kotlin.test.*
 import kotlin.time.Duration.Companion.seconds
 
@@ -180,7 +181,7 @@ class PeerAvailabilityRegistryTest {
             routerConfig = MutableStateFlow(RouterConfig().copy(pingInterval = 60.seconds)),
             store = fake,
         )
-        registry.start(backgroundScope)
+        registry.start(backgroundScope, peer("self"))
 
         // Persisted scores are available before any traffic/sweep this session…
         assertEquals(0.9, registry.reliabilityScore(peer("online"))!!, absoluteTolerance = 1e-9)
@@ -252,5 +253,85 @@ class PeerAvailabilityRegistryTest {
             registry.sweep()
         }
         return registry.reliabilityScore(peer("a"))!!
+    }
+
+    @Test
+    fun reliabilityScore_geometricMeanOfMeasuredAndReported() = runTest {
+        val time = FixedEpochProvider(1_000L)
+        val registry = registry(time, sweepIntervalSeconds = 60, halfLifeSeconds = 3_600)
+        registry.markReachable(peer("a"), 1_000L)
+        registry.sweep()
+
+        // No report yet → effective == measured.
+        val measured = registry.reliabilityScore(peer("a"))!!
+        assertEquals(sqrt(measured * measured), measured, absoluteTolerance = 1e-9)
+
+        registry.noteSelfReported(peer("a"), 0.25)
+        assertEquals(sqrt(measured * 0.25), registry.reliabilityScore(peer("a"))!!, absoluteTolerance = 1e-9)
+
+        // A peer declining relay duty severs its effective score.
+        registry.noteSelfReported(peer("b"), 0.0)
+        registry.markReachable(peer("b"), 1_000L)
+        registry.sweep()
+        assertEquals(0.0, registry.reliabilityScore(peer("b"))!!)
+
+        // Unknown peers are still unknown.
+        assertNull(registry.reliabilityScore(peer("c")))
+    }
+
+    @Test
+    fun start_billsSelfDowntimeGapFromPersistedStamp() = runTest {
+        val startedAt = 10_000L
+        val time = FixedEpochProvider(startedAt)
+        val self = peer("self")
+        val fake = FakePeerAvailabilityStore()
+        // Last active 1h ago at the default reliability half-life of 1h → score halves from 0.8 to 0.4.
+        fake.updateReliability(self, 0.8, seenAtEpochSeconds = startedAt - 3_600L)
+
+        val registry = PeerAvailabilityRegistry(
+            timeProvider = time,
+            routerConfig = MutableStateFlow(RouterConfig().copy(reliabilityHalfLife = 3_600.seconds)),
+            store = fake,
+        )
+        registry.start(backgroundScope, self)
+
+        assertEquals(0.4, registry.currentSelfScore(), absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun start_freshInstallDoesNotBillDowntime() = runTest {
+        val time = FixedEpochProvider(1_000L)
+        val registry = registry(time, halfLifeSeconds = 3_600)
+        registry.start(backgroundScope, peer("self"))
+
+        assertEquals(0.5, registry.currentSelfScore(), absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun selfSweep_boostsWhenActivityStampedAndPersists() = runTest {
+        val time = FixedEpochProvider(1_000L)
+        val self = peer("self")
+        val fake = FakePeerAvailabilityStore()
+        val registry = PeerAvailabilityRegistry(
+            timeProvider = time,
+            routerConfig = MutableStateFlow(
+                RouterConfig().copy(
+                    sweepInterval = 60.seconds,
+                    reliabilityHalfLife = 3_600.seconds
+                )
+            ),
+            store = fake,
+        )
+        registry.start(backgroundScope, self) // fresh start: score 0.5, active stamp = now
+
+        time.advanceTo(1_060L)
+        registry.notePingSent(peer("other")) // a successful ping proves we are up
+        registry.sweep()
+
+        val factor = 2.0.pow(-60.0 / 3_600.0)
+        val expected = 0.5 + (1 - factor) * (1 - 0.5)
+        assertEquals(expected, registry.currentSelfScore(), absoluteTolerance = 1e-9)
+        // Persisted to our own row.
+        assertEquals(expected, fake.reliability[self]!!, absoluteTolerance = 1e-9)
     }
 }

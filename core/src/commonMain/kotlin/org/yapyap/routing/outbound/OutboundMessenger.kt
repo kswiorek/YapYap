@@ -14,10 +14,12 @@ import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
+import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.*
 import org.yapyap.transport.TransportException
 import kotlin.coroutines.cancellation.CancellationException
@@ -28,7 +30,8 @@ internal class OutboundMessenger(
     private val dispatcher: EnvelopeDispatcher,
     private val transportPolicy: OutboundPolicy,
     private val outboxProcessor: OutboxProcessor,
-    private val sessionOpener: ProactiveSessionOpener
+    private val sessionOpener: ProactiveSessionOpener,
+    private val relaySelectionPolicy: RelaySelectionPolicy,
 ) {
     suspend fun sendMessage(
         target: AccountId,
@@ -67,22 +70,23 @@ internal class OutboundMessenger(
     }
 
     private fun aggregateSendResults(outcomes: List<PeerSendOutcome>): SendMessageResult {
-        val peersTotal = outcomes.size
-        val peersQueued = outcomes.count { it is PeerSendOutcome.Queued }
+        val deviceCount = outcomes.size
+        val queuedDevices = outcomes.count { it is PeerSendOutcome.Queued }
+        val relaysDeposited = outcomes.sumOf { (it as? PeerSendOutcome.Queued)?.relaysDeposited ?: 0 }
         val notReady = outcomes.count { it is PeerSendOutcome.NotReady }
         val permanent = outcomes.count { it is PeerSendOutcome.PermanentFailure }
 
-        val status = when {
-            peersQueued == peersTotal -> SendMessageStatus.SUCCESS
-            peersQueued == 0 -> SendMessageStatus.FAILURE
+        val status = when (queuedDevices) {
+            deviceCount -> SendMessageStatus.SUCCESS
+            0 -> SendMessageStatus.FAILURE
             else -> SendMessageStatus.PARTIAL
         }
 
         val failureKind = when (status) {
             SendMessageStatus.SUCCESS -> null
             SendMessageStatus.FAILURE -> when {
-                notReady == peersTotal -> SendFailureKind.NOT_READY
-                permanent == peersTotal -> SendFailureKind.PERMANENT
+                notReady == deviceCount -> SendFailureKind.NOT_READY
+                permanent == deviceCount -> SendFailureKind.PERMANENT
                 else -> SendFailureKind.MIXED
             }
             SendMessageStatus.PARTIAL -> when {
@@ -91,11 +95,11 @@ internal class OutboundMessenger(
                 else -> SendFailureKind.MIXED
             }
         }
-
+        //TODO: more complete statistics for the gui
         return SendMessageResult(
             status = status,
-            peersTotal = peersTotal,
-            peersQueued = peersQueued,
+            peersTotal = deviceCount + relaysDeposited,
+            peersQueued = queuedDevices + relaysDeposited,
             failureKind = failureKind,
         )
     }
@@ -104,6 +108,7 @@ internal class OutboundMessenger(
         target: PeerId,
         payload: MessagePayload,
         forceTransport: RouterTransport?,
+        supplementRelays: Boolean = true,
     ): PeerSendOutcome {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
@@ -111,7 +116,6 @@ internal class OutboundMessenger(
             createdAtEpochSeconds = ctx.timeProvider.nowEpochSeconds(),
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
         )
-        //TODO: select and send to relays if no webrtc session
 
         val messageEnvelope = try {
             ctx.envelopeProtectionService.protectMessage(payload, context)
@@ -202,7 +206,36 @@ internal class OutboundMessenger(
                 now = ctx.timeProvider.nowEpochSeconds(),
             )
         }
-        return PeerSendOutcome.Queued
+
+        // Supplement the direct attempt with store-and-forward relay deposits when the target has no
+        // live WebRTC session. Relays hold a copy and forward it once the recipient surfaces.
+        val relaysDeposited = if (supplementRelays && !ctx.webRtcTransport.hasSession(target)) {
+            depositToRelays(target, messageEnvelope)
+        } else {
+            0
+        }
+        return PeerSendOutcome.Queued(relaysDeposited)
+    }
+
+    private suspend fun depositToRelays(targetDevice: PeerId, messageEnvelope: MessageEnvelope): Int {
+        val relays = relaySelectionPolicy.selectRelays(targetDevice)
+        if (relays.isEmpty()) return 0
+        val now = ctx.timeProvider.nowEpochSeconds()
+        val lifetime = ctx.routerConfig.value.binaryEnvelopeLifetime.inWholeSeconds
+        relays.forEach { relay ->
+            val relayEnvelope = BinaryEnvelope(
+                packetId = Uuid.random(),
+                packetType = PacketType.MESSAGE,
+                dispositionRequested = true,
+                createdAtEpochSeconds = now,
+                expiresAtEpochSeconds = now + lifetime,
+                source = ctx.localDeviceId,
+                target = relay,
+                payload = messageEnvelope.encode(),
+            )
+            outboxProcessor.enqueueAndWake(relayEnvelope, nextRetryAt = now)
+        }
+        return relays.size
     }
 
     private fun outboundResultForProtectionFailure(

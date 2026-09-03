@@ -5,6 +5,7 @@ import kotlin.time.Clock
 /**
  * Provides current Unix epoch time in seconds.
  */
+//TODO: rewrite to duration
 interface EpochProvider {
     fun nowEpochSeconds(): Long
     fun nowEpochMilliseconds(): Long

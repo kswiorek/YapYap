@@ -23,6 +23,7 @@ import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.*
@@ -187,11 +188,15 @@ internal fun buildSyncRoutingStack(
     val policy = SessionOrTorPolicy(MutableStateFlow(RouterConfig()))
     val outbox = TrackingPacketOutbox()
     val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePoll = MutableStateFlow(60.seconds))
-    val proactiveSessionOpener = ProactiveSessionOpener(
-        ctx,
+    val availabilityRegistry =
         PeerAvailabilityRegistry(time, MutableStateFlow(RouterConfig()), FakePeerAvailabilityStore())
+    val proactiveSessionOpener = ProactiveSessionOpener(ctx, availabilityRegistry)
+    val relaySelectionPolicy = DefaultRelaySelectionPolicy(ctx, availabilityRegistry, MutableStateFlow(RouterConfig()))
+    val outboundMessenger = OutboundMessenger(
+        ctx, dispatcher, policy, outboxProcessor,
+        sessionOpener = proactiveSessionOpener,
+        relaySelectionPolicy = relaySelectionPolicy,
     )
-    val outboundMessenger = OutboundMessenger(ctx, dispatcher, policy, outboxProcessor, sessionOpener = proactiveSessionOpener)
     val systemSender = SystemSender(ctx, policy, dispatcher)
     return SyncRoutingStack(
         tor = tor,

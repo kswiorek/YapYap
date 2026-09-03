@@ -34,7 +34,8 @@ internal class SyncHandler(
             systemSender.sendSyncNack(sourceDevice, syncNack)
         }
         for (msg in messages) {
-            outboundMessenger.sendMessageToPeer(sourceDevice, msg, forceTransport = null)
+            // Forwarding in response to a sync request: direct only, no relay deposits needed.
+            outboundMessenger.sendMessageToPeer(sourceDevice, msg, forceTransport = null, supplementRelays = false)
         }
     }
 

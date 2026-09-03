@@ -6,6 +6,7 @@ import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.packet.PacketType
+import kotlin.math.roundToInt
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -290,15 +291,21 @@ sealed interface SystemPayload {
          * an endless ping-pong between two nodes.
          */
         val isReply: Boolean = false,
+        /**
+         * The sender's self-measured reachability score in `[0, 1]` (what fraction of wall-clock
+         * time it is up and able to send pings). Encoded on the wire as a single byte (0..255) to
+         * keep the envelope compact. The receiver blends this with its own measured score.
+         */
+        val selfReportedAvailability: Double = 0.5,
         val roomLamports: List<Pair<RoomId, Long>>,
     ): SystemPayload {
-        //TODO: round trip tests
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
         override fun encode(): ByteArray {
-            val writer = ByteWriter(16 + Uuid.SIZE_BYTES + 1 + roomLamports.size * (Uuid.SIZE_BYTES + 8))
+            val writer = ByteWriter(16 + Uuid.SIZE_BYTES + 2 + roomLamports.size * (Uuid.SIZE_BYTES + 8))
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(pingId)
             writer.writeByte(if (isReply) 1 else 0)
+            writer.writeByte(selfReportedAvailability.coerceIn(0.0, 1.0).times(255.0).roundToInt().coerceIn(0, 255))
             writer.writeInt(roomLamports.size)
             roomLamports
                 .forEach { (roomId, lamport) ->
@@ -316,13 +323,14 @@ sealed interface SystemPayload {
                 }
                 val pingId = reader.readUuid()
                 val isReply = reader.readByte().toInt() == 1
+                val selfReportedAvailability = (reader.readByte().toInt() and 0xFF) / 255.0
                 val count = reader.readInt()
                 val roomLamports = List(
                     count,
                     init = {RoomId(reader.readUuid()) to reader.readLong() },
                 )
                 reader.requireFullyRead()
-                return Ping(pingId, isReply, roomLamports)
+                return Ping(pingId, isReply, selfReportedAvailability, roomLamports)
             }
         }
     }
