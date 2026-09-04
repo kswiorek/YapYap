@@ -24,6 +24,12 @@ enum class RoomMemberRole {
     MEMBER,
 }
 
+enum class VerificationState {
+    VERIFIED,
+    PENDING,
+    REJECTED,
+}
+
 enum class MessagePayloadType(val wireValue: Byte) {
     TEXT(1),
     GLOBAL_EVENT(2);

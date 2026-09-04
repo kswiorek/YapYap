@@ -1,5 +1,6 @@
 package org.yapyap.crypto.signature
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
@@ -54,8 +55,54 @@ class DefaultSignatureProvider(
         authorDeviceId: PeerId,
         signedBytes: ByteArray,
         signature: ByteArray,
-    ): Boolean {
-        val verified = verify(authorDeviceId, signedBytes, signature)
+    ): Boolean = classifyMessageAuthorship(accountId, authorDeviceId, signedBytes, signature) == AuthorshipOutcome.VALID
+
+    override suspend fun classifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray?,
+    ): AuthorshipOutcome {
+        if (signature == null) {
+            return AuthorshipOutcome.INVALID
+        }
+
+        // Resolve the author's key. A missing/insufficient record means identity state has not
+        // caught up yet — defer rather than reject (the message may verify once the AddDevice
+        // event is known).
+        val deviceRecord = try {
+            identityResolver.resolvePeerIdentityRecord(authorDeviceId)
+        } catch (e: CryptoException) {
+            AppLog.debug(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
+                message = "Author device identity not yet known — deferring authorship classification",
+                fields = mapOf("authorDeviceId" to authorDeviceId),
+            )
+            return AuthorshipOutcome.UNKNOWN_AUTHOR
+        }
+
+        // The device must belong to the claimed account.
+        val accountForDevice = identityResolver.getAccountIdForDevice(authorDeviceId)
+        if (accountForDevice == null) {
+            return AuthorshipOutcome.UNKNOWN_AUTHOR
+        }
+        if (accountForDevice != accountId) {
+            AppLog.warn(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
+                message = "Author device belongs to a different account than claimed",
+                fields = mapOf(
+                    "accountId" to accountId,
+                    "authorDeviceId" to authorDeviceId,
+                    "actualAccountId" to accountForDevice,
+                ),
+            )
+            return AuthorshipOutcome.INVALID
+        }
+
+        // Cryptographic check against the known signing key.
+        val verified = cryptoProvider.verifyDetached(deviceRecord.signing.publicKey, signedBytes, signature)
         if (!verified) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
@@ -67,10 +114,11 @@ class DefaultSignatureProvider(
                     "signedBytesLength" to signedBytes.size,
                 ),
             )
-            return false
+            return AuthorshipOutcome.INVALID
         }
-        val peerCandidates = identityResolver.getAllPeerDevicesForAccount(accountId)
 
+        // Account→device binding via roster.
+        val peerCandidates = identityResolver.getAllPeerDevicesForAccount(accountId)
         if (authorDeviceId !in peerCandidates) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
@@ -82,11 +130,9 @@ class DefaultSignatureProvider(
                     "peerCandidates" to peerCandidates,
                 ),
             )
-            return false
+            return AuthorshipOutcome.INVALID
         }
-        // TODO Sprint 4: Verify device belongs to account via signed roster (global events DAG).
-        // For now, the signature proves the message was signed by the claimed device key.
-        // The account→device binding will be verified once the typed global events are implemented.
+
         AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.AUTHOR_SIGNATURE_VERIFIED,
@@ -96,6 +142,6 @@ class DefaultSignatureProvider(
                 "authorDeviceId" to authorDeviceId,
             ),
         )
-        return true
+        return AuthorshipOutcome.VALID
     }
 }

@@ -2,6 +2,7 @@
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -364,7 +365,7 @@ class DefaultDagEngineTest {
     }
 
     @Test
-    fun ingest_invalidSignature_returnsNull_doesNotInsert() = runTest {
+    fun ingest_invalidSignature_storesMessageAsRejected() = runTest {
         val msgUuid = Uuid.random()
         val remotePayload = MessagePayload.Text(
             messageId = msgUuid,
@@ -390,8 +391,14 @@ class DefaultDagEngineTest {
 
         val result = rejectingEngine.ingest(remotePayload)
 
-        assertNull(result)
-        assertNull(messageRepo.findById(msgUuid))
+        // A message that fails authorship verification is still stored (so the DAG structure is
+        // preserved and sync loops are avoided) but is marked REJECTED.
+        val ingested = result as IngestResult.Inserted
+        assertEquals(VerificationState.REJECTED, ingested.verificationState)
+
+        val stored = messageRepo.findById(msgUuid)
+        assertNotNull(stored)
+        assertEquals(VerificationState.REJECTED, stored.verificationState)
     }
 
     @Test
@@ -400,5 +407,55 @@ class DefaultDagEngineTest {
 
         assertEquals(testDeviceId, payload.authorDeviceId)
         assertContentEquals(byteArrayOf(0x01, 0x02, 0x03), payload.authorSignature)
+    }
+
+    private fun textPayload(lamport: Long, text: String = "pending") = MessagePayload.Text(
+        messageId = Uuid.random(),
+        roomId = roomId,
+        senderAccountId = remoteAccount,
+        authorDeviceId = remoteDeviceId,
+        authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        prevId = null,
+        lamportClock = lamport,
+        createdAt = clock.now(),
+        text = text,
+    )
+
+    @Test
+    fun reverifyPendingFor_knownAuthor_transitionsPendingToVerified() = runTest {
+        val payload = textPayload(1L)
+        messageRepo.insert(payload, isOrphaned = false, verificationState = VerificationState.PENDING)
+
+        val results = dagEngine.reverifyPendingFor(remoteDeviceId)
+
+        val resolved = results.single()
+        assertEquals(payload.messageId, resolved.messageId)
+        assertEquals(VerificationState.PENDING, resolved.fromState)
+        assertEquals(VerificationState.VERIFIED, resolved.toState)
+        assertEquals(VerificationState.VERIFIED, messageRepo.findById(payload.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun reverifyPendingFor_unknownAuthor_keepsPending_emitsNothing() = runTest {
+        val unknownEngine = DefaultDagEngine(
+            messageRepository = messageRepo,
+            causalHoldRepository = causalHoldRepo,
+            roomRepository = roomRepo,
+            identityResolver = identityResolver,
+            signatureProvider = FakeUnknownAuthorSignatureProvider(),
+            clock = clock,
+        )
+        val payload = textPayload(1L)
+        messageRepo.insert(payload, isOrphaned = false, verificationState = VerificationState.PENDING)
+
+        val results = unknownEngine.reverifyPendingFor(remoteDeviceId)
+
+        assertTrue(results.isEmpty())
+        assertEquals(VerificationState.PENDING, messageRepo.findById(payload.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun reverifyAllPending_noPending_returnsEmpty() = runTest {
+        assertTrue(dagEngine.reverifyAllPending().isEmpty())
     }
 }

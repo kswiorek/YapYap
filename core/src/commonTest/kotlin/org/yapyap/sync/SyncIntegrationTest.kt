@@ -11,6 +11,7 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -122,15 +123,15 @@ class SyncIntegrationTest {
         try {
             // Local already has the anchor message at lamport 0.
             val anchor = textMsg(lamport = 0, prevId = null)
-            localMessageRepo.insert(anchor, isOrphaned = false)
+            localMessageRepo.insert(anchor, isOrphaned = false, verificationState = VerificationState.VERIFIED)
 
             // Remote has the full chain 0..2; local only has 0. msg2 is the orphan on local.
             val remoteMessageRepo = FakeMessageRepository()
             val m1 = textMsg(lamport = 1, prevId = anchor.messageId)
             val m2 = textMsg(lamport = 2, prevId = m1.messageId)
-            remoteMessageRepo.insert(anchor, isOrphaned = false)
-            remoteMessageRepo.insert(m1, isOrphaned = false)
-            remoteMessageRepo.insert(m2, isOrphaned = false)
+            remoteMessageRepo.insert(anchor, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            remoteMessageRepo.insert(m1, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            remoteMessageRepo.insert(m2, isOrphaned = false, verificationState = VerificationState.VERIFIED)
 
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
@@ -220,18 +221,18 @@ class SyncIntegrationTest {
             // Local has messages 0 and 1; remote has 0..4. Ping advertises lamport 4.
             val m0 = textMsg(lamport = 0, prevId = null)
             val m1 = textMsg(lamport = 1, prevId = m0.messageId)
-            localMessageRepo.insert(m0, isOrphaned = false)
-            localMessageRepo.insert(m1, isOrphaned = false)
+            localMessageRepo.insert(m0, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            localMessageRepo.insert(m1, isOrphaned = false, verificationState = VerificationState.VERIFIED)
 
             val remoteMessageRepo = FakeMessageRepository()
             val m2 = textMsg(lamport = 2, prevId = m1.messageId)
             val m3 = textMsg(lamport = 3, prevId = m2.messageId)
             val m4 = textMsg(lamport = 4, prevId = m3.messageId)
-            remoteMessageRepo.insert(m0, isOrphaned = false)
-            remoteMessageRepo.insert(m1, isOrphaned = false)
-            remoteMessageRepo.insert(m2, isOrphaned = false)
-            remoteMessageRepo.insert(m3, isOrphaned = false)
-            remoteMessageRepo.insert(m4, isOrphaned = false)
+            remoteMessageRepo.insert(m0, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            remoteMessageRepo.insert(m1, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            remoteMessageRepo.insert(m2, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            remoteMessageRepo.insert(m3, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            remoteMessageRepo.insert(m4, isOrphaned = false, verificationState = VerificationState.VERIFIED)
 
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),

@@ -24,6 +24,7 @@ import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -504,12 +505,13 @@ private class FakeMessageRepository : MessageRepository {
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
+        verificationState: VerificationState,
     ): Boolean {
         if (byId.containsKey(payload.messageId)) {
             // INSERT OR IGNORE semantics.
             return true
         }
-        byId[payload.messageId] = MessageRow(payload, isOrphaned)
+        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState)
         return true
     }
 
@@ -517,7 +519,7 @@ private class FakeMessageRepository : MessageRepository {
 
     override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
         byId.values
-            .filter { it.payload.roomId == roomId }
+            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
             .maxWithOrNull(
                 compareBy<MessageRow> { it.payload.lamportClock }
                     .thenBy { it.payload.createdAt }
@@ -570,6 +572,19 @@ private class FakeMessageRepository : MessageRepository {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
+
+    override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
+        val row = byId[messageId] ?: return
+        byId[messageId] = row.copy(verificationState = state)
+    }
+
+    override suspend fun findPendingByAuthor(deviceId: PeerId): List<MessageRow> =
+        byId.values
+            .filter { it.payload.authorDeviceId == deviceId && it.verificationState == VerificationState.PENDING }
+            .toList()
+
+    override suspend fun findAllPending(): List<MessageRow> =
+        byId.values.filter { it.verificationState == VerificationState.PENDING }.toList()
 
     override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
         byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }

@@ -92,6 +92,9 @@ class DatabaseFactory(
                     prev_idAdapter = UuidAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
+                    verification_stateAdapter = EnumColumnAdapter(),
+                    author_device_idAdapter = PeerIdAdapter(),
+                    sender_account_idAdapter = AccountIdAdapter(),
                 ),
                 causal_holdAdapter = Causal_hold.Adapter(
                     gap_idAdapter = UuidAdapter(),

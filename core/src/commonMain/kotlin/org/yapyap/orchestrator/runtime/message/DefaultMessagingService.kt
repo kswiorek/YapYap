@@ -13,6 +13,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -67,6 +68,7 @@ internal class DefaultMessagingService(
     @Volatile
     private var serviceScope: CoroutineScope? = null
     private var subscriptionJob: Job? = null
+    private var verificationStateSubscriptionJob: Job? = null
     private var typingSubscriptionJob: Job? = null
 
     fun start(scope: CoroutineScope) {
@@ -75,8 +77,17 @@ internal class DefaultMessagingService(
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
                 if (result.payload is MessagePayload.GlobalEvent) return@collect
+                // A REJECTED message is never shown: skip both the window insert and any notification.
+                if (result.verificationState == VerificationState.REJECTED) return@collect
                 notifyWindowsNewItem(result)
                 emitIncomingEventIfNeeded(result.payload)
+            }
+        }
+        verificationStateSubscriptionJob = scope.launch {
+            dagEngine.verificationStateChanges.collect { change ->
+                if (change.toState == VerificationState.REJECTED) {
+                    notifyWindowsRejected(change)
+                }
             }
         }
         typingSubscriptionJob = scope.launch {
@@ -98,6 +109,8 @@ internal class DefaultMessagingService(
     suspend fun stop() {
         subscriptionJob?.cancel()
         subscriptionJob?.join()  // wait for pipeline collector to finish
+        verificationStateSubscriptionJob?.cancel()
+        verificationStateSubscriptionJob?.join()
         typingSubscriptionJob?.cancel()
         typingSubscriptionJob?.join()
         typingSendMutex.withLock {
@@ -118,6 +131,7 @@ internal class DefaultMessagingService(
         }
     }
 
+    //TODO set typing per accountID
     override suspend fun setTyping(roomId: RoomId, isTyping: Boolean) {
         typingSendMutex.withLock {
             val existing = typingSendJobs[roomId]
@@ -285,6 +299,7 @@ internal class DefaultMessagingService(
         val displayItem = payload.toDisplayItem() ?: return
         val orphanGap: MessageDisplayItem.Gap? = (result as? IngestResult.BecameOrphan)?.let {
             MessageDisplayItem.Gap(
+                messageId = payload.messageId,
                 accountId = payload.senderAccountId,
                 timestamp = payload.createdAt,
                 displayOrderId = payload.lamportClock,
@@ -292,6 +307,15 @@ internal class DefaultMessagingService(
             )
         }
         window.onNewItem(displayItem, result.closedGapMissingPrevIds, orphanGap)
+    }
+
+    /**
+     * A stored message became REJECTED — drop it from any open window so a previously displayed
+     * (e.g. PENDING) message is removed from the GUI.
+     */
+    private suspend fun notifyWindowsRejected(change: VerificationStateChange) {
+        val window = windowsMapMutex.withLock { openWindows[change.roomId] } ?: return
+        window.onItemRejected(change.messageId)
     }
 
     private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload) {
@@ -349,6 +373,7 @@ internal class DefaultMessagingService(
 
     private fun MessagePayload.toDisplayItem(): MessageDisplayItem? = when (this) {
         is MessagePayload.Text -> MessageDisplayItem.Text(
+            messageId = messageId,
             accountId = senderAccountId,
             timestamp = createdAt,
             displayOrderId = lamportClock,
@@ -480,6 +505,16 @@ internal class DefaultMessagingService(
             }
         }
 
+        /** Remove a displayed (Text/File) item whose message became REJECTED. */
+        suspend fun onItemRejected(messageId: Uuid) {
+            if (closed) return
+            windowMutex.withLock {
+                _displayItems.value = _displayItems.value.filterNot { item ->
+                    (item is MessageDisplayItem.Text || item is MessageDisplayItem.File) && item.messageId == messageId
+                }
+            }
+        }
+
         /**
          * True if `this` is strictly newer than [other] per the composite display order
          * `(createdAt, lamportClock, accountId)`.
@@ -500,6 +535,7 @@ internal class DefaultMessagingService(
 
                 items.add(
                     MessageDisplayItem.Text(
+                        messageId = msg.messageId,
                         accountId = msg.senderAccountId,
                         timestamp = msg.createdAt,
                         displayOrderId = msg.lamportClock,
@@ -511,6 +547,7 @@ internal class DefaultMessagingService(
                 if (orphanedGap != null) {
                     items.add(
                         MessageDisplayItem.Gap(
+                            messageId = msg.messageId,
                             accountId = msg.senderAccountId,
                             timestamp = msg.createdAt,
                             displayOrderId = msg.lamportClock,

@@ -1,8 +1,10 @@
 package org.yapyap.testfixtures
 
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -23,12 +25,13 @@ class FakeMessageRepository : MessageRepository {
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
+        verificationState: VerificationState,
     ): Boolean {
         if (byId.containsKey(payload.messageId)) {
             // INSERT OR IGNORE semantics — duplicated key is a no-op.
             return true
         }
-        byId[payload.messageId] = MessageRow(payload, isOrphaned)
+        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState)
         return true
     }
 
@@ -36,7 +39,7 @@ class FakeMessageRepository : MessageRepository {
 
     override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
         byId.values
-            .filter { it.payload.roomId == roomId }
+            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
             .maxWithOrNull(
                 compareBy<MessageRow> { it.payload.lamportClock }
                     .thenBy { it.payload.createdAt }
@@ -49,7 +52,7 @@ class FakeMessageRepository : MessageRepository {
         cursor: MessageCursor?
     ): List<MessageRow> {
         val all = byId.values
-            .filter { it.payload.roomId == roomId }
+            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
             .sortedWith(
                 compareByDescending<MessageRow> { it.payload.createdAt }
                     .thenByDescending { it.payload.lamportClock }
@@ -88,6 +91,19 @@ class FakeMessageRepository : MessageRepository {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
     }
+
+    override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
+        val row = byId[messageId] ?: return
+        byId[messageId] = row.copy(verificationState = state)
+    }
+
+    override suspend fun findPendingByAuthor(deviceId: PeerId): List<MessageRow> =
+        byId.values
+            .filter { it.payload.authorDeviceId == deviceId && it.verificationState == VerificationState.PENDING }
+            .toList()
+
+    override suspend fun findAllPending(): List<MessageRow> =
+        byId.values.filter { it.verificationState == VerificationState.PENDING }.toList()
 
     override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
         byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }
@@ -214,4 +230,24 @@ class FakeRejectingSignatureProvider : SignatureProvider {
         signedBytes: ByteArray,
         signature: ByteArray,
     ): Boolean = false
+}
+
+class FakeUnknownAuthorSignatureProvider : SignatureProvider {
+    override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
+
+    override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = false
+
+    override suspend fun verifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray,
+    ): Boolean = false
+
+    override suspend fun classifyMessageAuthorship(
+        accountId: AccountId,
+        authorDeviceId: PeerId,
+        signedBytes: ByteArray,
+        signature: ByteArray?,
+    ): AuthorshipOutcome = AuthorshipOutcome.UNKNOWN_AUTHOR
 }

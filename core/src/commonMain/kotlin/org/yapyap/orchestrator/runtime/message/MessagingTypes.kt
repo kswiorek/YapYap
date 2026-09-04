@@ -7,17 +7,21 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 sealed interface MessageDisplayItem {
+    /** Stable identity used as a Compose list key and for targeted removal (e.g. on rejection). */
+    val messageId: Uuid
     val accountId: AccountId
     val timestamp: Instant
     val displayOrderId: Long
 
     data class Text(
+        override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
         override val displayOrderId: Long,
         val text: String,
     ): MessageDisplayItem
     data class File(
+        override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
         override val displayOrderId: Long,
@@ -26,6 +30,7 @@ sealed interface MessageDisplayItem {
         val fileSize: Long,
     ): MessageDisplayItem
     data class Gap(
+        override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
         override val displayOrderId: Long,

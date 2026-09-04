@@ -7,6 +7,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.*
@@ -186,8 +187,8 @@ class DefaultSyncCoordinatorTest {
     fun inserted_satisfiesAnchor_deletesSyncWithoutRecreate() = runTest {
         val coordinator = buildCoordinator()
         val anchorMsg = textMsg(roomId, lamport = 4L, prevId = null)
-        messageRepo.insert(anchorMsg, isOrphaned = false)
-        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false)
+        messageRepo.insert(anchorMsg, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false, verificationState = VerificationState.VERIFIED)
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
@@ -208,7 +209,7 @@ class DefaultSyncCoordinatorTest {
     fun inserted_orphanStillOpen_recreatesContinuationSync() = runTest {
         val coordinator = buildCoordinator()
         val anchorMsg = textMsg(roomId, lamport = 4L, prevId = null)
-        messageRepo.insert(anchorMsg, isOrphaned = false)
+        messageRepo.insert(anchorMsg, isOrphaned = false, verificationState = VerificationState.VERIFIED)
         // No message at orphan lamport 9 -> gap is still open, a continuation sync must be created.
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
@@ -306,7 +307,7 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun becameOrphan_lowerLamport_orphanStillOpen_splitsIntoTwoSyncs() = runTest {
         val coordinator = buildCoordinator()
-        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true)
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true, verificationState = VerificationState.VERIFIED)
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
@@ -369,7 +370,7 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun becameOrphan_lowerLamport_orphanAlreadyClosed_onlyShortens() = runTest {
         val coordinator = buildCoordinator()
-        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false)
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = null), isOrphaned = false, verificationState = VerificationState.VERIFIED)
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,
@@ -404,7 +405,7 @@ class DefaultSyncCoordinatorTest {
     fun inserted_noExistingSync_isNoOp() = runTest {
         val coordinator = buildCoordinator()
         val anchorMsg = textMsg(roomId, lamport = 4L, prevId = null)
-        messageRepo.insert(anchorMsg, isOrphaned = false)
+        messageRepo.insert(anchorMsg, isOrphaned = false, verificationState = VerificationState.VERIFIED)
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
 
@@ -420,8 +421,8 @@ class DefaultSyncCoordinatorTest {
     fun inserted_orphanAtOrphanLamportStillFlagged_recreatesContinuationSync() = runTest {
         val coordinator = buildCoordinator()
         val anchorMsg = textMsg(roomId, lamport = 4L, prevId = null)
-        messageRepo.insert(anchorMsg, isOrphaned = false)
-        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true)
+        messageRepo.insert(anchorMsg, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+        messageRepo.insert(textMsg(roomId, lamport = 9L, prevId = Uuid.random()), isOrphaned = true, verificationState = VerificationState.VERIFIED)
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             anchorLamport = 4L, orphanLamport = 9L,

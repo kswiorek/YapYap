@@ -1,23 +1,25 @@
 import kotlin.Boolean;
 import kotlin.time.Instant;
 import kotlin.uuid.Uuid;
+import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.MessagePayloadType;
+import org.yapyap.persistence.db.VerificationState;
+import org.yapyap.protocol.PeerId;
 
 CREATE TABLE messages (
     message_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     room_id TEXT AS RoomId NOT NULL,
-    sender_account_id TEXT NOT NULL,
-    author_device_id TEXT NOT NULL,
+    sender_account_id TEXT AS AccountId NOT NULL,
+    author_device_id TEXT AS PeerId NOT NULL,
+    verification_state TEXT AS VerificationState NOT NULL,
     prev_id TEXT AS Uuid,
     lamport_clock INTEGER NOT NULL,
     created_at_epoch_seconds INTEGER AS Instant NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
     message_payload BLOB NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-    FOREIGN KEY (sender_account_id) REFERENCES accounts(account_id),
-    FOREIGN KEY (author_device_id) REFERENCES devices(device_id)
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id)
 );
 
 CREATE TABLE causal_hold (
@@ -45,6 +47,7 @@ CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 selectMessagesInRoomPageDesc :
 SELECT * FROM messages
 WHERE room_id = :roomId
+  AND verification_state != 'REJECTED'
   AND ((:cursorCreated IS NULL AND :cursorLamport IS NULL AND :cursorMessageId IS NULL) OR
        (created_at_epoch_seconds, lamport_clock, message_id) <
        (:cursorCreated, :cursorLamport, :cursorMessageId))
@@ -81,24 +84,35 @@ INSERT OR IGNORE INTO messages (
     room_id,
     sender_account_id,
     author_device_id,
+    verification_state,
     prev_id,
     lamport_clock,
     created_at_epoch_seconds,
     payload_type,
     message_payload,
     is_orphaned
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessageById:
 SELECT * FROM messages WHERE message_id = ?;
 
 -- Highest-lamport message in a room; tie-break by created_at_epoch_seconds DESC, message_id DESC.
--- Used by DagEngine.append to determine the prev_id for a new message.
+-- Used by DagEngine.append to determine the prev_id for a new message. Never chain off a REJECTED message.
 selectRoomTail:
 SELECT * FROM messages
-WHERE room_id = ?
+WHERE room_id = ? AND verification_state != 'REJECTED'
 ORDER BY lamport_clock DESC, created_at_epoch_seconds DESC, message_id DESC
 LIMIT 1;
+
+updateMessageVerificationState:
+UPDATE messages SET verification_state = ? WHERE message_id = ?;
+
+selectPendingByAuthor:
+SELECT * FROM messages
+WHERE author_device_id = ? AND verification_state = 'PENDING';
+
+selectAllPending:
+SELECT * FROM messages WHERE verification_state = 'PENDING';
 
 selectMaxLamportInRoom:
 SELECT MAX(lamport_clock) FROM messages WHERE room_id = ?;

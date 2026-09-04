@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -40,7 +41,7 @@ class DefaultSyncPayloadProviderTest {
         )
 
     private suspend fun seed(vararg lamports: Long) {
-        lamports.forEach { messageRepo.insert(textMsg(it), isOrphaned = false) }
+        lamports.forEach { messageRepo.insert(textMsg(it), isOrphaned = false, verificationState = VerificationState.VERIFIED) }
     }
 
     private fun syncRequest(anchor: Long, orphan: Long): SystemPayload.SyncRequest =
@@ -62,8 +63,8 @@ class DefaultSyncPayloadProviderTest {
 
     @Test
     fun multipleMessagesAtAnchor_usesClosedLowerBound() = runTest {
-        messageRepo.insert(textMsg(5L), isOrphaned = false)
-        messageRepo.insert(textMsg(5L), isOrphaned = false)
+        messageRepo.insert(textMsg(5L), isOrphaned = false, verificationState = VerificationState.VERIFIED)
+        messageRepo.insert(textMsg(5L), isOrphaned = false, verificationState = VerificationState.VERIFIED)
         seed(6L, 7L)
 
         val result = provider.getMessages(syncRequest(anchor = 5L, orphan = 7L))

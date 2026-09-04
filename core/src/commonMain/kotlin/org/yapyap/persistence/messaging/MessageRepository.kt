@@ -7,7 +7,9 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -19,6 +21,7 @@ import kotlin.uuid.Uuid
 data class MessageRow(
     val payload: MessagePayload,
     val isOrphaned: Boolean,
+    val verificationState: VerificationState = VerificationState.VERIFIED,
 )
 
 /**
@@ -37,7 +40,7 @@ data class MessageCursor(
 interface MessageRepository {
 
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
-    suspend fun insert(payload: MessagePayload, isOrphaned: Boolean): Boolean
+    suspend fun insert(payload: MessagePayload, isOrphaned: Boolean, verificationState: VerificationState): Boolean
 
     suspend fun findById(messageId: Uuid): MessageRow?
 
@@ -56,6 +59,15 @@ interface MessageRepository {
     suspend fun maxLamportInRoom(roomId: RoomId): Long?
 
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
+
+    /** Transition a stored message between verification states (e.g. PENDING -> VERIFIED/REJECTED). */
+    suspend fun updateVerificationState(messageId: Uuid, state: VerificationState)
+
+    /** Messages waiting on identity state for [deviceId] (used to re-verify once the device is known). */
+    suspend fun findPendingByAuthor(deviceId: PeerId): List<MessageRow>
+
+    /** All messages in the holding-tank state, useful for a boot-time re-verification sweep. */
+    suspend fun findAllPending(): List<MessageRow>
 
     suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean
 
@@ -81,12 +93,14 @@ class DefaultMessageRepository(
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
+        verificationState: VerificationState,
     ): Boolean = withContext(dbDispatcher) {
         queries.insertMessage(
             message_id = payload.messageId,
             room_id = payload.roomId,
-            sender_account_id = payload.senderAccountId.id,
-            author_device_id = payload.authorDeviceId.id,
+            sender_account_id = payload.senderAccountId,
+            author_device_id = payload.authorDeviceId,
+            verification_state = verificationState,
             prev_id = payload.prevId,
             lamport_clock = payload.lamportClock,
             created_at_epoch_seconds = payload.createdAt,
@@ -244,6 +258,31 @@ class DefaultMessageRepository(
         }
     }
 
+    override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
+        withContext(dbDispatcher) {
+            queries.updateMessageVerificationState(state, messageId)
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.MESSAGE_VERIFICATION_STATE_UPDATED,
+                message = "Updated message verification state",
+                fields = mapOf(
+                    "messageId" to messageId,
+                    "verificationState" to state,
+                ),
+            )
+        }
+    }
+
+    override suspend fun findPendingByAuthor(deviceId: PeerId): List<MessageRow> =
+        withContext(dbDispatcher) {
+            queries.selectPendingByAuthor(deviceId).executeAsList().map { it.toRow() }
+        }
+
+    override suspend fun findAllPending(): List<MessageRow> =
+        withContext(dbDispatcher) {
+            queries.selectAllPending().executeAsList().map { it.toRow() }
+        }
+
     override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
         withContext(dbDispatcher) {
             val isOrphan = queries.selectIsOrphanAtLamport(roomId, lamport).executeAsOne()
@@ -330,6 +369,7 @@ class DefaultMessageRepository(
         return MessageRow(
             payload = payload,
             isOrphaned = this.is_orphaned,
+            verificationState = this.verification_state,
         )
     }
 }
