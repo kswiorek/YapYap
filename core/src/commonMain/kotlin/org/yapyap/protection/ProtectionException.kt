@@ -90,6 +90,14 @@ sealed class ProtectionException(
             cause = cause,
         )
 
+    /** No active onboarding session — the bootstrap gate. Never succeeds until a new onboarding starts. */
+    class BootstrapSessionInactive :
+        ProtectionException(
+            message = "No active bootstrap onboarding session",
+            disposition = ProtectionDisposition.PERMANENT,
+            reason = ProtectionReason.IDENTITY,
+        )
+
     companion object {
         fun mapCryptoSessionException(error: CryptoSessionException): ProtectionException =
             when (error) {

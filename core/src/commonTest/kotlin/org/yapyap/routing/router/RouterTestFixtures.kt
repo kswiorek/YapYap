@@ -21,9 +21,7 @@ import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protection.PassthroughFileProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
-import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
+import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
@@ -114,6 +112,21 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     }
 
     override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
+
+    override suspend fun protectBootstrap(
+        input: BootstrapIntroPayload,
+        context: EnvelopeProtectContext
+    ): BootstrapEnvelope =
+        BootstrapEnvelope(
+            bootstrapEnvelopeId = Uuid.random(),
+            source = context.sourceDeviceId,
+            target = context.targetDeviceId,
+            createdAt = context.createdAt,
+            payload = input.encode(),
+        )
+
+    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapIntroPayload =
+        BootstrapIntroPayload.decode(envelope.payload)
 }
 
 /**
@@ -169,6 +182,15 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
 
     override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload =
         delegate.openSystem(envelope)
+
+    override suspend fun protectBootstrap(
+        input: BootstrapIntroPayload,
+        context: EnvelopeProtectContext
+    ): BootstrapEnvelope =
+        delegate.protectBootstrap(input, context)
+
+    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapIntroPayload =
+        delegate.openBootstrap(envelope)
 }
 
 internal class FakeSyncPayloadProvider : SyncPayloadProvider{
@@ -547,6 +569,7 @@ internal fun buildE2eeRouterStack(
     torByPeer: MutableMap<PeerId, TorEndpoint>,
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     crypto: CryptoProvider = DefaultCryptoProvider(),
+    bootstrapKeySource: BootstrapKeySource = BootstrapKeySource { null },
 ): E2eeRouterTestStack {
     val identity = E2eeIdentityResolverForRouter(
         local = local,
@@ -572,6 +595,7 @@ internal fun buildE2eeRouterStack(
         fileProtection = PassthroughFileProtection(),
         messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
         systemProtection = SignedSystemProtection(signatureProvider, crypto),
+        bootstrapProtection = BootstrapIntroProtection(crypto, bootstrapKeySource),
     )
     return E2eeRouterTestStack(
         peer = local,

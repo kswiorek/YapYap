@@ -5,11 +5,14 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.config.ConfigService
 import org.yapyap.orchestrator.runtime.config.DefaultConfigService
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.MessagingService
+import org.yapyap.orchestrator.runtime.onboarding.DefaultOnboardingService
+import org.yapyap.orchestrator.runtime.onboarding.OnboardingService
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.messaging.DefaultRoomRepository
@@ -19,6 +22,9 @@ import kotlin.time.Clock
 interface OrchestratorRuntime {
     val messaging: MessagingService
     val config: ConfigService
+
+    /** Bootstrap / onboarding handshake (scaffolding; bodies land with sprint 4). */
+    val onboarding: OnboardingService
     // identity / rooms / sync / roster added in later sprints
 }
 
@@ -30,6 +36,7 @@ internal class DefaultOrchestratorRuntime(
     private val identityResolver: IdentityResolver,
     private val messageLimits: StateFlow<MessageLimits>,
     private val configStore: ConfigStore,
+    private val bootstrapSessionStore: BootstrapSessionStore,
 ) : OrchestratorRuntime {
 
     private lateinit var _messaging: DefaultMessagingService
@@ -37,6 +44,9 @@ internal class DefaultOrchestratorRuntime(
 
     private lateinit var _config: DefaultConfigService
     override val config: ConfigService get() = _config
+
+    private lateinit var _onboarding: DefaultOnboardingService
+    override val onboarding: OnboardingService get() = _onboarding
 
     fun start(scope: CoroutineScope) {
         _messaging = DefaultMessagingService(
@@ -51,11 +61,18 @@ internal class DefaultOrchestratorRuntime(
         )
         _messaging.start(scope)
 
+        _onboarding = DefaultOnboardingService(
+            router = router,
+            sessionStore = bootstrapSessionStore,
+        )
+        _onboarding.start(scope)
+
         _config = DefaultConfigService(configStore)
         _config.start(scope)
     }
 
     suspend fun stop() {
         _messaging.stop()
+        _onboarding.stop()
     }
 }

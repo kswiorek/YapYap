@@ -3,6 +3,7 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.protocol.envelopes.BootstrapIntroPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
 
@@ -16,6 +17,13 @@ interface Router {
     val typingIndicators: Flow<TypingIndicatorEvent>
 
     val pingPayloads: Flow<List<Pair<RoomId, Long>>>
+
+    /**
+     * Hot stream of authenticated bootstrap intros received from sponsors. Each event has passed
+     * the preshared-key AEAD gate; persisting the sponsor's rows and triggering the global-room
+     * range sync is an orchestrator concern.
+     */
+    val bootstrapIntros: Flow<BootstrapIntroEvent>
 
     suspend fun start()
     suspend fun stop()
@@ -50,5 +58,12 @@ interface Router {
         roomId: RoomId,
         interval: Duration,
     )
+
+    /**
+     * Send the onboarding bootstrap intro to a QR-scanned newcomer. Protection happens inside the
+     * router (the preshared-key AEAD resolved from the active onboarding session); the result is
+     * queued through the outbox with a short lifetime and cleared on the newcomer's ACK.
+     */
+    suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload)
 
 }

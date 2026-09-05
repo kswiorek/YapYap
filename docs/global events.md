@@ -47,7 +47,7 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
   convergent for any node holding the same message set.
 - **Never fold orphaned events.** Fold input = global-room messages with `is_orphaned = false` and
   `verification_state != REJECTED`. Orphans enter the fold when their gap closes (which triggers a
-  re-fold).
+  re-fold). (check the orphan state and make sure it makes sense)
 - **Re-fold triggers**: new global-room insert, orphan created, gap closed
   (`IngestResult.closedGapMissingPrevIds`), and once at boot. At 10–20 users the global log is tiny —
   a full re-fold on every trigger is correct and cheap; optimize with watermarks only if ever needed.

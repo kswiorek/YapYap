@@ -19,7 +19,9 @@ import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.AppLogger
 import org.yapyap.orchestrator.dag.DefaultDagEngine
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
+import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
@@ -30,17 +32,17 @@ import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.key.*
 import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.DefaultRoomRepository
+import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.persistence.sync.DefaultPendingSyncRepository
-import org.yapyap.protection.envelope.PlaintextFileProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
+import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
@@ -79,6 +81,7 @@ class DefaultOrchestrator(
     private lateinit var webRtcTransport: DefaultWebRtcTransport
     private lateinit var identityResolver: DefaultIdentityResolver
     private lateinit var cryptoSessionManager: DefaultCryptoSessionManager
+    private lateinit var bootstrapSessionStore: BootstrapSessionStore
     private lateinit var database: YapYapDatabase
     private lateinit var keyStore: DefaultKeyStore
     private lateinit var cryptoProvider: DefaultCryptoProvider
@@ -87,6 +90,7 @@ class DefaultOrchestrator(
     private lateinit var dagEngine: DefaultDagEngine
     private lateinit var pipeline: DefaultInboundMessagePipeline
     private lateinit var syncCoordinator: DefaultSyncCoordinator
+    private lateinit var roomRepository: RoomRepository
     private lateinit var orchestratorScope: CoroutineScope
 
     private lateinit var orchestratorRuntime: DefaultOrchestratorRuntime
@@ -140,6 +144,7 @@ class DefaultOrchestrator(
                 publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
                 privateKeyStore = keyStore,                 // DefaultKeyStore
             )
+            bootstrapSessionStore = BootstrapSessionStore()
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
                 identityResolver,
@@ -169,6 +174,7 @@ class DefaultOrchestrator(
                 val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
                 _state.value = OrchestratorState.Starting
                 init()
+                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
@@ -186,6 +192,7 @@ class DefaultOrchestrator(
                 val device = identityProvisioning.createNewDeviceIdentity()
                 _state.value = OrchestratorState.Starting
                 init()
+                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
@@ -200,10 +207,11 @@ class DefaultOrchestrator(
                 //TODO trigger sync
             }
             is SetupIntent.AddDeviceToExistingAccount -> {
-                identityProvisioning.createPlaceholderAccountIdentity()
+                val account = identityProvisioning.createPlaceholderAccountIdentity()
                 val device = identityProvisioning.createNewDeviceIdentity()
                 _state.value = OrchestratorState.Starting
                 init()
+                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
                 return SetupResult(
@@ -263,15 +271,21 @@ class DefaultOrchestrator(
                 cryptoProvider,
             ),
             systemProtection = SignedSystemProtection(signatureProvider, cryptoProvider),
+            bootstrapProtection = BootstrapIntroProtection(cryptoProvider, bootstrapSessionStore),
         )
 
         val messageRepo = DefaultMessageRepository(database)
         val syncRepo = DefaultPendingSyncRepository(database)
-        val roomRepo = DefaultRoomRepository(database)
+        roomRepository = DefaultRoomRepository(database)
+
+        // The GLOBAL control room must exist as a real room before the router starts:
+        // messages.room_id FKs to rooms, getLocalSeq(GLOBAL) drives sync, and gap sync /
+        // ping / broadcast all consult rooms + room_members. Seed idempotently.
+        roomRepository.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
 
         val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig)
 
-        val lamportSnapshotProvider = DefaultLamportSnapshotProvider(roomRepo)
+        val lamportSnapshotProvider = DefaultLamportSnapshotProvider(roomRepository)
 
         val peerAvailabilityStore = DefaultPeerAvailabilityStore(database)
 
@@ -305,7 +319,7 @@ class DefaultOrchestrator(
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
-            roomRepository = roomRepo,
+            roomRepository = roomRepository,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
             clock = Clock.System,
@@ -315,7 +329,7 @@ class DefaultOrchestrator(
 
         syncCoordinator = DefaultSyncCoordinator(
             pipeline = pipeline,
-            roomRepository = roomRepo,
+            roomRepository = roomRepository,
             messageRepository = messageRepo,
             identityResolver = identityResolver,
             pendingSyncRepository = syncRepo,
@@ -340,6 +354,7 @@ class DefaultOrchestrator(
                 identityResolver = identityResolver,
                 messageLimits = configStore.messageLimits,
                 configStore = configStore,
+                bootstrapSessionStore = bootstrapSessionStore,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

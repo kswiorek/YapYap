@@ -40,6 +40,7 @@ class DefaultEnvelopeProtectionServiceTest {
                     fileProtection = PassthroughFileProtection(),
                     messageProtection = PlaintextMessageProtection(crypto),
                     systemProtection = PlaintextSystemProtection(crypto),
+                    bootstrapProtection = BootstrapIntroProtection(crypto) { null },
                 ),
                 scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
             ),
@@ -50,6 +51,7 @@ class DefaultEnvelopeProtectionServiceTest {
                     fileProtection = PassthroughFileProtection(),
                     messageProtection = SignedMessageProtection(signatureProvider, crypto),
                     systemProtection = SignedSystemProtection(signatureProvider, crypto),
+                    bootstrapProtection = BootstrapIntroProtection(crypto) { null },
                 ),
                 scheme = SignalSecurityScheme.SIGNED,
             ),
@@ -93,6 +95,7 @@ class DefaultEnvelopeProtectionServiceTest {
             fileProtection = fileProtection,
             messageProtection = PlaintextMessageProtection(crypto),
             systemProtection = PlaintextSystemProtection(crypto),
+            bootstrapProtection = BootstrapIntroProtection(crypto) { null },
         )
         val chunk = FilePayload.EncryptedChunk(
             chunkIndex = 0,

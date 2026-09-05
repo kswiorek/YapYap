@@ -1,9 +1,6 @@
 package org.yapyap.protection.service
 
-import org.yapyap.protection.envelope.FileProtection
-import org.yapyap.protection.envelope.MessageProtection
-import org.yapyap.protection.envelope.SystemProtection
-import org.yapyap.protection.envelope.WebRtcSignalProtection
+import org.yapyap.protection.envelope.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 
@@ -12,6 +9,7 @@ class DefaultEnvelopeProtectionService(
     val fileProtection: FileProtection,
     val messageProtection: MessageProtection,
     val systemProtection: SystemProtection,
+    val bootstrapProtection: BootstrapIntroProtection,
 ): EnvelopeProtectionService {
     override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
         webRtcSignalProtection.protect(input, context)
@@ -39,4 +37,13 @@ class DefaultEnvelopeProtectionService(
 
     override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload =
         systemProtection.open(envelope)
+
+    override suspend fun protectBootstrap(
+        input: BootstrapIntroPayload,
+        context: EnvelopeProtectContext
+    ): BootstrapEnvelope =
+        bootstrapProtection.protectIntro(input, context.sourceDeviceId, context.targetDeviceId, context.createdAt)
+
+    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapIntroPayload =
+        bootstrapProtection.openIntro(envelope)
 }

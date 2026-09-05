@@ -16,14 +16,12 @@ import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BootstrapIntroPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
-import org.yapyap.routing.inbound.handlers.FileInboundHandler
-import org.yapyap.routing.inbound.handlers.MessageInboundHandler
-import org.yapyap.routing.inbound.handlers.SignalInboundHandler
-import org.yapyap.routing.inbound.handlers.SystemInboundHandler
+import org.yapyap.routing.inbound.handlers.*
 import org.yapyap.routing.outbound.*
 import org.yapyap.routing.ping.LamportSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
@@ -85,6 +83,9 @@ class DefaultRouter(
     // Fed by SystemInboundHandler when a typing indicator system envelope is received.
     private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
 
+    // Fed by BootstrapInboundHandler when an authenticated bootstrap intro is received.
+    private val bootstrapIntroFlow = MutableSharedFlow<BootstrapIntroEvent>(extraBufferCapacity = 64)
+
     private val pingPayloadFlow = MutableSharedFlow<List<Pair<RoomId, Long>>>(extraBufferCapacity = 64, replay = 4)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
@@ -93,6 +94,8 @@ class DefaultRouter(
         packetOutbox = packetOutbox,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
     )
+
+    private val bootstrapSender = BootstrapSender(routingContext, outboxProcessor)
 
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry(
         clock = clock,
@@ -149,6 +152,7 @@ class DefaultRouter(
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
             PacketType.FILE to FileInboundHandler(),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow),
+            PacketType.BOOTSTRAP to BootstrapInboundHandler(routingContext, bootstrapIntroFlow),
         ),
         outboxProcessor = outboxProcessor,
         syncHandler = syncHandler,
@@ -181,6 +185,8 @@ class DefaultRouter(
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
+
+    override val bootstrapIntros: Flow<BootstrapIntroEvent> = bootstrapIntroFlow.asSharedFlow()
 
     override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = pingPayloadFlow.asSharedFlow()
 
@@ -328,5 +334,10 @@ class DefaultRouter(
     ) {
         check(started) { "Router must be started before sending typing indicators" }
         typingIndicatorDispatcher.dispatch(targets, roomId, interval)
+    }
+
+    override suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload) {
+        check(started) { "Router must be started before sending bootstrap intro" }
+        bootstrapSender.sendBootstrapIntro(payload)
     }
 }

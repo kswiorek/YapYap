@@ -1,5 +1,6 @@
 package org.yapyap.routing.inbound
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -24,7 +25,26 @@ internal class InboundEnvelopeProcessor(
     private val pingProvider: PingProvider,
 ) {
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
-        if (inbound.source != ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)) {
+        // resolveTorEndpointForDevice throws for devices with no row. That must not kill the inbound:
+        // a pre-bootstrap sponsor (unknown source) is exactly who we want to route bootstrap packets
+        // from. Unknown sources get no endpoint mapping here (their claimed device id is
+        // unauthenticated at this layer).
+        val knownEndpoint = try {
+            ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)
+        } catch (e: CryptoException) {
+            null
+        }
+        if (knownEndpoint == null) {
+            // TODO(sprint 4 hardening): endpoint-claim policy for unauthenticated unknown devices —
+            // today we neither create nor overwrite a mapping from an unverified claim. Known devices
+            // keep the existing self-healing overwrite below (Tor onion rotation).
+            AppLog.debug(
+                component = LogComponent.ROUTER,
+                event = LogEvent.STARTED,
+                message = "Tor inbound from unknown device; skipped endpoint reconciliation",
+                fields = mapOf("sourceDeviceId" to inbound.envelope.source),
+            )
+        } else if (inbound.source != knownEndpoint) {
             ctx.identityResolver.updatePeerTorEndpoint(
                 deviceId = inbound.envelope.source,
                 torEndpoint = inbound.source,

@@ -30,6 +30,10 @@ insertRoom:
 INSERT OR REPLACE INTO rooms (room_id, space_id, type, name, local_seq_n)
 VALUES (?, ?, ?, ?, ?);
 
+ensureRoomExists:
+INSERT OR IGNORE INTO rooms (room_id, space_id, type, name, local_seq_n)
+VALUES (:roomId, NULL, :type, :name, -1);
+
 insertRoomMember:
 INSERT OR REPLACE INTO room_members (room_id, account_id, role, joined_timestamp)
 VALUES (?, ?, ?, ?);

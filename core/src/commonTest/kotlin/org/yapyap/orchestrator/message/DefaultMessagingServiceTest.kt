@@ -24,10 +24,13 @@ import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BootstrapIntroPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
@@ -497,6 +500,10 @@ private class FakeRoomRepository(
     override suspend fun getLocalSeq(roomId: RoomId): Long? = null
 
     override suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>> = emptyList()
+
+    override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = Unit
+
+    override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) = Unit
 }
 
 private class FakeMessageRepository : MessageRepository {
@@ -670,6 +677,8 @@ private class RecordingRouter : Router {
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
 
+    override val bootstrapIntros: Flow<BootstrapIntroEvent> = MutableSharedFlow()
+
     override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
 
     val sentTargets = mutableListOf<AccountId>()
@@ -694,6 +703,8 @@ private class RecordingRouter : Router {
     }
 
     override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) = Unit
+
+    override suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

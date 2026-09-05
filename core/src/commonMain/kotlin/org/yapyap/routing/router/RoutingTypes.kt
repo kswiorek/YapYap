@@ -10,6 +10,7 @@ import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapIntroPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
@@ -55,6 +56,17 @@ data class TypingIndicatorEvent(
     val senderAccountId: AccountId,
     val roomId: RoomId,
     val interval: Duration,
+    val receivedAt: Instant,
+)
+
+/**
+ * An authenticated bootstrap intro received from a sponsor. The packet has already passed the
+ * preshared-key AEAD gate ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap]);
+ * persisting the sponsor's provisional identity rows and triggering the global-room range sync are
+ * orchestrator concerns (see [org.yapyap.orchestrator.runtime.onboarding.OnboardingService]).
+ */
+data class BootstrapIntroEvent(
+    val payload: BootstrapIntroPayload,
     val receivedAt: Instant,
 )
 

@@ -4,6 +4,8 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
@@ -141,9 +143,12 @@ class FakeRoomRepository(
     private val members: Map<RoomId, List<AccountId>> = emptyMap(),
 ) : RoomRepository {
     private val seqs = mutableMapOf<RoomId, Long>()
+    private val memberLists: MutableMap<RoomId, MutableList<AccountId>> =
+        members.mapValues { it.value.toMutableList() }.toMutableMap()
+    private val roomsFound = mutableSetOf<RoomId>()
 
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
-        members[roomId].orEmpty()
+        memberLists[roomId].orEmpty()
 
     override suspend fun updateLocalSeq(roomId: RoomId, seqN: Long) {
         seqs[roomId] = seqN
@@ -153,6 +158,14 @@ class FakeRoomRepository(
 
     override suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>> =
         seqs.map { (roomId, seqN) -> roomId to seqN }
+
+    override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
+        roomsFound.add(roomId)
+    }
+
+    override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) {
+        memberLists.getOrPut(roomId) { mutableListOf() }.add(accountId)
+    }
 }
 
 class FakeCausalHoldRepository(

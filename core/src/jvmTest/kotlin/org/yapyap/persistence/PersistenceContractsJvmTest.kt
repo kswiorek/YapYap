@@ -3,9 +3,11 @@ package org.yapyap.persistence
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
+import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.protocol.PeerId
@@ -32,6 +34,42 @@ class PersistenceContractsJvmTest {
         val v = readPragmaUserVersion(connection!!.driver)
         assertTrue(v > 0L, "expected PRAGMA user_version after schema create, got $v")
         assertTrue(readPragmaForeignKeys(connection!!.driver), "foreign_keys should be ON")
+    }
+
+    @Test
+    fun roomRepository_ensureRoomExists_seedsGlobalRoom_idempotently_andPreservesSeq() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        val repo = DefaultRoomRepository(db)
+
+        // Seeding creates the row with local_seq_n = -1 (no messages yet).
+        repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
+        assertEquals(-1L, repo.getLocalSeq(RoomId.GLOBAL))
+        assertEquals(emptyList<AccountId>(), repo.membersOfRoom(RoomId.GLOBAL))
+
+        // Local progress advances local_seq_n...
+        repo.updateLocalSeq(RoomId.GLOBAL, 5L)
+        assertEquals(5L, repo.getLocalSeq(RoomId.GLOBAL))
+
+        // ...and a later idempotent seed must NOT reset it back to -1.
+        repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
+        assertEquals(5L, repo.getLocalSeq(RoomId.GLOBAL))
+    }
+
+    @Test
+    fun roomRepository_addMember_insertsMembership_idempotently() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        val repo = DefaultRoomRepository(db)
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
+
+        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
+
+        // Re-adding the same account is idempotent (INSERT OR REPLACE on the composite PK) — no duplicate rows.
+        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
     }
 
     @Test

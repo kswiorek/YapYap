@@ -45,6 +45,12 @@ data class RouterConfig(
      */
     val reliabilityHalfLife: Duration = 24.hours,
     val maxBillableGap: Duration = 30.days,
+    /**
+     * Lifetime of an outbound bootstrap intro envelope. Deliberately short: the QR secret is
+     * one-time and the intro must either arrive and be ACKed while the newcomer is on-boarding,
+     * or die — a stale intro must not keep circling the outbox.
+     */
+    val bootstrapIntroLifetime: Duration = 2.hours,
     /** Desired chance that at least one selected relay is online when a message needs relaying. */
     val relayTargetSuccessProbability: Double = 0.9,
     /** Hard cap on the number of relays a message is deposited with. */
@@ -70,6 +76,7 @@ data class RouterConfig(
         require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }
         require(reliabilityHalfLife > Duration.ZERO) { "reliabilityHalfLife must be > 0" }
         require(maxBillableGap > Duration.ZERO) { "maxBillableGap must be > 0" }
+        require(bootstrapIntroLifetime > Duration.ZERO) { "bootstrapIntroLifetime must be > 0" }
         require(relayTargetSuccessProbability in 0.0..1.0) { "relayTargetSuccessProbability must be in [0,1]" }
         require(maxRelays > 0) { "maxRelays must be > 0" }
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }

@@ -13,10 +13,7 @@ import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.routing.sync.SyncHandler
@@ -313,6 +310,8 @@ private class RecordingRouter : Router {
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
 
+    override val bootstrapIntros: Flow<BootstrapIntroEvent> = MutableSharedFlow()
+
     override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
 
     val sent = mutableListOf<MessagePayload>()
@@ -337,6 +336,8 @@ private class RecordingRouter : Router {
     }
 
     override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) = Unit
+
+    override suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

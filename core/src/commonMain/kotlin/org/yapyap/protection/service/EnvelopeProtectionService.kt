@@ -46,6 +46,15 @@ interface EnvelopeProtectionService {
     suspend fun openSystem(
         envelope: SystemEnvelope,
     ): SystemPayload
+
+    suspend fun protectBootstrap(
+        input: BootstrapIntroPayload,
+        context: EnvelopeProtectContext,
+    ): BootstrapEnvelope
+
+    suspend fun openBootstrap(
+        envelope: BootstrapEnvelope,
+    ): BootstrapIntroPayload
 }
 
 data class EnvelopeProtectContext(
