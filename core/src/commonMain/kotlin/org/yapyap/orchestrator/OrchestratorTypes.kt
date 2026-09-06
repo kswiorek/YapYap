@@ -1,8 +1,7 @@
 package org.yapyap.orchestrator
 
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.Invite
 
 enum class OrchestratorState {
     Created,
@@ -22,6 +21,20 @@ enum class NodeMode {
 }
 
 sealed interface SetupIntent {
+    /**
+     * Genesis of a brand-new standalone network: provisions the local account + first device and,
+     * once global events land, appends the root `AddAccount` (prevId == null — admin by definition,
+     * §3 of the global-events doc). No sponsor invite is produced: the network sits in limbo until
+     * another device joins.
+     */
+    data class Genesis(
+        val accountName: String,
+    ) : SetupIntent
+
+    /**
+     * Join an existing network with a brand-new account: provisions account + first device and
+     * produces the sponsor invite (INVITE-flavor [org.yapyap.protocol.envelopes.Invite] carrying the account record).
+     */
     data class NewAccountFirstDevice(
         val accountName: String,
     ): SetupIntent
@@ -35,13 +48,16 @@ sealed interface SetupIntent {
 }
 
 data class SetupResult(
-    val identityPayload: IdentityPayload,   // for QR / CLI display
-    val recoveryKey: String?,    // non-null only for NewAccountFirstDevice
-)
-
-
-data class IdentityPayload(
-    val account: AccountIdentityRecord?,
-    val device: DeviceIdentityRecord,       // public parts (signing/enc/SPK/sig)
-    val torEndpoint: TorEndpoint?,          // null until Tor is up; update QR later if needed
+    /**
+     * The newcomer's onboarding invite (INVITE-flavor [Invite]): encodes to the bytes the
+     * GUI renders as a QR (or the CLI prints) and the sponsor decodes back. Non-null on the two join
+     * paths ([SetupIntent.NewAccountFirstDevice] — new account, [SetupIntent.AddDeviceToExistingAccount] —
+     * existing account); null for [SetupIntent.Genesis] (no one to scan it) and
+     * [SetupIntent.ImportAccountRecoveryKey] (direct-connect path via `bootstrapTorEndpoint`).
+     * `invite.account == null` means the sponsor adds the device to its own account; otherwise the
+     * sponsor also publishes the account via `AddAccount`.
+     */
+    val invite: Invite?,
+    /** Non-null for the account-founding paths (Genesis, NewAccountFirstDevice) — the account signing key as a pasteable code. */
+    val recoveryKey: String?,
 )

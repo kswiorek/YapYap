@@ -59,7 +59,13 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
 - `AddDevice(A)` valid iff:
   - (A exists in fold state AND signer's account == A) — own-device add, **or**
   - (A absent AND an `AddAccount(A)` by the **same signer** appears earlier in canonical order) —
-    new-account onboarding (sponsor appends the pair back-to-back).
+    new-account onboarding (sponsor appends the pair back-to-back), **or**
+  - the event carries a `key_signature` that verifies under A's account pub key **at that fold
+    position** — account-key-authorized device add (§8.2 recovery, where no device of A exists yet to
+    sign; the signature is relayed as data by any member, and possession of the recovery key is the
+    authorization). This is what makes recovery on a fresh device possible without a sponsor, and it
+    composes with §5: a tombstoned account invalidates later account-key-signed AddDevices, so a
+    leaked recovery key of a banned account re-enters nothing.
 - `GrantAdmin` / `RemoveAdmin` / `RemoveDevice(other)` / `RemoveAccount(other)`: signer's account
   `is_admin` **at that fold position**.
 - `RemoveDevice(own)` / `RemoveAccount(own)`: signer belongs to the target account. Non-admins can
@@ -167,6 +173,21 @@ RbacProjector(
 
 ## 8. Onboarding flow (deferred; agreed direction)
 
+The onboarding family is three roles a node can play, all fed by one BOOTSTRAP flow on the router
+(`Router.bootstrapPackets`, dispatched consumer-side by payload kind — the same
+per-packet-type/per-variant rule as `incomingMessages`/`MessagePayload`). `BootstrapPayload` kinds:
+`INTRO` (sponsor→newcomer, AEAD), `INVITE` (newcomer→sponsor, **out-of-band QR/CLI only — never on
+the wire**), `RECOVERY_REQUEST` (recovering device→mesh node, plaintext + account signature). The `BootstrapEnvelope`
+header carries the **protection scheme** in plaintext (AAD-bound) — how to open
+it — while the payload kind lives inside the payload, mirroring `MessageEnvelope.securityScheme` vs its
+payload type; a wire-borne INVITE is rejected.
+
+| Role      | Component                   | Lifecycle                                       | Modes       |
+|-----------|-----------------------------|-------------------------------------------------|-------------|
+| Newcomer  | `OnboardingProvider`        | ephemeral — disables at COMPLETE, secret burned | all         |
+| Sponsor   | runtime `OnboardingService` | on-demand, interactive (QR scan)                | FULL_CLIENT |
+| Responder | `RecoveryResponder`         | standing — serves others forever                | all         |
+
 1. Newcomer generates keys locally (existing provisioning), displays QR: account/device keys, onion,
    account→device `key_signature`, **and a one-time shared secret**.
 2. Sponsor scans, appends `AddAccount` + `AddDevice` back-to-back into the global DAG, broadcasts.
@@ -181,6 +202,61 @@ RbacProjector(
 4. Newcomer syncs the global room from the sponsor, folds, and joins the mesh. Impersonation value is
    bounded either way: events are signed, so an attacker can only serve a stale, censored, or
    parallel-genesis DAG.
+
+### 8.1 Sponsor-side branch (automated from the invite)
+
+`sponsorNewcomer(invite, admin)` derives everything from the payload — no GUI mode flag (two sources
+of truth can disagree):
+
+- `invite.account == null` → **add-device**: append `AddDevice` bound to the *sponsor's own* account
+  (by §3 only devices of A may add to A, so the sponsor's local account **is** the target). `admin`
+  is rejected here — the account exists and its status doesn't change on device-add.
+- `invite.account != null` → **new account**: re-derive `accountId` from the account pub key, append
+  `AddAccount` + `AddDevice` back-to-back (§3: same signer); when `admin == true` also append
+  `GrantAdmin` — valid only if the *sponsor* is admin at that fold position, so fail fast on the
+  local `is_admin` (the GUI shows the toggle only to admins). `GrantAdmin` is a separate event, never
+  a field of `AddAccount` (admin status is derived from the log, §1/§5). The newcomer's provisional
+  peer row is written with `is_admin = admin` since it is known here.
+
+### 8.2 Account recovery over the network (recovery key on a fresh device)
+
+The device knows itself from the recovery key but no peers; the user supplies a mesh member's
+**bootstrap endpoint** (`peerId` + onion + port — device id required so the standard `WRONG_TARGET`
+check applies; a shared-string encoding comes later).
+
+Three phases:
+
+1. **Request** (newcomer → node): a `RECOVERY_REQUEST` payload — account (with pub key) + device +
+   deviceType + onion + one-time `sharedSecret` + `accountSignature` (the **account signing key**
+   over a canonical device binding, `accountSignedDeviceBindingBytes`). Sent direct-to-endpoint
+   (`TorTransport.send`), disposition + short lifetime. The account key is online only on this fresh
+   import (recovery-code import puts it in the keystore; wipe-after is future work).
+   The secret's value here is not authentication (Tor delivery + the account sig already do that) but
+   session binding: the reply is AEAD-bound to this specific request, gating stale/replayed intros —
+   and it lets the reply reuse the *existing* `BootstrapIntroProtection`/`openIntro` path unchanged.
+2. **Responder** (`RecoveryResponder`, standing on every node): verify the account signature
+   (possession proof), check the account exists and is ACTIVE (a banned account must not re-enter),
+   then **relay** — append `AddDevice` carrying the same signature as `key_signature` (the §3
+   account-key branch, §3), fold, and **then** reply. The ordering is what removes all the "mess":
+   the intro's `dagHead` already includes the newcomer's `AddDevice`, so the newcomer syncs and finds
+   itself in the chain; the responder's device row for the newcomer is chain-derived (no manual
+   provisional inserts, no out-of-projector writes); the newcomer's sync requests verify against that
+   row. Any member can respond — the authorization is the account signature, not responder rank.
+3. **Newcomer**: standard intro path — seed the responder's provisional rows, sync GLOBAL up to
+   `dagHead`, find its own AddDevice, burn the secret, COMPLETE.
+
+Convergence: a request replayed to several nodes yields duplicate `AddDevice`s for one device_id —
+§3's duplicate rule converges (first in canonical order valid, rest invalid). Responder DoS (accepts
+but refuses to relay) shows up as "no AddDevice for me in the synced DAG" → retry another endpoint.
+Refuse-while-own-onboarding-active: a mid-onboarding node is a poor sync seed, so the responder
+declines during that transient window (the request retries elsewhere).
+
+### 8.3 Known seams (accepted)
+
+- The intro/request is ACKed on handler `Success` *before* the orchestrator role acts — a failed
+  persist or relay is invisible to the ACK (requester-side timeout/retry; the CONVERTED sink-callback
+  seam should cover both flows).
+- `INVITE` is out-of-band only; `BootstrapEnvelope.init` rejects it on the wire.
 
 ## 9. Build order & test matrix
 

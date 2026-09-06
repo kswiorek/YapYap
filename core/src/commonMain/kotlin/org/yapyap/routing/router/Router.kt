@@ -3,7 +3,8 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.protocol.envelopes.BootstrapIntroPayload
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
 
@@ -19,11 +20,12 @@ interface Router {
     val pingPayloads: Flow<List<Pair<RoomId, Long>>>
 
     /**
-     * Hot stream of authenticated bootstrap intros received from sponsors. Each event has passed
-     * the preshared-key AEAD gate; persisting the sponsor's rows and triggering the global-room
-     * range sync is an orchestrator concern.
+     * Hot stream of authenticated bootstrap-family packets (one flow per packet type — payload
+     * variants dispatch consumer-side, like [incomingMessages]). Each event has passed its kind's
+     * authentication (AEAD intro gate / account-signature recovery check); consuming is an
+     * orchestrator concern: INTRO → newcomer onboarding provider, RECOVERY_REQUEST → recovery responder.
      */
-    val bootstrapIntros: Flow<BootstrapIntroEvent>
+    val bootstrapPackets: Flow<BootstrapPacketEvent>
 
     suspend fun start()
     suspend fun stop()
@@ -64,6 +66,6 @@ interface Router {
      * router (the preshared-key AEAD resolved from the active onboarding session); the result is
      * queued through the outbox with a short lifetime and cleared on the newcomer's ACK.
      */
-    suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload)
+    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId)
 
 }

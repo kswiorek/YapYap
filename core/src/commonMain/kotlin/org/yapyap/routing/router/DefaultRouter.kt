@@ -15,8 +15,9 @@ import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapIntroPayload
+import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
@@ -83,8 +84,8 @@ class DefaultRouter(
     // Fed by SystemInboundHandler when a typing indicator system envelope is received.
     private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
 
-    // Fed by BootstrapInboundHandler when an authenticated bootstrap intro is received.
-    private val bootstrapIntroFlow = MutableSharedFlow<BootstrapIntroEvent>(extraBufferCapacity = 64)
+    // Fed by BootstrapInboundHandler when an authenticated bootstrap-family packet is received.
+    private val bootstrapPacketFlow = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
 
     private val pingPayloadFlow = MutableSharedFlow<List<Pair<RoomId, Long>>>(extraBufferCapacity = 64, replay = 4)
     private val outboxProcessor = OutboxProcessor(
@@ -152,7 +153,7 @@ class DefaultRouter(
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
             PacketType.FILE to FileInboundHandler(),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow),
-            PacketType.BOOTSTRAP to BootstrapInboundHandler(routingContext, bootstrapIntroFlow),
+            PacketType.BOOTSTRAP to BootstrapInboundHandler(routingContext, bootstrapPacketFlow),
         ),
         outboxProcessor = outboxProcessor,
         syncHandler = syncHandler,
@@ -186,7 +187,7 @@ class DefaultRouter(
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
 
-    override val bootstrapIntros: Flow<BootstrapIntroEvent> = bootstrapIntroFlow.asSharedFlow()
+    override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
 
     override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = pingPayloadFlow.asSharedFlow()
 
@@ -336,8 +337,8 @@ class DefaultRouter(
         typingIndicatorDispatcher.dispatch(targets, roomId, interval)
     }
 
-    override suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload) {
+    override suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId) {
         check(started) { "Router must be started before sending bootstrap intro" }
-        bootstrapSender.sendBootstrapIntro(payload)
+        bootstrapSender.sendBootstrap(payload, target)
     }
 }

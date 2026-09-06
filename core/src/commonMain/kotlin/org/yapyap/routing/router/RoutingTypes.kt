@@ -10,7 +10,7 @@ import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapIntroPayload
+import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
@@ -60,13 +60,14 @@ data class TypingIndicatorEvent(
 )
 
 /**
- * An authenticated bootstrap intro received from a sponsor. The packet has already passed the
- * preshared-key AEAD gate ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap]);
- * persisting the sponsor's provisional identity rows and triggering the global-room range sync are
- * orchestrator concerns (see [org.yapyap.orchestrator.runtime.onboarding.OnboardingService]).
+ * An authenticated bootstrap-family packet received over the wire. The envelope has already passed
+ * its kind-specific authentication ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap] —
+ * the AEAD intro gate or the account-sig recovery request check); the payload kind selects the
+ * handling role: INTRO → the newcomer-side onboarding provider, RECOVERY_REQUEST → the recovery
+ * responder (INVITE never travels on the wire — it is an out-of-band QR/CLI artifact).
  */
-data class BootstrapIntroEvent(
-    val payload: BootstrapIntroPayload,
+data class BootstrapPacketEvent(
+    val payload: BootstrapPayload,
     val receivedAt: Instant,
 )
 

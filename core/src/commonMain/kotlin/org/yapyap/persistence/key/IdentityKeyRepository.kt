@@ -19,7 +19,7 @@ interface IdentityKeyRepository {
 
     suspend fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
 
-    suspend fun insertLocalAccount(identity: AccountIdentityRecord)
+    suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean = false)
 
     suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
 

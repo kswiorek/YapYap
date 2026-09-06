@@ -141,7 +141,7 @@ class DefaultIdentityProvisioning(
         return record
     }
 
-    override suspend fun createNewAccountIdentity(displayName: String): AccountIdentityRecord {
+    override suspend fun createNewAccountIdentity(displayName: String, admin: Boolean): AccountIdentityRecord {
         AppLog.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.STARTED,
@@ -165,7 +165,7 @@ class DefaultIdentityProvisioning(
         keyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
 
         val accountRecord = AccountIdentityRecord(accountId, displayName, key = accountKeyRecord)
-        publicKeyRepository.insertLocalAccount(accountRecord)
+        publicKeyRepository.insertLocalAccount(accountRecord, admin = admin)
         AppLog.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
@@ -222,6 +222,8 @@ class DefaultIdentityProvisioning(
         keyStore.putKey(publicAccountKeyRef, publicKey)
 
         val accountRecord = AccountIdentityRecord(accountId, material.displayName, key = accountKeyRecord)
+        // admin = false (default): not derivable from the recovery code alone; the global-room fold
+        // (genesis AddAccount / GrantAdmin) corrects is_admin after sync.
         publicKeyRepository.insertLocalAccount(accountRecord)
         AppLog.info(
             component = LogComponent.CRYPTO,

@@ -8,10 +8,9 @@ import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.time.Instant
-import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-data class MessageEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+data class MessageEnvelope(
     val messageEnvelopeId: Uuid,
     val source: PeerId,
     val target: PeerId,
@@ -272,7 +271,8 @@ sealed interface MessagePayload {
         }
     }
 
-    data class GlobalEvent @OptIn(ExperimentalUuidApi::class) constructor(
+    //TODO: How to sync global event dag?
+    data class GlobalEvent(
         override val messageId: Uuid,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,

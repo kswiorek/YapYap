@@ -6,6 +6,7 @@ import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
+import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.config.ConfigService
 import org.yapyap.orchestrator.runtime.config.DefaultConfigService
@@ -37,6 +38,7 @@ internal class DefaultOrchestratorRuntime(
     private val messageLimits: StateFlow<MessageLimits>,
     private val configStore: ConfigStore,
     private val bootstrapSessionStore: BootstrapSessionStore,
+    private val onboardingProvider: OnboardingProvider,
 ) : OrchestratorRuntime {
 
     private lateinit var _messaging: DefaultMessagingService
@@ -62,10 +64,10 @@ internal class DefaultOrchestratorRuntime(
         _messaging.start(scope)
 
         _onboarding = DefaultOnboardingService(
+            provider = onboardingProvider,
             router = router,
             sessionStore = bootstrapSessionStore,
         )
-        _onboarding.start(scope)
 
         _config = DefaultConfigService(configStore)
         _config.start(scope)
@@ -73,6 +75,5 @@ internal class DefaultOrchestratorRuntime(
 
     suspend fun stop() {
         _messaging.stop()
-        _onboarding.stop()
     }
 }

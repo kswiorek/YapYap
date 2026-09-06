@@ -1,54 +1,37 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import org.yapyap.orchestrator.IdentityPayload
 import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
-import org.yapyap.routing.router.BootstrapIntroEvent
+import org.yapyap.orchestrator.onboarding.OnboardingProvider
+import org.yapyap.orchestrator.onboarding.OnboardingState
+import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.routing.router.Router
 
 /**
- * Scaffolding stub for the sprint-4 onboarding handshake. The router delivers authenticated
- * [BootstrapIntroEvent]s here; persisting the sponsor's provisional rows and triggering the
- * global-room range sync land with the onboarding implementation.
+ * Sponsor-side onboarding service, wired to the orchestrator-level [OnboardingProvider] for the
+ * newcomer state it exposes to the GUI. Holds only the GUI-facing sponsor flow (QR scan -> sponsor);
+ * the background newcomer work is done by the provider, which also runs on headless relays.
  */
 internal class DefaultOnboardingService(
+    private val provider: OnboardingProvider,
     private val router: Router,
     private val sessionStore: BootstrapSessionStore,
 ) : OnboardingService {
 
-    private val _state = MutableStateFlow(OnboardingState.IDLE)
-    override val state: StateFlow<OnboardingState> = _state.asStateFlow()
+    override val newcomerState: StateFlow<OnboardingState> = provider.state
 
-    private var collectJob: Job? = null
-
-    fun start(scope: CoroutineScope) {
-        // TODO(sprint 4 onboarding): drive IDLE -> AWAITING_INTRO -> SYNCING -> COMPLETE and burn
-        // the one-time secret at COMPLETE (onboarding state machine).
-        collectJob = scope.launch {
-            router.bootstrapIntros.collect { onBootstrapIntro(it) }
-        }
-    }
-
-    fun stop() {
-        collectJob?.cancel()
-    }
-
-    override suspend fun onBootstrapIntro(event: BootstrapIntroEvent) {
-        // TODO(sprint 4 onboarding): insert the sponsor's provisional account + device + GLOBAL
-        // membership rows (insert-only, FK order, provisional flag) — requires the devices.provisional
-        // migration and an insert-only IdentityKeyRepository method — then requestRangeSync(GLOBAL,
-        // 0..event.payload.dagHeadLamport).
-        TODO("sprint 4 onboarding: provisional rows + global range sync not yet implemented")
-    }
-
-    override suspend fun sponsorNewcomer(sharedSecret: ByteArray, newcomerIdentity: IdentityPayload) {
-        // TODO(sprint 4 onboarding): sessionStore.setActiveSecret(sharedSecret), insert the newcomer's
-        // peer rows, append AddAccount + AddDevice to the global DAG, then router.sendBootstrapIntro.
+    override suspend fun sponsorNewcomer(invite: Invite, admin: Boolean) {
+        require(invite.account != null || !admin) { "admin toggle applies only to new accounts" }
+        // TODO(sprint 4 onboarding): the invite's account presence drives the sponsor flow:
+        //   sessionStore.setActiveSecret(invite.sharedSecret) — one-time secret, burned at COMPLETE;
+        //   insert the newcomer's peer rows — device always; and when invite.account != null also the
+        //     provisional account row with is_admin = admin (we know it here, so write it as marked);
+        //   append global events — invite.account == null -> AddDevice bound to the local account;
+        //     else re-derive accountId from the account public key, then AddAccount + AddDevice
+        //     back-to-back (same signer, §3 of the global-events doc), and when admin == true also
+        //     append GrantAdmin (valid only if the local account is admin at that fold position —
+        //     fail fast on the local is_admin here; the GUI shows the toggle only for admins);
+        //   router.sendBootstrap(Intro(...)) with the sponsor's identity + DAG head.
         TODO("sprint 4 onboarding: sponsor flow not yet implemented")
     }
 }

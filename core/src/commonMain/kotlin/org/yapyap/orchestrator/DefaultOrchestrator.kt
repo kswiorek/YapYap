@@ -22,6 +22,8 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
+import org.yapyap.orchestrator.onboarding.DefaultOnboardingProvider
+import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
@@ -44,6 +46,7 @@ import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.persistence.sync.DefaultPendingSyncRepository
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
@@ -94,6 +97,10 @@ class DefaultOrchestrator(
     private lateinit var orchestratorScope: CoroutineScope
 
     private lateinit var orchestratorRuntime: DefaultOrchestratorRuntime
+
+    private lateinit var onboardingProvider: DefaultOnboardingProvider
+
+    private lateinit var recoveryResponder: DefaultRecoveryResponder
 
 
     override suspend fun start() {
@@ -168,6 +175,24 @@ class DefaultOrchestrator(
     override suspend fun completeSetup(intent: SetupIntent): SetupResult {
         require(state.value == OrchestratorState.SetupRequired) { "Orchestrator must be in SetupRequired state" }
         when (intent) {
+            is SetupIntent.Genesis -> {
+                val account = identityProvisioning.createNewAccountIdentity(intent.accountName, admin = true)
+                val device = identityProvisioning.createNewDeviceIdentity()
+                val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
+                _state.value = OrchestratorState.Starting
+                init()
+                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
+                _state.value = OrchestratorState.Running
+
+                // TODO(sprint 4 global events): append the genesis AddAccount (prevId == null) to the
+                // global DAG and fold immediately — genesis is admin by definition (§3). is_admin is
+                // seeded true in the local accounts row already so the GUI can rely on it; the
+                // projector's fold owns this column once it lands.
+                return SetupResult(
+                    invite = null, // no sponsor invite — the network waits in limbo for its first newcomer
+                    recoveryKey = recoveryKey,
+                )
+            }
             is SetupIntent.NewAccountFirstDevice -> {
                 val account = identityProvisioning.createNewAccountIdentity(intent.accountName)
                 val device = identityProvisioning.createNewDeviceIdentity()
@@ -178,11 +203,19 @@ class DefaultOrchestrator(
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
+                // Join-existing-network path: always produces a sponsor invite. is_admin for this new
+                // account is false (createNewAccountIdentity default); the sponsor's GrantAdmin (if any)
+                // and the projector's fold correct it after sync.
+                val secret = cryptoProvider.randomBytes(32)
+                bootstrapSessionStore.setActiveSecret(secret)
+
                 return SetupResult(
-                    identityPayload = IdentityPayload(
+                    invite = Invite(
                         account = account,
                         device = identityResolver.getLocalDeviceIdentityRecord(),
+                        deviceType = bootConfig.localDeviceType,
                         torEndpoint = tor,
+                        sharedSecret = secret,
                     ),
                     recoveryKey = recoveryKey,
                 )
@@ -197,11 +230,7 @@ class DefaultOrchestrator(
                 _state.value = OrchestratorState.Running
 
                 return SetupResult(
-                    identityPayload = IdentityPayload(
-                        account = account,
-                        device = identityResolver.getLocalDeviceIdentityRecord(),
-                        torEndpoint = tor,
-                    ),
+                    invite = null, // no sponsor QR — direct to the supplied bootstrap endpoint
                     recoveryKey = null,
                 )
                 //TODO trigger sync
@@ -214,11 +243,17 @@ class DefaultOrchestrator(
                 roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
+
+                val secret = cryptoProvider.randomBytes(32)
+                bootstrapSessionStore.setActiveSecret(secret)
+
                 return SetupResult(
-                    identityPayload = IdentityPayload(
-                        account = null,
+                    invite = Invite(
+                        account = null, // existing account; the sponsor adds the device to its own
                         device = identityResolver.getLocalDeviceIdentityRecord(),
+                        deviceType = bootConfig.localDeviceType,
                         torEndpoint = tor,
+                        sharedSecret = secret,
                     ),
                     recoveryKey = null,
                 )
@@ -271,7 +306,7 @@ class DefaultOrchestrator(
                 cryptoProvider,
             ),
             systemProtection = SignedSystemProtection(signatureProvider, cryptoProvider),
-            bootstrapProtection = BootstrapIntroProtection(cryptoProvider, bootstrapSessionStore),
+            bootstrapProtection = BootstrapProtection(cryptoProvider, bootstrapSessionStore),
         )
 
         val messageRepo = DefaultMessageRepository(database)
@@ -337,6 +372,26 @@ class DefaultOrchestrator(
         )
         syncCoordinator.start(orchestratorScope)
 
+        // Newcomer onboarding runs in every mode: headless relays have no runtime yet must still be
+        // onboarded as newcomers. It consumes the sponsor's bootstrap intro, seeds provisional rows,
+        // and triggers the global-room range sync.
+        onboardingProvider = DefaultOnboardingProvider(
+            router = router,
+            sessionStore = bootstrapSessionStore,
+            syncCoordinator = syncCoordinator,
+        )
+        onboardingProvider.start(orchestratorScope)
+
+        // Standing recovery service: serves OTHER nodes' account-recovery requests, in every mode —
+        // an always-on relay is exactly the bootstrap endpoint a recovering device points at.
+        recoveryResponder = DefaultRecoveryResponder(
+            router = router,
+            sessionStore = bootstrapSessionStore,
+            identityKeyRepository = identityRepo,
+            roomRepository = roomRepository,
+        )
+        recoveryResponder.start(orchestratorScope)
+
         orchestratorScope.launch {
             router.pingPayloads.collect { roomLamports ->
                 roomLamports.forEach { (roomId, pingLamport) ->
@@ -355,6 +410,7 @@ class DefaultOrchestrator(
                 messageLimits = configStore.messageLimits,
                 configStore = configStore,
                 bootstrapSessionStore = bootstrapSessionStore,
+                onboardingProvider = onboardingProvider,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

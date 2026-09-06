@@ -11,26 +11,28 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
-import org.yapyap.routing.router.BootstrapIntroEvent
+import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Handles an out-of-band bootstrap intro ([org.yapyap.protocol.packet.PacketType.BOOTSTRAP]).
+ * Handles bootstrap-family packets ([org.yapyap.protocol.packet.PacketType.BOOTSTRAP]).
  *
- * The packet is authenticated by the preshared-key AEAD gate ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap])
- * — not by a DB-backed author signature, which is the whole point (no sponsor row exists yet).
- * On success the intro is forwarded to [bootstrapIntros] for the orchestrator to persist the
- * sponsor's provisional rows and trigger the global-room range sync; the ACK that clears the
- * sponsor's outbox is sent by the inbound processor when this handler returns [InboundHandleResult.Success].
+ * The envelope is authenticated by kind ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap]):
+ * INTRO by the preshared-key AEAD gate — not a DB-backed author signature, since no sponsor row
+ * exists yet; RECOVERY_REQUEST by the account-key signature over the device binding. On success the
+ * authenticated payload is forwarded to [bootstrapPackets] for the orchestrator to dispatch by kind
+ * (newcomer onboarding provider vs recovery responder); the ACK that clears the sender's outbox is
+ * sent by the inbound processor when this handler returns [InboundHandleResult.Success].
  */
 internal class BootstrapInboundHandler(
     private val ctx: RoutingContext,
-    private val bootstrapIntros: MutableSharedFlow<BootstrapIntroEvent>,
+    private val bootstrapPackets: MutableSharedFlow<BootstrapPacketEvent>,
 ) : InboundEnvelopeHandler {
 
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
+        val received = ctx.clock.now()
         val bootstrapEnvelope = runCatching { BootstrapEnvelope.decode(env.payload) }.getOrNull() ?: run {
             AppLog.warn(
                 component = LogComponent.ROUTER,
@@ -70,12 +72,12 @@ internal class BootstrapInboundHandler(
         }
 
         if (bootstrapEnvelope.source != payload.device.deviceId) {
-            // The envelope header source is AEAD-bound, so a mismatch with the attested device id
-            // means the intro was assembled inconsistently — reject.
+            // The envelope header source is AAD-bound, so a mismatch with the attested device id
+            // means the packet was assembled inconsistently — reject.
             AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                message = "Bootstrap envelope source does not match attested intro device id",
+                message = "Bootstrap envelope source does not match attested device id",
                 fields = mapOf(
                     "sourceDeviceId" to bootstrapEnvelope.source,
                     "attestedDeviceId" to payload.device.deviceId,
@@ -86,11 +88,11 @@ internal class BootstrapInboundHandler(
 
         // TODO(sprint 4 onboarding): cross-check payload.torEndpoint against the transport-proven
         // Tor source onion once handleTorInbound plumbed the connection source through to handlers.
-        // TODO(sprint 4 onboarding): the sponsor's provisional rows are inserted by the orchestrator
-        // after this event; ordering means the ACK (on Success) may precede persistence — revisit
-        // once the insert lands so a failed persist can NACK instead of ACK.
+        // TODO(sprint 4 onboarding): the orchestrator acts after this event; ordering means the ACK
+        // (on Success) may precede the responder's work — revisit once the sink-callback seam lands
+        // so a failed persist/reply can NACK instead of ACK.
 
-        bootstrapIntros.emit(BootstrapIntroEvent(payload, receivedAt = ctx.clock.now()))
+        bootstrapPackets.emit(BootstrapPacketEvent(payload, receivedAt = received))
         return InboundHandleResult.Success()
     }
 }

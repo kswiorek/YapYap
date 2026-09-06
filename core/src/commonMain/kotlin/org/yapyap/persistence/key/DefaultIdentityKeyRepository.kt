@@ -222,7 +222,7 @@ class DefaultIdentityKeyRepository(
         }
     }
 
-    override suspend fun insertLocalAccount(identity: AccountIdentityRecord) {
+    override suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
             queries.putAccount(
@@ -231,7 +231,7 @@ class DefaultIdentityKeyRepository(
                 is_local_account = true,
                 pub_key_version = identity.key?.keyVersion,
                 pub_key_id = identity.key?.keyId,
-                is_admin = false,
+                is_admin = admin,
                 status = AccountStatus.ACTIVE,
                 display_name = identity.displayName,
             )

@@ -9,7 +9,7 @@ class DefaultEnvelopeProtectionService(
     val fileProtection: FileProtection,
     val messageProtection: MessageProtection,
     val systemProtection: SystemProtection,
-    val bootstrapProtection: BootstrapIntroProtection,
+    val bootstrapProtection: BootstrapProtection,
 ): EnvelopeProtectionService {
     override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
         webRtcSignalProtection.protect(input, context)
@@ -39,11 +39,11 @@ class DefaultEnvelopeProtectionService(
         systemProtection.open(envelope)
 
     override suspend fun protectBootstrap(
-        input: BootstrapIntroPayload,
+        input: BootstrapPayload,
         context: EnvelopeProtectContext
     ): BootstrapEnvelope =
-        bootstrapProtection.protectIntro(input, context.sourceDeviceId, context.targetDeviceId, context.createdAt)
+        bootstrapProtection.protect(input, context.sourceDeviceId, context.targetDeviceId, context.createdAt)
 
-    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapIntroPayload =
-        bootstrapProtection.openIntro(envelope)
+    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
+        bootstrapProtection.open(envelope)
 }
