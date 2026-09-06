@@ -236,6 +236,7 @@ class DefaultOrchestrator(
                 //TODO trigger sync
             }
             is SetupIntent.AddDeviceToExistingAccount -> {
+                //TODO: if device is headless and belongs to an account, exclude from message fanount but not global room?
                 val account = identityProvisioning.createPlaceholderAccountIdentity()
                 val device = identityProvisioning.createNewDeviceIdentity()
                 _state.value = OrchestratorState.Starting

@@ -171,6 +171,7 @@ internal class OutboundMessenger(
                 "nextRetryAt" to nextRetryAt,
             ),
         )
+        //TODO: remove direct path
         try {
             dispatcher.dispatch(binaryEnvelope, plan.transport)
         } catch (e: CancellationException) {
