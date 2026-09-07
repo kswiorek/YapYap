@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
@@ -65,7 +66,10 @@ interface Router {
      * Send the onboarding bootstrap intro to a QR-scanned newcomer. Protection happens inside the
      * router (the preshared-key AEAD resolved from the active onboarding session); the result is
      * queued through the outbox with a short lifetime and cleared on the newcomer's ACK.
+     *
+     * @param targetEndpoint out-of-band endpoint override for targets with no local devices row
+     *   (QR-scanned newcomer / recovery-request bootstrap node). Null once the target's row exists.
      */
-    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId)
+    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId, targetEndpoint: TorEndpoint? = null)
 
 }

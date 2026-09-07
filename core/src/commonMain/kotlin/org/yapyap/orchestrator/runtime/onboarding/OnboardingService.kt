@@ -29,10 +29,16 @@ interface OnboardingService {
      *    [admin] is true also append `GrantAdmin` (only meaningful local accounts can grant it).
      *
      * TODO(sprint 4 onboarding): set the one-time shared secret on the
-     * [org.yapyap.orchestrator.onboarding.BootstrapSessionStore], insert the newcomer's peer rows
+     * [org.yapyap.persistence.key.BootstrapSessionStore], insert the newcomer's peer rows
      * (provisional account with `is_admin = admin` when a new account), append the
      * global-`AddAccount`/`AddDevice`/`GrantAdmin` events (typed codec — global events work), then
      * send the intro via [org.yapyap.routing.router.Router.sendBootstrap].
      */
     suspend fun sponsorNewcomer(invite: Invite, admin: Boolean = false)
+
+    /**
+     * GUI cancel button for an abandoned onboarding (newcomer or sponsor side): delegates to
+     * [OnboardingProvider.cancelOnboarding].
+     */
+    suspend fun cancelNewcomerOnboarding()
 }

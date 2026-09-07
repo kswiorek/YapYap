@@ -2,17 +2,23 @@ import kotlin.Boolean;
 import kotlin.time.Instant;
 import kotlin.uuid.Uuid;
 
+-- Packet plumbing for not-yet-known peers (bootstrap): target_device_id deliberately has NO
+-- FOREIGN KEY to devices. A recovery request / intro is addressed to a peer with no local row yet —
+-- the out-of-band endpoint for such targets rides the nullable target_onion_* override columns
+-- (populated at enqueue, preferred over the DB lookup at dispatch). target_device_id is only ever
+-- used as a lookup key (dispatch resolution, per-target retry acceleration), never joined.
 CREATE TABLE outbox (
     packet_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     envelope_blob BLOB NOT NULL,
     blob_size INTEGER NOT NULL,
     target_device_id TEXT NOT NULL,
+    target_onion_address TEXT,
+    target_onion_port INTEGER,
     is_relay INTEGER AS Boolean NOT NULL DEFAULT 0,
     retry_count INTEGER NOT NULL,
     expires_at INTEGER AS Instant NOT NULL,
     last_attempt_at INTEGER AS Instant NOT NULL,
-    next_retry_at INTEGER AS Instant NOT NULL,
-    FOREIGN KEY (target_device_id) REFERENCES devices(device_id)
+    next_retry_at INTEGER AS Instant NOT NULL
 );
 
 insertOutbox:
@@ -21,12 +27,14 @@ INSERT INTO outbox(
     envelope_blob,
     blob_size,
     target_device_id,
+    target_onion_address,
+    target_onion_port,
     is_relay,
     retry_count,
     expires_at,
     last_attempt_at,
     next_retry_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteByPacketId:
 DELETE FROM outbox WHERE packet_id = ?;

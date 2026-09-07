@@ -1,9 +1,9 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.onboarding.OnboardingState
+import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.routing.router.Router
 
@@ -19,6 +19,10 @@ internal class DefaultOnboardingService(
 ) : OnboardingService {
 
     override val newcomerState: StateFlow<OnboardingState> = provider.state
+
+    override suspend fun cancelNewcomerOnboarding() {
+        provider.cancelOnboarding()
+    }
 
     override suspend fun sponsorNewcomer(invite: Invite, admin: Boolean) {
         require(invite.account != null || !admin) { "admin toggle applies only to new accounts" }

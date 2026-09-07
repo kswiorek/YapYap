@@ -4,6 +4,7 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.packet.PacketType
@@ -50,14 +51,25 @@ internal class InboundEnvelopeProcessor(
                 torEndpoint = inbound.source,
             )
         }
-        handle(inbound.envelope, RouterTransport.TOR)
+        handle(inbound.envelope, RouterTransport.TOR, provenSourceEndpoint = inbound.source)
     }
 
     suspend fun handleWebRtcInbound(inbound: WebRtcIncomingEnvelope) {
         handle(inbound.envelope, RouterTransport.WEBRTC)
     }
 
-    suspend fun handle(inbound: BinaryEnvelope, transport: RouterTransport) {
+    /**
+     * @param provenSourceEndpoint transport-proven source endpoint (Tor only): the onion the
+     *   packet actually arrived from, as opposed to anything claimed inside the payload. Passed
+     *   through to ACK/NACKs so dispositions back to sources with no local devices row
+     *   (bootstrap newcomer / recovering device) are deliverable without a DB lookup. For known
+     *   peers it equals the reconciled row above, so preferring it is equivalent-or-fresher.
+     */
+    suspend fun handle(
+        inbound: BinaryEnvelope,
+        transport: RouterTransport,
+        provenSourceEndpoint: TorEndpoint? = null,
+    ) {
         val receivedAt = ctx.clock.now()
         peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
         if (!ctx.packetDeduplicator.firstSeen(
@@ -82,6 +94,7 @@ internal class InboundEnvelopeProcessor(
                     inbound,
                     transport,
                     ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
+                    endpointOverride = provenSourceEndpoint,
                 )
             }
             return
@@ -98,7 +111,14 @@ internal class InboundEnvelopeProcessor(
                 ),
             )
             if (inbound.dispositionRequested) {
-                systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.EXPIRED, transport)
+                systemSender.sendNack(
+                    inbound.packetId,
+                    inbound.source,
+                    inbound.packetType,
+                    PacketNackReason.EXPIRED,
+                    transport,
+                    endpointOverride = provenSourceEndpoint
+                )
             }
             return
         }
@@ -115,7 +135,14 @@ internal class InboundEnvelopeProcessor(
                 ),
             )
             if (inbound.dispositionRequested) {
-                systemSender.sendNack(inbound.packetId, inbound.source, inbound.packetType, PacketNackReason.WRONG_TARGET, transport)
+                systemSender.sendNack(
+                    inbound.packetId,
+                    inbound.source,
+                    inbound.packetType,
+                    PacketNackReason.WRONG_TARGET,
+                    transport,
+                    endpointOverride = provenSourceEndpoint
+                )
             }
             return
         }
@@ -140,7 +167,13 @@ internal class InboundEnvelopeProcessor(
         when (handleResult) {
             is InboundHandleResult.Success ->
                 if (inbound.dispositionRequested) {
-                    systemSender.sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+                    systemSender.sendAck(
+                        inbound.packetId,
+                        inbound.source,
+                        inbound.packetType,
+                        transport,
+                        endpointOverride = provenSourceEndpoint
+                    )
                 }
             is InboundHandleResult.Deferred -> {
                 AppLog.info(
@@ -163,6 +196,7 @@ internal class InboundEnvelopeProcessor(
                         inbound.packetType,
                         handleResult.reason,
                         transport,
+                        endpointOverride = provenSourceEndpoint,
                     )
                 }
         }

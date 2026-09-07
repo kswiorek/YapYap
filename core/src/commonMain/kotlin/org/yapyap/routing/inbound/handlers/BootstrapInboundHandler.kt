@@ -86,8 +86,6 @@ internal class BootstrapInboundHandler(
             return InboundHandleResult.Rejected(PacketNackReason.PROTECTION_FAILED)
         }
 
-        // TODO(sprint 4 onboarding): cross-check payload.torEndpoint against the transport-proven
-        // Tor source onion once handleTorInbound plumbed the connection source through to handlers.
         // TODO(sprint 4 onboarding): the orchestrator acts after this event; ordering means the ACK
         // (on Success) may precede the responder's work — revisit once the sink-callback seam lands
         // so a failed persist/reply can NACK instead of ACK.

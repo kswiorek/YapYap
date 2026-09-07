@@ -28,12 +28,21 @@ Main code compiles (`:core:compileKotlinJvm`). Tests are intentionally broken (r
   dispatch by payload subtype).
 - `BootstrapInboundHandler` authenticates by scheme (AEAD / account-sig) then emits; ACK/NACK/deferred
   handled by `InboundEnvelopeProcessor`.
-- `Router.sendBootstrap(payload)` → `BootstrapSender` (outbox, `dispositionRequested`, short lifetime).
+- `Router.sendBootstrap(payload, target, targetEndpoint?)` → `BootstrapSender` (outbox,
+  `dispositionRequested`, short lifetime). `targetEndpoint` is the out-of-band endpoint override
+  for targets with no local row (persisted on the outbox row, preferred at dispatch).
+- `outbox` / `dedup` deliberately carry **no FK to `devices`** (packet plumbing for not-yet-known
+  peers; both tables are keyed scans, never joined). ACK/NACKs back to unknown sources use the
+  transport-proven inbound endpoint as the override (`InboundEnvelopeProcessor` threads
+  `TorIncomingEnvelope.source` through).
 
 **Orchestrator** (`orchestrator.onboarding`)
 
 - `OnboardingProvider` (newcomer; filters `Intro`; **body is TODO**), `RecoveryResponder`
   (standing; filters `RecoveryRequest`; **body is TODO**), both wired/started in all modes.
+  Boot resume partially in place (persisted secret → AWAITING_INTRO at provider start; the
+  fold-anchored check is a seam); `cancelOnboarding()` implemented (burn + IDLE) with a service
+  passthrough for the GUI.
 - Runtime `OnboardingService.sponsorNewcomer(invite: Invite, admin)` (**TODO**).
 - `completeSetup` for all four intents (Genesis / NewAccountFirstDevice / ImportAccountRecoveryKey /
   AddDeviceToExistingAccount), with secret generation + invites into `SetupResult(invite, recoveryKey)`.
@@ -46,30 +55,44 @@ Main code compiles (`:core:compileKotlinJvm`). Tests are intentionally broken (r
    swallowed) and is the natural landing spot for a registered-sink fix (handler awaits an orchestrator
    callback; maps failure → Rejected/Deferred). Convert both bootstrap flavors together.
 
-2. **`sendBootstrap` targets the wrong device (correctness bug).** `BootstrapSender` sets
+2. **`sendBootstrap` targets the wrong device (done).** `BootstrapSender` sets
    `target = payload.device.deviceId`, but for an `Intro` `payload.device` is the *sender's* own device
    (handler checks `envelope.source == payload.device.deviceId`). So the intro is addressed to the
    sponsor itself. The target is out-of-band knowledge (newcomer's id from the `Invite`, or the
    responder's id from the composite endpoint) → fix is an explicit `target: PeerId` param on
    `sendBootstrap` / `Router`.
 
-3. **Recovery-request delivery (parked "discuss later").** Even with the right target, the outbox
-   resolves the target onion from the DB, and the requester has no row for the bootstrap node.
-   Options: direct-to-endpoint send (`TorTransport.send(target: TorEndpoint, ...)`), or seed a
-   provisional row from the composite endpoint. Same signature reshape as #2.
+3. **Recovery-request delivery (done).** All outbound bootstrap packets ride the same outbox
+   path: the requester (no `devices` row for the bootstrap node) enqueues with the composite
+   endpoint (`SetupIntent.BootstrapEndpoint`: peerId + onion) as the endpoint override — no
+   direct-to-endpoint special case, no provisional-row seeding (rejected: `devices.account_id`
+   is NOT NULL, so a keyless row would force a fake account that leaks into broadcast joins).
+   Decided by the two structural facts: `outbox`/`dedup` carry no `devices` FK, and the endpoint
+   override is preferred at dispatch.
 
-4. **`ImportAccountRecoveryKey` intent reshape.** `bootstrapTorEndpoint: TorEndpoint? = null` → a
-   non-null composite (peerId + onion). `completeSetup` doesn't yet build/sign/send the
-   `RecoveryRequest` (account key is in the keystore after recovery import, so the accountSignature is
-   producible). Composite-endpoint string encoding assessed later.
+4. **`ImportAccountRecoveryKey` intent reshape (done).** `bootstrapTorEndpoint: TorEndpoint? = null`
+   → mandatory `bootstrapEndpoint: BootstrapEndpoint` (peerId + onion). `completeSetup` builds the
+   `RecoveryRequest` (account from the import, fresh device, own onion, fresh secret into
+   `BootstrapSessionStore`), signs the device binding with the account key, and sends via
+   `router.sendBootstrap`. Composite-endpoint string encoding assessed later.
 
-5. **`BootstrapSessionStore` persistence.** Secret not persisted to the keystore → restart
-   mid-onboarding loses it (TODO in the store).
+5. **`BootstrapSessionStore` persistence (done).** Secret lives directly in the keyring-backed
+   `KeyStore` (no cache — same as the signing path, which does uncached roundtrips per packet on
+   a hotter path; `introKey()` only fires for SECRET_AEAD bootstrap packets anyway).
+   `setActiveSecret` persists first (fail loudly, never hold a secret we couldn't durably keep);
+   `burn()` = `deleteKey` (no in-memory copy to zeroize). `completeSetup` burns any stale secret
+   first, so wipe-the-dir stays the supported reset: identity keys self-heal by
+   deterministic-keyId overwrite, master-key reuse is benign, and the secret was the only entry
+   fresh provisioning doesn't regenerate (Genesis sets none). Cancel: all-modes
+   `OnboardingProvider.cancelOnboarding()` (burn + IDLE) with an `OnboardingService` passthrough
+   for the GUI button; headless CLI calls the same provider method (wipe + re-setup until that
+   channel exists). Boot resume: provider re-enters AWAITING_INTRO on a persisted secret; the
+   already-anchored → burn + COMPLETE half is a seam awaiting the projector's fold. Deferred:
+   NACK-vs-retry for keyring-blip protection failures (lands with the item-#1 ACK-seam
+   conversion); any keystore measurement (needs a running app — availability-under-headless
+   first, latency second).
 
-6. **Handler hardening TODO.** Cross-check `payload.torEndpoint` vs transport-proven Tor onion once
-   `handleTorInbound` plumbs the connection source through.
-
-7. **Test debt.** commonTest broken across all renames (BootstrapEnvelope/Messages codec, sender,
+6. **Test debt.** commonTest broken across all renames (BootstrapEnvelope/Messages codec, sender,
    handler, Router fakes). Needs a sweep before the onboarding TODOs land, since their implementations
    will want those fixtures.
 

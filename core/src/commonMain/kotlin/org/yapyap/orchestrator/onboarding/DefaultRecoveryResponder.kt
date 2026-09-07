@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.onboarding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.RecoveryRequest

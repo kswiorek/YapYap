@@ -228,8 +228,11 @@ Three phases:
 
 1. **Request** (newcomer → node): a `RECOVERY_REQUEST` payload — account (with pub key) + device +
    deviceType + onion + one-time `sharedSecret` + `accountSignature` (the **account signing key**
-   over a canonical device binding, `accountSignedDeviceBindingBytes`). Sent direct-to-endpoint
-   (`TorTransport.send`), disposition + short lifetime. The account key is online only on this fresh
+   over a canonical device binding, `accountSignedDeviceBindingBytes`). Queued through the outbox
+   like every bootstrap packet, with the user-supplied composite endpoint (peerId + onion) as the
+   endpoint override — no devices row needed for the target (`outbox`/`dedup` deliberately carry
+   no FK to `devices`; the override is preferred over the DB lookup at dispatch). Disposition +
+   short lifetime, as usual. The account key is online only on this fresh
    import (recovery-code import puts it in the keystore; wipe-after is future work).
    The secret's value here is not authentication (Tor delivery + the account sig already do that) but
    session binding: the reply is AEAD-bound to this specific request, gating stale/replayed intros —

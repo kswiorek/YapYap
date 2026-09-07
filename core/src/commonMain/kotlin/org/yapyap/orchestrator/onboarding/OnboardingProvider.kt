@@ -35,4 +35,12 @@ interface OnboardingProvider {
     fun start(scope: CoroutineScope)
 
     suspend fun stop()
+
+    /**
+     * Abandon onboarding: burns the one-time secret and returns to [OnboardingState.IDLE].
+     * All-modes primitive — the GUI calls it via the runtime onboarding service's passthrough,
+     * headless operators via the CLI (or wipe-the-dir, which [completeSetup][org.yapyap.orchestrator.DefaultOrchestrator.completeSetup]
+     * makes safe by burning first). Covers newcomer and sponsor abandonment alike (single-slot secret).
+     */
+    suspend fun cancelOnboarding()
 }

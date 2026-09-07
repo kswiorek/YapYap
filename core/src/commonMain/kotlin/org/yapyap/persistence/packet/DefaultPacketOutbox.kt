@@ -9,6 +9,7 @@ import org.yapyap.persistence.Outbox
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -19,12 +20,19 @@ class DefaultPacketOutbox(
 ) : PacketOutbox {
     val queries = database.outboxQueries
 
-    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Instant, relayMessage: Boolean) {
+    override suspend fun enqueue(
+        envelope: BinaryEnvelope,
+        nextRetryAt: Instant,
+        relayMessage: Boolean,
+        targetEndpoint: TorEndpoint?,
+    ) {
         withContext(dbDispatcher) {
             val envelopeBlob = envelope.encode()
             queries.insertOutbox(
                 packet_id = envelope.packetId,
                 target_device_id = envelope.target.id,
+                target_onion_address = targetEndpoint?.onionAddress,
+                target_onion_port = targetEndpoint?.port?.toLong(),
                 is_relay = relayMessage,
                 retry_count = 0,
                 expires_at = envelope.expiresAt,
@@ -41,6 +49,7 @@ class DefaultPacketOutbox(
                     "packetId" to envelope.packetId,
                     "packetType" to envelope.packetType,
                     "target" to envelope.target,
+                    "hasEndpointOverride" to (targetEndpoint != null),
                     "isRelay" to relayMessage,
                     "nextRetryAt" to nextRetryAt,
                     "expiresAt" to envelope.expiresAt,
@@ -202,6 +211,9 @@ class DefaultPacketOutbox(
             envelope = envelope,
             nextRetryAt = row.next_retry_at,
             attempts = row.retry_count,
+            targetEndpoint = row.target_onion_address?.let { address ->
+                row.target_onion_port?.let { port -> TorEndpoint(address, port.toInt()) }
+            },
         )
     }
 }

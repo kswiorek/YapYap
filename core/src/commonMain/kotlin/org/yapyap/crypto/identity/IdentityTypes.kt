@@ -7,6 +7,9 @@ enum class IdentityKeyPurpose {
     SIGNING,
     ENCRYPTION,
     SIGNED_PREKEY,
+
+    /** One-time bootstrap secret (symmetric, not an identity key — keystore namespacing only). */
+    BOOTSTRAP_SECRET,
 }
 
 data class IdentityPublicKeyRecord(

@@ -1,6 +1,7 @@
 package org.yapyap.protection.envelope
 
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.persistence.key.BootstrapKeySource
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PeerId
@@ -8,15 +9,6 @@ import org.yapyap.protocol.envelopes.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
-
-/**
- * Source of the active one-time bootstrap secret. Returns null when no onboarding session is active —
- * both the newcomer-side gate (a packet aimed at a node that isn't on-boarding) and the sponsor-side
- * guard (no scanned QR in flight) fall out of that.
- */
-fun interface BootstrapKeySource {
-    suspend fun introKey(): ByteArray?
-}
 
 /**
  * Bootstrap-family envelope protection, exposed as one symmetric [protect] / [open] pair that

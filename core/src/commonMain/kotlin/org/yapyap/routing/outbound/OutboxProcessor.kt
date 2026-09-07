@@ -8,6 +8,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
@@ -51,8 +52,13 @@ internal class OutboxProcessor(
         wake()
     }
 
-    suspend fun enqueueAndWake(envelope: BinaryEnvelope, nextRetryAt: Instant, relayMessage: Boolean = false) {
-        packetOutbox.enqueue(envelope, nextRetryAt, relayMessage = relayMessage)
+    suspend fun enqueueAndWake(
+        envelope: BinaryEnvelope,
+        nextRetryAt: Instant,
+        relayMessage: Boolean = false,
+        targetEndpoint: TorEndpoint? = null,
+    ) {
+        packetOutbox.enqueue(envelope, nextRetryAt, relayMessage = relayMessage, targetEndpoint = targetEndpoint)
         wake()
     }
 
@@ -117,7 +123,7 @@ internal class OutboxProcessor(
         )
         val nextRetryAt = now + outbound.retryDelay
         runCatching {
-            dispatcher.dispatch(envelope, outbound.transport)
+            dispatcher.dispatch(envelope, outbound.transport, entry.targetEndpoint)
         }.onSuccess {
             packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
             AppLog.debug(

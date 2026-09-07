@@ -5,7 +5,6 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.DagEngine
-import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.config.ConfigService
@@ -16,6 +15,7 @@ import org.yapyap.orchestrator.runtime.onboarding.DefaultOnboardingService
 import org.yapyap.orchestrator.runtime.onboarding.OnboardingService
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.config.ConfigStore
+import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.routing.router.Router
 import kotlin.time.Clock

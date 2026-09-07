@@ -6,6 +6,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -26,9 +27,10 @@ internal class SystemSender(
         inbound: BinaryEnvelope,
         transport: RouterTransport,
         nackReason: PacketNackReason?,
+        endpointOverride: TorEndpoint? = null,
     ) {
         if (nackReason == null) {
-            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport)
+            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport, endpointOverride)
         } else {
             sendNack(
                 inbound.packetId,
@@ -36,16 +38,23 @@ internal class SystemSender(
                 inbound.packetType,
                 nackReason,
                 transport,
+                endpointOverride = endpointOverride,
                 persistReason = false,
             )
         }
     }
 
+    /**
+     * @param endpointOverride out-of-band endpoint for sources with no local devices row
+     *   (bootstrap ACKs/NACKs back to a newcomer/recovering device) — the transport-proven
+     *   inbound endpoint, sent to verbatim instead of the DB lookup.
+     */
     suspend fun sendAck(
         packetId: Uuid,
         source: PeerId,
         packetType: PacketType,
         transport: RouterTransport,
+        endpointOverride: TorEndpoint? = null,
     ) {
         val ackContext = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
@@ -57,7 +66,7 @@ internal class SystemSender(
             packetId,
             packetType,
         )
-        sendSystemEnvelope(ackPayload, transport, ackContext)
+        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride)
         AppLog.info(
             LogComponent.ROUTER,
             LogEvent.ACK_SENT,
@@ -77,6 +86,7 @@ internal class SystemSender(
         packetType: PacketType,
         reason: PacketNackReason,
         transport: RouterTransport,
+        endpointOverride: TorEndpoint? = null,
         persistReason: Boolean = true,
         reasonText: String? = null,
     ) {
@@ -96,7 +106,7 @@ internal class SystemSender(
             reason,
             reasonText = reasonText,
         )
-        sendSystemEnvelope(ackPayload, transport, ackContext)
+        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride)
         AppLog.info(
             LogComponent.ROUTER,
             LogEvent.NACK_SENT,
@@ -221,6 +231,7 @@ internal class SystemSender(
         payload: SystemPayload,
         transport: RouterTransport,
         context: EnvelopeProtectContext,
+        endpointOverride: TorEndpoint? = null,
     ) {
         val protected = ctx.envelopeProtectionService.protectSystem(payload, context)
         val now = ctx.clock.now()
@@ -234,6 +245,6 @@ internal class SystemSender(
             target = context.targetDeviceId,
             payload = protected.encode(),
         )
-        dispatcher.dispatch(envelope, transport)
+        dispatcher.dispatch(envelope, transport, endpointOverride)
     }
 }

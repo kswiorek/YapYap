@@ -14,6 +14,7 @@ import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultIdentityResolver
+import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLog
@@ -21,7 +22,6 @@ import org.yapyap.logging.AppLogger
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
-import org.yapyap.orchestrator.onboarding.BootstrapSessionStore
 import org.yapyap.orchestrator.onboarding.DefaultOnboardingProvider
 import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
@@ -47,6 +47,7 @@ import org.yapyap.persistence.sync.DefaultPendingSyncRepository
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.envelopes.Invite
+import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
@@ -151,7 +152,7 @@ class DefaultOrchestrator(
                 publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
                 privateKeyStore = keyStore,                 // DefaultKeyStore
             )
-            bootstrapSessionStore = BootstrapSessionStore()
+            bootstrapSessionStore = BootstrapSessionStore(keyStore)
             identityProvisioning = DefaultIdentityProvisioning(
                 cryptoProvider, identityRepo, keyStore,
                 identityResolver,
@@ -174,6 +175,11 @@ class DefaultOrchestrator(
 
     override suspend fun completeSetup(intent: SetupIntent): SetupResult {
         require(state.value == OrchestratorState.SetupRequired) { "Orchestrator must be in SetupRequired state" }
+        // Clear any stale bootstrap secret first: if a previous attempt's data directory was wiped
+        // without clearing the OS keyring, its secret would otherwise linger (fresh provisioning
+        // regenerates every other key, but Genesis sets no secret). Safe: SetupRequired means no
+        // onboarding can be in flight to clobber.
+        bootstrapSessionStore.burn()
         when (intent) {
             is SetupIntent.Genesis -> {
                 val account = identityProvisioning.createNewAccountIdentity(intent.accountName, admin = true)
@@ -229,11 +235,38 @@ class DefaultOrchestrator(
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
+                // Recovery request (global-events doc §8.2, phase 1): the fresh device knows no
+                // peers, so the request rides the outbox with the user-supplied composite endpoint
+                // as the override. The account key (in the keystore since the recovery import)
+                // signs the canonical device binding — the possession proof the responder verifies
+                // and later relays as the AddDevice key_signature. The secret session-binds the
+                // responder's AEAD reply to this request.
+                val secret = cryptoProvider.randomBytes(32)
+                bootstrapSessionStore.setActiveSecret(secret)
+                val unsigned = RecoveryRequest(
+                    account = account,
+                    device = device,
+                    deviceType = bootConfig.localDeviceType,
+                    torEndpoint = tor,
+                    sharedSecret = secret,
+                    // Placeholder: the binding being signed does not cover the signature itself,
+                    // so sign-then-copy below is sound.
+                    accountSignature = byteArrayOf(0),
+                )
+                val accountSignature = cryptoProvider.signDetached(
+                    identityResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING),
+                    unsigned.accountSignedDeviceBindingBytes(),
+                )
+                router.sendBootstrap(
+                    unsigned.copy(accountSignature = accountSignature),
+                    target = intent.bootstrapEndpoint.peerId,
+                    targetEndpoint = intent.bootstrapEndpoint.torEndpoint,
+                )
+
                 return SetupResult(
                     invite = null, // no sponsor QR — direct to the supplied bootstrap endpoint
                     recoveryKey = null,
                 )
-                //TODO trigger sync
             }
             is SetupIntent.AddDeviceToExistingAccount -> {
                 //TODO: if device is headless and belongs to an account, exclude from message fanount but not global room?

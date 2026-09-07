@@ -277,6 +277,12 @@ class DefaultIdentityKeyRepository(
                         publicKey = active.publicKey,
                     )
                 }
+
+                IdentityKeyPurpose.BOOTSTRAP_SECRET -> {
+                    // Not a device identity key — the one-time bootstrap secret lives in the
+                    // KeyStore, never in the devices table.
+                    return@withContext null
+                }
             }
         }
 

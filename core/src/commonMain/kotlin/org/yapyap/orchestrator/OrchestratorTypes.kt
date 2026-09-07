@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator
 
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.Invite
 
@@ -39,9 +40,26 @@ sealed interface SetupIntent {
         val accountName: String,
     ): SetupIntent
 
+    /**
+     * Out-of-band bootstrap endpoint, supplied by the user for account recovery (and later for
+     * composite-endpoint string encoding + the sponsor side): the mesh node's device id plus its
+     * Tor endpoint. The peerId is required so the standard WRONG_TARGET check applies on the
+     * responder; the endpoint is what the outbox dispatches to while the node has no local row
+     * for the target. Enough — no full peer-row encoding needed.
+     */
+    data class BootstrapEndpoint(
+        val peerId: PeerId,
+        val torEndpoint: TorEndpoint,
+    )
+
+    /**
+     * Recover an existing account on a fresh device using its recovery key: provisions account
+     * (from the key) + a new device, then sends a RECOVERY_REQUEST to [bootstrapEndpoint] through
+     * the outbox. A recovering device knows no peers, so the endpoint is mandatory.
+     */
     data class ImportAccountRecoveryKey(
         val recoveryKey: String,
-        val bootstrapTorEndpoint: TorEndpoint? = null
+        val bootstrapEndpoint: BootstrapEndpoint,
     ): SetupIntent
 
     data object AddDeviceToExistingAccount: SetupIntent
@@ -53,7 +71,7 @@ data class SetupResult(
      * GUI renders as a QR (or the CLI prints) and the sponsor decodes back. Non-null on the two join
      * paths ([SetupIntent.NewAccountFirstDevice] — new account, [SetupIntent.AddDeviceToExistingAccount] —
      * existing account); null for [SetupIntent.Genesis] (no one to scan it) and
-     * [SetupIntent.ImportAccountRecoveryKey] (direct-connect path via `bootstrapTorEndpoint`).
+     *   [SetupIntent.ImportAccountRecoveryKey] (direct-connect path via `bootstrapEndpoint`).
      * `invite.account == null` means the sponsor adds the device to its own account; otherwise the
      * sponsor also publishes the account via `AddAccount`.
      */

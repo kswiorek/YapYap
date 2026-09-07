@@ -337,8 +337,8 @@ class DefaultRouter(
         typingIndicatorDispatcher.dispatch(targets, roomId, interval)
     }
 
-    override suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId) {
+    override suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId, targetEndpoint: TorEndpoint?) {
         check(started) { "Router must be started before sending bootstrap intro" }
-        bootstrapSender.sendBootstrap(payload, target)
+        bootstrapSender.sendBootstrap(payload, target, targetEndpoint)
     }
 }

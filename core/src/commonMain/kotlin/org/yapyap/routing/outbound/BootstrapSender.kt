@@ -3,6 +3,7 @@ package org.yapyap.routing.outbound
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.packet.PacketType
@@ -18,12 +19,17 @@ import kotlin.uuid.Uuid
  * a RECOVERY_REQUEST). The envelope is queued through the outbox with `dispositionRequested = true`
  * so the peer's ACK clears it, and a deliberately short lifetime
  * ([org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime]) — a stale intro must not linger.
+ *
+ * @param targetEndpoint out-of-band endpoint override, required when the target has no local
+ *   devices row (recovery request → bootstrap node; intro → QR-scanned newcomer). Persisted on
+ *   the outbox row and preferred over the DB lookup at dispatch. Null once the target's row
+ *   exists (e.g. the responder's reply after it folded the requester's AddDevice).
  */
 internal class BootstrapSender(
     private val ctx: RoutingContext,
     private val outboxProcessor: OutboxProcessor,
 ) {
-    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId) {
+    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId, targetEndpoint: TorEndpoint? = null) {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
@@ -42,6 +48,11 @@ internal class BootstrapSender(
             target = target,
             payload = protected.encode(),
         )
-        outboxProcessor.enqueueAndWake(envelope, nextRetryAt = now, relayMessage = false)
+        outboxProcessor.enqueueAndWake(
+            envelope,
+            nextRetryAt = now,
+            relayMessage = false,
+            targetEndpoint = targetEndpoint
+        )
     }
 }

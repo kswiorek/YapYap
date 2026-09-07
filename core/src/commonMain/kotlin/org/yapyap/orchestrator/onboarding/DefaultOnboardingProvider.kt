@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.yapyap.orchestrator.sync.SyncCoordinator
+import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.Router
 
@@ -35,6 +36,7 @@ internal class DefaultOnboardingProvider(
         // the one-time secret at COMPLETE (onboarding state machine). Subscribe before any intro can
         // arrive; on a restart mid-onboarding (persisted secret) an intro could race this boot.
         collectJob = scope.launch {
+            resumeInterruptedOnboarding()
             router.bootstrapPackets.collect { event ->
                 val intro = event.payload as? Intro ?: return@collect
                 onBootstrapIntro(intro)
@@ -45,6 +47,39 @@ internal class DefaultOnboardingProvider(
     override suspend fun stop() {
         collectJob?.cancel()
     }
+
+    override suspend fun cancelOnboarding() {
+        sessionStore.burn()
+        _state.value = OnboardingState.IDLE
+    }
+
+    /**
+     * Boot resume, reasonable-effort subset: a persisted secret means an onboarding was
+     * interrupted by a restart — re-enter AWAITING_INTRO so the AEAD gate stays open for the
+     * eventual intro. The crash-between-COMPLETE-and-burn case (secret present but already
+     * anchored) self-heals via burn + COMPLETE once [isLocalDeviceAnchoredInGlobalChain] is
+     * wired to the projector's fold.
+     */
+    private suspend fun resumeInterruptedOnboarding() {
+        if (sessionStore.introKey() == null) return
+        if (isLocalDeviceAnchoredInGlobalChain()) {
+            sessionStore.burn()
+            _state.value = OnboardingState.COMPLETE
+        } else {
+            _state.value = OnboardingState.AWAITING_INTRO
+        }
+    }
+
+    /**
+     * Boot-resume fold check (seam): true once the projector's fold contains the local device's
+     * own Add event.
+     *
+     * TODO(global events projector): replace with the real chain-membership query (fold state or
+     * a GLOBAL-room membership/anchor query for the local device id — likely a new constructor
+     * dependency, the provider currently holds no message/fold access). Until then conservatively
+     * false: a persisted secret always resumes to AWAITING_INTRO and never self-completes at boot.
+     */
+    private suspend fun isLocalDeviceAnchoredInGlobalChain(): Boolean = false
 
     private suspend fun onBootstrapIntro(intro: Intro) {
         // TODO(sprint 4 onboarding): insert the sponsor's provisional account + device + GLOBAL
