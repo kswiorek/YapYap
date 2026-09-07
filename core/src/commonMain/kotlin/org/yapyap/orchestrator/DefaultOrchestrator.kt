@@ -24,6 +24,7 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.onboarding.DefaultOnboardingProvider
 import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
+import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
@@ -76,6 +77,9 @@ class DefaultOrchestrator(
 
     override val state: StateFlow<OrchestratorState> = _state.asStateFlow()
     override val lastError: StateFlow<Throwable?> = _lastError.asStateFlow()
+
+    private val _onboardingState = MutableStateFlow(OnboardingState.IDLE)
+    override val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
 
     private lateinit var configStore: ConfigStore
     private lateinit var router: DefaultRouter
@@ -175,11 +179,8 @@ class DefaultOrchestrator(
 
     override suspend fun completeSetup(intent: SetupIntent): SetupResult {
         require(state.value == OrchestratorState.SetupRequired) { "Orchestrator must be in SetupRequired state" }
-        // Clear any stale bootstrap secret first: if a previous attempt's data directory was wiped
-        // without clearing the OS keyring, its secret would otherwise linger (fresh provisioning
-        // regenerates every other key, but Genesis sets no secret). Safe: SetupRequired means no
-        // onboarding can be in flight to clobber.
-        bootstrapSessionStore.burn()
+        // The provider owns the session slot: stale secrets (e.g. wiped data dir, live keyring)
+        // are cleared through it after init(), before a new session begins.
         when (intent) {
             is SetupIntent.Genesis -> {
                 val account = identityProvisioning.createNewAccountIdentity(intent.accountName, admin = true)
@@ -187,10 +188,11 @@ class DefaultOrchestrator(
                 val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
                 _state.value = OrchestratorState.Starting
                 init()
+                onboardingProvider.cancelOnboarding()
                 roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 _state.value = OrchestratorState.Running
 
-                // TODO(sprint 4 global events): append the genesis AddAccount (prevId == null) to the
+                // TODO(sprint 4 global events): append the genesis AddAccount (prevId == null) and AddDevice to the
                 // global DAG and fold immediately — genesis is admin by definition (§3). is_admin is
                 // seeded true in the local accounts row already so the GUI can rely on it; the
                 // projector's fold owns this column once it lands.
@@ -205,15 +207,16 @@ class DefaultOrchestrator(
                 val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
                 _state.value = OrchestratorState.Starting
                 init()
+                onboardingProvider.cancelOnboarding()
                 roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
-                // Join-existing-network path: always produces a sponsor invite. is_admin for this new
-                // account is false (createNewAccountIdentity default); the sponsor's GrantAdmin (if any)
-                // and the projector's fold correct it after sync.
+                // Join-existing-network path: always produces a sponsor invite (is_admin seeded
+                // false, projector-corrected). The provider persists the secret, enters
+                // AWAITING_INTRO, and arms the timer.
                 val secret = cryptoProvider.randomBytes(32)
-                bootstrapSessionStore.setActiveSecret(secret)
+                onboardingProvider.beginSession(secret)
 
                 return SetupResult(
                     invite = Invite(
@@ -231,18 +234,17 @@ class DefaultOrchestrator(
                 val device = identityProvisioning.createNewDeviceIdentity()
                 _state.value = OrchestratorState.Starting
                 init()
+                onboardingProvider.cancelOnboarding()
                 roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
-                // Recovery request (global-events doc §8.2, phase 1): the fresh device knows no
-                // peers, so the request rides the outbox with the user-supplied composite endpoint
-                // as the override. The account key (in the keystore since the recovery import)
-                // signs the canonical device binding — the possession proof the responder verifies
-                // and later relays as the AddDevice key_signature. The secret session-binds the
-                // responder's AEAD reply to this request.
+                // Recovery request (§8.2 phase 1): no known peers, so the request rides the outbox
+                // with the user-supplied endpoint override. The account key signs the device
+                // binding (possession proof, later the AddDevice key_signature); the secret
+                // session-binds the responder's AEAD reply.
                 val secret = cryptoProvider.randomBytes(32)
-                bootstrapSessionStore.setActiveSecret(secret)
+                onboardingProvider.beginSession(secret)
                 val unsigned = RecoveryRequest(
                     account = account,
                     device = device,
@@ -274,12 +276,13 @@ class DefaultOrchestrator(
                 val device = identityProvisioning.createNewDeviceIdentity()
                 _state.value = OrchestratorState.Starting
                 init()
+                onboardingProvider.cancelOnboarding()
                 roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
                 val secret = cryptoProvider.randomBytes(32)
-                bootstrapSessionStore.setActiveSecret(secret)
+                onboardingProvider.beginSession(secret)
 
                 return SetupResult(
                     invite = Invite(
@@ -380,6 +383,8 @@ class DefaultOrchestrator(
             transportLimits = configStore.transportLimits,
             lamportSnapshotProvider = lamportSnapshotProvider,
             peerAvailabilityStore = peerAvailabilityStore,
+            bootstrapSessionStore = bootstrapSessionStore,
+            identityKeyRepository = identityRepo,
         )
 
         router.start()
@@ -413,16 +418,26 @@ class DefaultOrchestrator(
             router = router,
             sessionStore = bootstrapSessionStore,
             syncCoordinator = syncCoordinator,
+            identityKeyRepository = identityRepo,
+            roomRepository = roomRepository,
+            clock = Clock.System,
+            routerConfig = configStore.routerConfig,
         )
         onboardingProvider.start(orchestratorScope)
+        // Mirror the provider's flow: the provider is recreated per start cycle, the exposed
+        // flow is stable. Collectors see the current value on subscribe (IDLE before first
+        // start, then whatever the provider drives).
+        orchestratorScope.launch {
+            onboardingProvider.state.collect { _onboardingState.value = it }
+        }
 
         // Standing recovery service: serves OTHER nodes' account-recovery requests, in every mode —
         // an always-on relay is exactly the bootstrap endpoint a recovering device points at.
         recoveryResponder = DefaultRecoveryResponder(
             router = router,
-            sessionStore = bootstrapSessionStore,
             identityKeyRepository = identityRepo,
-            roomRepository = roomRepository,
+            messageRepository = messageRepo,
+            localDeviceType = bootConfig.localDeviceType,
         )
         recoveryResponder.start(orchestratorScope)
 
@@ -443,8 +458,10 @@ class DefaultOrchestrator(
                 identityResolver = identityResolver,
                 messageLimits = configStore.messageLimits,
                 configStore = configStore,
-                bootstrapSessionStore = bootstrapSessionStore,
                 onboardingProvider = onboardingProvider,
+                identityKeyRepository = identityRepo,
+                cryptoProvider = cryptoProvider,
+                localDeviceType = bootConfig.localDeviceType,
             )
             orchestratorRuntime.start(orchestratorScope)
         }

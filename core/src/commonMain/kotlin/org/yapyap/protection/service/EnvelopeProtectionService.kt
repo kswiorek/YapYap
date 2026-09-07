@@ -47,9 +47,11 @@ interface EnvelopeProtectionService {
         envelope: SystemEnvelope,
     ): SystemPayload
 
+    /** @param sharedSecret sender's in-memory secret, required for INTRO; unused for RECOVERY_REQUEST. */
     suspend fun protectBootstrap(
         input: BootstrapPayload,
         context: EnvelopeProtectContext,
+        sharedSecret: ByteArray? = null,
     ): BootstrapEnvelope
 
     suspend fun openBootstrap(

@@ -3,22 +3,25 @@ package org.yapyap.orchestrator.onboarding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import org.yapyap.persistence.key.BootstrapSessionStore
+import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.router.Router
 
 /**
- * Scaffolding stub for the sprint-4 recovery responder. Consumes authenticated
- * [RecoveryRequest]s from the router (the INTRO flavour belongs to the newcomer-side
- * [OnboardingProvider]); the relay flow is deliberately left as TODO until the details are settled.
+ * Standing recovery responder: relays authenticated [RecoveryRequest]s as chain AddDevices and
+ * replies with an AEAD intro. Stateless — the request's secret protects the reply once and is
+ * never persisted, so concurrent requests can't clobber each other. Policy (decline/defer)
+ * already ran in the inbound handler; only admitted requests reach here.
  */
 internal class DefaultRecoveryResponder(
     private val router: Router,
-    private val sessionStore: BootstrapSessionStore,
     private val identityKeyRepository: IdentityKeyRepository,
-    private val roomRepository: RoomRepository,
+    private val messageRepository: MessageRepository,
+    private val localDeviceType: DeviceType,
 ) : RecoveryResponder {
 
     private var collectJob: Job? = null
@@ -37,17 +40,30 @@ internal class DefaultRecoveryResponder(
     }
 
     private suspend fun onRecoveryRequest(request: RecoveryRequest) {
-        // TODO(sprint 4 recovery): iron out the flow details before implementing:
-        //   - refuse while this node's own onboarding is active (sessionStore.introKey() != null) —
-        //     a mid-onboarding node is not a good sync seed;
-        //   - check the requester's account exists and is ACTIVE (identityKeyRepository) — a
-        //     REMOVED/BANNED account must not re-enter via recovery;
-        //   - append AddDevice(key_signature = request.accountSignature) bound to the requester's
-        //     account and fold immediately — the chain-derived device row then makes the newcomer's
-        //     sync requests verifiable, and the intro's dagHead includes its own AddDevice;
-        //   - reply with an Intro payload protected under request.sharedSecret (AEAD), carrying this
-        //     node's account + device + onion + the updated GLOBAL dagHead, sent to the requester's
-        //     deviceId (roomRepository for the dagHead; router.sendBootstrap for the send).
-        TODO("sprint 4 recovery: recovery responder flow not yet implemented")
+        // Append before replying: the intro's dagHead must already include the requester's
+        // AddDevice, so the newcomer syncs and finds itself in the chain.
+        appendRecoveryAddDevice(request)
+
+        val ownAccount = identityKeyRepository.getLocalAccountRecord()
+            ?: error("responder has no local account")
+        val ownDevice = identityKeyRepository.getLocalDeviceRecord()
+            ?: error("responder has no local device")
+        val torEndpoint = identityKeyRepository.resolveTorEndpointForDevice(ownDevice.deviceId)
+            ?: error("responder has no tor endpoint")
+        router.sendBootstrap(
+            Intro(
+                account = ownAccount,
+                device = ownDevice,
+                deviceType = localDeviceType,
+                torEndpoint = torEndpoint,
+                dagHeadLamport = messageRepository.maxLamportInRoom(RoomId.GLOBAL) ?: 0L,
+            ),
+            target = request.device.deviceId,
+            targetEndpoint = request.torEndpoint,
+            sharedSecret = request.sharedSecret,
+        )
     }
+
+    private suspend fun appendRecoveryAddDevice(request: RecoveryRequest): Unit =
+        TODO("global events: append AddDevice bound to the requester's account with key_signature = request.accountSignature, fold immediately, via the control-room writer (§8.2 phase 2)")
 }

@@ -390,7 +390,15 @@ enum class PacketNackReason(val wireValue: Byte) {
     PROTECTION_FAILED(2),
     EXPIRED(3),
     UNSUPPORTED_TYPE(4),
-    DECODE_FAILED(5);
+    DECODE_FAILED(5),
+
+    /**
+     * The receiver understood the packet but refuses it on policy grounds (e.g. a recovery
+     * responder that is itself mid-onboarding, or a request for a non-ACTIVE account). Unlike
+     * transient failures the sender must NOT keep retrying the same target — it stops the
+     * outbox schedule for the packet.
+     */
+    DECLINED(6);
 
     companion object {
         fun fromWireValue(value: Byte): PacketNackReason =

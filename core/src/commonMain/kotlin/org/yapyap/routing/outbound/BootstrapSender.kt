@@ -11,32 +11,32 @@ import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
 
 /**
- * Sends a bootstrap-family packet to a peer.
+ * Sends a bootstrap-family packet: protect inside routing (plaintext in, ciphertext in the
+ * outbox, scheme chosen by kind), queue with `dispositionRequested` and the short
+ * [bootstrapIntroLifetime][org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime].
  *
- * Protection happens here, inside routing (plaintext in, ciphertext in the outbox), mirroring
- * [OutboundMessenger] / [SystemSender]: the protection scheme is chosen by kind inside
- * [org.yapyap.protection.envelope.BootstrapProtection] (SECRET_AEAD for an INTRO, ACCOUNT_SIGNED for
- * a RECOVERY_REQUEST). The envelope is queued through the outbox with `dispositionRequested = true`
- * so the peer's ACK clears it, and a deliberately short lifetime
- * ([org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime]) — a stale intro must not linger.
- *
- * @param targetEndpoint out-of-band endpoint override, required when the target has no local
- *   devices row (recovery request → bootstrap node; intro → QR-scanned newcomer). Persisted on
- *   the outbox row and preferred over the DB lookup at dispatch. Null once the target's row
- *   exists (e.g. the responder's reply after it folded the requester's AddDevice).
+ * @param targetEndpoint out-of-band endpoint override for targets with no local devices row
+ *   (persisted on the outbox row, preferred at dispatch).
+ * @param sharedSecret sender's in-memory one-time secret, required for INTRO; never persisted
+ *   (used once for protect, the outbox holds the ciphertext). Null for RECOVERY_REQUEST.
  */
 internal class BootstrapSender(
     private val ctx: RoutingContext,
     private val outboxProcessor: OutboxProcessor,
 ) {
-    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId, targetEndpoint: TorEndpoint? = null) {
+    suspend fun sendBootstrap(
+        payload: BootstrapPayload,
+        target: PeerId,
+        targetEndpoint: TorEndpoint? = null,
+        sharedSecret: ByteArray? = null,
+    ) {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
             createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
-        val protected = ctx.envelopeProtectionService.protectBootstrap(payload, context)
+        val protected = ctx.envelopeProtectionService.protectBootstrap(payload, context, sharedSecret)
         val now = ctx.clock.now()
         val envelope = BinaryEnvelope(
             packetId = Uuid.random(),

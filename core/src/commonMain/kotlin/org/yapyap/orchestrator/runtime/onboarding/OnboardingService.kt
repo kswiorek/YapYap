@@ -40,5 +40,5 @@ interface OnboardingService {
      * GUI cancel button for an abandoned onboarding (newcomer or sponsor side): delegates to
      * [OnboardingProvider.cancelOnboarding].
      */
-    suspend fun cancelNewcomerOnboarding()
+    suspend fun newcomerCancelOnboarding()
 }

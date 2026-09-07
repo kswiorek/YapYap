@@ -40,9 +40,16 @@ class DefaultEnvelopeProtectionService(
 
     override suspend fun protectBootstrap(
         input: BootstrapPayload,
-        context: EnvelopeProtectContext
+        context: EnvelopeProtectContext,
+        sharedSecret: ByteArray?
     ): BootstrapEnvelope =
-        bootstrapProtection.protect(input, context.sourceDeviceId, context.targetDeviceId, context.createdAt)
+        bootstrapProtection.protect(
+            input,
+            context.sourceDeviceId,
+            context.targetDeviceId,
+            context.createdAt,
+            sharedSecret
+        )
 
     override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
         bootstrapProtection.open(envelope)

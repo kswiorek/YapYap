@@ -63,13 +63,18 @@ interface Router {
     )
 
     /**
-     * Send the onboarding bootstrap intro to a QR-scanned newcomer. Protection happens inside the
-     * router (the preshared-key AEAD resolved from the active onboarding session); the result is
-     * queued through the outbox with a short lifetime and cleared on the newcomer's ACK.
+     * Send a bootstrap-family packet: protect inside the router, queue through the outbox with
+     * a short lifetime, cleared on the peer's ACK.
      *
-     * @param targetEndpoint out-of-band endpoint override for targets with no local devices row
-     *   (QR-scanned newcomer / recovery-request bootstrap node). Null once the target's row exists.
+     * @param targetEndpoint out-of-band endpoint override for targets with no local devices row.
+     * @param sharedSecret sender's in-memory one-time secret, required for INTRO (used once,
+     *   never persisted). Null for RECOVERY_REQUEST.
      */
-    suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId, targetEndpoint: TorEndpoint? = null)
+    suspend fun sendBootstrap(
+        payload: BootstrapPayload,
+        target: PeerId,
+        targetEndpoint: TorEndpoint? = null,
+        sharedSecret: ByteArray? = null,
+    )
 
 }

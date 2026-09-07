@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
@@ -15,7 +16,9 @@ import org.yapyap.orchestrator.runtime.onboarding.DefaultOnboardingService
 import org.yapyap.orchestrator.runtime.onboarding.OnboardingService
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.config.ConfigStore
-import org.yapyap.persistence.key.BootstrapSessionStore
+import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.key.IdentityKeyRepository
+import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.routing.router.Router
 import kotlin.time.Clock
@@ -37,8 +40,10 @@ internal class DefaultOrchestratorRuntime(
     private val identityResolver: IdentityResolver,
     private val messageLimits: StateFlow<MessageLimits>,
     private val configStore: ConfigStore,
-    private val bootstrapSessionStore: BootstrapSessionStore,
     private val onboardingProvider: OnboardingProvider,
+    private val identityKeyRepository: IdentityKeyRepository,
+    private val cryptoProvider: CryptoProvider,
+    private val localDeviceType: DeviceType,
 ) : OrchestratorRuntime {
 
     private lateinit var _messaging: DefaultMessagingService
@@ -66,7 +71,10 @@ internal class DefaultOrchestratorRuntime(
         _onboarding = DefaultOnboardingService(
             provider = onboardingProvider,
             router = router,
-            sessionStore = bootstrapSessionStore,
+            identityKeyRepository = identityKeyRepository,
+            messageRepository = DefaultMessageRepository(database),
+            cryptoProvider = cryptoProvider,
+            localDeviceType = localDeviceType,
         )
 
         _config = DefaultConfigService(configStore)

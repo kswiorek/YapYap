@@ -61,7 +61,7 @@ sealed class ProtectionException(
     class IdentityNotReady(cause: CryptoException) :
         ProtectionException(
             message = "Identity not ready",
-            disposition = ProtectionDisposition.RETRYABLE,
+            disposition = ProtectionDisposition.DEFER,
             reason = ProtectionReason.IDENTITY,
             cause = cause,
         )
@@ -69,7 +69,7 @@ sealed class ProtectionException(
     class SessionNotReady(cause: CryptoSessionException) :
         ProtectionException(
             message = "Session not ready",
-            disposition = ProtectionDisposition.RETRYABLE,
+            disposition = ProtectionDisposition.RETRYABLE, //TODO: consider changing to DEFER
             reason = ProtectionReason.SESSION,
             cause = cause,
         )

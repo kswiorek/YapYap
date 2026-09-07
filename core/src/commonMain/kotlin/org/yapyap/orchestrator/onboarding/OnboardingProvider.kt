@@ -8,7 +8,7 @@ enum class OnboardingState {
     /** No onboarding in progress (or already complete — the one-time secret is burned). */
     IDLE,
 
-    /** The newcomer is waiting for the sponsor's intro, or the sponsor is awaiting its first sync. */
+    /** This node is onboarding as a newcomer and waiting for the sponsor's intro. */
     AWAITING_INTRO,
 
     /** The bootstrap intro was received and the global room is syncing. */
@@ -16,31 +16,41 @@ enum class OnboardingState {
 
     /** The first fold containing the local device's own Add event landed; the secret is burned. */
     COMPLETE,
+
+    /**
+     * Deadline passed before completion; secret burned. Terminal until the next setup run —
+     * surfaced (not silent IDLE) so the GUI can show "didn't complete, try again".
+     */
+    TIMED_OUT,
 }
 
 /**
- * Orchestrator-level newcomer onboarding. Runs on every node, including headless relays (which have
- * no [org.yapyap.orchestrator.runtime.OrchestratorRuntime]), because a relay must be able to onboard
- * itself as a newcomer too: it consumes the sponsor's authenticated bootstrap intros from the router,
- * seeds the sponsor's provisional identity rows, and triggers the global-room range sync.
- *
- * The sponsor side (GUI-only — QR scanning) lives in the runtime's onboarding service, not here.
- * This service is scaffolding for the sprint-4 onboarding handshake (see the global-events design
- * doc, §8); the persistence and sync wiring are still TODO.
+ * Newcomer onboarding on every node (headless relays onboard as newcomers too). Sole writer
+ * of the session slot ([org.yapyap.persistence.key.BootstrapSessionStore]); the sponsor side
+ * is stateless and lives in the runtime service.
  */
 interface OnboardingProvider {
     /** Onboarding lifecycle state. */
     val state: StateFlow<OnboardingState>
 
+    /**
+     * Attach to [scope]; resume only if a persisted session exists, else stay dormant until
+     * [beginSession]. The AEAD gate is open ⟺ the provider runs, so nothing is lost dormant.
+     */
     fun start(scope: CoroutineScope)
 
     suspend fun stop()
 
     /**
-     * Abandon onboarding: burns the one-time secret and returns to [OnboardingState.IDLE].
-     * All-modes primitive — the GUI calls it via the runtime onboarding service's passthrough,
-     * headless operators via the CLI (or wipe-the-dir, which [completeSetup][org.yapyap.orchestrator.DefaultOrchestrator.completeSetup]
-     * makes safe by burning first). Covers newcomer and sponsor abandonment alike (single-slot secret).
+     * Persist the newcomer's secret with its deadline, enter AWAITING_INTRO, arm the timer.
+     * The caller embeds the secret in the QR invite / recovery request.
+     */
+    suspend fun beginSession(secret: ByteArray)
+
+    /**
+     * Burn the secret, back to IDLE. All-modes primitive (GUI passthrough, headless CLI);
+     * [completeSetup][org.yapyap.orchestrator.DefaultOrchestrator.completeSetup] also uses it
+     * to clear stale sessions. Newcomer-only.
      */
     suspend fun cancelOnboarding()
 }

@@ -1,35 +1,44 @@
 flowchart TD
-%% Roles
-    Newcomer((The Newcomer))
-    Sponsor((The Sponsor))
-    Mesh((The Mesh Network))
+    subgraph SETUP ["Newcomer setup"]
+        Intent{Setup intent}
+        Gen["Genesis: create network identity\n(first admin)"]
+        GenW["Append genesis events\nfold into local state"]
+        Ready["Running: ready to sponsor others"]
+        Join["Join: create identity\nshow QR with one-time secret"]
+        Recov["Recover: import account key\nsend signed recovery request"]
+        Wait["Wait for sponsor intro\n(bounded wait)"]
+        Intent --> Gen --> GenW --> Ready
+        Intent --> Join --> Wait
+        Intent --> Recov --> Wait
+    end
 
-%% Step 1: Identity & Out-of-Band
-    GenKeys[Newcomer generates locally:\nAccount Key, Device Key, .onion]
-    ShowQR[Newcomer presents\nIdentity Payload QR/Link]
-ScanQR[Sponsor scans/receives\nIdentity Payload]
+    subgraph SPONSOR ["Sponsor"]
+        Scan["Scan newcomer QR"]
+        Valid["Validate invite\n(check admin rights if granting admin)"]
+        AppS["Append newcomer events\nto the global log"]
+        SendIntro["Send intro to newcomer\nencrypted with the QR secret"]
+        Scan --> Valid --> AppS --> SendIntro
+    end
 
-Newcomer --> GenKeys --> ShowQR -. "Out-of-Band" .-> ScanQR
+    subgraph JOIN ["Newcomer join"]
+        Gate["Intro arrives\nlearn sponsor identity"]
+        Sync["Sync the global log\nfrom the sponsor"]
+        Fold["Fold events into local state\nconfirm own membership"]
+        Done["Done: joined the mesh"]
+        Dead["Timed out: start over"]
+        Gate --> Sync --> Fold --> Done
+    end
 
-%% Step 2: The Split Action (Sponsor processing)
-CreateIntro[Sponsor creates signed\n'Introduction Event']
-CompileRoster[Sponsor compiles current\nMesh Roster from Local DB]
+    subgraph RESP ["Recovery responder (any member)"]
+        Check["Check the request\n(serving node, known account)"]
+        AppR["Append the device\nto the global log"]
+        Reply["Reply with intro\nencrypted with the request secret"]
+        Check --> AppR --> Reply
+    end
 
-ScanQR --> CreateIntro
-ScanQR --> CompileRoster
-
-%% Step 3: Execution
-BroadcastMesh[Sponsor broadcasts Intro\nover Tor]
-SendRoster[Sponsor sends Roster to\nNewcomer over Tor]
-
-CreateIntro --> BroadcastMesh
-CompileRoster --> SendRoster
-
-BroadcastMesh -. "Mesh verifies Sponsor's Signature\nAdds Newcomer to Local DBs" .-> Mesh
-SendRoster -. "Newcomer saves full\nNetwork Map to Local DB" .-> Newcomer
-
-%% Step 4: The Integration
-NewHello[Newcomer broadcasts initial\nPING to full Roster]
-SendRoster --> NewHello
-
-NewHello -. "Mesh recognizes Newcomer\nReplies with PONG" .-> Mesh
+    Join -. " out-of-band QR " .-> Scan
+    Recov -. " Tor " .-> Check
+    SendIntro -. " Tor " .-> Gate
+    Reply -. " Tor " .-> Gate
+    Wait -. " wait expires " .-> Dead
+    Sync -. " wait expires " .-> Dead

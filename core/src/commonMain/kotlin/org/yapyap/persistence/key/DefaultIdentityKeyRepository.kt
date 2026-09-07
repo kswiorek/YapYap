@@ -60,6 +60,11 @@ class DefaultIdentityKeyRepository(
             })
         }
 
+    override suspend fun getAccountStatus(accountId: AccountId): AccountStatus? =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectAccountStatusById(accountId).executeAsOneOrNull()
+        }
+
     override suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -183,6 +188,7 @@ class DefaultIdentityKeyRepository(
     override suspend fun insertLocalDevice(
         accountId: AccountId,
         identity: DeviceIdentityRecord,
+        provisional: Boolean,
     ) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -205,6 +211,7 @@ class DefaultIdentityKeyRepository(
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,
                     last_seen_timestamp = defaults.lastSeenTimestamp,
+                    provisional = provisional,
                 )
                 identity.signedPreKey?.let { spk ->
                     persistSignedPreKey(
@@ -222,7 +229,7 @@ class DefaultIdentityKeyRepository(
         }
     }
 
-    override suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean) {
+    override suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean, provisional: Boolean) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
             queries.putAccount(
@@ -234,6 +241,7 @@ class DefaultIdentityKeyRepository(
                 is_admin = admin,
                 status = AccountStatus.ACTIVE,
                 display_name = identity.displayName,
+                provisional = provisional,
             )
             AppLog.info(
                 component = LogComponent.DATABASE,
@@ -243,6 +251,16 @@ class DefaultIdentityKeyRepository(
             )
         }
     }
+
+    override suspend fun isLocalAccountAdmin(): Boolean =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectLocalAccountAdmin().executeAsOneOrNull() ?: false
+        }
+
+    override suspend fun isDeviceProvisional(deviceId: PeerId): Boolean =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectDeviceProvisionalById(deviceId).executeAsOneOrNull() ?: true
+        }
 
     override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? =
         withContext(dbDispatcher) {
@@ -300,7 +318,8 @@ class DefaultIdentityKeyRepository(
         identity: AccountIdentityRecord,
         admin: Boolean,
         status: AccountStatus,
-        displayName: String
+        displayName: String,
+        provisional: Boolean,
     ) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -313,7 +332,39 @@ class DefaultIdentityKeyRepository(
                 pub_key_id = identity.key?.keyId,
                 is_admin = admin,
                 status = status,
-                display_name = displayName
+                display_name = displayName,
+                provisional = provisional,
+            )
+        }
+    }
+
+    override suspend fun seedProvisionalPeerAccount(
+        identity: AccountIdentityRecord,
+        admin: Boolean,
+        displayName: String,
+    ) {
+        withContext(dbDispatcher) {
+            val queries = database.identityQueries
+            database.transaction {
+                // Insert-only: never clobber an existing row with intro data.
+                if (queries.selectAccountById(identity.accountId).executeAsOneOrNull() != null) return@transaction
+                queries.putAccount(
+                    account_id = identity.accountId,
+                    account_pub_key = identity.key?.publicKey,
+                    is_local_account = false,
+                    pub_key_version = identity.key?.keyVersion,
+                    pub_key_id = identity.key?.keyId,
+                    is_admin = admin,
+                    status = AccountStatus.ACTIVE,
+                    display_name = displayName,
+                    provisional = true,
+                )
+            }
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+                message = "Seeded provisional peer account identity record",
+                fields = mapOf("accountId" to identity.accountId),
             )
         }
     }
@@ -322,7 +373,8 @@ class DefaultIdentityKeyRepository(
         accountId: AccountId,
         deviceType: DeviceType,
         identity: DeviceIdentityRecord,
-        torEndpoint: TorEndpoint
+        torEndpoint: TorEndpoint,
+        provisional: Boolean,
     ) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -345,6 +397,7 @@ class DefaultIdentityKeyRepository(
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,
                     last_seen_timestamp = defaults.lastSeenTimestamp,
+                    provisional = provisional,
                 )
                 identity.signedPreKey?.let { spk ->
                     persistSignedPreKey(
@@ -353,6 +406,53 @@ class DefaultIdentityKeyRepository(
                     )
                 }
             }
+        }
+    }
+
+    override suspend fun seedProvisionalPeerDevice(
+        accountId: AccountId,
+        deviceType: DeviceType,
+        identity: DeviceIdentityRecord,
+        torEndpoint: TorEndpoint
+    ) {
+        withContext(dbDispatcher) {
+            val queries = database.identityQueries
+            database.transaction {
+                // Insert-only: never clobber an existing row with intro data.
+                if (queries.selectDeviceById(identity.deviceId).executeAsOneOrNull() != null) return@transaction
+                queries.putDevice(
+                    device_id = identity.deviceId,
+                    is_local_device = false,
+                    account_id = accountId,
+                    device_type = deviceType,
+                    onion_address = torEndpoint.onionAddress,
+                    onion_port = torEndpoint.port.toLong(),
+                    signing_pub_key = identity.signing.publicKey,
+                    signing_key_id = identity.signing.keyId,
+                    signing_key_version = identity.signing.keyVersion,
+                    encryption_pub_key = identity.encryption.publicKey,
+                    encryption_key_id = identity.encryption.keyId,
+                    encryption_key_version = identity.encryption.keyVersion,
+                    key_signature = identity.keySignature,
+                    current_signed_prekey_id = null,
+                    push_token = defaults.pushToken,
+                    reliability_score = defaults.reliabilityScore,
+                    last_seen_timestamp = defaults.lastSeenTimestamp,
+                    provisional = true,
+                )
+                identity.signedPreKey?.let { spk ->
+                    persistSignedPreKey(
+                        spk = spk,
+                        activateOnDevice = true,
+                    )
+                }
+            }
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+                message = "Seeded provisional peer device identity record",
+                fields = mapOf("deviceId" to identity.deviceId, "accountId" to accountId),
+            )
         }
     }
 

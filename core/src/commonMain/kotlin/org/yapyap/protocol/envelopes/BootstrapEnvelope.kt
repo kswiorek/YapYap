@@ -203,7 +203,6 @@ data class Intro(
     override val device: DeviceIdentityRecord,
     override val deviceType: DeviceType,
     override val torEndpoint: TorEndpoint,
-    val dagHeadMessageId: Uuid?,
     val dagHeadLamport: Long,
 ) : BootstrapPayload {
     override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INTRO
@@ -216,7 +215,6 @@ data class Intro(
     override fun encode(): ByteArray {
         val writer = ByteWriter(256)
         writer.writeBootstrapPayloadPrefix(kind, version, account, device, deviceType, torEndpoint)
-        writer.writeNullableUuid(dagHeadMessageId)
         writer.writeLong(dagHeadLamport)
         return writer.toByteArray()
     }
@@ -227,7 +225,6 @@ data class Intro(
         other as Intro
         return version == other.version &&
                 dagHeadLamport == other.dagHeadLamport &&
-                dagHeadMessageId == other.dagHeadMessageId &&
                 deviceType == other.deviceType &&
                 torEndpoint == other.torEndpoint &&
                 bootstrapPayloadAccountEquals(account, other.account) &&
@@ -237,7 +234,6 @@ data class Intro(
     override fun hashCode(): Int {
         var result = version
         result = 31 * result + dagHeadLamport.hashCode()
-        result = 31 * result + (dagHeadMessageId?.hashCode() ?: 0)
         result = 31 * result + deviceType.hashCode()
         result = 31 * result + torEndpoint.onionAddress.hashCode()
         result = 31 * result + torEndpoint.port
@@ -249,7 +245,6 @@ data class Intro(
     companion object {
         fun decode(reader: ByteReader): Intro {
             val prefix = reader.readBootstrapPayloadPrefix()
-            val dagHeadMessageId = reader.readNullableUuid()
             val dagHeadLamport = reader.readLong()
             reader.requireFullyRead()
             return Intro(
@@ -258,7 +253,6 @@ data class Intro(
                 device = prefix.device,
                 deviceType = prefix.deviceType,
                 torEndpoint = prefix.torEndpoint,
-                dagHeadMessageId = dagHeadMessageId,
                 dagHeadLamport = dagHeadLamport,
             )
         }

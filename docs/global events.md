@@ -257,8 +257,10 @@ declines during that transient window (the request retries elsewhere).
 ### 8.3 Known seams (accepted)
 
 - The intro/request is ACKed on handler `Success` *before* the orchestrator role acts — a failed
-  persist or relay is invisible to the ACK (requester-side timeout/retry; the CONVERTED sink-callback
-  seam should cover both flows).
+  persist or relay is invisible to the ACK. Deliberate, no sink-callback seam: policy refusals are
+  answered pre-emit in the handler (own-session decline and non-ACTIVE account → DECLINED NACK,
+  unknown account → Deferred so the sender's retry re-runs the check), and the newcomer's persisted
+  session deadline (burn + TIMED_OUT) is the backstop for everything after the emit.
 - `INVITE` is out-of-band only; `BootstrapEnvelope.init` rejects it on the wire.
 
 ## 9. Build order & test matrix

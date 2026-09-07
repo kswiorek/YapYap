@@ -46,11 +46,11 @@ data class RouterConfig(
     val reliabilityHalfLife: Duration = 24.hours,
     val maxBillableGap: Duration = 30.days,
     /**
-     * Lifetime of an outbound bootstrap intro envelope. Deliberately short: the QR secret is
-     * one-time and the intro must either arrive and be ACKed while the newcomer is on-boarding,
-     * or die — a stale intro must not keep circling the outbox.
+     * Outbound bootstrap envelope lifetime, doubling as the onboarding wait budget (session
+     * deadline): short enough that late responders can't append chain entries for failed
+     * onboardings or reply into burned secrets.
      */
-    val bootstrapIntroLifetime: Duration = 2.hours,
+    val bootstrapIntroLifetime: Duration = 5.minutes,
     /** Desired chance that at least one selected relay is online when a message needs relaying. */
     val relayTargetSuccessProbability: Double = 0.9,
     /** Hard cap on the number of relays a message is deposited with. */

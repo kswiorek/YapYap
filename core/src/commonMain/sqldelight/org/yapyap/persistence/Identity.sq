@@ -14,7 +14,10 @@ CREATE TABLE accounts (
     pub_key_id TEXT,
     is_admin INTEGER AS Boolean NOT NULL,
     status TEXT AS AccountStatus NOT NULL,
-    display_name TEXT NOT NULL
+    display_name TEXT NOT NULL,
+    -- Intro-seeded or freshly provisioned row awaiting fold confirmation (cleared by the
+    -- projector's commit). Unconfirmed: usable locally, not as chain proof.
+    provisional INTEGER AS Boolean NOT NULL DEFAULT 0
 );
 
 CREATE TABLE devices (
@@ -35,6 +38,9 @@ CREATE TABLE devices (
     push_token TEXT,
     reliability_score REAL NOT NULL,
     last_seen_timestamp INTEGER AS Instant NOT NULL,
+    -- Intro-seeded row awaiting chain confirmation (cleared by the projector's commit).
+    -- Unconfirmed: usable as a sync seed, not as authorship proof.
+    provisional INTEGER AS Boolean NOT NULL DEFAULT 0,
     FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 );
 
@@ -67,13 +73,29 @@ INSERT OR REPLACE INTO accounts (
     pub_key_id,
     is_admin,
     status,
-    display_name
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    display_name,
+    provisional
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectAccountById:
 SELECT *
 FROM accounts
 WHERE account_id = ?;
+
+selectAccountStatusById:
+SELECT status
+FROM accounts
+WHERE account_id = ?;
+
+selectDeviceProvisionalById:
+SELECT provisional
+FROM devices
+WHERE device_id = ?;
+
+selectLocalAccountAdmin:
+SELECT is_admin
+FROM accounts
+WHERE is_local_account = 1;
 
 selectAllAccounts:
 SELECT *
@@ -97,8 +119,9 @@ INSERT OR REPLACE INTO devices (
     current_signed_prekey_id,
     push_token,
     reliability_score,
-    last_seen_timestamp
-) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    last_seen_timestamp,
+    provisional
+) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateDeviceCurrentSignedPreKey:
 UPDATE devices

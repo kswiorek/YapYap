@@ -11,23 +11,16 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
- * Bootstrap-family envelope protection, exposed as one symmetric [protect] / [open] pair that
- * dispatches on the payload kind / [BootstrapEnvelope.scheme]:
- *  - [Intro] → SECRET_AEAD: AEAD under `HKDF(QR shared secret)` — the preshared-key gate for sponsor
- *    intros and recovery replies;
- *  - [RecoveryRequest] → ACCOUNT_SIGNED: plaintext + account-key signature verification over the
- *    device binding ([RecoveryRequest.accountSignedDeviceBindingBytes]) — the request has no
- *    pre-shared secret to encrypt under, its authentication *is* the account signature.
- *  - [Invite] is out-of-band only and never carried in an envelope.
+ * Bootstrap-family envelope protection: [Intro] → SECRET_AEAD (AEAD under `HKDF(shared secret)`),
+ * [RecoveryRequest] → ACCOUNT_SIGNED (plaintext + account-key signature over the device binding),
+ * [Invite] never travels on the wire.
  *
- * The SECRET_AEAD path is deliberately a *preshared-key* primitive, not an identity-backed scheme —
- * it resolves no keys from the DB (no [org.yapyap.crypto.signature.SignatureProvider], no session
- * manager), extends no [BaseProtection], and is not part of the [org.yapyap.protocol.SignalSecurityScheme]
- * set. The key comes from [BootstrapKeySource] (the orchestrator's onboarding session store), never
- * as a caller-passed secret.
+ * Preshared-key primitive, not identity-backed: no DB lookups, no session manager. The key is
+ * split by direction — [protect] takes the sender's in-memory secret explicitly (sponsor QR
+ * scan / responder request copy, so neither role needs state), [open] resolves the newcomer's
+ * persisted secret from [BootstrapKeySource].
  *
- * The cipher is ChaCha20-Poly1305 with a library-managed IV embedded in the output; the envelope
- * header (scheme/id/source/target/createdAt) is bound as AEAD AAD.
+ * ChaCha20-Poly1305, library-managed IV; the header is bound as AEAD AAD ([aadBytes]).
  */
 class BootstrapProtection(
     private val crypto: CryptoProvider,
@@ -43,14 +36,22 @@ class BootstrapProtection(
             outputLength = INTRO_KEY_SIZE_BYTES,
         )
 
-    /** Protects a bootstrap payload into an envelope by its kind (AEAD for INTRO, plaintext for RECOVERY_REQUEST). */
+    /** Protect by kind (AEAD for INTRO, plaintext for RECOVERY_REQUEST).
+     * @param sharedSecret sender's in-memory secret, required for INTRO; unused for RECOVERY_REQUEST. */
     suspend fun protect(
         payload: BootstrapPayload,
         source: PeerId,
         target: PeerId,
         createdAt: Instant,
+        sharedSecret: ByteArray? = null,
     ): BootstrapEnvelope = when (payload) {
-        is Intro -> protectIntro(payload, source, target, createdAt)
+        is Intro -> protectIntro(
+            payload,
+            source,
+            target,
+            createdAt,
+            requireNotNull(sharedSecret) { "INTRO protection requires the shared secret" },
+        )
         is RecoveryRequest -> BootstrapEnvelope(
             scheme = BootstrapSecurityScheme.ACCOUNT_SIGNED,
             bootstrapEnvelopeId = Uuid.random(),
@@ -69,14 +70,15 @@ class BootstrapProtection(
         BootstrapSecurityScheme.ACCOUNT_SIGNED -> openRecoveryRequest(envelope)
     }
 
-    /** Protects an INTRO (or an AEAD-bound recovery reply) under the active session secret. */
+    /** Protects an INTRO (or an AEAD-bound recovery reply) under the sender's in-memory secret. */
     private suspend fun protectIntro(
         payload: Intro,
         source: PeerId,
         target: PeerId,
         createdAt: Instant,
+        sharedSecret: ByteArray,
     ): BootstrapEnvelope {
-        val introKey = activeIntroKey()
+        val introKey = deriveIntroKey(sharedSecret)
         val envelope = BootstrapEnvelope(
             scheme = BootstrapSecurityScheme.SECRET_AEAD,
             bootstrapEnvelopeId = Uuid.random(),

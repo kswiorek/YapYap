@@ -9,23 +9,55 @@ import org.yapyap.protocol.TorEndpoint
 interface IdentityKeyRepository {
     suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
 
+    /** Chain-derived membership status, or null when absent (absence asserts nothing — treat as "not yet known", never "removed"). */
+    suspend fun getAccountStatus(accountId: AccountId): AccountStatus?
+
     suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord?
 
-    suspend fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord)
+    suspend fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord, provisional: Boolean = true)
 
     suspend fun getLocalDeviceRecord(): DeviceIdentityRecord?
 
     suspend fun getLocalAccountRecord(): AccountIdentityRecord?
 
-    suspend fun insertPeerDevice(accountId: AccountId, deviceType: DeviceType, identity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
+    /** Local account's admin flag (false when absent) — the sponsor's fail-fast read. Chain-owned; seeded locally, projector-corrected. */
+    suspend fun isLocalAccountAdmin(): Boolean
 
-    suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean = false)
+    /** Provisional bit of a device row (true when absent — unknown rows are unconfirmed by definition). */
+    suspend fun isDeviceProvisional(deviceId: PeerId): Boolean
+
+    suspend fun insertPeerDevice(
+        accountId: AccountId,
+        deviceType: DeviceType,
+        identity: DeviceIdentityRecord,
+        torEndpoint: TorEndpoint,
+        provisional: Boolean = true
+    )
+
+    /** Insert-only intro seed (`provisional = true`); existing rows are left untouched. Cleared by the projector once the fold carries the Add event. */
+    suspend fun seedProvisionalPeerDevice(
+        accountId: AccountId,
+        deviceType: DeviceType,
+        identity: DeviceIdentityRecord,
+        torEndpoint: TorEndpoint
+    )
+
+    /** Insert-only intro seed, account half of [seedProvisionalPeerDevice] (`provisional = true`, ACTIVE). */
+    suspend fun seedProvisionalPeerAccount(identity: AccountIdentityRecord, admin: Boolean, displayName: String)
+
+    suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean = false, provisional: Boolean = true)
 
     suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
 
     suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint?
 
-    suspend fun insertPeerAccount(identity: AccountIdentityRecord, admin: Boolean, status: AccountStatus, displayName: String)
+    suspend fun insertPeerAccount(
+        identity: AccountIdentityRecord,
+        admin: Boolean,
+        status: AccountStatus,
+        displayName: String,
+        provisional: Boolean = true
+    )
 
     suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
 

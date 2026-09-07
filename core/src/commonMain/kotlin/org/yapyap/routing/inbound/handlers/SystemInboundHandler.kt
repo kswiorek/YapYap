@@ -110,6 +110,22 @@ internal class SystemInboundHandler(
                         )
                         InboundHandleResult.Success()
                     }
+                    PacketNackReason.DECLINED -> {
+                        AppLog.info(
+                            component = LogComponent.ROUTER,
+                            event = LogEvent.OUTBOX_NACK_RECEIVED,
+                            message = "Peer declined outbox packet on policy grounds; stopped retrying",
+                            fields = mapOf(
+                                "packetId" to payload.packetId,
+                                "packetType" to payload.packetType,
+                                "reason" to payload.reason,
+                                "source" to systemEnvelope.source,
+                            ),
+                        )
+                        InboundHandleResult.Success(
+                            sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                        )
+                    }
                     else -> {
                         AppLog.debug(
                             component = LogComponent.ROUTER,
@@ -124,6 +140,8 @@ internal class SystemInboundHandler(
                         )
                         InboundHandleResult.Success()
                     }
+                    // WRONG_TARGET, UNSUPPORTED_TYPE, DECODE_FAILED (and any future reason) land
+                    // in `else` above: transient or peer-side, so the retry schedule is kept.
                 }
             }
             is SystemPayload.SyncRequest -> {

@@ -11,6 +11,8 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.availability.PeerAvailabilityStore
+import org.yapyap.persistence.key.BootstrapSessionStore
+import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
@@ -55,6 +57,8 @@ class DefaultRouter(
     val syncPayloadProvider: SyncPayloadProvider,
     val lamportSnapshotProvider: LamportSnapshotProvider,
     val peerAvailabilityStore: PeerAvailabilityStore,
+    val bootstrapSessionStore: BootstrapSessionStore,
+    val identityKeyRepository: IdentityKeyRepository,
 ): Router {
 
 
@@ -153,7 +157,12 @@ class DefaultRouter(
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
             PacketType.FILE to FileInboundHandler(),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow),
-            PacketType.BOOTSTRAP to BootstrapInboundHandler(routingContext, bootstrapPacketFlow),
+            PacketType.BOOTSTRAP to BootstrapInboundHandler(
+                routingContext,
+                bootstrapPacketFlow,
+                sessionStore = bootstrapSessionStore,
+                identityKeyRepository = identityKeyRepository,
+            ),
         ),
         outboxProcessor = outboxProcessor,
         syncHandler = syncHandler,
@@ -337,8 +346,13 @@ class DefaultRouter(
         typingIndicatorDispatcher.dispatch(targets, roomId, interval)
     }
 
-    override suspend fun sendBootstrap(payload: BootstrapPayload, target: PeerId, targetEndpoint: TorEndpoint?) {
+    override suspend fun sendBootstrap(
+        payload: BootstrapPayload,
+        target: PeerId,
+        targetEndpoint: TorEndpoint?,
+        sharedSecret: ByteArray?,
+    ) {
         check(started) { "Router must be started before sending bootstrap intro" }
-        bootstrapSender.sendBootstrap(payload, target, targetEndpoint)
+        bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
     }
 }
