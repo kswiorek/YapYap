@@ -2,15 +2,17 @@ package org.yapyap.routing.policy
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.router.PeerAvailabilityRegistry
-import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.*
 import org.yapyap.sync.FakePeerAvailabilityStore
-import org.yapyap.sync.buildSyncRoutingStack
 import org.yapyap.sync.testDeviceIdentity
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -94,13 +96,12 @@ class RelaySelectionPolicyTest {
         val sibling = peer("sibling")
         val other = peer("other")
 
-        val stack = buildSyncRoutingStack(
+        val ctx = testRoutingContext(
             localDevice = testDeviceIdentity(self),
             peersByAccount = mapOf(
                 AccountId("acct-t") to listOf(target, sibling),
                 AccountId("acct-o") to listOf(other),
             ),
-            clock = FakeClock(epochSeconds(1_000L)),
         )
 
         val registry = PeerAvailabilityRegistry(
@@ -111,7 +112,7 @@ class RelaySelectionPolicyTest {
         seedEffectiveScores(registry, mapOf(sibling to 0.8, other to 0.6))
         // Target and self never asked for a score; self/target are excluded from candidates anyway.
 
-        val policy = DefaultRelaySelectionPolicy(stack.ctx, registry, MutableStateFlow(RouterConfig()))
+        val policy = DefaultRelaySelectionPolicy(ctx, registry, MutableStateFlow(RouterConfig()))
         val relays = policy.selectRelays(target)
 
         assertTrue(relays.isNotEmpty())
@@ -128,13 +129,12 @@ class RelaySelectionPolicyTest {
         val known = peer("known")
         val unknown = peer("unknown")
 
-        val stack = buildSyncRoutingStack(
+        val ctx = testRoutingContext(
             localDevice = testDeviceIdentity(self),
             peersByAccount = mapOf(
                 AccountId("acct-t") to listOf(target),
                 AccountId("acct-k") to listOf(known, unknown),
             ),
-            clock = FakeClock(epochSeconds(1_000L)),
         )
 
         val registry = PeerAvailabilityRegistry(
@@ -144,11 +144,29 @@ class RelaySelectionPolicyTest {
         )
         seedEffectiveScores(registry, mapOf(known to 0.6)) // "unknown" has no score
 
-        val policy = DefaultRelaySelectionPolicy(stack.ctx, registry, MutableStateFlow(RouterConfig()))
+        val policy = DefaultRelaySelectionPolicy(ctx, registry, MutableStateFlow(RouterConfig()))
         val relays = policy.selectRelays(target)
 
         assertTrue(relays.contains(known))
         assertFalse(relays.contains(unknown))
+    }
+
+    /** Minimal context: no dispatchers, outbox, or background jobs to leak across runTest cases. */
+    private fun testRoutingContext(
+        localDevice: DeviceIdentityRecord,
+        peersByAccount: Map<AccountId, List<PeerId>>,
+    ): RoutingContext {
+        val clock = FakeClock(epochSeconds(1_000L))
+        return RoutingContext(
+            identityResolver = FakeIdentityResolverForRouter(localDevice, peersByAccount),
+            packetDeduplicator = InMemoryPacketDeduplicator(),
+            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
+            torTransport = RecordingTorTransport(),
+            webRtcTransport = RecordingWebRtcTransport(),
+            clock = clock,
+            routerConfig = MutableStateFlow(RouterConfig()),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+        ).apply { localDeviceIdentity = localDevice }
     }
 
     /** Boosts measured scores with one sweep, then sets reported so effective == [scores]. */

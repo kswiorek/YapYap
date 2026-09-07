@@ -1,6 +1,7 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -22,6 +23,7 @@ import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -54,42 +56,42 @@ class BootstrapInboundIntegrationTest {
         )
         val router = e2eeRouterUnderTest(stack, tor = tor, clock = clock)
         router.start()
+        try {
+            val payload = Intro(
+                version = 1,
+                account = AccountIdentityRecord(AccountId("sponsor-account"), "Sponsor", key = null),
+                device = sponsor.device,
+                deviceType = DeviceType.DESKTOP,
+                torEndpoint = TorEndpoint("sponsor.onion", 80),
+                dagHeadLamport = 0L,
+            )
+            val bootstrapEnvelope = BootstrapProtection(crypto, BootstrapKeySource { secret.copyOf() })
+                .protect(payload, sponsor.device.deviceId, newcomer.device.deviceId, clock.now(), secret.copyOf())
+            val binary = BinaryEnvelope(
+                packetId = Uuid.random(),
+                packetType = PacketType.BOOTSTRAP,
+                dispositionRequested = true,
+                createdAt = clock.now(),
+                expiresAt = clock.now() + 1.minutes,
+                source = sponsor.device.deviceId,
+                target = newcomer.device.deviceId,
+                payload = bootstrapEnvelope.encode(),
+            )
 
-        val payload = Intro(
-            version = 1,
-            account = AccountIdentityRecord(AccountId("sponsor-account"), "Sponsor", key = null),
-            device = sponsor.device,
-            deviceType = DeviceType.DESKTOP,
-            torEndpoint = TorEndpoint("sponsor.onion", 80),
-            dagHeadLamport = 0L,
-        )
-        val bootstrapEnvelope = BootstrapProtection(crypto, BootstrapKeySource { secret.copyOf() })
-            .protect(payload, sponsor.device.deviceId, newcomer.device.deviceId, clock.now(), secret.copyOf())
-        val binary = BinaryEnvelope(
-            packetId = Uuid.random(),
-            packetType = PacketType.BOOTSTRAP,
-            dispositionRequested = true,
-            createdAt = clock.now(),
-            expiresAt = clock.now() + 1.minutes,
-            source = sponsor.device.deviceId,
-            target = newcomer.device.deviceId,
-            payload = bootstrapEnvelope.encode(),
-        )
+            // Subscribe before emitting: bootstrapPackets has no replay, so an early
+            // emit would otherwise be lost and the wait would time out under load.
+            val firstEvent = async { router.bootstrapPackets.first() }
+            // Let the collector suspend before the inbound races it.
+            yield()
 
-        val received = mutableListOf<BootstrapPacketEvent>()
-        val collectJob = launch { router.bootstrapPackets.collect { received.add(it) } }
+            tor.tryEmitIncoming(
+                TorIncomingEnvelope(source = TorEndpoint("sponsor.onion", 80), envelope = binary),
+            )
 
-        tor.tryEmitIncoming(
-            TorIncomingEnvelope(source = TorEndpoint("sponsor.onion", 80), envelope = binary),
-        )
-
-        withTimeout(5_000) {
-            while (received.isEmpty()) yield()
+            val event = withTimeout(15.seconds) { firstEvent.await() }
+            assertEquals(sponsor.device.deviceId, event.payload.device.deviceId)
+        } finally {
+            router.stop()
         }
-        assertEquals(1, received.size)
-        assertEquals(sponsor.device.deviceId, received[0].payload.device.deviceId)
-
-        collectJob.cancel()
-        router.stop()
     }
 }
