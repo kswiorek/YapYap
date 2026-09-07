@@ -6,7 +6,7 @@ import org.yapyap.persistence.db.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapIntroPayload
+import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -29,8 +29,8 @@ class BootstrapSenderTest {
             encryption = IdentityPublicKeyRecord("le", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
 
-    private fun newcomerIntroPayload(): BootstrapIntroPayload =
-        BootstrapIntroPayload(
+    private fun newcomerIntroPayload(): Intro =
+        Intro(
             version = 1,
             account = AccountIdentityRecord(
                 accountId = AccountId("newcomer-account"),
@@ -44,7 +44,6 @@ class BootstrapSenderTest {
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("newcomer.onion", 80),
-            dagHeadMessageId = null,
             dagHeadLamport = 0L,
         )
 
@@ -61,7 +60,7 @@ class BootstrapSenderTest {
         router.start()
 
         val payload = newcomerIntroPayload()
-        router.sendBootstrapIntro(payload)
+        router.sendBootstrap(payload, target = newcomerDevice)
 
         assertEquals(1, outbox.enqueued.size)
         val env = outbox.enqueued.single()

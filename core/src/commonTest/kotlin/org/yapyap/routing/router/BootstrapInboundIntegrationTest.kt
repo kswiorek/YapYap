@@ -9,11 +9,11 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.DeviceType
-import org.yapyap.protection.envelope.BootstrapIntroProtection
-import org.yapyap.protection.envelope.BootstrapKeySource
+import org.yapyap.persistence.key.BootstrapKeySource
+import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapIntroPayload
+import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -28,7 +28,7 @@ import kotlin.uuid.Uuid
  * Full-path inbound check: a bootstrap intro from a sponsor the newcomer has NEVER seen (no device
  * row, no Tor endpoint — the pre-bootstrap chicken-and-egg) must be tolerated by
  * [InboundEnvelopeProcessor.handleTorInbound], authenticated by the preshared-key AEAD, and surfaced
- * on [Router.bootstrapIntros].
+ * on [Router.bootstrapPackets].
  */
 class BootstrapInboundIntegrationTest {
 
@@ -55,17 +55,16 @@ class BootstrapInboundIntegrationTest {
         val router = e2eeRouterUnderTest(stack, tor = tor, clock = clock)
         router.start()
 
-        val payload = BootstrapIntroPayload(
+        val payload = Intro(
             version = 1,
             account = AccountIdentityRecord(AccountId("sponsor-account"), "Sponsor", key = null),
             device = sponsor.device,
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsor.onion", 80),
-            dagHeadMessageId = null,
             dagHeadLamport = 0L,
         )
-        val bootstrapEnvelope = BootstrapIntroProtection(crypto, BootstrapKeySource { secret.copyOf() })
-            .protectIntro(payload, sponsor.device.deviceId, newcomer.device.deviceId, clock.now())
+        val bootstrapEnvelope = BootstrapProtection(crypto, BootstrapKeySource { secret.copyOf() })
+            .protect(payload, sponsor.device.deviceId, newcomer.device.deviceId, clock.now(), secret.copyOf())
         val binary = BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.BOOTSTRAP,
@@ -77,8 +76,8 @@ class BootstrapInboundIntegrationTest {
             payload = bootstrapEnvelope.encode(),
         )
 
-        val received = mutableListOf<BootstrapIntroEvent>()
-        val collectJob = launch { router.bootstrapIntros.collect { received.add(it) } }
+        val received = mutableListOf<BootstrapPacketEvent>()
+        val collectJob = launch { router.bootstrapPackets.collect { received.add(it) } }
 
         tor.tryEmitIncoming(
             TorIncomingEnvelope(source = TorEndpoint("sponsor.onion", 80), envelope = binary),

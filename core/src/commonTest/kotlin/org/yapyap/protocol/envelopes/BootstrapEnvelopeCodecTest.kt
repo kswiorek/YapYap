@@ -24,12 +24,12 @@ class BootstrapEnvelopeCodecTest {
     private val crypto: CryptoProvider = DefaultCryptoProvider()
     private val now = epochSeconds(1_700_000_000L)
 
-    private suspend fun sampleIntroPayload(): BootstrapIntroPayload {
+    private suspend fun sampleIntroPayload(): Intro {
         val signing = crypto.generateSigningKeyPair()
         val encryption = crypto.generateEncryptionKeyPair()
         val spk = crypto.generateEncryptionKeyPair()
         val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
-        return BootstrapIntroPayload(
+        return Intro(
             version = 1,
             account = AccountIdentityRecord(
                 accountId = AccountId("sponsor-account"),
@@ -71,13 +71,13 @@ class BootstrapEnvelopeCodecTest {
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsorrelay.onion", 443),
-            dagHeadMessageId = Uuid.random(),
             dagHeadLamport = 12L,
         )
     }
 
     private fun sampleEnvelope(payload: ByteArray = payloadBytes): BootstrapEnvelope =
         BootstrapEnvelope(
+            scheme = BootstrapSecurityScheme.SECRET_AEAD,
             bootstrapEnvelopeId = Uuid.random(),
             source = sponsorDevice,
             target = newcomerDevice,
@@ -123,9 +123,9 @@ class BootstrapEnvelopeCodecTest {
     }
 
     @Test
-    fun bootstrapIntroPayload_encodeDecode_roundTrip() = runTest {
+    fun bootstrapIntro_encodeDecode_roundTrip() = runTest {
         val original = sampleIntroPayload()
-        val decoded = BootstrapIntroPayload.decode(original.encode())
+        val decoded = BootstrapPayload.decode(original.encode())
         // Re-encoding after decode must be byte-identical (stronger than field equality for
         // records whose ByteArray fields compare by reference).
         assertTrue(original.encode().contentEquals(decoded.encode()))
@@ -134,20 +134,20 @@ class BootstrapEnvelopeCodecTest {
     }
 
     @Test
-    fun bootstrapIntroPayload_encodeDoesNotSerializePrivatePreKey() = runTest {
+    fun bootstrapIntro_encodeDoesNotSerializePrivatePreKey() = runTest {
         val payload = sampleIntroPayload()
         val encoded = payload.encode()
         // privateKey must always decode to null — private key material never leaves the device.
-        val decoded = BootstrapIntroPayload.decode(encoded)
-        assertEquals(null, decoded.device.signedPreKey!!.privateKey)
+        val decoded = BootstrapPayload.decode(encoded)
+        assertEquals(null, (decoded as Intro).device.signedPreKey!!.privateKey)
     }
 
     @Test
-    fun bootstrapIntroPayload_decode_rejectsUnsupportedVersion() = runTest {
+    fun bootstrapIntro_decode_rejectsUnsupportedVersion() = runTest {
         val original = sampleIntroPayload()
         val bytes = original.encode()
         // Flip the payload version byte right after the kind byte (offset 1).
         val tampered = bytes.copyOf().also { it[1] = 0x02 }
-        assertFailsWith<IllegalArgumentException> { BootstrapIntroPayload.decode(tampered) }
+        assertFailsWith<IllegalArgumentException> { BootstrapPayload.decode(tampered) }
     }
 }

@@ -14,14 +14,17 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.persistence.key.InMemoryOpkRepository
+import org.yapyap.persistence.key.*
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protection.PassthroughFileProtection
-import org.yapyap.protection.envelope.*
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
+import org.yapyap.protection.envelope.SignedSystemProtection
+import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
@@ -114,10 +117,13 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = envelope.decodePayload()
 
     override suspend fun protectBootstrap(
-        input: BootstrapIntroPayload,
-        context: EnvelopeProtectContext
+        input: BootstrapPayload,
+        context: EnvelopeProtectContext,
+        sharedSecret: ByteArray?,
     ): BootstrapEnvelope =
         BootstrapEnvelope(
+            // Passthrough plaintext (no AEAD); the scheme is unchecked by this fake.
+            scheme = BootstrapSecurityScheme.ACCOUNT_SIGNED,
             bootstrapEnvelopeId = Uuid.random(),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
@@ -125,8 +131,8 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             payload = input.encode(),
         )
 
-    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapIntroPayload =
-        BootstrapIntroPayload.decode(envelope.payload)
+    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
+        BootstrapPayload.decode(envelope.payload)
 }
 
 /**
@@ -184,12 +190,13 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
         delegate.openSystem(envelope)
 
     override suspend fun protectBootstrap(
-        input: BootstrapIntroPayload,
-        context: EnvelopeProtectContext
+        input: BootstrapPayload,
+        context: EnvelopeProtectContext,
+        sharedSecret: ByteArray?,
     ): BootstrapEnvelope =
-        delegate.protectBootstrap(input, context)
+        delegate.protectBootstrap(input, context, sharedSecret)
 
-    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapIntroPayload =
+    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
         delegate.openBootstrap(envelope)
 }
 
@@ -393,7 +400,12 @@ internal class TrackingPacketOutbox : PacketOutbox {
     val recordAttemptCalls = mutableListOf<Triple<Uuid, Instant, Instant>>()
     val setDueForTargetCalls = mutableListOf<Pair<PeerId, Instant>>()
 
-    override suspend fun enqueue(envelope: BinaryEnvelope, nextRetryAt: Instant, relayMessage: Boolean) {
+    override suspend fun enqueue(
+        envelope: BinaryEnvelope,
+        nextRetryAt: Instant,
+        relayMessage: Boolean,
+        targetEndpoint: TorEndpoint?,
+    ) {
         val blobSize = envelope.encode().size.toLong()
         entries[envelope.packetId] = StoredEntry(
             envelope = envelope,
@@ -595,7 +607,7 @@ internal fun buildE2eeRouterStack(
         fileProtection = PassthroughFileProtection(),
         messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
         systemProtection = SignedSystemProtection(signatureProvider, crypto),
-        bootstrapProtection = BootstrapIntroProtection(crypto, bootstrapKeySource),
+        bootstrapProtection = BootstrapProtection(crypto, bootstrapKeySource),
     )
     return E2eeRouterTestStack(
         peer = local,
@@ -617,6 +629,8 @@ internal fun e2eeRouterUnderTest(
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
+    sessionStore: BootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
+    identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -632,6 +646,8 @@ internal fun e2eeRouterUnderTest(
         syncPayloadProvider = syncPayloadProvider,
         lamportSnapshotProvider = FakeLamportSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
+        bootstrapSessionStore = sessionStore,
+        identityKeyRepository = identityKeyRepository,
     )
 
 internal fun outboxProcessorUnderTest(
@@ -672,6 +688,8 @@ internal fun defaultRouterUnderTest(
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
+    sessionStore: BootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
+    identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -687,4 +705,6 @@ internal fun defaultRouterUnderTest(
         syncPayloadProvider = syncPayloadProvider,
         lamportSnapshotProvider = FakeLamportSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
+        bootstrapSessionStore = sessionStore,
+        identityKeyRepository = identityKeyRepository,
     )

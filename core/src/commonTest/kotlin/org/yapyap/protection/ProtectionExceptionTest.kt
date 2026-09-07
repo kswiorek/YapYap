@@ -60,6 +60,6 @@ class ProtectionExceptionTest {
             CryptoException.MissingDeviceRecord("peer-a"),
         )
         assertIs<ProtectionException.IdentityNotReady>(mapped)
-        assertEquals(ProtectionDisposition.RETRYABLE, mapped.disposition)
+        assertEquals(ProtectionDisposition.DEFER, mapped.disposition)
     }
 }

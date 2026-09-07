@@ -37,8 +37,12 @@ internal class InMemoryIdentityKeyRepository(
 
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
     val devices = mutableMapOf<String, DeviceIdentityRecord>()
+    val accountStatuses = mutableMapOf<String, AccountStatus>()
+    val provisionalDevices = mutableSetOf<String>()
+    val provisionalAccounts = mutableSetOf<String>()
     var localDevice : DeviceIdentityRecord? = null
     var localAccount : AccountIdentityRecord? = null
+    var localAdmin: Boolean = false
     private val signedPreKeys = mutableMapOf<String, SignedPreKeyRecord>()
     private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
     private val deviceToAccount = mutableMapOf<String, String>()
@@ -47,6 +51,9 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
         accounts[accountId.id]
+
+    override suspend fun getAccountStatus(accountId: AccountId): AccountStatus? =
+        accountStatuses[accountId.id]
 
     override suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
         devices[deviceId.id]?.let { device ->
@@ -58,8 +65,10 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun insertLocalDevice(
         accountId: AccountId,
         identity: DeviceIdentityRecord,
+        provisional: Boolean,
     ) {
         devices[identity.deviceId.id] = identity
+        if (provisional) provisionalDevices.add(identity.deviceId.id) else provisionalDevices.remove(identity.deviceId.id)
         localDevice = identity
         deviceToAccount[identity.deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
@@ -86,8 +95,10 @@ internal class InMemoryIdentityKeyRepository(
         deviceType: DeviceType,
         identity: DeviceIdentityRecord,
         torEndpoint: TorEndpoint,
+        provisional: Boolean,
     ) {
         devices[identity.deviceId.id] = identity
+        if (provisional) provisionalDevices.add(identity.deviceId.id) else provisionalDevices.remove(identity.deviceId.id)
         deviceToAccount[identity.deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
         torForDevice[identity.deviceId.id] = torEndpoint
@@ -101,10 +112,14 @@ internal class InMemoryIdentityKeyRepository(
         }
     }
 
-    override suspend fun insertLocalAccount(identity: AccountIdentityRecord) {
+    override suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean, provisional: Boolean) {
         localAccount = identity
+        localAdmin = admin
         accounts[identity.accountId.id] = identity
+        if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
+
+    override suspend fun isLocalAccountAdmin(): Boolean = localAdmin
 
     override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
         val d = devices[deviceId.id] ?: return null
@@ -119,6 +134,7 @@ internal class InMemoryIdentityKeyRepository(
                     publicKey = spk.publicKey,
                 )
             }
+            IdentityKeyPurpose.BOOTSTRAP_SECRET -> null
         }
     }
 
@@ -131,8 +147,11 @@ internal class InMemoryIdentityKeyRepository(
         admin: Boolean,
         status: AccountStatus,
         displayName: String,
+        provisional: Boolean,
     ) {
         accounts[identity.accountId.id] = identity
+        accountStatuses[identity.accountId.id] = status
+        if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
@@ -206,6 +225,30 @@ internal class InMemoryIdentityKeyRepository(
     fun seedTorEndpoint(deviceId: PeerId, endpoint: TorEndpoint) {
         torForDevice[deviceId.id] = endpoint
     }
+
+    override suspend fun seedProvisionalPeerDevice(
+        accountId: AccountId,
+        deviceType: DeviceType,
+        identity: DeviceIdentityRecord,
+        torEndpoint: TorEndpoint,
+    ) {
+        if (devices.containsKey(identity.deviceId.id)) return
+        insertPeerDevice(accountId, deviceType, identity, torEndpoint)
+        provisionalDevices.add(identity.deviceId.id)
+    }
+
+    override suspend fun seedProvisionalPeerAccount(
+        identity: AccountIdentityRecord,
+        admin: Boolean,
+        displayName: String,
+    ) {
+        if (accounts.containsKey(identity.accountId.id)) return
+        insertPeerAccount(identity, admin, AccountStatus.ACTIVE, displayName, provisional = true)
+        provisionalAccounts.add(identity.accountId.id)
+    }
+
+    override suspend fun isDeviceProvisional(deviceId: PeerId): Boolean =
+        !devices.containsKey(deviceId.id) || provisionalDevices.contains(deviceId.id)
 }
 
 /** In-memory [OpkRepository] for unit tests. */

@@ -30,7 +30,7 @@ import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapIntroPayload
+import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
@@ -677,7 +677,7 @@ private class RecordingRouter : Router {
 
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
 
-    override val bootstrapIntros: Flow<BootstrapIntroEvent> = MutableSharedFlow()
+    override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
     override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
 
@@ -704,7 +704,12 @@ private class RecordingRouter : Router {
 
     override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) = Unit
 
-    override suspend fun sendBootstrapIntro(payload: BootstrapIntroPayload) = Unit
+    override suspend fun sendBootstrap(
+        payload: BootstrapPayload,
+        target: PeerId,
+        targetEndpoint: TorEndpoint?,
+        sharedSecret: ByteArray?,
+    ) = Unit
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)
