@@ -9,8 +9,13 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.crypto.identity.AccountIdentityRecord
+import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.orchestrator.globalevent.GlobalEventProjector
+import org.yapyap.orchestrator.globalevent.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
+import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
@@ -19,7 +24,9 @@ import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeRoomRepository
@@ -66,6 +73,28 @@ private class NoopSyncCoordinator : SyncCoordinator {
     override suspend fun requestRangeSync(roomId: RoomId, pingLamport: Long) = Unit
 }
 
+private class NoopGlobalEventProjector : GlobalEventProjector {
+    override val stateChanges: Flow<IdentityStateChange> = emptyFlow()
+    override fun start(scope: CoroutineScope) = Unit
+    override suspend fun stop() = Unit
+    override suspend fun publishGenesisAccount(
+        account: AccountIdentityRecord,
+        device: DeviceIdentityRecord,
+        deviceType: DeviceType,
+        torEndpoint: TorEndpoint,
+        accountKeySignature: ByteArray,
+    ) = Unit
+
+    override suspend fun publishSponsoredNewAccount(invite: Invite, grantAdmin: Boolean) = Unit
+    override suspend fun publishOwnAccountDevice(invite: Invite) = Unit
+    override suspend fun publishRelayedDevice(request: RecoveryRequest) = Unit
+    override suspend fun publishGrantAdmin(targetAccountId: AccountId) = Unit
+    override suspend fun publishRemoveAdmin(targetAccountId: AccountId) = Unit
+    override suspend fun publishRemoveAccount(targetAccountId: AccountId) = Unit
+    override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = Unit
+}
+
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class DefaultOnboardingProviderTest {
 
     private val start = epochSeconds(10_000L)
@@ -84,6 +113,7 @@ class DefaultOnboardingProviderTest {
             syncCoordinator = NoopSyncCoordinator(),
             identityKeyRepository = identityKeyRepository,
             roomRepository = roomRepository,
+            projector = NoopGlobalEventProjector(),
             clock = clock,
             routerConfig = MutableStateFlow(routerConfig),
         )

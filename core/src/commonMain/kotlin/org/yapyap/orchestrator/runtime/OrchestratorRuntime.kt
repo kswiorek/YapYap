@@ -6,6 +6,7 @@ import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.globalevent.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.config.ConfigService
@@ -43,6 +44,7 @@ internal class DefaultOrchestratorRuntime(
     private val onboardingProvider: OnboardingProvider,
     private val identityKeyRepository: IdentityKeyRepository,
     private val cryptoProvider: CryptoProvider,
+    private val globalEventProjector: GlobalEventProjector,
     private val localDeviceType: DeviceType,
 ) : OrchestratorRuntime {
 
@@ -75,6 +77,7 @@ internal class DefaultOrchestratorRuntime(
             messageRepository = DefaultMessageRepository(database),
             cryptoProvider = cryptoProvider,
             localDeviceType = localDeviceType,
+            projector = globalEventProjector,
         )
 
         _config = DefaultConfigService(configStore)

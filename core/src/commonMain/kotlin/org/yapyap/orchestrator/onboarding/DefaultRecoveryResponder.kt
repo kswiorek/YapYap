@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.orchestrator.globalevent.GlobalEventProjector
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository
@@ -16,12 +17,16 @@ import org.yapyap.routing.router.Router
  * replies with an AEAD intro. Stateless — the request's secret protects the reply once and is
  * never persisted, so concurrent requests can't clobber each other. Policy (decline/defer)
  * already ran in the inbound handler; only admitted requests reach here.
+ *
+ * The AddDevice itself goes through the [GlobalEventProjector] (append, fold, broadcast);
+ * the responder only sends the intro afterwards.
  */
 internal class DefaultRecoveryResponder(
     private val router: Router,
     private val identityKeyRepository: IdentityKeyRepository,
     private val messageRepository: MessageRepository,
     private val localDeviceType: DeviceType,
+    private val projector: GlobalEventProjector,
 ) : RecoveryResponder {
 
     private var collectJob: Job? = null
@@ -64,6 +69,7 @@ internal class DefaultRecoveryResponder(
         )
     }
 
-    private suspend fun appendRecoveryAddDevice(request: RecoveryRequest): Unit =
-        TODO("global events: append AddDevice bound to the requester's account with key_signature = request.accountSignature, fold immediately, via the control-room writer (§8.2 phase 2)")
+    private suspend fun appendRecoveryAddDevice(request: RecoveryRequest) {
+        projector.publishRelayedDevice(request)
+    }
 }

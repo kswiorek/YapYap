@@ -5,10 +5,9 @@ import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.time.Instant
-import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-data class FileEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+data class FileEnvelope(
     val transferId: Uuid,
     val source: PeerId,
     val target: PeerId,

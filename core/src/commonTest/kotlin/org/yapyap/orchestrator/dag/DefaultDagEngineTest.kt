@@ -5,6 +5,7 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.*
 import kotlin.test.*
@@ -356,11 +357,13 @@ class DefaultDagEngineTest {
 
     @Test
     fun append_globalEventDraft_buildsGlobalEventPayload() = runTest {
-        val payload = dagEngine.append(roomId, MessageDraft.GlobalEvent(byteArrayOf(0x01, 0x02)))
+        val event = GlobalEventPayload.RemoveDevice(targetDeviceId = remoteDeviceId)
+        val payload = dagEngine.append(roomId, MessageDraft.GlobalEvent(event))
 
         assertTrue(payload is MessagePayload.GlobalEvent)
         assertEquals(RoomId.GLOBAL, payload.roomId)
-        assertContentEquals(byteArrayOf(0x01, 0x02), payload.eventBytes)
+        assertContentEquals(event.encode(), payload.eventBytes)
+        assertEquals(event, payload.decodeEvent())
         assertEquals(0L, payload.lamportClock)
     }
 

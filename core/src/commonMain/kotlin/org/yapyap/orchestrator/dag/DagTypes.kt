@@ -1,13 +1,14 @@
 package org.yapyap.orchestrator.dag
 
 import org.yapyap.persistence.db.VerificationState
+import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.jvm.JvmInline
 import kotlin.uuid.Uuid
 
 sealed interface MessageDraft {
     data class Text(val text: String) : MessageDraft
-    data class GlobalEvent(val eventBytes: ByteArray) : MessageDraft
+    data class GlobalEvent(val event: GlobalEventPayload) : MessageDraft
 }
 
 data class Gap(

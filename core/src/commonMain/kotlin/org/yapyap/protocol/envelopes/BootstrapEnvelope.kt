@@ -267,18 +267,47 @@ data class Invite(
     override val deviceType: DeviceType,
     override val torEndpoint: TorEndpoint,
     val sharedSecret: ByteArray,
+    /**
+     * The newcomer's account key over [accountSignedDeviceBindingBytes] (the device binding
+     * consent). Required when [account] != null — the sponsor relays it as the back-to-back
+     * AddDevice's `key_signature`. Null for the add-device-to-sponsor's-own-account case, where
+     * the sponsor's own authorship (branch 1) is the authorization and no account key of the
+     * newcomer exists. Distinct from [DeviceIdentityRecord.keySignature], which is the
+     * device-internal signing→encryption binding.
+     */
+    val accountKeySignature: ByteArray? = null,
 ) : BootstrapPayload {
     override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INVITE
 
     init {
         require(version in 0..255) { "version must be in 0..255" }
         require(sharedSecret.isNotEmpty()) { "INVITE requires a non-empty sharedSecret" }
+        require((account == null) == (accountKeySignature == null)) {
+            "INVITE requires accountKeySignature exactly when it carries a new account"
+        }
+        if (accountKeySignature != null) {
+            require(accountKeySignature.isNotEmpty()) { "INVITE accountKeySignature must not be empty" }
+        }
+    }
+
+    /** Canonical binding bytes this invite's [accountKeySignature] covers (new-account only). */
+    fun accountSignedDeviceBindingBytes(): ByteArray {
+        requireNotNull(account) { "INVITE account binding requires a new account" }
+        return org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes(
+            accountId = account.accountId,
+            deviceId = device.deviceId,
+            signingPublicKey = device.signing.publicKey,
+            encryptionPublicKey = device.encryption.publicKey,
+            torEndpoint = torEndpoint,
+            deviceType = deviceType,
+        )
     }
 
     override fun encode(): ByteArray {
         val writer = ByteWriter(256)
         writer.writeBootstrapPayloadPrefix(kind, version, account, device, deviceType, torEndpoint)
         writer.writeNullableByteArray(sharedSecret)
+        writer.writeNullableByteArray(accountKeySignature)
         return writer.toByteArray()
     }
 
@@ -290,6 +319,7 @@ data class Invite(
                 deviceType == other.deviceType &&
                 torEndpoint == other.torEndpoint &&
                 sharedSecret.contentEquals(other.sharedSecret) &&
+                accountKeySignature.contentEquals(other.accountKeySignature) &&
                 bootstrapPayloadAccountEquals(account, other.account) &&
                 bootstrapPayloadDeviceEquals(device, other.device)
     }
@@ -300,6 +330,7 @@ data class Invite(
         result = 31 * result + torEndpoint.onionAddress.hashCode()
         result = 31 * result + torEndpoint.port
         result = 31 * result + sharedSecret.contentHashCode()
+        result = 31 * result + (accountKeySignature?.contentHashCode() ?: 0)
         result = 31 * result + bootstrapPayloadAccountHashCode(account)
         result = 31 * result + bootstrapPayloadDeviceHashCode(device)
         return result
@@ -310,6 +341,7 @@ data class Invite(
             val prefix = reader.readBootstrapPayloadPrefix()
             val sharedSecret = reader.readNullableByteArray()
                 ?: error("INVITE requires a sharedSecret")
+            val accountKeySignature = reader.readNullableByteArray()
             reader.requireFullyRead()
             return Invite(
                 version = prefix.version,
@@ -318,6 +350,7 @@ data class Invite(
                 deviceType = prefix.deviceType,
                 torEndpoint = prefix.torEndpoint,
                 sharedSecret = sharedSecret,
+                accountKeySignature = accountKeySignature,
             )
         }
     }
@@ -345,18 +378,19 @@ data class RecoveryRequest(
     /**
      * Canonical bytes the account key signs to bind [device] to the account — the recovery path's
      * possession proof at the responder *and* the `key_signature` the responder relays into the
-     * AddDevice event, re-verifiable by every node's fold from [device]/[deviceType] alone.
+     * AddDevice event, re-verifiable by every node's fold from the event fields alone. One shared
+     * form with [Invite.accountSignedDeviceBindingBytes] (QR onboarding) and
+     * [GlobalEventPayload.AddDevice.bindingBytes] (the fold's re-verification).
      */
-    fun accountSignedDeviceBindingBytes(): ByteArray {
-        val writer = ByteWriter(256)
-        writer.writeByte(ACCOUNT_SIGNED_BINDING_VERSION.toInt())
-        writer.writeByteArray(device.signing.publicKey)
-        writer.writeString(device.signing.keyId)
-        writer.writeByteArray(device.encryption.publicKey)
-        writer.writeString(device.encryption.keyId)
-        writer.writeByte(deviceType.ordinal)
-        return writer.toByteArray()
-    }
+    fun accountSignedDeviceBindingBytes(): ByteArray =
+        accountSignedDeviceBindingBytes(
+            accountId = account.accountId,
+            deviceId = device.deviceId,
+            signingPublicKey = device.signing.publicKey,
+            encryptionPublicKey = device.encryption.publicKey,
+            torEndpoint = torEndpoint,
+            deviceType = deviceType,
+        )
 
     override fun encode(): ByteArray {
         val writer = ByteWriter(256)
@@ -392,8 +426,6 @@ data class RecoveryRequest(
     }
 
     companion object {
-        private const val ACCOUNT_SIGNED_BINDING_VERSION: Byte = 1
-
         fun decode(reader: ByteReader): RecoveryRequest {
             val prefix = reader.readBootstrapPayloadPrefix()
             val sharedSecret = reader.readNullableByteArray()

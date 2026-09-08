@@ -37,6 +37,7 @@ import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class BootstrapInboundHandlerTest {
 
     private val crypto: CryptoProvider = DefaultCryptoProvider()

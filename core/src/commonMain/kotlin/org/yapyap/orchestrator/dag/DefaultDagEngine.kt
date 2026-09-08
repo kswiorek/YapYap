@@ -90,7 +90,7 @@ class DefaultDagEngine(
                 prevId = prevId,
                 lamportClock = lamport,
                 createdAt = createdAt,
-                eventBytes = draft.eventBytes,
+                eventBytes = draft.event.encode(),
             )
         }
 

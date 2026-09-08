@@ -21,6 +21,8 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.AppLogger
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.orchestrator.globalevent.DefaultGlobalEventProjector
+import org.yapyap.orchestrator.globalevent.IdentityStateChange
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.onboarding.DefaultOnboardingProvider
 import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
@@ -49,6 +51,7 @@ import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
+import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
@@ -106,6 +109,8 @@ class DefaultOrchestrator(
     private lateinit var onboardingProvider: DefaultOnboardingProvider
 
     private lateinit var recoveryResponder: DefaultRecoveryResponder
+
+    private lateinit var projector: DefaultGlobalEventProjector
 
 
     override suspend fun start() {
@@ -192,10 +197,30 @@ class DefaultOrchestrator(
                 roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 _state.value = OrchestratorState.Running
 
-                // TODO(sprint 4 global events): append the genesis AddAccount (prevId == null) and AddDevice to the
-                // global DAG and fold immediately — genesis is admin by definition (§3). is_admin is
-                // seeded true in the local accounts row already so the GUI can rely on it; the
-                // projector's fold owns this column once it lands.
+                // Genesis: append AddAccount (DAG root, prevId == null — admin by definition, §3)
+                // + AddDevice self-introduction, then fold immediately. The account key is online
+                // here (fresh provisioning), so the binding signature is computed locally.
+                // is_admin is seeded true in the local accounts row already so the GUI can rely
+                // on it; the projector's fold owns this column once it lands.
+                val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
+                val genesisKeySignature = cryptoProvider.signDetached(
+                    identityResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING),
+                    accountSignedDeviceBindingBytes(
+                        accountId = account.accountId,
+                        deviceId = device.deviceId,
+                        signingPublicKey = device.signing.publicKey,
+                        encryptionPublicKey = device.encryption.publicKey,
+                        torEndpoint = tor,
+                        deviceType = bootConfig.localDeviceType,
+                    ),
+                )
+                projector.publishGenesisAccount(
+                    account = account,
+                    device = device,
+                    deviceType = bootConfig.localDeviceType,
+                    torEndpoint = tor,
+                    accountKeySignature = genesisKeySignature,
+                )
                 return SetupResult(
                     invite = null, // no sponsor invite — the network waits in limbo for its first newcomer
                     recoveryKey = recoveryKey,
@@ -214,17 +239,31 @@ class DefaultOrchestrator(
 
                 // Join-existing-network path: always produces a sponsor invite (is_admin seeded
                 // false, projector-corrected). The provider persists the secret, enters
-                // AWAITING_INTRO, and arms the timer.
+                // AWAITING_INTRO, and arms the timer. The newcomer's account key signs the device
+                // binding — the sponsor relays it as the AddDevice key_signature (branch 2).
                 val secret = cryptoProvider.randomBytes(32)
                 onboardingProvider.beginSession(secret)
+                val newcomerDevice = identityResolver.getLocalDeviceIdentityRecord()
+                val accountKeySignature = cryptoProvider.signDetached(
+                    identityResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING),
+                    accountSignedDeviceBindingBytes(
+                        accountId = account.accountId,
+                        deviceId = newcomerDevice.deviceId,
+                        signingPublicKey = newcomerDevice.signing.publicKey,
+                        encryptionPublicKey = newcomerDevice.encryption.publicKey,
+                        torEndpoint = tor,
+                        deviceType = bootConfig.localDeviceType,
+                    ),
+                )
 
                 return SetupResult(
                     invite = Invite(
                         account = account,
-                        device = identityResolver.getLocalDeviceIdentityRecord(),
+                        device = newcomerDevice,
                         deviceType = bootConfig.localDeviceType,
                         torEndpoint = tor,
                         sharedSecret = secret,
+                        accountKeySignature = accountKeySignature,
                     ),
                     recoveryKey = recoveryKey,
                 )
@@ -291,6 +330,7 @@ class DefaultOrchestrator(
                         deviceType = bootConfig.localDeviceType,
                         torEndpoint = tor,
                         sharedSecret = secret,
+                        accountKeySignature = null, // branch 1: the sponsor's own authorship authorizes
                     ),
                     recoveryKey = null,
                 )
@@ -411,6 +451,31 @@ class DefaultOrchestrator(
         )
         syncCoordinator.start(orchestratorScope)
 
+        // Global control plane: sole writer of chain-derived identity columns. Owns the GLOBAL
+        // room fold (boot + every ingest trigger) and the publish path used by the sponsor
+        // service, the recovery responder, and the genesis setup above.
+        projector = DefaultGlobalEventProjector(
+            dagEngine = dagEngine,
+            pipeline = pipeline,
+            messageRepository = messageRepo,
+            identityKeyRepository = identityRepo,
+            roomRepository = roomRepository,
+            router = router,
+            cryptoProvider = cryptoProvider,
+        )
+        projector.start(orchestratorScope)
+
+        // A newly committed device may resolve previously PENDING chat authors (the implemented
+        // reverify path, §10); the boot sweep runs once after the first fold.
+        orchestratorScope.launch {
+            projector.stateChanges.collect { change ->
+                if (change is IdentityStateChange.DeviceAdded) {
+                    dagEngine.reverifyPendingFor(change.deviceId)
+                }
+            }
+        }
+        orchestratorScope.launch { dagEngine.reverifyAllPending() }
+
         // Newcomer onboarding runs in every mode: headless relays have no runtime yet must still be
         // onboarded as newcomers. It consumes the sponsor's bootstrap intro, seeds provisional rows,
         // and triggers the global-room range sync.
@@ -420,6 +485,7 @@ class DefaultOrchestrator(
             syncCoordinator = syncCoordinator,
             identityKeyRepository = identityRepo,
             roomRepository = roomRepository,
+            projector = projector,
             clock = Clock.System,
             routerConfig = configStore.routerConfig,
         )
@@ -438,6 +504,7 @@ class DefaultOrchestrator(
             identityKeyRepository = identityRepo,
             messageRepository = messageRepo,
             localDeviceType = bootConfig.localDeviceType,
+            projector = projector,
         )
         recoveryResponder.start(orchestratorScope)
 
@@ -461,6 +528,7 @@ class DefaultOrchestrator(
                 onboardingProvider = onboardingProvider,
                 identityKeyRepository = identityRepo,
                 cryptoProvider = cryptoProvider,
+                globalEventProjector = projector,
                 localDeviceType = bootConfig.localDeviceType,
             )
             orchestratorRuntime.start(orchestratorScope)

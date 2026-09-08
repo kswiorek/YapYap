@@ -11,6 +11,8 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.orchestrator.globalevent.GlobalEventProjector
+import org.yapyap.orchestrator.globalevent.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.key.BootstrapSessionStore
@@ -39,6 +41,7 @@ internal class DefaultOnboardingProvider(
     private val syncCoordinator: SyncCoordinator,
     private val identityKeyRepository: IdentityKeyRepository,
     private val roomRepository: RoomRepository,
+    private val projector: GlobalEventProjector,
     private val clock: Clock = Clock.System,
     private val routerConfig: StateFlow<RouterConfig>,
 ) : OnboardingProvider {
@@ -47,6 +50,7 @@ internal class DefaultOnboardingProvider(
     override val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
     private var collectJob: Job? = null
+    private var identityChangesJob: Job? = null
     private var timeoutJob: Job? = null
     private var scope: CoroutineScope? = null
 
@@ -73,6 +77,13 @@ internal class DefaultOnboardingProvider(
                 onBootstrapIntro(intro)
             }
         }
+        // The projector's fold reports our own Add event (SYNCING → COMPLETE) — subscribed once
+        // alongside the intro collector; dormant until the fold commits our device.
+        if (identityChangesJob?.isActive != true) {
+            identityChangesJob = owner.launch {
+                projector.stateChanges.collect { change -> onIdentityStateChange(change) }
+            }
+        }
     }
 
     override suspend fun stop() {
@@ -80,6 +91,8 @@ internal class DefaultOnboardingProvider(
         timeoutJob = null
         collectJob?.cancel()
         collectJob = null
+        identityChangesJob?.cancel()
+        identityChangesJob = null
         scope = null
     }
 
@@ -217,7 +230,29 @@ internal class DefaultOnboardingProvider(
         )
         roomRepository.addMember(RoomId.GLOBAL, intro.account.accountId, RoomMemberRole.MEMBER)
         syncCoordinator.requestRangeSync(RoomId.GLOBAL, intro.dagHeadLamport)
-        //TODO: COMPLETE + burn land with the global-events projector, once the fold carries the local
-        // device's own Add event (isLocalDeviceAnchoredInGlobalChain). (flow)
+        // SYNCING is terminal until the fold reports our own Add event: the projector's
+        // stateChanges collector (see activate) drives COMPLETE + burn via onIdentityStateChange
+        // once our device is committed; the timeout above is the backstop.
+    }
+
+    /**
+     * The fold committed our own AddDevice — the local device is anchored in the global chain:
+     * burn the one-time secret and surface COMPLETE. Ignored unless mid-onboarding and for our
+     * own device (other devices' commits are projector business, not ours).
+     */
+    private suspend fun onIdentityStateChange(change: IdentityStateChange) {
+        if (change !is IdentityStateChange.DeviceAdded) return
+        val current = _state.value
+        if (current != OnboardingState.SYNCING && current != OnboardingState.AWAITING_INTRO) return
+        val localDeviceId = identityKeyRepository.getLocalDeviceRecord()?.deviceId ?: return
+        if (change.deviceId != localDeviceId) return
+        timeoutJob?.cancel()
+        timeoutJob = null
+        sessionStore.burn()
+        transitionTo(
+            OnboardingState.COMPLETE,
+            "Local device anchored in the global chain; secret burned",
+            fields = mapOf("accountId" to change.accountId, "deviceId" to change.deviceId),
+        )
     }
 }

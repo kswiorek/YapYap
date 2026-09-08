@@ -294,10 +294,12 @@ sealed interface MessagePayload {
 
             override fun withSignature(signature: ByteArray): GlobalEvent = copy(authorSignature = signature)
 
+        /** Decodes [eventBytes] into the typed control event (two-level dispatch). */
+        fun decodeEvent(): GlobalEventPayload = GlobalEventPayload.decode(eventBytes)
+
         override fun encode(): ByteArray {
             val writer = ByteWriter(256 + eventBytes.size + (authorSignature?.size ?: 4))
             writeCommonHeader(writer)
-            // TODO: Replace raw global event payload blob with typed control event codec.
             writer.writeByteArray(eventBytes)
             writer.writeNullableByteArray(authorSignature)
             return writer.toByteArray()
@@ -314,7 +316,6 @@ sealed interface MessagePayload {
             fun decode(bytes: ByteArray): GlobalEvent {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.GLOBAL_EVENT)
-                // TODO: Decode typed global control events once schema is finalized.
                 val eventBytes = reader.readByteArray()
                 val authorSignature = reader.readNullableByteArray()
                 reader.requireFullyRead()

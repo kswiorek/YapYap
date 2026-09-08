@@ -1,10 +1,9 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.orchestrator.globalevent.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.persistence.db.DeviceType
@@ -18,6 +17,9 @@ import org.yapyap.routing.router.Router
  * Sponsor-side onboarding service (GUI-facing QR scan → sponsor flow). Stateless: the scanned
  * secret protects the intro once and is never persisted — one sponsor serves many newcomers
  * concurrently; the outbox is its only persistence. Newcomer state comes from the provider.
+ *
+ * Identity writes go through the [GlobalEventProjector]: append to the global DAG, fold, and
+ * broadcast — the service only validates the invite shape and sends the intro.
  */
 internal class DefaultOnboardingService(
     private val provider: OnboardingProvider,
@@ -26,6 +28,7 @@ internal class DefaultOnboardingService(
     private val messageRepository: MessageRepository,
     private val cryptoProvider: CryptoProvider,
     private val localDeviceType: DeviceType,
+    private val projector: GlobalEventProjector,
 ) : OnboardingService {
 
     override val newcomerState: StateFlow<OnboardingState> = provider.state
@@ -48,9 +51,9 @@ internal class DefaultOnboardingService(
 
         // Append before sending: the intro's dagHead must already include the newcomer's events.
         if (newcomerAccount == null) {
-            appendDeviceToOwnAccount(invite.device)
+            appendDeviceToOwnAccount(invite)
         } else {
-            appendNewAccountWithDevice(newcomerAccount, invite.device, admin)
+            appendNewAccountWithDevice(invite, admin)
         }
 
         val sponsorAccount = identityKeyRepository.getLocalAccountRecord()
@@ -73,13 +76,11 @@ internal class DefaultOnboardingService(
         )
     }
 
-    private suspend fun appendDeviceToOwnAccount(device: DeviceIdentityRecord): Unit =
-        TODO("global events: append AddDevice bound to the local account (same-signer own-device branch, §3) via the control-room writer")
+    private suspend fun appendDeviceToOwnAccount(invite: Invite) {
+        projector.publishOwnAccountDevice(invite)
+    }
 
-    private suspend fun appendNewAccountWithDevice(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
-        admin: Boolean,
-    ): Unit =
-        TODO("global events: append AddAccount + AddDevice back-to-back with the same signer, plus GrantAdmin when admin (new-account branch, §3), via the control-room writer")
+    private suspend fun appendNewAccountWithDevice(invite: Invite, admin: Boolean) {
+        projector.publishSponsoredNewAccount(invite, admin)
+    }
 }
