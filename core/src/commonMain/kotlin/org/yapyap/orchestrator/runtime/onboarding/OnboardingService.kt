@@ -20,21 +20,19 @@ interface OnboardingService {
     val newcomerState: StateFlow<OnboardingState>
 
     /**
-     * Sponsor side: onboard a newcomer whose QR invite was scanned out-of-band. [invite] is the
-     * decoded INVITE-flavor payload; the sponsor acts on its own account:
+     * Sponsor side: onboard a newcomer whose QR invite was scanned out-of-band. The [invite] is
+     * authoritative about the target account; UI-mode mismatches degrade gracefully:
      *  - `invite.account == null` → the newcomer joins the sponsor's existing account: append only
-     *    `AddDevice`, bound to the sponsor's local account ([admin] is rejected here — the account
-     *    exists and its status doesn't change on device-add);
+     *    `AddDevice`, bound to the sponsor's local account. [admin] is meaningless here — the
+     *    device is still added, reported via `Sponsored(adminGranted = false)`;
      *  - otherwise → a new account: append `AddAccount` + `AddDevice` back-to-back, and when
-     *    [admin] is true also append `GrantAdmin` (only meaningful local accounts can grant it).
+     *    [admin] is true also append `GrantAdmin`, which requires the sponsor to be an admin.
      *
-     * TODO(sprint 4 onboarding): set the one-time shared secret on the
-     * [org.yapyap.persistence.key.BootstrapSessionStore], insert the newcomer's peer rows
-     * (provisional account with `is_admin = admin` when a new account), append the
-     * global-`AddAccount`/`AddDevice`/`GrantAdmin` events (typed codec — global events work), then
-     * send the intro via [org.yapyap.routing.router.Router.sendBootstrap].
+     * Returns a [SponsorOutcome]: refusals (malformed invite, non-admin sponsor, sponsor not
+     * synced yet) happen BEFORE any write — nothing is appended and no intro is sent.
+     * Infrastructure failures (transport, storage) still throw.
      */
-    suspend fun sponsorNewcomer(invite: Invite, admin: Boolean = false)
+    suspend fun sponsorNewcomer(invite: Invite, admin: Boolean = false): SponsorOutcome
 
     /**
      * GUI cancel button for an abandoned onboarding (newcomer or sponsor side): delegates to

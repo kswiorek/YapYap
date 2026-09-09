@@ -197,6 +197,7 @@ internal class FakeIdentityResolverForProtection(
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
+    override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
         require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }

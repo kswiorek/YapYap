@@ -179,18 +179,32 @@ sealed interface SystemPayload {
         data class SyncRequest(
             val roomId: RoomId,
             val syncId: Uuid,
-            val anchorLamport: Long,
-            val orphanLamport: Long,
+            /**
+             * Message IDs the requester is missing (gap parents from causal holds and/or
+             * frontier tips learned from a ping). The responder serves these messages plus
+             * their ancestry down to [knownIds].
+             */
+            val missingIds: List<Uuid>,
+            /**
+             * The requester's chainable frontier at dispatch time: tips whose ancestry is
+             * transitively complete locally. The responder stops its ancestor walk at these
+             * IDs (everything below them is present at the requester). Recomputed fresh on
+             * every attempt, never stored. Empty for a fresh device (serve down to genesis).
+             */
+            val knownIds: List<Uuid>,
         ): SystemPayload {
             override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
 
             override fun encode(): ByteArray {
-                val writer = ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + 8)
+                val writer =
+                    ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + (missingIds.size + knownIds.size) * Uuid.SIZE_BYTES)
                 writer.writeByte(kind.wireValue.toInt())
                 writer.writeUuid(roomId.value)
                 writer.writeUuid(syncId)
-                writer.writeLong(anchorLamport)
-                writer.writeLong(orphanLamport)
+                writer.writeInt(missingIds.size)
+                missingIds.forEach { writer.writeUuid(it) }
+                writer.writeInt(knownIds.size)
+                knownIds.forEach { writer.writeUuid(it) }
                 return writer.toByteArray()
             }
 
@@ -202,14 +216,14 @@ sealed interface SystemPayload {
                     }
                     val roomId = RoomId(reader.readUuid())
                     val syncId = reader.readUuid()
-                    val anchorLamport = reader.readLong()
-                    val orphanLamport = reader.readLong()
+                    val missingIds = List(reader.readInt()) { reader.readUuid() }
+                    val knownIds = List(reader.readInt()) { reader.readUuid() }
                     reader.requireFullyRead()
                     return SyncRequest(
                         roomId = roomId,
                         syncId = syncId,
-                        anchorLamport = anchorLamport,
-                        orphanLamport = orphanLamport,
+                        missingIds = missingIds,
+                        knownIds = knownIds,
                     )
                 }
             }
@@ -298,20 +312,28 @@ sealed interface SystemPayload {
          * keep the envelope compact. The receiver blends this with its own measured score.
          */
         val selfReportedAvailability: Double = 0.5,
-        val roomLamports: List<Pair<RoomId, Long>>,
+        /**
+         * The sender's chainable frontier per room: tips with transitively complete
+         * local ancestry. A tip unknown to the receiver means the receiver is behind
+         * on that branch, even at equal lamport clocks (scalar comparison cannot see
+         * divergent branches).
+         */
+        val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
     ): SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
         override fun encode(): ByteArray {
-            val writer = ByteWriter(16 + Uuid.SIZE_BYTES + 2 + roomLamports.size * (Uuid.SIZE_BYTES + 8))
+            val writer =
+                ByteWriter(16 + Uuid.SIZE_BYTES + 2 + roomFrontiers.sumOf { Uuid.SIZE_BYTES + 4 + it.second.size * Uuid.SIZE_BYTES })
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(pingId)
             writer.writeByte(if (isReply) 1 else 0)
             writer.writeByte(selfReportedAvailability.coerceIn(0.0, 1.0).times(255.0).roundToInt().coerceIn(0, 255))
-            writer.writeInt(roomLamports.size)
-            roomLamports
-                .forEach { (roomId, lamport) ->
+            writer.writeInt(roomFrontiers.size)
+            roomFrontiers
+                .forEach { (roomId, tips) ->
                     writer.writeUuid(roomId.value)
-                    writer.writeLong(lamport)
+                    writer.writeInt(tips.size)
+                    tips.forEach { writer.writeUuid(it) }
                 }
             return writer.toByteArray()
         }
@@ -326,12 +348,16 @@ sealed interface SystemPayload {
                 val isReply = reader.readByte().toInt() == 1
                 val selfReportedAvailability = (reader.readByte().toInt() and 0xFF) / 255.0
                 val count = reader.readInt()
-                val roomLamports = List(
+                val roomFrontiers = List(
                     count,
-                    init = {RoomId(reader.readUuid()) to reader.readLong() },
+                    init = {
+                        val roomId = RoomId(reader.readUuid())
+                        val tips = List(reader.readInt()) { reader.readUuid() }
+                        roomId to tips
+                    },
                 )
                 reader.requireFullyRead()
-                return Ping(pingId, isReply, selfReportedAvailability, roomLamports)
+                return Ping(pingId, isReply, selfReportedAvailability, roomFrontiers)
             }
         }
     }

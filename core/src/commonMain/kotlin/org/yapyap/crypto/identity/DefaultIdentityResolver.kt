@@ -184,6 +184,9 @@ class DefaultIdentityResolver(
         return identity
     }
 
+    override suspend fun isLocalAccountAdmin(): Boolean =
+        publicKeyRepository.isLocalAccountAdmin()
+
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
         val keyId = LOCAL_DEVICE_KEY_PREFIX + purpose.name.lowercase()

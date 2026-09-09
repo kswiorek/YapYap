@@ -656,6 +656,7 @@ private class FakeIdentityResolver(
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
+    override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = localDeviceId

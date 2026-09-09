@@ -9,6 +9,8 @@ interface IdentityResolver {
 
     suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord
 
+    suspend fun isLocalAccountAdmin(): Boolean
+
     suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray
 
     suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray

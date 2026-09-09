@@ -8,6 +8,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
+import kotlin.uuid.Uuid
 
 interface Router {
     val incomingMessages: Flow<MessagePayload>
@@ -18,7 +19,7 @@ interface Router {
      */
     val typingIndicators: Flow<TypingIndicatorEvent>
 
-    val pingPayloads: Flow<List<Pair<RoomId, Long>>>
+    val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>>
 
     /**
      * Hot stream of authenticated bootstrap-family packets (one flow per packet type — payload
@@ -33,8 +34,8 @@ interface Router {
     fun isRunning(): Boolean
 
     /**
-     * Immediately pings every known peer, advertising our presence and exchanging lamport clock
-     * snapshots so listeners can trigger range syncs.
+     * Immediately pings every known peer, advertising our presence and exchanging
+     * frontier snapshots so listeners can trigger frontier syncs.
      *
      * The orchestrator calls this once, after the subsystems that consume [pingPayloads] (e.g. the
      * sync coordinator) are running, rather than having it fire inside [start]. Idempotent and

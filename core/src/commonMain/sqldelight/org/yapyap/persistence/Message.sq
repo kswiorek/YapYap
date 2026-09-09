@@ -13,13 +13,24 @@ CREATE TABLE messages (
     sender_account_id TEXT AS AccountId NOT NULL,
     author_device_id TEXT AS PeerId NOT NULL,
     verification_state TEXT AS VerificationState NOT NULL,
-    prev_id TEXT AS Uuid,
     lamport_clock INTEGER NOT NULL,
     created_at_epoch_seconds INTEGER AS Instant NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
     message_payload BLOB NOT NULL,
     is_orphaned INTEGER AS Boolean NOT NULL,
+    -- Transitively complete ancestry: every parent present and itself complete.
+    -- Maintained by DagEngine (set at insert, re-derived at gap closure).
+    -- Conjunction with verification_state != 'REJECTED' defines a chainable message.
+    ancestry_complete INTEGER AS Boolean NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id)
+);
+
+-- DAG parent edges. A message with no rows here is the room's DAG root (genesis).
+CREATE TABLE message_parents (
+    message_id TEXT AS Uuid NOT NULL,
+    parent_id TEXT AS Uuid NOT NULL,
+    PRIMARY KEY (message_id, parent_id),
+    FOREIGN KEY (message_id) REFERENCES messages(message_id)
 );
 
 CREATE TABLE causal_hold (
@@ -33,7 +44,7 @@ CREATE TABLE causal_hold (
 CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
 CREATE INDEX messages_sender_idx ON messages(sender_account_id);
 CREATE INDEX messages_author_device_idx ON messages(author_device_id);
-CREATE INDEX messages_prev_idx ON messages(prev_id);
+CREATE INDEX message_parents_parent_idx ON message_parents(parent_id);
 CREATE INDEX messages_room_display_order_idx ON messages(
     room_id,
     created_at_epoch_seconds DESC,
@@ -54,28 +65,6 @@ WHERE room_id = :roomId
 ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
 LIMIT :limit;
 
-selectIsOrphanAtLamport:
-SELECT EXISTS(
-    SELECT 1 FROM messages
-    WHERE room_id = :roomId AND lamport_clock = :lamport AND is_orphaned = 1
-) AS result;
-
-selectMaxLamportBelow:
-SELECT MAX(lamport_clock) FROM messages
-WHERE room_id = :roomId AND lamport_clock < :lamport;
-
-selectMessagesInLamportRange:
-SELECT * FROM messages
-WHERE room_id = :roomId
-  AND lamport_clock >= :lowerInclusive
-  AND lamport_clock <= :upperInclusive
-ORDER BY lamport_clock ASC, created_at_epoch_seconds ASC, message_id ASC
-LIMIT :limit;
-
--- Branching detection at a sync boundary: how many messages sit at exactly :lamport?
-selectMessageCountAtLamport:
-SELECT COUNT(*) FROM messages WHERE room_id = ? AND lamport_clock = ?;
-
 -- ---- message CRUD ----
 
 insertMessage:
@@ -85,24 +74,34 @@ INSERT OR IGNORE INTO messages (
     sender_account_id,
     author_device_id,
     verification_state,
-    prev_id,
     lamport_clock,
     created_at_epoch_seconds,
     payload_type,
     message_payload,
-    is_orphaned
+    is_orphaned,
+    ancestry_complete
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessageById:
 SELECT * FROM messages WHERE message_id = ?;
 
--- Highest-lamport message in a room; tie-break by created_at_epoch_seconds DESC, message_id DESC.
--- Used by DagEngine.append to determine the prev_id for a new message. Never chain off a REJECTED message.
-selectRoomTail:
-SELECT * FROM messages
-WHERE room_id = ? AND verification_state != 'REJECTED'
-ORDER BY lamport_clock DESC, created_at_epoch_seconds DESC, message_id DESC
-LIMIT 1;
+-- Chainable frontier (covering antichain): chainable messages that no chainable
+-- message references as a parent. Used by DagEngine.append and as the sync/ping
+-- stop set (below a frontier tip everything is present by transitivity).
+-- Parked orphan tips are excluded and rejoin automatically once their gap closes.
+selectRoomFrontier:
+SELECT * FROM messages m
+WHERE m.room_id = :roomId
+  AND m.ancestry_complete = 1
+  AND m.verification_state != 'REJECTED'
+  AND NOT EXISTS (
+    SELECT 1 FROM message_parents mp
+    JOIN messages c ON c.message_id = mp.message_id
+    WHERE mp.parent_id = m.message_id
+      AND c.room_id = m.room_id
+      AND c.ancestry_complete = 1
+      AND c.verification_state != 'REJECTED'
+  );
 
 updateMessageVerificationState:
 UPDATE messages SET verification_state = ? WHERE message_id = ?;
@@ -117,6 +116,14 @@ SELECT * FROM messages WHERE verification_state = 'PENDING';
 selectMaxLamportInRoom:
 SELECT MAX(lamport_clock) FROM messages WHERE room_id = ?;
 
+-- Highest-lamport non-rejected message; append-guard fallback only (all tips parked).
+selectLatestInRoom:
+SELECT * FROM messages
+WHERE room_id = ?
+  AND verification_state != 'REJECTED'
+ORDER BY lamport_clock DESC, created_at_epoch_seconds DESC, message_id DESC
+LIMIT 1;
+
 selectAllMessagesInRoom:
 SELECT * FROM messages
 WHERE room_id = ?
@@ -124,6 +131,23 @@ ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC;
 
 updateMessageOrphanedFlag:
 UPDATE messages SET is_orphaned = ? WHERE message_id = ?;
+
+updateMessageAncestryComplete:
+UPDATE messages SET ancestry_complete = ? WHERE message_id = ?;
+
+-- ---- message_parents CRUD ----
+
+insertMessageParent:
+INSERT OR IGNORE INTO message_parents (message_id, parent_id)
+VALUES (?, ?);
+
+selectParentsByMessage:
+SELECT parent_id FROM message_parents WHERE message_id = ?;
+
+selectChildrenInRoom:
+SELECT m.* FROM messages m
+JOIN message_parents mp ON mp.message_id = m.message_id
+WHERE mp.parent_id = :parentId AND m.room_id = :roomId;
 
 -- ---- causal_hold CRUD ----
 
@@ -138,6 +162,9 @@ selectCausalHoldsByRoom:
 SELECT c.* FROM causal_hold c
 JOIN messages m ON c.orphaned_message_id = m.message_id
 WHERE m.room_id = ?;
+
+selectCausalHoldCountByOrphan:
+SELECT COUNT(*) FROM causal_hold WHERE orphaned_message_id = ?;
 
 selectAllCausalHolds:
 SELECT * FROM causal_hold;

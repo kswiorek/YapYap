@@ -12,10 +12,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.messaging.CausalHoldRepository
-import org.yapyap.persistence.messaging.MessageCursor
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Clock
@@ -24,17 +21,18 @@ import kotlin.uuid.Uuid
 /**
  * Concrete [DagEngine] backed by [MessageRepository] + [CausalHoldRepository].
  *
- * Ordering model: per-room linear chain. Every new message chains off the
- * room's current highest-lamport tail (tie-break by createdAt DESC, messageId DESC).
- * Lamport clock = MAX(lamport_clock) in room + 1. Concurrent senders can collide on
- * lamport (sibling branches); display ordering resolves ties via the composite
- * (createdAt, lamportClock, messageId).
+ * Ordering model: per-room multi-parent DAG. Every new message references the room's
+ * current chainable frontier (covering antichain: chainable messages no chainable
+ * message references as a parent). Lamport clock = MAX(parent lamports) + 1, so
+ * lamport-ascending order is always a valid topological order; ties occur between
+ * concurrent messages and are resolved by (createdAt, messageId).
  *
- * Gap model: when [ingest] receives a message whose [prevId] is not in the DB,
- * the message is inserted as an orphan (`is_orphaned = 1`) and a `causal_hold`
- * row is created recording `missing_prev_id = prevId`. When the missing message
- * later arrives, all causal_hold rows pointing at it are deleted and the
- * corresponding orphans are marked non-orphaned (`closedGapMissingPrevIds`).
+ * Gap model: when [ingest] receives a message with any [prevIds] entry missing from
+ * the DB, the message is inserted as an orphan (`is_orphaned = 1`) with
+ * `ancestry_complete = 0`, and one `causal_hold` row per missing parent records
+ * `missing_prev_id`. As missing parents arrive, holds are deleted; when the last
+ * hold closes, the orphan flag clears, ancestry-completeness is re-derived (with a
+ * downward cascade to children), and the lamport structural check runs.
  */
 class DefaultDagEngine(
     private val messageRepository: MessageRepository,
@@ -66,9 +64,22 @@ class DefaultDagEngine(
         val senderAccountId = identityResolver.getLocalAccountId()
         val authorDeviceId = identityResolver.getLocalDeviceId()
         val createdAt = clock.now()
-        val tail = messageRepository.findRoomTail(roomId)
-        val prevId = tail?.payload?.messageId
-        val lamport = tail?.payload?.lamportClock?.let { it + 1 } ?: 0L
+        val frontier = messageRepository.findRoomFrontier(roomId)
+        val prevIds: List<Uuid>
+        val lamport: Long
+        if (frontier.isNotEmpty()) {
+            prevIds = frontier.map { it.payload.messageId }
+            lamport = frontier.maxOf { it.payload.lamportClock } + 1
+        } else {
+            // TODO(append-guard): refuse to append when the room holds messages but the
+            // chainable frontier is empty (every tip parked) — appending now would fork
+            // a second root. Falls back to the highest-lamport stored message for now.
+            val latest = messageRepository.findLatestInRoom(roomId)
+            prevIds = latest?.let { listOf(it.payload.messageId) } ?: emptyList()
+            lamport = latest?.payload?.lamportClock?.let { it + 1 } ?: 0L
+        }
+        val parents = prevIds.mapNotNull { messageRepository.findById(it) }
+        val ancestryComplete = parents.size == prevIds.size && parents.all { it.ancestryComplete }
         val messageId = Uuid.random()
 
         // Create an unsigned payload (signature is null)
@@ -78,7 +89,7 @@ class DefaultDagEngine(
                 roomId = roomId,
                 senderAccountId = senderAccountId,
                 authorDeviceId = authorDeviceId,
-                prevId = prevId,
+                prevIds = prevIds,
                 lamportClock = lamport,
                 createdAt = createdAt,
                 text = draft.text,
@@ -87,7 +98,7 @@ class DefaultDagEngine(
                 messageId = messageId,
                 senderAccountId = senderAccountId,
                 authorDeviceId = authorDeviceId,
-                prevId = prevId,
+                prevIds = prevIds,
                 lamportClock = lamport,
                 createdAt = createdAt,
                 eventBytes = draft.event.encode(),
@@ -100,7 +111,8 @@ class DefaultDagEngine(
         // Sign the bytes and create the final payload
         val payload = unsignedPayload.withSignature(signatureProvider.sign(bytesToSign))
 
-        val inserted = messageRepository.insert(payload, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+        val inserted =
+            messageRepository.insert(payload, isOrphaned = false, ancestryComplete, VerificationState.VERIFIED)
         if (!inserted) {
             AppLog.warn(
                 component = LogComponent.DAG,
@@ -108,20 +120,19 @@ class DefaultDagEngine(
                 message = "Message insert ignored — duplicate message_id",
                 fields = mapOf("messageId" to messageId, "roomId" to roomId),
             )
+        } else {
+            AppLog.debug(
+                component = LogComponent.DAG,
+                event = LogEvent.MESSAGE_APPENDED,
+                message = "Message appended to room DAG",
+                fields = mapOf(
+                    "messageId" to messageId,
+                    "roomId" to roomId,
+                    "lamportClock" to lamport,
+                    "prevIds" to prevIds,
+                ),
+            )
         }
-        else roomRepository.updateLocalSeq(roomId, lamport)
-
-        AppLog.debug(
-            component = LogComponent.DAG,
-            event = LogEvent.MESSAGE_APPENDED,
-            message = "Message appended to room DAG",
-            fields = mapOf(
-                "messageId" to messageId,
-                "roomId" to roomId,
-                "lamportClock" to lamport,
-                "prevId" to (prevId ?: "null"),
-            ),
-        )
 
         payload
     }
@@ -141,14 +152,19 @@ class DefaultDagEngine(
                 return@withLock null
             }
 
-            // Determine orphan status: orphaned iff prevId is non-null AND not in our DB.
-            val isOrphaned = payload.prevId != null && messageRepository.findById(payload.prevId!!) == null
+            // Determine orphan status: orphaned iff any prevId is not in our DB.
+            val presentParents = payload.prevIds.mapNotNull { messageRepository.findById(it) }
+            val missingPrevIds = payload.prevIds.filter { id ->
+                presentParents.none { it.payload.messageId == id }
+            }
+            val isOrphaned = missingPrevIds.isNotEmpty()
+            val ancestryComplete = !isOrphaned && presentParents.all { it.ancestryComplete }
 
             // Classify authorship + structure -> verification state. Global-room events defer to the
             // projector (the global DAG is self-verifying: it defines who its own authors may be).
-            val state = resolveVerificationState(payload, isOrphaned)
+            val state = resolveVerificationState(payload, presentParents, missingPrevIds)
 
-            val inserted = messageRepository.insert(payload, isOrphaned, state)
+            val inserted = messageRepository.insert(payload, isOrphaned, ancestryComplete, state)
             if (!inserted) {
                 AppLog.warn(
                     component = LogComponent.DAG,
@@ -158,28 +174,31 @@ class DefaultDagEngine(
                 )
                 return@withLock null
             }
-            roomRepository.updateLocalSeq(payload.roomId, payload.lamportClock)
+            for (parentId in payload.prevIds) {
+                messageRepository.insertParent(payload.messageId, parentId)
+            }
 
-            // Gap closure: check if any existing orphans were waiting for THIS message as their prev.
+            // Gap closure: check if any existing orphans were waiting for THIS message as a parent.
             val closedGaps = closeGapsFor(payload.messageId, gapClosureRejections)
 
-            // Gap creation: if this message is an orphan, record the causal_hold.
+            // Gap creation: for each missing parent, record a causal_hold.
             if (isOrphaned) {
-                val gapId = Uuid.random()
-                causalHoldRepository.insert(
-                    gapId = gapId,
-                    missingPrevId = payload.prevId!!,
-                    orphanedMessageId = payload.messageId,
-                    detectedTimestamp = clock.now(),
-                )
+                for (missing in missingPrevIds) {
+                    causalHoldRepository.insert(
+                        gapId = Uuid.random(),
+                        missingPrevId = missing,
+                        orphanedMessageId = payload.messageId,
+                        detectedTimestamp = clock.now(),
+                    )
+                }
                 AppLog.debug(
                     component = LogComponent.DAG,
                     event = LogEvent.GAP_DETECTED,
-                    message = "Message ingested as orphan — gap recorded",
+                    message = "Message ingested as orphan — gaps recorded",
                     fields = mapOf(
                         "messageId" to payload.messageId,
                         "roomId" to payload.roomId,
-                        "missingPrevId" to payload.prevId!!,
+                        "missingPrevIds" to missingPrevIds,
                     ),
                 )
             } else {
@@ -197,12 +216,10 @@ class DefaultDagEngine(
             }
 
             if (isOrphaned) {
-                val anchorLamport = messageRepository.maxLamportBelow(payload.roomId, payload.lamportClock)
                 IngestResult.BecameOrphan(
                     payload = payload,
                     closedGapMissingPrevIds = closedGaps,
-                    missingPrevId = payload.prevId!!,
-                    anchorLamport = anchorLamport ?: -1L,
+                    missingPrevIds = missingPrevIds,
                     verificationState = state,
                 )
             } else {
@@ -238,14 +255,20 @@ class DefaultDagEngine(
      * Combined authorship + structural verification state for [payload]. Reused by both [ingest]
      * and the re-verification paths so a message resolves identically wherever it is evaluated.
      *
-     * [isOrphaned] must be true iff the payload's prevId is missing: the lamport structural check
-     * can only run when the parent is present (it is deferred to gap closure otherwise).
+     * The lamport structural check (`lamport == max(parent lamports) + 1`) can only run when
+     * *all* parents are present ([missingPrevIds] empty); it is deferred to gap closure otherwise.
+     * Empty [MessagePayload.prevIds] (the DAG root) always passes the structural check here —
+     * root uniqueness is a separate, deferred rule.
      */
-    private suspend fun resolveVerificationState(payload: MessagePayload, isOrphaned: Boolean): VerificationState {
+    private suspend fun resolveVerificationState(
+        payload: MessagePayload,
+        presentParents: List<MessageRow>,
+        missingPrevIds: List<Uuid>,
+    ): VerificationState {
         var state = classifyVerification(payload)
-        if (!isOrphaned && payload.prevId != null) {
-            val parentLamport = messageRepository.findById(payload.prevId!!)?.payload?.lamportClock
-            if (parentLamport != null && payload.lamportClock != parentLamport + 1) {
+        if (missingPrevIds.isEmpty() && payload.prevIds.isNotEmpty()) {
+            val expected = presentParents.maxOf { it.payload.lamportClock } + 1
+            if (payload.lamportClock != expected) {
                 state = VerificationState.REJECTED
             }
         }
@@ -276,7 +299,11 @@ class DefaultDagEngine(
      */
     private suspend fun reverify(row: org.yapyap.persistence.messaging.MessageRow): VerificationStateChange? {
         val payload = row.payload
-        val newState = resolveVerificationState(payload, row.isOrphaned)
+        val presentParents = payload.prevIds.mapNotNull { messageRepository.findById(it) }
+        val missingPrevIds = payload.prevIds.filter { id ->
+            presentParents.none { it.payload.messageId == id }
+        }
+        val newState = resolveVerificationState(payload, presentParents, missingPrevIds)
         if (newState == row.verificationState) return null
 
         messageRepository.updateVerificationState(payload.messageId, newState)
@@ -306,15 +333,19 @@ class DefaultDagEngine(
 
     override suspend fun ancestorsOf(roomId: RoomId, messageId: Uuid, limit: Int): List<MessagePayload> {
         val result = mutableListOf<MessagePayload>()
-        var current = messageRepository.findById(messageId) ?: return result
-        var steps = 0
+        val visited = mutableSetOf(messageId)
+        val queue = ArrayDeque<Uuid>()
+        queue.add(messageId)
 
-        while (steps < limit) {
-            val prevId = current.payload.prevId ?: break
-            val prev = messageRepository.findById(prevId) ?: break
-            result.add(prev.payload)
-            current = prev
-            steps++
+        while (queue.isNotEmpty() && result.size < limit) {
+            val current = queue.removeFirst()
+            for (parentId in messageRepository.findParents(current)) {
+                if (!visited.add(parentId)) continue
+                val parent = messageRepository.findById(parentId) ?: continue
+                if (parent.payload.roomId != roomId) continue
+                result.add(parent.payload)
+                queue.add(parentId)
+            }
         }
 
         return result
@@ -340,12 +371,16 @@ class DefaultDagEngine(
 
     /**
      * Closes all causal_hold entries whose `missing_prev_id` equals [arrivedMessageId]:
-     * marks the orphaned messages as non-orphaned, deletes their causal_hold rows,
-     * and returns the list of closed `missingPrevId`s (all equal to [arrivedMessageId],
-     * one per closed orphan — the UI uses a Set to deduplicate).
+     * deletes their causal_hold rows, clears the orphan flag only for orphans with no
+     * remaining holds, and re-derives ancestry-completeness (with a downward cascade
+     * to children that were incomplete only because of it).
      *
-     * Orphans whose lamport does not follow the arriving parent's by one are declared REJECTED;
-     * each such transition is appended to [rejections] for out-of-lock emission by the caller.
+     * Orphans whose holds all close get the lamport structural check
+     * (`lamport == max(parent lamports) + 1`) — all parents are present at that point;
+     * each violation is appended to [rejections] for out-of-lock emission by the caller.
+     *
+     * Returns the list of closed `missingPrevId`s (all equal to [arrivedMessageId],
+     * one per closed orphan — the UI uses a Set to deduplicate).
      */
     private suspend fun closeGapsFor(
         arrivedMessageId: Uuid,
@@ -353,27 +388,12 @@ class DefaultDagEngine(
     ): List<Uuid> {
         val holds = causalHoldRepository.findByMissingPrevId(arrivedMessageId)
         if (holds.isEmpty()) return emptyList()
-
-        val arrivedLamport = messageRepository.findById(arrivedMessageId)?.payload?.lamportClock
-
-        for (hold in holds) {
-            val orphan = messageRepository.findById(hold.orphanedMessageId)
-            if (orphan != null && arrivedLamport != null) {
-                // Structural lamport check: an orphan whose lamport is not exactly parent+1 is
-                // REJECTED (kept in storage so it still occupies its DAG position).
-                if (orphan.payload.lamportClock != arrivedLamport + 1) {
-                    messageRepository.updateVerificationState(hold.orphanedMessageId, VerificationState.REJECTED)
-                    rejections += VerificationStateChange(
-                        messageId = hold.orphanedMessageId,
-                        roomId = orphan.payload.roomId,
-                        fromState = orphan.verificationState,
-                        toState = VerificationState.REJECTED,
-                    )
-                }
-            }
-            messageRepository.updateOrphanedFlag(hold.orphanedMessageId, isOrphaned = false)
-        }
         causalHoldRepository.deleteByMissingPrevId(arrivedMessageId)
+
+        val refreshed = mutableSetOf<Uuid>()
+        for (hold in holds) {
+            refreshAncestryDown(hold.orphanedMessageId, refreshed, rejections)
+        }
 
         AppLog.info(
             component = LogComponent.DAG,
@@ -386,5 +406,45 @@ class DefaultDagEngine(
         )
 
         return holds.map { it.missingPrevId }
+    }
+
+    /**
+     * Re-derives ancestry-completeness for [messageId]: clears the orphan flag when no
+     * holds remain, flips `ancestry_complete` false→true when every parent is present
+     * and itself complete (running the structural check on that flip), and cascades to
+     * children. Caller holds [mutex].
+     */
+    private suspend fun refreshAncestryDown(
+        messageId: Uuid,
+        refreshed: MutableSet<Uuid>,
+        rejections: MutableList<VerificationStateChange>,
+    ) {
+        if (!refreshed.add(messageId)) return
+        val row = messageRepository.findById(messageId) ?: return
+
+        if (row.isOrphaned && causalHoldRepository.countByOrphan(messageId) == 0L) {
+            messageRepository.updateOrphanedFlag(messageId, isOrphaned = false)
+        }
+
+        val presentParents = row.payload.prevIds.mapNotNull { messageRepository.findById(it) }
+        val complete = presentParents.size == row.payload.prevIds.size &&
+                presentParents.all { it.ancestryComplete }
+        if (complete && !row.ancestryComplete) {
+            messageRepository.updateAncestryComplete(messageId, complete = true)
+            if (row.payload.prevIds.isNotEmpty() &&
+                row.payload.lamportClock != presentParents.maxOf { it.payload.lamportClock } + 1
+            ) {
+                messageRepository.updateVerificationState(messageId, VerificationState.REJECTED)
+                rejections += VerificationStateChange(
+                    messageId = messageId,
+                    roomId = row.payload.roomId,
+                    fromState = row.verificationState,
+                    toState = VerificationState.REJECTED,
+                )
+            }
+            for (child in messageRepository.findChildrenInRoom(messageId, row.payload.roomId)) {
+                refreshAncestryDown(child.payload.messageId, refreshed, rejections)
+            }
+        }
     }
 }

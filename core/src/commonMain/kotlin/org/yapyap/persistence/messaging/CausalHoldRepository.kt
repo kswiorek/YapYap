@@ -29,6 +29,9 @@ interface CausalHoldRepository {
 
     suspend fun findAll(): List<CausalHoldRow>
 
+    /** Open holds against [orphanedMessageId] (non-zero while any parent is still missing). */
+    suspend fun countByOrphan(orphanedMessageId: Uuid): Long
+
     suspend fun deleteByMissingPrevId(missingPrevId: Uuid)
 
     suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid)
@@ -98,6 +101,11 @@ class DefaultCausalHoldRepository(
                 fields = mapOf("resultCount" to rows.size),
             )
             rows
+        }
+
+    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+        withContext(dbDispatcher) {
+            queries.selectCausalHoldCountByOrphan(orphanedMessageId).executeAsOne()
         }
 
     override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {

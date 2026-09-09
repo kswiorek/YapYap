@@ -42,8 +42,8 @@ sealed interface IngestResult {
     data class BecameOrphan(
         override val payload: MessagePayload,
         override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
-        val missingPrevId: Uuid,
-        val anchorLamport: Long,
+        /** Parent IDs of [payload] that are absent locally (one causal hold each). */
+        val missingPrevIds: List<Uuid>,
         override val verificationState: VerificationState = VerificationState.VERIFIED,
     ) : IngestResult
 }

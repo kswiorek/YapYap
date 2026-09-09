@@ -89,7 +89,6 @@ class DatabaseFactory(
                 messagesAdapter = Messages.Adapter(
                     payload_typeAdapter = EnumColumnAdapter(),
                     message_idAdapter = UuidAdapter(),
-                    prev_idAdapter = UuidAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                     verification_stateAdapter = EnumColumnAdapter(),
@@ -102,6 +101,10 @@ class DatabaseFactory(
                     orphaned_message_idAdapter = UuidAdapter(),
                     detected_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
+                message_parentsAdapter = Message_parents.Adapter(
+                    message_idAdapter = UuidAdapter(),
+                    parent_idAdapter = UuidAdapter(),
+                ),
                 outboxAdapter = Outbox.Adapter(
                     packet_idAdapter = UuidAdapter(),
                     expires_atAdapter = InstantEpochSecondsAdapter,
@@ -111,6 +114,7 @@ class DatabaseFactory(
                 pending_syncsAdapter = Pending_syncs.Adapter(
                     sync_idAdapter = UuidAdapter(),
                     room_idAdapter = RoomIdAdapter(),
+                    target_message_idAdapter = UuidAdapter(),
                     next_attempt_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_sync_attempted_peersAdapter = Pending_sync_attempted_peers.Adapter(

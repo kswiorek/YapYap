@@ -303,7 +303,7 @@ internal class DefaultMessagingService(
                 accountId = payload.senderAccountId,
                 timestamp = payload.createdAt,
                 displayOrderId = payload.lamportClock,
-                missingPrevId = it.missingPrevId,
+                missingPrevIds = it.missingPrevIds,
             )
         }
         window.onNewItem(displayItem, result.closedGapMissingPrevIds, orphanGap)
@@ -421,7 +421,8 @@ internal class DefaultMessagingService(
                 _hasMoreOlder.value = false
                 return
             }
-            val gapsByOrphanId = dagEngine.openGaps(roomId).associateBy { it.orphanedMessageId }
+            val gapsByOrphanId = dagEngine.openGaps(roomId)
+                .groupBy(keySelector = { it.orphanedMessageId }, valueTransform = { it.missingPrevId })
             windowMutex.withLock {
                 val oldest = page.last()
                 oldestCursor = MessageCursor(
@@ -444,7 +445,8 @@ internal class DefaultMessagingService(
                 return 0
             }
 
-            val gapsByOrphanId = dagEngine.openGaps(roomId).associateBy { it.orphanedMessageId }
+            val gapsByOrphanId = dagEngine.openGaps(roomId)
+                .groupBy(keySelector = { it.orphanedMessageId }, valueTransform = { it.missingPrevId })
             return windowMutex.withLock {
                 val oldest = page.last()
                 oldestCursor = MessageCursor(
@@ -482,8 +484,17 @@ internal class DefaultMessagingService(
 
                 if (closedGapMissingPrevIds.isNotEmpty()) {
                     val closedSet = closedGapMissingPrevIds.toSet()
+                    for (i in current.indices) {
+                        val item = current[i]
+                        if (item is MessageDisplayItem.Gap) {
+                            val remaining = item.missingPrevIds.filter { it !in closedSet }
+                            if (remaining.size != item.missingPrevIds.size) {
+                                current[i] = item.copy(missingPrevIds = remaining)
+                            }
+                        }
+                    }
                     current.removeAll {
-                        it is MessageDisplayItem.Gap && it.missingPrevId in closedSet
+                        it is MessageDisplayItem.Gap && it.missingPrevIds.isEmpty()
                     }
                 }
 
@@ -527,7 +538,7 @@ internal class DefaultMessagingService(
 
         private fun buildDisplayList(
             messages: List<MessagePayload>,
-            gapsByOrphanId: Map<Uuid, Gap>,
+            gapsByOrphanId: Map<Uuid, List<Uuid>>,
         ): List<MessageDisplayItem> {
             val items = mutableListOf<MessageDisplayItem>()
             for (msg in messages) {
@@ -551,7 +562,7 @@ internal class DefaultMessagingService(
                             accountId = msg.senderAccountId,
                             timestamp = msg.createdAt,
                             displayOrderId = msg.lamportClock,
-                            missingPrevId = orphanedGap.missingPrevId,
+                            missingPrevIds = orphanedGap,
                         )
                     )
                 }

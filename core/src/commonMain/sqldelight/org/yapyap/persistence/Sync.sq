@@ -4,14 +4,18 @@ import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.protocol.PeerId;
 
+-- One row per missing message: the sync targets exactly one message ID (a gap
+-- parent from a causal hold, or a frontier tip learned from a ping). Orphan- and
+-- ping-triggered syncs share this single shape; the responder serves the target
+-- plus its ancestry down to the requester's known frontier.
 CREATE TABLE pending_syncs(
     sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
     room_id TEXT AS RoomId NOT NULL,
-    anchor_lamport INTEGER NOT NULL,
-    orphan_lamport INTEGER NOT NULL,
+    target_message_id TEXT AS Uuid NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER AS Instant NOT NULL,
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id)
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+    UNIQUE (room_id, target_message_id)
 );
 
 CREATE TABLE pending_sync_candidate_accounts(
@@ -29,22 +33,25 @@ CREATE TABLE pending_sync_attempted_peers(
 );
 
 insertPendingSync:
-INSERT INTO pending_syncs (sync_id, room_id, anchor_lamport, orphan_lamport, attempts, next_attempt_at)
-VALUES (?, ?, ?, ?, 0, ?);
+INSERT OR IGNORE INTO pending_syncs (sync_id, room_id, target_message_id, attempts, next_attempt_at)
+VALUES (?, ?, ?, 0, ?);
 
 insertPendingSyncCandidateAccount:
 INSERT OR IGNORE INTO pending_sync_candidate_accounts (sync_id, account_id)
 VALUES (?, ?);
 
-findGapSyncsByAnchor:
+findSyncByTarget:
 SELECT * FROM pending_syncs
-WHERE room_id = :roomId AND anchor_lamport = :anchor AND orphan_lamport >= 0;
+WHERE room_id = :roomId AND target_message_id = :target;
 
-updateOrphanLamport:
-UPDATE pending_syncs SET orphan_lamport = ? WHERE sync_id = ?;
+selectSyncById:
+SELECT * FROM pending_syncs WHERE sync_id = ?;
 
 deleteSync:
 DELETE FROM pending_syncs WHERE sync_id = ?;
+
+deleteSyncsByTarget:
+DELETE FROM pending_syncs WHERE room_id = :roomId AND target_message_id = :target;
 
 selectEarliestDueAt:
 SELECT MIN(next_attempt_at) FROM pending_syncs;

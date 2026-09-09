@@ -17,22 +17,38 @@ class DefaultSyncPayloadProvider(
 
     override suspend fun getMessages(syncRequest: SyncRequest): List<MessagePayload> {
         val roomId = syncRequest.roomId
-        val anchor = syncRequest.anchorLamport
-        val orphan = syncRequest.orphanLamport
         // Page size is purely the responder's policy; the requester's retry loop
-        // re-requests until the gap closes, so no per-request limit is needed.
+        // re-requests until every target arrives, so no per-request limit is needed.
         val limit = routerConfig.value.syncMaxMessages
+        // The requester may send its whole frontier; bound how much of it we honor.
+        // TODO(sync-limits): decide the policy for oversized knownIds (truncate vs refuse).
+        val knownIds = syncRequest.knownIds.take(routerConfig.value.syncMaxKnownIds).toSet()
 
-        // Gap sync: [anchor, orphan] inclusive to catch branching, but skip a
-        // boundary lamport when there's exactly one message at it — the requester
-        // already has that message (they knew the lamport value).
-        val singleAtAnchor = messageRepository.countAtLamport(roomId, anchor) == 1L
+        // Walk down from the requested targets over parent edges, stopping at the
+        // requester's known frontier (everything below a known tip is present there).
+        // Gaps of our own simply yield nothing — the requester re-chases the
+        // still-missing IDs against other candidates.
+        val collected = LinkedHashMap<kotlin.uuid.Uuid, MessagePayload>()
+        val visited = HashSet<kotlin.uuid.Uuid>()
+        val queue = ArrayDeque<kotlin.uuid.Uuid>()
+        for (id in syncRequest.missingIds) {
+            if (visited.add(id)) queue.add(id)
+        }
+        while (queue.isNotEmpty() && collected.size < limit) {
+            val id = queue.removeFirst()
+            if (id in knownIds) continue
+            val row = messageRepository.findById(id) ?: continue
+            if (row.payload.roomId != roomId) continue
+            collected[id] = row.payload
+            for (parentId in row.payload.prevIds) {
+                if (visited.add(parentId)) queue.add(parentId)
+            }
+        }
 
-        return messageRepository.findMessagesInLamportRange(
-            roomId = roomId,
-            lowerInclusive = if (singleAtAnchor) anchor+1 else anchor,
-            upperInclusive = orphan,
-            limit = limit,
-        ).map { it.payload }
+        // Topological order (lamport-ascending is valid: child > every parent), so
+        // parents land before children and the requester mints no transient orphans.
+        return collected.values
+            .sortedWith(compareBy({ it.lamportClock }, { it.createdAt }, { it.messageId }))
+            .take(limit)
     }
 }

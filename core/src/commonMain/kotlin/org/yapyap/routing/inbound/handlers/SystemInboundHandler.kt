@@ -205,7 +205,7 @@ internal class SystemInboundHandler(
                     message = "Received ping",
                     fields = mapOf(
                         "source" to systemEnvelope.source,
-                        "roomPayloadCount" to payload.roomLamports.size,
+                        "roomPayloadCount" to payload.roomFrontiers.size,
                         ),
                 )
                 InboundHandleResult.Success(listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)))

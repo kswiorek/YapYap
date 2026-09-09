@@ -53,7 +53,7 @@ import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
-import org.yapyap.routing.ping.DefaultLamportSnapshotProvider
+import org.yapyap.routing.ping.DefaultFrontierSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.transport.tor.backend.TorBackend
@@ -391,13 +391,13 @@ class DefaultOrchestrator(
         roomRepository = DefaultRoomRepository(database)
 
         // The GLOBAL control room must exist as a real room before the router starts:
-        // messages.room_id FKs to rooms, getLocalSeq(GLOBAL) drives sync, and gap sync /
-        // ping / broadcast all consult rooms + room_members. Seed idempotently.
+        // messages.room_id FKs to rooms, and frontier sync / ping / broadcast all
+        // consult rooms + room_members. Seed idempotently.
         roomRepository.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
 
         val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig)
 
-        val lamportSnapshotProvider = DefaultLamportSnapshotProvider(roomRepository)
+        val frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepo)
 
         val peerAvailabilityStore = DefaultPeerAvailabilityStore(database)
 
@@ -421,7 +421,7 @@ class DefaultOrchestrator(
             syncRepository = syncRepo,
             routerConfig = configStore.routerConfig,
             transportLimits = configStore.transportLimits,
-            lamportSnapshotProvider = lamportSnapshotProvider,
+            frontierSnapshotProvider = frontierSnapshotProvider,
             peerAvailabilityStore = peerAvailabilityStore,
             bootstrapSessionStore = bootstrapSessionStore,
             identityKeyRepository = identityRepo,
@@ -458,7 +458,7 @@ class DefaultOrchestrator(
             dagEngine = dagEngine,
             pipeline = pipeline,
             messageRepository = messageRepo,
-            identityKeyRepository = identityRepo,
+            identityResolver = identityResolver,
             roomRepository = roomRepository,
             router = router,
             cryptoProvider = cryptoProvider,
@@ -509,9 +509,9 @@ class DefaultOrchestrator(
         recoveryResponder.start(orchestratorScope)
 
         orchestratorScope.launch {
-            router.pingPayloads.collect { roomLamports ->
-                roomLamports.forEach { (roomId, pingLamport) ->
-                    syncCoordinator.requestRangeSync(roomId, pingLamport)
+            router.pingPayloads.collect { roomFrontiers ->
+                roomFrontiers.forEach { (roomId, tips) ->
+                    syncCoordinator.requestFrontierSync(roomId, tips)
                 }
             }
         }

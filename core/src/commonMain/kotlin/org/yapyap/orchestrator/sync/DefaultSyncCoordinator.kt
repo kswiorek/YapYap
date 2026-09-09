@@ -18,6 +18,19 @@ import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
+/**
+ * Tracks "messages we are missing" as one pending-sync row per missing message ID.
+ *
+ * Orphan- and ping-triggered syncs share this single shape: a row targets exactly one
+ * message (a gap parent from a causal hold, or a frontier tip learned from a ping),
+ * and the responder serves the target plus its ancestry down to our known frontier.
+ * Lifecycle is monotone insert (a new missing ID appears) + delete (the target
+ * arrives) — there are no ranges to extend, shorten, or split.
+ *
+ * Fixpoint invariant: after any ingested batch, every still-missing parent of every
+ * stored message has a sync row. Each delivered message reveals its own gaps, so the
+ * sync never needs to know the shape of what is missing in advance.
+ */
 class DefaultSyncCoordinator(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
@@ -53,29 +66,17 @@ class DefaultSyncCoordinator(
     }
 
     // ------------------------------------------------------------------
-    // Ping/pong-triggered range sync
+    // Ping-triggered frontier sync
     // ------------------------------------------------------------------
-    /**
-     * We know that a version of this room exists where the last messageLamport is pingLamport
-     * Either:
-     * our localSeqN agrees with the ping or the peer is outdated => ignore;
-     * we are outdated so either:
-     * a local sync does not exist => it needs to be created;
-     * it does exist and it's orphanLamport is lower than pingLamport =>
-     * the sync needs to be updated to get all the messages;
-     * the sync does exist and includes pingLamport => ignore
-     */
 
-    override suspend fun requestRangeSync(roomId: RoomId, pingLamport: Long) {
+    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>) {
         syncMutex.withLock {
-            val localSeqN = roomRepository.getLocalSeq(roomId) ?: return
-            if (localSeqN >= pingLamport) return
-            val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, localSeqN)
-
-            if (sync == null) {
-                insertNewGapSync(roomId, localSeqN, pingLamport)
-            } else if (pingLamport > sync.orphanLamport) {
-                pendingSyncRepository.updateOrphanLamport(sync.syncId, pingLamport)
+            for (tip in tips) {
+                if (messageRepository.findById(tip) == null) {
+                    insertSyncForTarget(roomId, tip)
+                }
+                // A known tip is either chainable (ancestry present — nothing to do)
+                // or a local orphan (our causal holds already chase its parents).
             }
         }
     }
@@ -85,93 +86,30 @@ class DefaultSyncCoordinator(
     // ------------------------------------------------------------------
 
     /**
-     * A message arrived and became an orphan (its prevId is missing).
-     *
-     * It must be ensured that each orphan has a sync running which will close it.
-     * Anchor is the highest lamport of the message before the orphan (start of the gap).
-     * A sync can target only a gap, there cannot be a message inside a sync range
-     * apart from the anchor and orphan itself.
-     * If a sync already exists for the anchor, it must be updated so that
-     * the orphan is at most the border of the sync range.
-     * L > sync.orphanLamport is an edge case where the orphan gets received and
-     * its lamportClock is higher than any ping/pong sync requests.
-     * L == sync.orphanLamport exists when a message was received from a separate branch
-     * from the orphan that triggered the sync request,
-     * or it is the last message from the sync triggered by ping/pong.
-     * L < sync.orphanLamport if that message is an orphan, it must either:
-     * satisfy the message at sync.orphanLamport,
-     * then the sync is updated so that the sync.orphanLamport = L;
-     * be a message from a separate branch or middle of the range (orphanStillOpen is true),
-     * then the existing sync must be shortened so that sync.orphanLamport = L and
-     * a new sync be created from the previous orphan to L;
-     * be a message from the middle of a RangeSync where the message at sync.orphanLamport does not exist,
-     * then the existing sync must be shortened so that sync.orphanLamport = L and
-     * a new sync be created from the previous orphan to L.
+     * A message arrived with missing parents. Each missing parent gets its own sync
+     * row (insert-if-absent via the unique (room, target) key); orphans sharing a
+     * missing parent collapse into one row automatically.
      */
     private suspend fun processBecameOrphan(result: IngestResult.BecameOrphan) {
         syncMutex.withLock {
-            val L = result.payload.lamportClock
             val roomId = result.payload.roomId
-            val anchor = result.anchorLamport
-
-            val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, anchor)
-            if (sync == null) {
-                insertNewGapSync(roomId, anchor, L)
-                return
-            }
-
-            // One sync per (anchor, room) expected; take the highest orphan.
-            val orphan = sync.orphanLamport
-
-            when {
-                L > orphan -> {
-                    pendingSyncRepository.updateOrphanLamport(sync.syncId, L)
-                }
-
-                L == orphan -> {
-                    // No-op: sync already targets this lamport (branching twin).
-                }
-
-                L < orphan -> {
-                    pendingSyncRepository.updateOrphanLamport(sync.syncId, L)
-
-                    val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, orphan)
-                    val messageAtOrphan = messageRepository.countAtLamport(roomId, orphan) == 0L
-
-                    if (orphanStillOpen || messageAtOrphan) {
-                        insertNewGapSync(roomId, L, orphan)                        // [anchor, L]
-                    }
-                }
+            for (missing in result.missingPrevIds) {
+                insertSyncForTarget(roomId, missing)
             }
         }
     }
 
     /**
-     * A message arrived and was inserted as non-orphaned (its prevId exists).
-     *
-     * it can either be a new message from a proper chain, where no sync exists,
-     * or it is the anchorLamport of an existing sync. Syncs are identified by the anchorLamport,
-     * so the old sync must be deleted.
-     * If the orphan still exists or the sync continues past the received message,
-     * a new sync must be created.
-     * In the case that there is a branch at sync.orphanLamport (a message parallel to the current one),
-     * we can assume it will arrive at some point or its child (orphan will arrive)
+     * A message arrived complete. Any sync targeting it is satisfied and dies.
+     * Gaps that remain (other missing parents of an orphan) already have their own
+     * rows, created when the orphan arrived — no recreation needed.
      */
     private suspend fun processInserted(result: IngestResult.Inserted) {
         syncMutex.withLock {
-            val L = result.payload.lamportClock
-            val roomId = result.payload.roomId
-
-            val computedAnchor = messageRepository.maxLamportBelow(roomId, L) ?: -1L
-
-            val sync = pendingSyncRepository.findGapSyncByAnchor(roomId, computedAnchor) ?: return
-
-            pendingSyncRepository.deleteSync(sync.syncId)
-            val orphanStillOpen = messageRepository.isOrphanAtLamport(roomId, sync.orphanLamport)
-            val noMessageAtOrphan = messageRepository.countAtLamport(roomId, sync.orphanLamport) == 0L
-            if (orphanStillOpen || noMessageAtOrphan) {
-                insertNewGapSync(roomId, L, sync.orphanLamport)
-            }
+            pendingSyncRepository.deleteSyncsByTarget(
+                roomId = result.payload.roomId,
+                targetMessageId = result.payload.messageId,
+            )
         }
     }
 
@@ -179,13 +117,13 @@ class DefaultSyncCoordinator(
     // Helpers
     // ------------------------------------------------------------------
 
-    private suspend fun insertNewGapSync(roomId: RoomId, anchorLamport: Long, orphanLamport: Long) {
+    private suspend fun insertSyncForTarget(roomId: RoomId, targetMessageId: Uuid) {
+        if (pendingSyncRepository.findSyncByTarget(roomId, targetMessageId) != null) return
         val candidates = candidateAccountsFor(roomId)
         pendingSyncRepository.insertSync(
             syncId = Uuid.random(),
             roomId = roomId,
-            anchorLamport = anchorLamport,
-            orphanLamport = orphanLamport,
+            targetMessageId = targetMessageId,
             candidateAccounts = candidates,
             nextAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod,
         )

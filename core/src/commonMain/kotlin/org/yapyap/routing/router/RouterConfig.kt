@@ -26,6 +26,11 @@ data class RouterConfig(
     val sessionAwaitTimeout: Duration = 45.seconds,
     /** Max messages returned per sync response (responder-side page size). */
     val syncMaxMessages: Int = 20,
+    /**
+     * Max requester frontier IDs honored per sync response (responder-side bound).
+     * TODO(sync-limits): decide the policy for oversized knownIds (truncate vs refuse).
+     */
+    val syncMaxKnownIds: Int = 64,
     /** Backoff when a pending sync has no candidate device that looks reachable. */
     val syncOfflineRetryDelay: Duration = 60.seconds,
 
@@ -71,6 +76,7 @@ data class RouterConfig(
         require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelaySeconds must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeoutSeconds must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
+        require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
         require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelaySeconds must be > 0" }
         require(pingInterval > Duration.ZERO) { "pingInterval must be > 0" }
         require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }

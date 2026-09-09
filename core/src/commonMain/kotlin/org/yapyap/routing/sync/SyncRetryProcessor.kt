@@ -100,7 +100,13 @@ internal class SyncRetryProcessor(
             return
         }
 
-        val request = row.toSyncRequest()
+        val request = pendingSyncs.buildSyncRequest(row.syncId)
+        if (request == null) {
+            // Target arrived while the row was waiting (or the row is gone):
+            // satisfied, drop it instead of sending a stale request.
+            pendingSyncs.deleteSync(row.syncId)
+            return
+        }
         try {
             systemSender.sendSyncRequest(nextDevice, request)
         } catch (e: CancellationException) {

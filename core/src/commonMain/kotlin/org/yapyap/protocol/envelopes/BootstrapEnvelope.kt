@@ -203,19 +203,20 @@ data class Intro(
     override val device: DeviceIdentityRecord,
     override val deviceType: DeviceType,
     override val torEndpoint: TorEndpoint,
-    val dagHeadLamport: Long,
+    /** The sponsor's chainable frontier of the global room at reply time. */
+    val dagHeadTipIds: List<Uuid>,
 ) : BootstrapPayload {
     override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INTRO
 
     init {
         require(version in 0..255) { "version must be in 0..255" }
-        require(dagHeadLamport >= 0) { "dagHeadLamport must be >= 0" }
     }
 
     override fun encode(): ByteArray {
         val writer = ByteWriter(256)
         writer.writeBootstrapPayloadPrefix(kind, version, account, device, deviceType, torEndpoint)
-        writer.writeLong(dagHeadLamport)
+        writer.writeInt(dagHeadTipIds.size)
+        dagHeadTipIds.forEach { writer.writeUuid(it) }
         return writer.toByteArray()
     }
 
@@ -224,7 +225,7 @@ data class Intro(
         if (other == null || other::class != this::class) return false
         other as Intro
         return version == other.version &&
-                dagHeadLamport == other.dagHeadLamport &&
+                dagHeadTipIds == other.dagHeadTipIds &&
                 deviceType == other.deviceType &&
                 torEndpoint == other.torEndpoint &&
                 bootstrapPayloadAccountEquals(account, other.account) &&
@@ -233,7 +234,7 @@ data class Intro(
 
     override fun hashCode(): Int {
         var result = version
-        result = 31 * result + dagHeadLamport.hashCode()
+        result = 31 * result + dagHeadTipIds.hashCode()
         result = 31 * result + deviceType.hashCode()
         result = 31 * result + torEndpoint.onionAddress.hashCode()
         result = 31 * result + torEndpoint.port
@@ -245,7 +246,7 @@ data class Intro(
     companion object {
         fun decode(reader: ByteReader): Intro {
             val prefix = reader.readBootstrapPayloadPrefix()
-            val dagHeadLamport = reader.readLong()
+            val dagHeadTipIds = List(reader.readInt()) { reader.readUuid() }
             reader.requireFullyRead()
             return Intro(
                 version = prefix.version,
@@ -253,7 +254,7 @@ data class Intro(
                 device = prefix.device,
                 deviceType = prefix.deviceType,
                 torEndpoint = prefix.torEndpoint,
-                dagHeadLamport = dagHeadLamport,
+                dagHeadTipIds = dagHeadTipIds,
             )
         }
     }

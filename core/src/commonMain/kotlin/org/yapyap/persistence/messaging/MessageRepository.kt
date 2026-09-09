@@ -22,6 +22,8 @@ data class MessageRow(
     val payload: MessagePayload,
     val isOrphaned: Boolean,
     val verificationState: VerificationState = VerificationState.VERIFIED,
+    /** Transitively complete ancestry (every parent present and itself complete). */
+    val ancestryComplete: Boolean = true,
 )
 
 /**
@@ -40,12 +42,28 @@ data class MessageCursor(
 interface MessageRepository {
 
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
-    suspend fun insert(payload: MessagePayload, isOrphaned: Boolean, verificationState: VerificationState): Boolean
+    suspend fun insert(
+        payload: MessagePayload,
+        isOrphaned: Boolean,
+        ancestryComplete: Boolean,
+        verificationState: VerificationState
+    ): Boolean
 
     suspend fun findById(messageId: Uuid): MessageRow?
 
-    /** Highest-lamport message in the room; tie-break by createdAt DESC, messageId DESC. Null if room is empty. */
-    suspend fun findRoomTail(roomId: RoomId): MessageRow?
+    /**
+     * Chainable frontier (covering antichain): chainable messages that no chainable
+     * message references as a parent. Empty if the room is empty or every tip is parked.
+     */
+    suspend fun findRoomFrontier(roomId: RoomId): List<MessageRow>
+
+    /** Parent IDs of a stored message (empty for the DAG root). */
+    suspend fun findParents(messageId: Uuid): List<Uuid>
+
+    suspend fun insertParent(messageId: Uuid, parentId: Uuid)
+
+    /** Stored messages in [roomId] referencing [parentId] (used for the ancestry cascade). */
+    suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<MessageRow>
 
     suspend fun findMessagesInRoomPageDesc(
         roomId: RoomId,
@@ -55,10 +73,16 @@ interface MessageRepository {
 
     suspend fun findAllInRoom(roomId: RoomId): List<MessageRow>
 
-    /** Max lamport_clock in the room (null if empty) used to reconstruct rooms.local_seq_n on boot. */
+    /** Max lamport_clock in the room (null if empty). */
     suspend fun maxLamportInRoom(roomId: RoomId): Long?
 
+    /** Highest-lamport non-rejected message (append-guard fallback only). Null if room is empty. */
+    suspend fun findLatestInRoom(roomId: RoomId): MessageRow?
+
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
+
+    /** Mark a stored message's ancestry transitively complete/incomplete. */
+    suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean)
 
     /** Transition a stored message between verification states (e.g. PENDING -> VERIFIED/REJECTED). */
     suspend fun updateVerificationState(messageId: Uuid, state: VerificationState)
@@ -68,20 +92,6 @@ interface MessageRepository {
 
     /** All messages in the holding-tank state, useful for a boot-time re-verification sweep. */
     suspend fun findAllPending(): List<MessageRow>
-
-    suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean
-
-    suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long?
-
-    suspend fun findMessagesInLamportRange(
-        roomId: RoomId,
-        lowerInclusive: Long,
-        upperInclusive: Long,
-        limit: Int,
-    ): List<MessageRow>
-
-    /** Number of messages in [roomId] at exactly [lamport] (branching detection). */
-    suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long
 }
 
 class DefaultMessageRepository(
@@ -93,6 +103,7 @@ class DefaultMessageRepository(
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
+        ancestryComplete: Boolean,
         verificationState: VerificationState,
     ): Boolean = withContext(dbDispatcher) {
         queries.insertMessage(
@@ -101,12 +112,12 @@ class DefaultMessageRepository(
             sender_account_id = payload.senderAccountId,
             author_device_id = payload.authorDeviceId,
             verification_state = verificationState,
-            prev_id = payload.prevId,
             lamport_clock = payload.lamportClock,
             created_at_epoch_seconds = payload.createdAt,
             payload_type = payload.payloadType,
             message_payload = payload.encode(),
             is_orphaned = isOrphaned,
+            ancestry_complete = ancestryComplete,
         )
         val inserted = queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
         if (inserted) {
@@ -119,6 +130,7 @@ class DefaultMessageRepository(
                     "roomId" to payload.roomId,
                     "lamportClock" to payload.lamportClock,
                     "isOrphaned" to isOrphaned,
+                    "ancestryComplete" to ancestryComplete,
                 ),
             )
         } else {
@@ -161,29 +173,35 @@ class DefaultMessageRepository(
             row
         }
 
-    override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
+    override suspend fun findRoomFrontier(roomId: RoomId): List<MessageRow> =
         withContext(dbDispatcher) {
-            val row = queries.selectRoomTail(roomId).executeAsOneOrNull()?.toRow()
-            if (row == null) {
-                AppLog.debug(
-                    component = LogComponent.DATABASE,
-                    event = LogEvent.MESSAGE_FETCH_MISS,
-                    message = "Room tail message not found — room empty",
-                    fields = mapOf("roomId" to roomId),
-                )
-            } else {
-                AppLog.debug(
-                    component = LogComponent.DATABASE,
-                    event = LogEvent.MESSAGE_FETCHED,
-                    message = "Room tail message found",
-                    fields = mapOf(
-                        "roomId" to roomId,
-                        "messageId" to row.payload.messageId,
-                        "lamportClock" to row.payload.lamportClock,
-                    ),
-                )
-            }
-            row
+            val rows = queries.selectRoomFrontier(roomId).executeAsList().map { it.toRow() }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.MESSAGE_FETCHED,
+                message = "Room frontier fetched",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "tipCount" to rows.size,
+                ),
+            )
+            rows
+        }
+
+    override suspend fun findParents(messageId: Uuid): List<Uuid> =
+        withContext(dbDispatcher) {
+            queries.selectParentsByMessage(messageId).executeAsList()
+        }
+
+    override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
+        withContext(dbDispatcher) {
+            queries.insertMessageParent(message_id = messageId, parent_id = parentId)
+        }
+    }
+
+    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<MessageRow> =
+        withContext(dbDispatcher) {
+            queries.selectChildrenInRoom(parentId, roomId).executeAsList().map { it.toRow() }
         }
 
     override suspend fun findMessagesInRoomPageDesc(
@@ -243,6 +261,11 @@ class DefaultMessageRepository(
             max
         }
 
+    override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =
+        withContext(dbDispatcher) {
+            queries.selectLatestInRoom(roomId).executeAsOneOrNull()?.toRow()
+        }
+
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         withContext(dbDispatcher) {
             queries.updateMessageOrphanedFlag(isOrphaned, messageId)
@@ -283,73 +306,20 @@ class DefaultMessageRepository(
             queries.selectAllPending().executeAsList().map { it.toRow() }
         }
 
-    override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
+    override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) {
         withContext(dbDispatcher) {
-            val isOrphan = queries.selectIsOrphanAtLamport(roomId, lamport).executeAsOne()
+            queries.updateMessageAncestryComplete(complete, messageId)
             AppLog.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.MESSAGE_ORPHAN_STATE_QUERIED,
-                message = "Checked orphan state at lamport",
+                event = LogEvent.MESSAGE_ORPHAN_FLAG_UPDATED,
+                message = "Updated message ancestry-complete flag",
                 fields = mapOf(
-                    "roomId" to roomId,
-                    "lamportClock" to lamport,
-                    "isOrphan" to isOrphan,
+                    "messageId" to messageId,
+                    "ancestryComplete" to complete,
                 ),
             )
-            isOrphan
         }
-
-    override suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long? =
-        withContext(dbDispatcher) {
-            val max = queries.selectMaxLamportBelow(roomId, lamport).executeAsOne().MAX
-            AppLog.debug(
-                component = LogComponent.DATABASE,
-                event = LogEvent.MESSAGE_LAMPORT_QUERIED,
-                message = "Queried max lamport clock below value",
-                fields = mapOf(
-                    "roomId" to roomId,
-                    "belowLamportClock" to lamport,
-                    "maxLamportClock" to (max ?: "null"),
-                ),
-            )
-            max
-        }
-
-    override suspend fun findMessagesInLamportRange(
-        roomId: RoomId, lowerInclusive: Long, upperInclusive: Long, limit: Int,
-    ): List<MessageRow> = withContext(dbDispatcher) {
-        val rows = queries.selectMessagesInLamportRange(roomId, lowerInclusive, upperInclusive, limit.toLong())
-            .executeAsList().map { it.toRow() }
-        AppLog.debug(
-            component = LogComponent.DATABASE,
-            event = LogEvent.MESSAGE_LAMPORT_RANGE_QUERIED,
-            message = "Fetched messages in lamport range",
-            fields = mapOf(
-                "roomId" to roomId,
-                "lowerInclusive" to lowerInclusive,
-                "upperInclusive" to upperInclusive,
-                "limit" to limit,
-                "resultCount" to rows.size,
-            ),
-        )
-        rows
     }
-
-    override suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long =
-        withContext(dbDispatcher) {
-            val count = queries.selectMessageCountAtLamport(roomId, lamport).executeAsOne()
-            AppLog.debug(
-                component = LogComponent.DATABASE,
-                event = LogEvent.MESSAGE_COUNT_QUERIED,
-                message = "Counted messages at lamport",
-                fields = mapOf(
-                    "roomId" to roomId,
-                    "lamportClock" to lamport,
-                    "count" to count,
-                ),
-            )
-            count
-        }
 
     private fun org.yapyap.persistence.Messages.toRow(): MessageRow {
         val payload = runCatching { MessagePayload.decode(this.message_payload) }.getOrElse { error ->
@@ -370,6 +340,7 @@ class DefaultMessageRepository(
             payload = payload,
             isOrphaned = this.is_orphaned,
             verificationState = this.verification_state,
+            ancestryComplete = this.ancestry_complete,
         )
     }
 }

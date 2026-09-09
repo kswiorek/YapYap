@@ -1,7 +1,10 @@
 package org.yapyap.routing.router
 
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.internal.SynchronizedObject
+import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
@@ -344,6 +347,9 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("FakeIdentityResolverForRouter: account record not stubbed")
 
+    override suspend fun isLocalAccountAdmin(): Boolean =
+        error("FakeIdentityResolverForRouter: admin flag not stubbed")
+
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
@@ -384,6 +390,7 @@ internal class FakeIdentityResolverForRouter(
         error("FakeIdentityResolverForRouter: signed prekey not stubbed")
 }
 
+@OptIn(InternalCoroutinesApi::class)
 internal class TrackingPacketOutbox : PacketOutbox {
     private data class StoredEntry(
         val envelope: BinaryEnvelope,
@@ -395,11 +402,11 @@ internal class TrackingPacketOutbox : PacketOutbox {
     )
 
     private val entries = linkedMapOf<Uuid, StoredEntry>()
+    private val lock = SynchronizedObject()
     val enqueued = mutableListOf<BinaryEnvelope>()
     val markDeliveredCalls = mutableListOf<Uuid>()
     val recordAttemptCalls = mutableListOf<Triple<Uuid, Instant, Instant>>()
     val setDueForTargetCalls = mutableListOf<Pair<PeerId, Instant>>()
-
     override suspend fun enqueue(
         envelope: BinaryEnvelope,
         nextRetryAt: Instant,
@@ -407,78 +414,93 @@ internal class TrackingPacketOutbox : PacketOutbox {
         targetEndpoint: TorEndpoint?,
     ) {
         val blobSize = envelope.encode().size.toLong()
-        entries[envelope.packetId] = StoredEntry(
-            envelope = envelope,
-            nextRetryAt = nextRetryAt,
-            attempts = 0,
-            relayMessage = relayMessage,
-            expiresAt = envelope.expiresAt,
-            blobSize = blobSize,
-        )
+        synchronized(lock) {
+            entries[envelope.packetId] = StoredEntry(
+                envelope = envelope,
+                nextRetryAt = nextRetryAt,
+                attempts = 0,
+                relayMessage = relayMessage,
+                expiresAt = envelope.expiresAt,
+                blobSize = blobSize,
+            )
+        }
         enqueued.add(envelope)
     }
 
     override suspend fun markDelivered(packetId: Uuid) {
         markDeliveredCalls.add(packetId)
-        entries.remove(packetId)
+        synchronized(lock) { entries.remove(packetId) }
     }
 
     override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant) {
         setDueForTargetCalls.add(target to nextRetryAt)
-        for (entry in entries.values) {
-            if (entry.envelope.target == target && entry.nextRetryAt > nextRetryAt) {
-                entry.nextRetryAt = nextRetryAt
+        synchronized(lock) {
+            for (entry in entries.values) {
+                if (entry.envelope.target == target && entry.nextRetryAt > nextRetryAt) {
+                    entry.nextRetryAt = nextRetryAt
+                }
             }
         }
     }
 
     override suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant) {
         recordAttemptCalls.add(Triple(packetId, nextRetryAt, at))
-        val entry = entries[packetId] ?: return
-        entry.attempts += 1
-        entry.nextRetryAt = nextRetryAt
+        synchronized(lock) {
+            val entry = entries[packetId] ?: return
+            entry.attempts += 1
+            entry.nextRetryAt = nextRetryAt
+        }
     }
 
     override suspend fun listAllForTarget(target: PeerId): List<OutboxEntry> =
-        entries.values
-            .filter { it.envelope.target == target }
-            .map { it.toOutboxEntry() }
+        synchronized(lock) {
+            entries.values
+                .filter { it.envelope.target == target }
+                .map { it.toOutboxEntry() }
+        }
 
     override suspend fun listDue(now: Instant): List<OutboxEntry> =
-        entries.values
-            .filter { it.nextRetryAt <= now }
-            .map { it.toOutboxEntry() }
+        synchronized(lock) {
+            entries.values
+                .filter { it.nextRetryAt <= now }
+                .map { it.toOutboxEntry() }
+        }
 
     override suspend fun pruneExpired(now: Instant): Int {
-        val expiredKeys = entries.filterValues { it.expiresAt <= now }.keys
-        expiredKeys.forEach { entries.remove(it) }
+        val expiredKeys = synchronized(lock) {
+            entries.filterValues { it.expiresAt <= now }.keys.toList()
+        }
+        expiredKeys.forEach { synchronized(lock) { entries.remove(it) } }
         return expiredKeys.size
     }
 
     override suspend fun earliestPendingRetryAt(): Instant? =
-        entries.values.minOfOrNull { it.nextRetryAt }
+        synchronized(lock) { entries.values.map { it.nextRetryAt }.minOrNull() }
 
     override suspend fun relayCacheBytes(): Long =
-        entries.values.filter { it.relayMessage }.sumOf { it.blobSize }
+        synchronized(lock) {
+            entries.values.filter { it.relayMessage }.sumOf { it.blobSize }
+        }
 
     override suspend fun pruneRelayOverCapacity(maxBytes: Long): Int {
         var evicted = 0
         while (relayCacheBytes() > maxBytes) {
-            val victim = entries.values
-                .filter { it.relayMessage }
-                .minWithOrNull(compareBy<StoredEntry> { it.expiresAt }.thenBy { it.envelope.packetId })
-                ?: break
-            entries.remove(victim.envelope.packetId)
+            val victim = synchronized(lock) {
+                entries.values
+                    .filter { it.relayMessage }
+                    .minWithOrNull(compareBy<StoredEntry> { it.expiresAt }.thenBy { it.envelope.packetId })
+            } ?: break
+            synchronized(lock) { entries.remove(victim.envelope.packetId) }
             evicted++
         }
         return evicted
     }
 
-    fun contains(packetId: Uuid): Boolean = entries.containsKey(packetId)
+    fun contains(packetId: Uuid): Boolean = synchronized(lock) { entries.containsKey(packetId) }
 
-    fun getNextRetryAt(packetId: Uuid): Instant? = entries[packetId]?.nextRetryAt
+    fun getNextRetryAt(packetId: Uuid): Instant? = synchronized(lock) { entries[packetId]?.nextRetryAt }
 
-    fun getAttempts(packetId: Uuid): Long = entries[packetId]?.attempts ?: 0L
+    fun getAttempts(packetId: Uuid): Long = synchronized(lock) { entries[packetId]?.attempts ?: 0L }
 
     private fun StoredEntry.toOutboxEntry(): OutboxEntry =
         OutboxEntry(
@@ -502,6 +524,9 @@ internal class E2eeIdentityResolverForRouter(
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("E2eeIdentityResolverForRouter: account record not stubbed")
+
+    override suspend fun isLocalAccountAdmin(): Boolean =
+        error("E2eeIdentityResolverForRouter: admin flag not stubbed")
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         when (purpose) {

@@ -210,7 +210,7 @@ internal class DefaultOnboardingProvider(
             fields = mapOf(
                 "sponsorDeviceId" to intro.device.deviceId,
                 "sponsorAccountId" to intro.account.accountId,
-                "dagHeadLamport" to intro.dagHeadLamport,
+                "dagHeadTips" to intro.dagHeadTipIds,
                 "deadline" to syncDeadline,
             ),
         )
@@ -229,7 +229,7 @@ internal class DefaultOnboardingProvider(
             torEndpoint = intro.torEndpoint,
         )
         roomRepository.addMember(RoomId.GLOBAL, intro.account.accountId, RoomMemberRole.MEMBER)
-        syncCoordinator.requestRangeSync(RoomId.GLOBAL, intro.dagHeadLamport)
+        syncCoordinator.requestFrontierSync(RoomId.GLOBAL, intro.dagHeadTipIds)
         // SYNCING is terminal until the fold reports our own Add event: the projector's
         // stateChanges collector (see activate) drives COMPLETE + burn via onIdentityStateChange
         // once our device is committed; the timeout above is the backstop.

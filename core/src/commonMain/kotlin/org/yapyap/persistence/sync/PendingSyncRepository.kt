@@ -15,40 +15,40 @@ import kotlin.uuid.Uuid
 data class PendingSyncRow(
     val syncId: Uuid,
     val roomId: RoomId,
-    val anchorLamport: Long,
-    val orphanLamport: Long,
+    val targetMessageId: Uuid,
     val candidateAccounts: List<AccountId>,
     val attemptedDevices: Set<PeerId>,
     val attempts: Int
-){
-    fun toSyncRequest(): SystemPayload.SyncRequest = SystemPayload.SyncRequest(
-        roomId = roomId,
-        syncId = syncId,
-        anchorLamport = anchorLamport,
-        orphanLamport = orphanLamport,
-    )
-}
+)
 
 interface PendingSyncRepository {
 
     /**
-     * Inserts a new pending sync with its candidate accounts.
+     * Inserts a new pending sync for [targetMessageId] with its candidate accounts.
+     * At most one row per (room, target) exists; re-inserts are ignored.
      * [nextAttemptAt] controls when the retry processor will first try to send it.
      */
     suspend fun insertSync(
         syncId: Uuid,
         roomId: RoomId,
-        anchorLamport: Long,
-        orphanLamport: Long,
+        targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
         nextAttemptAt: Instant,
     )
 
-    /** updates  the [orphanLamport] for a sync with [syncId]. */
-    suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long)
-
     /** Deletes a pending sync by its [syncId]. Cascades to candidate/attempted tables. */
     suspend fun deleteSync(syncId: Uuid)
+
+    /** Deletes pending syncs targeting [targetMessageId] (satisfied by an arrival). */
+    suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid)
+
+    /**
+     * Builds the wire request for [syncId]: the row's target plus the requester's
+     * current chainable frontier as the responder's stop set (recomputed fresh on
+     * every attempt, never stored). Returns null when the target is already present
+     * (stale row — the caller should delete it).
+     */
+    suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest?
 
     // ---- retained for SyncRetryProcessor ----
 
@@ -60,8 +60,8 @@ interface PendingSyncRepository {
     suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant)
     suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId)
 
-    // Finds the sync with the given [anchorLamport] in the given [roomId].
-    suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow?
+    // Finds the sync targeting [targetMessageId] in the given [roomId].
+    suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow?
 }
 
 class DefaultPendingSyncRepository(
@@ -74,8 +74,7 @@ class DefaultPendingSyncRepository(
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: RoomId,
-        anchorLamport: Long,
-        orphanLamport: Long,
+        targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
         nextAttemptAt: Instant,
     ) {
@@ -83,19 +82,12 @@ class DefaultPendingSyncRepository(
             queries.insertPendingSync(
                 sync_id = syncId,
                 room_id = roomId,
-                anchor_lamport = anchorLamport,
-                orphan_lamport = orphanLamport,
-next_attempt_at = nextAttemptAt,
+                target_message_id = targetMessageId,
+                next_attempt_at = nextAttemptAt,
             )
             candidateAccounts.forEach { accountId ->
                 queries.insertPendingSyncCandidateAccount(sync_id = syncId, account_id = accountId)
             }
-        }
-    }
-
-    override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
-        withContext(dbDispatcher) {
-            queries.updateOrphanLamport(orphanLamport, syncId)
         }
     }
 
@@ -104,6 +96,28 @@ next_attempt_at = nextAttemptAt,
             queries.deleteSync(syncId)
         }
     }
+
+    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid) {
+        withContext(dbDispatcher) {
+            queries.deleteSyncsByTarget(roomId, targetMessageId)
+        }
+    }
+
+    override suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest? =
+        withContext(dbDispatcher) {
+            val row = queries.selectSyncById(syncId).executeAsOneOrNull() ?: return@withContext null
+            if (database.messageQueries.selectMessageById(row.target_message_id).executeAsOneOrNull() != null) {
+                return@withContext null // Target already present — stale row.
+            }
+            val knownIds = database.messageQueries.selectRoomFrontier(row.room_id)
+                .executeAsList().map { it.message_id }
+            SystemPayload.SyncRequest(
+                roomId = row.room_id,
+                syncId = row.sync_id,
+                missingIds = listOf(row.target_message_id),
+                knownIds = knownIds,
+            )
+        }
 
     override suspend fun earliestDueAt(): Instant? =
         withContext(dbDispatcher) {
@@ -144,9 +158,9 @@ next_attempt_at = nextAttemptAt,
         }
     }
 
-    override suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow? =
+    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow? =
         withContext(dbDispatcher) {
-            queries.findGapSyncsByAnchor(roomId, anchorLamport).executeAsList().firstOrNull()?.toRow()
+            queries.findSyncByTarget(roomId, targetMessageId).executeAsOneOrNull()?.toRow()
         }
 
     private fun Pending_syncs.toRow(): PendingSyncRow {
@@ -155,8 +169,7 @@ next_attempt_at = nextAttemptAt,
         return PendingSyncRow(
             syncId = sync_id,
             roomId = room_id,
-            anchorLamport = anchor_lamport,
-            orphanLamport = orphan_lamport,
+            targetMessageId = target_message_id,
             candidateAccounts = candidates,
             attemptedDevices = attempted,
             attempts = attempts.toInt(),

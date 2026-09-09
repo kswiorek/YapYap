@@ -73,7 +73,7 @@ internal class DefaultOrchestratorRuntime(
         _onboarding = DefaultOnboardingService(
             provider = onboardingProvider,
             router = router,
-            identityKeyRepository = identityKeyRepository,
+            identityResolver = identityResolver,
             messageRepository = DefaultMessageRepository(database),
             cryptoProvider = cryptoProvider,
             localDeviceType = localDeviceType,

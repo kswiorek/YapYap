@@ -151,7 +151,12 @@ sealed interface MessagePayload {
     val roomId: RoomId
     val senderAccountId: AccountId
     val authorDeviceId: PeerId
-    val prevId: Uuid?
+
+    /**
+     * Causal parents of this message. Empty for the DAG root (genesis) only; every other
+     * message references the room's chainable frontier at append time.
+     */
+    val prevIds: List<Uuid>
     val lamportClock: Long
     /**
      * Sender's wall-clock composition time, set once by [org.yapyap.orchestrator.dag.DagEngine.append]
@@ -174,7 +179,7 @@ sealed interface MessagePayload {
         override val roomId: RoomId,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevId: Uuid?,
+        override val prevIds: List<Uuid>,
         override val lamportClock: Long,
         override val createdAt: Instant,
         val text: String,
@@ -210,7 +215,7 @@ sealed interface MessagePayload {
             /**
              * Generous reserve for the fixed [Text] header bytes added by [encode] around the
              * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
-             * + authorDeviceId(2+64) + prevId(1+16) + lamportClock(8) + createdAt(8) + text length
+             * + authorDeviceId(2+64) + prevIds(4+16*n) + lamportClock(8) + createdAt(8) + text length
              * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
              * for the margin; the fixed portion is ~135 bytes.
              */
@@ -227,7 +232,7 @@ sealed interface MessagePayload {
                     roomId = header.roomId,
                     senderAccountId = header.senderAccountId,
                     authorDeviceId = header.authorDeviceId,
-                    prevId = header.prevId,
+                    prevIds = header.prevIds,
                     lamportClock = header.lamportClock,
                     createdAt = header.createdAt,
                     text = text,
@@ -248,7 +253,7 @@ sealed interface MessagePayload {
             if (roomId != other.roomId) return false
             if (senderAccountId != other.senderAccountId) return false
             if (authorDeviceId != other.authorDeviceId) return false
-            if (prevId != other.prevId) return false
+            if (prevIds != other.prevIds) return false
             if (text != other.text) return false
             if (!authorSignature.contentEquals(other.authorSignature)) return false
             if (payloadType != other.payloadType) return false
@@ -263,7 +268,7 @@ sealed interface MessagePayload {
             result = 31 * result + roomId.hashCode()
             result = 31 * result + senderAccountId.hashCode()
             result = 31 * result + authorDeviceId.hashCode()
-            result = 31 * result + (prevId?.hashCode() ?: 0)
+            result = 31 * result + prevIds.hashCode()
             result = 31 * result + text.hashCode()
             result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
             result = 31 * result + payloadType.hashCode()
@@ -276,7 +281,7 @@ sealed interface MessagePayload {
         override val messageId: Uuid,
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
-        override val prevId: Uuid?,
+        override val prevIds: List<Uuid>,
         override val lamportClock: Long,
         override val createdAt: Instant,
         val eventBytes: ByteArray,
@@ -323,7 +328,7 @@ sealed interface MessagePayload {
                     messageId = header.messageId,
                     senderAccountId = header.senderAccountId,
                     authorDeviceId = header.authorDeviceId,
-                    prevId = header.prevId,
+                    prevIds = header.prevIds,
                     lamportClock = header.lamportClock,
                     createdAt = header.createdAt,
                     eventBytes = eventBytes,
@@ -351,12 +356,12 @@ private data class MessagePayloadHeader(
     val roomId: RoomId,
     val senderAccountId: AccountId,
     val authorDeviceId: PeerId,
-    val prevId: Uuid?,
+    val prevIds: List<Uuid>,
     val lamportClock: Long,
     val createdAt: Instant,
 )
 
-private const val PAYLOAD_HEADER_VERSION: Byte = 1
+private const val PAYLOAD_HEADER_VERSION: Byte = 2
 
 private fun readPayloadHeaderVersion(reader: ByteReader) {
     val version = reader.readByte()
@@ -372,7 +377,8 @@ private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writeUuid(roomId.value)
     writer.writeString(senderAccountId.id)
     writer.writePeerId(authorDeviceId)
-    writer.writeNullableUuid(prevId)
+    writer.writeInt(prevIds.size)
+    prevIds.forEach { writer.writeUuid(it) }
     writer.writeLong(lamportClock)
     writer.writeLong(createdAt.epochSeconds)
 }
@@ -387,7 +393,7 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
         roomId = RoomId(reader.readUuid()),
         senderAccountId = AccountId(reader.readString()),
         authorDeviceId = reader.readPeerId(),
-        prevId = reader.readNullableUuid(),
+        prevIds = List(reader.readInt()) { reader.readUuid() },
         lamportClock = reader.readLong(),
         createdAt = Instant.fromEpochSeconds(reader.readLong()),
     )

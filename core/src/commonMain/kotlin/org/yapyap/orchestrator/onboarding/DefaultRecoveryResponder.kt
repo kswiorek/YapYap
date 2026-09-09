@@ -61,7 +61,8 @@ internal class DefaultRecoveryResponder(
                 device = ownDevice,
                 deviceType = localDeviceType,
                 torEndpoint = torEndpoint,
-                dagHeadLamport = messageRepository.maxLamportInRoom(RoomId.GLOBAL) ?: 0L,
+                dagHeadTipIds = messageRepository.findRoomFrontier(RoomId.GLOBAL)
+                    .map { it.payload.messageId },
             ),
             target = request.device.deviceId,
             targetEndpoint = request.torEndpoint,

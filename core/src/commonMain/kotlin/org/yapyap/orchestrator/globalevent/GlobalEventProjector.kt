@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -16,7 +17,6 @@ import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.db.DeviceType
-import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
@@ -99,7 +99,7 @@ internal class DefaultGlobalEventProjector(
     private val dagEngine: DagEngine,
     private val pipeline: InboundMessagePipeline,
     private val messageRepository: MessageRepository,
-    private val identityKeyRepository: IdentityKeyRepository,
+    private val identityResolver: IdentityResolver,
     private val roomRepository: RoomRepository,
     private val router: Router,
     private val cryptoProvider: CryptoProvider,
@@ -139,7 +139,7 @@ internal class DefaultGlobalEventProjector(
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
     ) {
-        require(messageRepository.findRoomTail(RoomId.GLOBAL) == null) {
+        require(messageRepository.maxLamportInRoom(RoomId.GLOBAL) == null) {
             "genesis requires an empty global room"
         }
         val accountKey = requireNotNull(account.key) { "genesis requires the account public key" }
@@ -175,10 +175,10 @@ internal class DefaultGlobalEventProjector(
             "sponsored new-account publish requires invite.accountKeySignature"
         }
         // Fail fast: GrantAdmin is valid only if the sponsor is admin at this fold position.
-        check(!grantAdmin || identityKeyRepository.isLocalAccountAdmin()) {
+        check(!grantAdmin || identityResolver.isLocalAccountAdmin()) {
             "local account is not an admin"
         }
-        val events = mutableListOf<GlobalEventPayload>(
+        val events = mutableListOf(
             GlobalEventPayload.AddAccount(
                 accountId = account.accountId,
                 accountSigningPublicKey = accountKey.publicKey,
@@ -202,8 +202,7 @@ internal class DefaultGlobalEventProjector(
 
     override suspend fun publishOwnAccountDevice(invite: Invite) {
         require(invite.account == null) { "own-account device publish takes an account-less invite" }
-        val localAccount = identityKeyRepository.getLocalAccountRecord()
-            ?: error("sponsor has no local account")
+        val localAccount = identityResolver.getLocalAccountIdentityRecord()
         publish(
             listOf(
                 GlobalEventPayload.AddDevice(
@@ -291,23 +290,37 @@ internal class DefaultGlobalEventProjector(
     }
 
     /**
-     * Canonical fold + commit. Serializes all triggers (publish path, ingest collector, boot).
+     * Canonical fold + commit (docs/global events.md §2–§7, sprint-4 revisions). Serializes all
+     * triggers (publish path, ingest collector, boot). The fold is a pure function of the stored
+     * set: verdicts are outputs, never inputs.
      */
     private suspend fun foldAndCommit(trigger: String): Unit =
         TODO(
-            "global events fold ($trigger): read findAllInRoom(GLOBAL), filter " +
-                    "!isOrphaned && verificationState != REJECTED, sort " +
-                    "(lamportClock, createdAt, messageId); replay into shadow state with per-event " +
-                    "author resolution (AddDevice self-introduction special case), authorSignature " +
+            "global events fold ($trigger): read findAllInRoom(GLOBAL) — ALL messages, no " +
+                    "isOrphaned / verificationState filtering (§2) — sort (lamportClock, " +
+                    "createdAt, messageId); replay into shadow state with per-event author " +
+                    "resolution (AddDevice self-introduction special case), authorSignature " +
                     "verification against shadow keys via cryptoProvider.verifyDetached, §3 " +
-                    "authorization branches, and keySignature re-verification via " +
-                    "AddDevice.bindingBytes(); flip PENDING → VERIFIED/REJECTED via " +
-                    "updateVerificationState; commit as a merge preserving local-only fields " +
-                    "(is_local_*, reliability, last-seen, push token, prekeys) plus the provisional " +
-                    "clear + placeholder fix-up; maintain room_members(GLOBAL); diff against the " +
-                    "previous commit and emit IdentityStateChange. " +
-                    "Prerequisites: devices.status migration, commit-shaped IdentityKeyRepository " +
-                    "methods (account upsert w/ admin+status, device upsert w/ binding+status+provisional, " +
+                    "authorization branches, keySignature re-verification via " +
+                    "AddDevice.bindingBytes(), and the fold's own lamport structural check " +
+                    "(parent present → lamport == parent + 1). Unresolvable author → skip + keep " +
+                    "PENDING, never REJECTED (UNKNOWN_AUTHOR analogue). While any gap is open in " +
+                    "GLOBAL, negative verdicts persist as PENDING (provisional); only a gap-free " +
+                    "fold issues REJECTED. Then the absolute ban post-pass (§3): branch-1 " +
+                    "AddDevices whose author is tombstoned anywhere → invalid, transitively " +
+                    "(fixpoint closure over the branch-1 authorization subtree); keySignature " +
+                    "AddDevices for a tombstoned account → invalid; AddAccount for an existing " +
+                    "accountId → invalid; invalidated AddDevices project as implied RemoveDevice " +
+                    "at the ban's position (tombstone, never retract). Write verification states " +
+                    "as outputs via updateVerificationState (flips allowed as the stored set " +
+                    "grows). Commit as a merge preserving local-only fields (is_local_*, " +
+                    "reliability, last-seen, push token, prekeys) plus the provisional clear + " +
+                    "placeholder fix-up; absence-because-unverifiable rows left untouched, " +
+                    "absence-because-invalidated rows retracted with reversal IdentityStateChange " +
+                    "emissions (§7); maintain room_members(GLOBAL); diff against the previous " +
+                    "commit and emit IdentityStateChange. Prerequisites: devices.status migration " +
+                    "(shared ACTIVE/BANNED enum), commit-shaped IdentityKeyRepository methods " +
+                    "(account upsert w/ admin+status, device upsert w/ binding+status+provisional, " +
                     "account tombstones), RoomRepository.removeMember, and the global-room PENDING " +
                     "ingest policy (§4 verificationPolicy).",
         )

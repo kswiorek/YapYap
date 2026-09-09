@@ -26,7 +26,7 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.*
 import org.yapyap.routing.outbound.*
-import org.yapyap.routing.ping.LamportSnapshotProvider
+import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
@@ -41,6 +41,7 @@ import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.uuid.Uuid
 
 class DefaultRouter(
     val torTransport: TorTransport,
@@ -55,7 +56,7 @@ class DefaultRouter(
     val transportLimits: StateFlow<TransportLimits>,
     val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
-    val lamportSnapshotProvider: LamportSnapshotProvider,
+    val frontierSnapshotProvider: FrontierSnapshotProvider,
     val peerAvailabilityStore: PeerAvailabilityStore,
     val bootstrapSessionStore: BootstrapSessionStore,
     val identityKeyRepository: IdentityKeyRepository,
@@ -91,7 +92,8 @@ class DefaultRouter(
     // Fed by BootstrapInboundHandler when an authenticated bootstrap-family packet is received.
     private val bootstrapPacketFlow = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
 
-    private val pingPayloadFlow = MutableSharedFlow<List<Pair<RoomId, Long>>>(extraBufferCapacity = 64, replay = 4)
+    private val pingPayloadFlow =
+        MutableSharedFlow<List<Pair<RoomId, List<Uuid>>>>(extraBufferCapacity = 64, replay = 4)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
@@ -134,7 +136,7 @@ class DefaultRouter(
         ctx = routingContext,
         config = routerConfig,
         pingPayloadFlow = pingPayloadFlow,
-        lamportSnapshotProvider = lamportSnapshotProvider,
+        frontierSnapshotProvider = frontierSnapshotProvider,
         systemSender = systemSender,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
     )
@@ -198,7 +200,7 @@ class DefaultRouter(
 
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
 
-    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = pingPayloadFlow.asSharedFlow()
+    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = pingPayloadFlow.asSharedFlow()
 
     override suspend fun start() {
         check(!started) { "Router is already started" }

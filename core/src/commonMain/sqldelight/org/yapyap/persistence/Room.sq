@@ -9,7 +9,6 @@ CREATE TABLE rooms (
     space_id TEXT,
     type TEXT AS RoomType NOT NULL,
     name TEXT NOT NULL,
-    local_seq_n INTEGER NOT NULL DEFAULT -1,
     FOREIGN KEY (space_id) REFERENCES spaces(space_id)
 );
 
@@ -27,25 +26,20 @@ selectAllMembersForRoom:
 SELECT account_id, role FROM room_members WHERE room_id = ?;
 
 insertRoom:
-INSERT OR REPLACE INTO rooms (room_id, space_id, type, name, local_seq_n)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO rooms (room_id, space_id, type, name)
+VALUES (?, ?, ?, ?);
 
 ensureRoomExists:
-INSERT OR IGNORE INTO rooms (room_id, space_id, type, name, local_seq_n)
-VALUES (:roomId, NULL, :type, :name, -1);
+INSERT OR IGNORE INTO rooms (room_id, space_id, type, name)
+VALUES (:roomId, NULL, :type, :name);
 
 insertRoomMember:
 INSERT OR REPLACE INTO room_members (room_id, account_id, role, joined_timestamp)
 VALUES (?, ?, ?, ?);
 
-updateRoomLocalSeq:
-UPDATE rooms SET local_seq_n = :seqN WHERE room_id = :roomId AND local_seq_n < :seqN;
-
-selectRoomLocalSeq:
-SELECT local_seq_n FROM rooms WHERE room_id = ?;
-
-selectLocalSeqNForRoomsOfPeer:
-SELECT r.room_id, r.local_seq_n
+-- Rooms a peer belongs to (drives which rooms we exchange frontiers about in pings).
+selectRoomsOfPeer:
+SELECT r.room_id
 FROM rooms r
 JOIN room_members rm ON rm.room_id = r.room_id
 JOIN devices d ON d.account_id = rm.account_id

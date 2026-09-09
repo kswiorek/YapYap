@@ -13,12 +13,11 @@ import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
-
 internal class PingProvider(
     private val ctx: RoutingContext,
     private val config: StateFlow<RouterConfig>,
-    private val pingPayloadFlow: MutableSharedFlow<List<Pair<RoomId, Long>>>,
-    private val lamportSnapshotProvider: LamportSnapshotProvider,
+    private val pingPayloadFlow: MutableSharedFlow<List<Pair<RoomId, List<Uuid>>>>,
+    private val frontierSnapshotProvider: FrontierSnapshotProvider,
     private val systemSender: SystemSender,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
 ) {
@@ -79,13 +78,13 @@ internal class PingProvider(
     }
 
     /**
-     * Handles an inbound ping from [peerId]. Its lamport snapshot is always forwarded (both a probe
-     * and a reply carry the sender's latest clocks, which is what triggers range sync). Only a fresh
+     * Handles an inbound ping from [peerId]. Its frontier snapshot is always forwarded (both a probe
+     * and a reply carry the sender's latest frontiers, which is what triggers frontier sync). Only a fresh
      * probe ([Ping.isReply] == false) is answered — a reply is never re-echoed, so even a delayed or
      * duplicated ping cannot start an echo loop.
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
-        pingPayloadFlow.emit(ping.roomLamports)
+        pingPayloadFlow.emit(ping.roomFrontiers)
         peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
 
         if (!ping.isReply) {
@@ -100,7 +99,7 @@ internal class PingProvider(
             pingId = echoPingId ?: Uuid.random(),
             isReply = echoPingId != null,
             selfReportedAvailability = peerAvailabilityRegistry.currentSelfScore(),
-            roomLamports = lamportSnapshotProvider.latestRoomLamports(peerId),
+            roomFrontiers = frontierSnapshotProvider.latestRoomFrontiers(peerId),
         )
         systemSender.sendPing(peerId, ping)
         // Only an originating probe (not an echo) is a real liveness attempt we want tracked.

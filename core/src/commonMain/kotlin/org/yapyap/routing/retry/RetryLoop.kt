@@ -53,7 +53,14 @@ internal class RetryLoop(
 
     private suspend fun computeSleep(): Duration {
         val max = maxIdlePoll.value
-        val next = earliestPendingRetryAt() ?: return max
+        val next = try {
+            earliestPendingRetryAt()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            onProcessFailed(error)
+            return max
+        } ?: return max
         val wait = (next - clock.now()).coerceAtLeast(Duration.ZERO)
         return wait.coerceIn(Duration.ZERO..max)
     }

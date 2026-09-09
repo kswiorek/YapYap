@@ -34,7 +34,7 @@ sealed interface MessageDisplayItem {
         override val accountId: AccountId,
         override val timestamp: Instant,
         override val displayOrderId: Long,
-        val missingPrevId: Uuid,
+        val missingPrevIds: List<Uuid>,
     ): MessageDisplayItem
 }
 
