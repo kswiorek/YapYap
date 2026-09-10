@@ -36,13 +36,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.uuid.Uuid
 
 private class FakeOnboardingRouter(
     override val bootstrapPackets: Flow<BootstrapPacketEvent>,
 ) : Router {
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
-    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = emptyFlow()
+    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = emptyFlow()
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
@@ -70,7 +71,7 @@ private class FakeOnboardingRouter(
 private class NoopSyncCoordinator : SyncCoordinator {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
-    override suspend fun requestRangeSync(roomId: RoomId, pingLamport: Long) = Unit
+    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>) = Unit
 }
 
 private class NoopGlobalEventProjector : GlobalEventProjector {

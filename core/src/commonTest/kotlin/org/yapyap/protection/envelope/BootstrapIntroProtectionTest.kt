@@ -75,7 +75,7 @@ class BootstrapIntroProtectionTest {
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsorrelay.onion", 443),
-            dagHeadLamport = 12L,
+            dagHeadTipIds = emptyList(),
         )
     }
 

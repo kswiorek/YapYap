@@ -44,7 +44,7 @@ class BootstrapSenderTest {
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("newcomer.onion", 80),
-            dagHeadLamport = 0L,
+            dagHeadTipIds = emptyList(),
         )
 
     @Test

@@ -51,11 +51,10 @@ class DefaultDagEngineTest {
     }
 
     @Test
-    fun append_emptyRoom_assignsLamportZeroAndNullPrevId() = runTest {
+    fun append_emptyRoom_assignsEmptyPrevIds() = runTest {
         val payload = dagEngine.append(roomId, MessageDraft.Text("first"))
 
-        assertEquals(0L, payload.lamportClock)
-        assertNull(payload.prevId)
+        assertEquals(emptyList(), payload.prevIds)
         assertEquals(roomId, payload.roomId)
         assertEquals(testAccount, payload.senderAccountId)
         assertEquals("first", (payload as MessagePayload.Text).text)
@@ -64,26 +63,22 @@ class DefaultDagEngineTest {
     }
 
     @Test
-    fun append_chainsOffRoomTail_incrementsLamport() = runTest {
+    fun append_chainsOffRoomFrontier() = runTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
         clock.advanceBy(1L.seconds)
         val second = dagEngine.append(roomId, MessageDraft.Text("second"))
 
-        assertEquals(1L, second.lamportClock)
-        assertEquals(first.messageId, second.prevId)
+        assertEquals(listOf(first.messageId), second.prevIds)
     }
 
     @Test
-    fun append_concurrentMessagesFromSameSender_haveMonotonicLamportAndChain() = runTest {
+    fun append_concurrentMessagesFromSameSender_chainLinearly() = runTest {
         val a = dagEngine.append(roomId, MessageDraft.Text("a"))
         val b = dagEngine.append(roomId, MessageDraft.Text("b"))
         val c = dagEngine.append(roomId, MessageDraft.Text("c"))
 
-        assertEquals(0L, a.lamportClock)
-        assertEquals(1L, b.lamportClock)
-        assertEquals(2L, c.lamportClock)
-        assertEquals(a.messageId, b.prevId)
-        assertEquals(b.messageId, c.prevId)
+        assertEquals(listOf(a.messageId), b.prevIds)
+        assertEquals(listOf(b.messageId), c.prevIds)
     }
 
     @Test
@@ -96,8 +91,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = first.messageId,
-            lamportClock = 1L,
+            prevIds = listOf(first.messageId),
             createdAt = clock.now(),
             text = "from remote",
         )
@@ -132,8 +126,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = prevUuid,
-            lamportClock = 5L,
+            prevIds = listOf(prevUuid),
             createdAt = clock.now(),
             text = "i am orphaned",
         )
@@ -141,7 +134,7 @@ class DefaultDagEngineTest {
         val result = dagEngine.ingest(remotePayload)
 
         assertTrue(result is IngestResult.BecameOrphan)
-        assertEquals(prevUuid, result.missingPrevId)
+        assertEquals(listOf(prevUuid), result.missingPrevIds)
         assertEquals(emptyList(), result.closedGapMissingPrevIds)
         assertTrue(messageRepo.findById(remotePayload.messageId)!!.isOrphaned)
 
@@ -162,8 +155,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = prevUuid,
-            lamportClock = 5L,
+            prevIds = listOf(prevUuid),
             createdAt = clock.now(),
             text = "waiting for prev",
         )
@@ -178,8 +170,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = null,
-            lamportClock = 4L,
+            prevIds = emptyList(),
             createdAt = clock.now(),
             text = "i am the prev",
         )
@@ -207,8 +198,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = prevUuid,
-            lamportClock = 5L,
+            prevIds = listOf(prevUuid),
             createdAt = epochSeconds(10L),
             text = "a",
         )
@@ -218,8 +208,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = prevUuid,
-            lamportClock = 6L,
+            prevIds = listOf(prevUuid),
             createdAt = epochSeconds(11L),
             text = "b",
         )
@@ -233,8 +222,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = null,
-            lamportClock = 4L,
+            prevIds = emptyList(),
             createdAt = epochSeconds(9L),
             text = "the prev",
         )
@@ -252,7 +240,9 @@ class DefaultDagEngineTest {
     @Test
     fun getMessagesInRoom_paginated_withCursor() = runTest {
         val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
+        clock.advanceBy(1L.seconds)
         val m2 = dagEngine.append(roomId, MessageDraft.Text("b"))
+        clock.advanceBy(1L.seconds)
         val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
 
         // First page of 2 (newest first).
@@ -264,7 +254,6 @@ class DefaultDagEngineTest {
         // Cursor = oldest row in page1.
         val cursor = MessageCursor(
             createdAt = page1[1].createdAt,
-            lamportClock = page1[1].lamportClock,
             messageId = page1[1].messageId,
         )
         val page2 = dagEngine.getMessagesInRoom(roomId, limit = 2, before = cursor)
@@ -321,8 +310,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = prev1Uuid,
-            lamportClock = 1L,
+            prevIds = listOf(prev1Uuid),
             createdAt = epochSeconds(0L),
             text = "x",
         )
@@ -336,8 +324,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = prev2Uuid,
-            lamportClock = 1L,
+            prevIds = listOf(prev2Uuid),
             createdAt = epochSeconds(0L),
             text = "y",
         )
@@ -364,7 +351,6 @@ class DefaultDagEngineTest {
         assertEquals(RoomId.GLOBAL, payload.roomId)
         assertContentEquals(event.encode(), payload.eventBytes)
         assertEquals(event, payload.decodeEvent())
-        assertEquals(0L, payload.lamportClock)
     }
 
     @Test
@@ -376,8 +362,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevId = null,
-            lamportClock = 1L,
+            prevIds = emptyList(),
             createdAt = clock.now(),
             text = "should be rejected",
         )
@@ -412,22 +397,21 @@ class DefaultDagEngineTest {
         assertContentEquals(byteArrayOf(0x01, 0x02, 0x03), payload.authorSignature)
     }
 
-    private fun textPayload(lamport: Long, text: String = "pending") = MessagePayload.Text(
+    private fun textPayload(text: String = "pending") = MessagePayload.Text(
         messageId = Uuid.random(),
         roomId = roomId,
         senderAccountId = remoteAccount,
         authorDeviceId = remoteDeviceId,
         authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-        prevId = null,
-        lamportClock = lamport,
+        prevIds = emptyList(),
         createdAt = clock.now(),
         text = text,
     )
 
     @Test
     fun reverifyPendingFor_knownAuthor_transitionsPendingToVerified() = runTest {
-        val payload = textPayload(1L)
-        messageRepo.insert(payload, isOrphaned = false, verificationState = VerificationState.PENDING)
+        val payload = textPayload()
+        messageRepo.insert(payload, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.PENDING)
 
         val results = dagEngine.reverifyPendingFor(remoteDeviceId)
 
@@ -448,8 +432,8 @@ class DefaultDagEngineTest {
             signatureProvider = FakeUnknownAuthorSignatureProvider(),
             clock = clock,
         )
-        val payload = textPayload(1L)
-        messageRepo.insert(payload, isOrphaned = false, verificationState = VerificationState.PENDING)
+        val payload = textPayload()
+        messageRepo.insert(payload, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.PENDING)
 
         val results = unknownEngine.reverifyPendingFor(remoteDeviceId)
 

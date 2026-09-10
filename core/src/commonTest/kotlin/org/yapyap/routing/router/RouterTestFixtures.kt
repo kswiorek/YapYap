@@ -37,7 +37,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.ping.LamportSnapshotProvider
+import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
@@ -217,16 +217,14 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: RoomId,
-        anchorLamport: Long,
-        orphanLamport: Long,
+        targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
         nextAttemptAt: Instant,
     ) {
         rows[syncId] = PendingSyncRow(
             syncId = syncId,
             roomId = roomId,
-            anchorLamport = anchorLamport,
-            orphanLamport = orphanLamport,
+            targetMessageId = targetMessageId,
             candidateAccounts = candidateAccounts,
             attemptedDevices = emptySet(),
             attempts = 0,
@@ -234,14 +232,18 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
         nextAttempts[syncId] = nextAttemptAt
     }
 
-    override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
-        rows[syncId]?.let { rows[syncId] = it.copy(orphanLamport = orphanLamport) }
-    }
-
     override suspend fun deleteSync(syncId: Uuid) {
         rows.remove(syncId)
         nextAttempts.remove(syncId)
     }
+
+    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid) {
+        rows.entries.removeAll { (_, row) ->
+            row.roomId == roomId && row.targetMessageId == targetMessageId
+        }
+    }
+
+    override suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest? = null
 
     override suspend fun earliestDueAt(): Instant? =
         nextAttempts.values.minOrNull()
@@ -267,8 +269,8 @@ internal class InMemoryPendingSyncRepository : PendingSyncRepository {
         rows[syncId]?.let { rows[syncId] = it.copy(attemptedDevices = it.attemptedDevices + deviceId) }
     }
 
-    override suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow? =
-        rows.values.firstOrNull { it.roomId == roomId && it.anchorLamport == anchorLamport }
+    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow? =
+        rows.values.firstOrNull { it.roomId == roomId && it.targetMessageId == targetMessageId }
 }
 
 
@@ -641,8 +643,8 @@ internal fun buildE2eeRouterStack(
     )
 }
 
-internal class FakeLamportSnapshotProvider : LamportSnapshotProvider {
-    override suspend fun latestRoomLamports(peerId: PeerId): List<Pair<RoomId, Long>> = emptyList()
+internal class FakeFrontierSnapshotProvider : FrontierSnapshotProvider {
+    override suspend fun latestRoomFrontiers(peerId: PeerId): List<Pair<RoomId, List<Uuid>>> = emptyList()
 }
 
 internal fun e2eeRouterUnderTest(
@@ -669,7 +671,7 @@ internal fun e2eeRouterUnderTest(
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
-        lamportSnapshotProvider = FakeLamportSnapshotProvider(),
+        frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
         bootstrapSessionStore = sessionStore,
         identityKeyRepository = identityKeyRepository,
@@ -728,7 +730,7 @@ internal fun defaultRouterUnderTest(
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncRepository = InMemoryPendingSyncRepository(),
         syncPayloadProvider = syncPayloadProvider,
-        lamportSnapshotProvider = FakeLamportSnapshotProvider(),
+        frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
         bootstrapSessionStore = sessionStore,
         identityKeyRepository = identityKeyRepository,

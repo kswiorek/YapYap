@@ -18,8 +18,8 @@ data class Gap(
 
 /**
  * A stored message changed verification state (e.g. PENDING -> VERIFIED/REJECTED after identity
- * arrives, or VERIFIED/-> REJECTED on a structural check at gap closure). Emitted on
- * [DagEngine.verificationStateChanges] — a message-related signal that is *not* a new message.
+ * arrives). Emitted on [DagEngine.verificationStateChanges] — a message-related signal that is
+ * *not* a new message.
  */
 data class VerificationStateChange(
     val messageId: Uuid,

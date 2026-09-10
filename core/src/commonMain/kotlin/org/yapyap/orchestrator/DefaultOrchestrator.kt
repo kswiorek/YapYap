@@ -534,7 +534,7 @@ class DefaultOrchestrator(
             orchestratorRuntime.start(orchestratorScope)
         }
 
-        // Announce presence + exchange lamport snapshots now that the subsystems consuming
+        // Announce presence + exchange room frontiers now that the subsystems consuming
         // pingPayloads (sync coordinator) are up and subscribed.
         router.announceOnline()
     }

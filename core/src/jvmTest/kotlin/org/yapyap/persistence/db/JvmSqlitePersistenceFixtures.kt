@@ -76,9 +76,8 @@ internal fun seedRoom(
     database: YapYapDatabase,
     roomId: RoomId = RoomId(Uuid.random()),
     name: String = "Test Room",
-    localSeqN: Long = 0L,
 ) {
-    database.roomQueries.insertRoom(roomId, null, RoomType.TEXT_CHANNEL, name, localSeqN)
+    database.roomQueries.insertRoom(roomId, null, RoomType.TEXT_CHANNEL, name)
 }
 
 internal suspend fun seedPeerDevice(

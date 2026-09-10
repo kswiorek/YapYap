@@ -168,8 +168,9 @@ class DefaultMessagingServiceTest {
 
     @Test
     fun openRoom_loadsInitialPage() = runTest(UnconfinedTestDispatcher()) {
-        // Pre-seed two messages in the DAG.
+        // Pre-seed two messages in the DAG (distinct timestamps for a deterministic order).
         dagEngine.append(roomId, MessageDraft.Text("msg-1"))
+        clock.advanceBy(1L.seconds)
         dagEngine.append(roomId, MessageDraft.Text("msg-2"))
 
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
@@ -227,8 +228,7 @@ class DefaultMessagingServiceTest {
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevId = null,
-            lamportClock = 0L,
+            prevIds = emptyList(),
             createdAt = remoteTimestamp,
             text = "hello from remote",
             authorDeviceId = PeerId("test-device"),
@@ -262,8 +262,7 @@ class DefaultMessagingServiceTest {
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevId = prevUuid,
-            lamportClock = 1L,
+            prevIds = listOf(prevUuid),
             createdAt = clock.now(),
             text = "i am orphaned",
             authorDeviceId = PeerId("test-device"),
@@ -276,7 +275,7 @@ class DefaultMessagingServiceTest {
         assertEquals(2, items.size)
         assertTrue(items[0] is MessageDisplayItem.Text)
         assertTrue(items[1] is MessageDisplayItem.Gap)
-        assertEquals(prevUuid, (items[1] as MessageDisplayItem.Gap).missingPrevId)
+        assertEquals(listOf(prevUuid), (items[1] as MessageDisplayItem.Gap).missingPrevIds)
     }
 
     @Test
@@ -296,8 +295,7 @@ class DefaultMessagingServiceTest {
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevId = prevUuid,
-            lamportClock = 1L,
+            prevIds = listOf(prevUuid),
             createdAt = epochSeconds(1_000_500L),
             text = "waiting",
             authorDeviceId = PeerId("test-device"),
@@ -314,8 +312,7 @@ class DefaultMessagingServiceTest {
             messageId = prevUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevId = null,
-            lamportClock = 0L,
+            prevIds = emptyList(),
             createdAt = epochSeconds(1_000_400L),
             text = "i am the prev",
             authorDeviceId = PeerId("test-device"),
@@ -352,8 +349,7 @@ class DefaultMessagingServiceTest {
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevId = null,
-            lamportClock = 0L,
+            prevIds = emptyList(),
             createdAt = clock.now(),
             text = "hi from remote",
             authorDeviceId = PeerId("test-device"),
@@ -373,8 +369,7 @@ class DefaultMessagingServiceTest {
             messageId = msg2Uuid,
             roomId = roomId,
             senderAccountId = localAccount,
-            prevId = null,
-            lamportClock = 1L,
+            prevIds = emptyList(),
             createdAt = clock.now(),
             text = "from me",
             authorDeviceId = PeerId("test-device"),
@@ -404,8 +399,7 @@ class DefaultMessagingServiceTest {
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevId = null,
-            lamportClock = 0L,
+            prevIds = emptyList(),
             createdAt = clock.now(),
             text = longText,
             authorDeviceId = PeerId("test-device"),
@@ -437,8 +431,7 @@ class DefaultMessagingServiceTest {
         val globalEvent = MessagePayload.GlobalEvent(
             messageId = Uuid.random(),
             senderAccountId = remoteAccount,
-            prevId = null,
-            lamportClock = 0L,
+            prevIds = emptyList(),
             createdAt = clock.now(),
             eventBytes = byteArrayOf(0x01),
             authorDeviceId = PeerId("test-device"),
@@ -495,11 +488,7 @@ private class FakeRoomRepository(
 ) : RoomRepository {
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> = members[roomId] ?: emptyList()
 
-    override suspend fun updateLocalSeq(roomId: RoomId, seqN: Long) = Unit
-
-    override suspend fun getLocalSeq(roomId: RoomId): Long? = null
-
-    override suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>> = emptyList()
+    override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = members.keys.toList()
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = Unit
 
@@ -509,29 +498,45 @@ private class FakeRoomRepository(
 private class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()
 
+    private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
+
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
+        ancestryComplete: Boolean,
         verificationState: VerificationState,
     ): Boolean {
         if (byId.containsKey(payload.messageId)) {
             // INSERT OR IGNORE semantics.
             return true
         }
-        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState)
+        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState, ancestryComplete)
         return true
     }
 
     override suspend fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
-    override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
-        byId.values
-            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
-            .maxWithOrNull(
-                compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAt }
-                    .thenBy { it.payload.messageId }
-            )
+    override suspend fun findRoomFrontier(roomId: RoomId): List<MessageRow> {
+        val chainable = byId.values.filter {
+            it.payload.roomId == roomId && it.ancestryComplete && it.verificationState != VerificationState.REJECTED
+        }
+        val referenced = chainable
+            .flatMap { child -> parentIds[child.payload.messageId].orEmpty() }
+            .toSet()
+        return chainable.filter { it.payload.messageId !in referenced }
+    }
+
+    override suspend fun findParents(messageId: Uuid): List<Uuid> =
+        parentIds[messageId].orEmpty().toList()
+
+    override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
+        parentIds.getOrPut(messageId) { mutableListOf() }.add(parentId)
+    }
+
+    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<MessageRow> =
+        byId.values.filter { row ->
+            row.payload.roomId == roomId && parentId in parentIds[row.payload.messageId].orEmpty()
+        }
 
     override suspend fun findMessagesInRoomPageDesc(
         roomId: RoomId,
@@ -539,23 +544,20 @@ private class FakeMessageRepository : MessageRepository {
         cursor: MessageCursor?,
     ): List<MessageRow> {
         val all = byId.values
-            .filter { it.payload.roomId == roomId }
+            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
             .sortedWith(
                 compareByDescending<MessageRow> { it.payload.createdAt }
-                    .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
         val filtered = if (cursor == null) {
             all
         } else {
-            // Strictly older than the cursor row (all three key sub-comparisons).
+            // Strictly older than the cursor row (both key sub-comparisons).
             all.filter { row ->
                 val rowCreated = row.payload.createdAt
-                val rowLamport = row.payload.lamportClock
                 val rowId = row.payload.messageId
                 rowCreated < cursor.createdAt ||
-                        (rowCreated == cursor.createdAt && rowLamport < cursor.lamportClock) ||
-                        (rowCreated == cursor.createdAt && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
+                        (rowCreated == cursor.createdAt && rowId < cursor.messageId)
             }
         }
         return filtered.take(limit)
@@ -566,18 +568,28 @@ private class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId }
             .sortedWith(
                 compareByDescending<MessageRow> { it.payload.createdAt }
-                    .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
 
-    override suspend fun maxLamportInRoom(roomId: RoomId): Long? =
+    override suspend fun hasMessages(roomId: RoomId): Boolean =
+        byId.values.any { it.payload.roomId == roomId }
+
+    override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =
         byId.values
-            .filter { it.payload.roomId == roomId }
-            .maxOfOrNull { it.payload.lamportClock }
+            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
+            .maxWithOrNull(
+                compareBy<MessageRow> { it.payload.createdAt }
+                    .thenBy { it.payload.messageId }
+            )
 
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
+    }
+
+    override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) {
+        val row = byId[messageId] ?: return
+        byId[messageId] = row.copy(ancestryComplete = complete)
     }
 
     override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
@@ -592,33 +604,6 @@ private class FakeMessageRepository : MessageRepository {
 
     override suspend fun findAllPending(): List<MessageRow> =
         byId.values.filter { it.verificationState == VerificationState.PENDING }.toList()
-
-    override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
-        byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }
-
-    override suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long? =
-        byId.values
-            .filter { it.payload.roomId == roomId && it.payload.lamportClock < lamport }
-            .maxOfOrNull { it.payload.lamportClock }
-
-    override suspend fun findMessagesInLamportRange(
-        roomId: RoomId,
-        lowerInclusive: Long,
-        upperInclusive: Long,
-        limit: Int,
-    ): List<MessageRow> =
-        byId.values
-            .filter { it.payload.roomId == roomId }
-            .filter { it.payload.lamportClock in lowerInclusive..upperInclusive }
-            .sortedWith(
-                compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAt }
-                    .thenBy { it.payload.messageId }
-            )
-            .take(limit)
-
-    override suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long =
-        byId.values.count { it.payload.roomId == roomId && it.payload.lamportClock == lamport }.toLong()
 }
 
 private class FakeCausalHoldRepository(
@@ -640,6 +625,9 @@ private class FakeCausalHoldRepository(
         }
 
     override suspend fun findAll(): List<CausalHoldRow> = rows.toList()
+
+    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+        rows.count { it.orphanedMessageId == orphanedMessageId }.toLong()
 
     override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
         rows.removeAll { it.missingPrevId == missingPrevId }
@@ -680,7 +668,7 @@ private class RecordingRouter : Router {
 
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
-    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
+    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = MutableSharedFlow()
 
     val sentTargets = mutableListOf<AccountId>()
 

@@ -11,7 +11,7 @@ flowchart TD
     CreateEvent[1. Create 'REVOKE_DEVICE' System Event]:::admin
 
 %% The Causal Injection (Updated for Global DAG)
-    InjectDAG[2. Attach 'prev_id' & increment GLOBAL Lamport Clock\nInject strictly into GLOBAL CONTROL DAG]:::dag
+    InjectDAG[2. Attach 'prev_ids'\nInject strictly into GLOBAL CONTROL DAG]:::dag
     Broadcast[3. Broadcast Envelope to Mesh]:::network
 
     Admin --> CreateEvent --> InjectDAG --> Broadcast

@@ -66,7 +66,9 @@ class SyncIntegrationTest {
     )
     private val router = RecordingRouter()
     private val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-    private val pendingRepo = FakePendingSyncRepository()
+    private val pendingRepo = FakePendingSyncRepository(
+        frontierOf = { room -> localMessageRepo.findRoomFrontier(room).map { it.payload.messageId } },
+    )
     private val coordinator = DefaultSyncCoordinator(
         pipeline = pipeline,
         roomRepository = localRoomRepo,
@@ -79,8 +81,7 @@ class SyncIntegrationTest {
 
     private fun textMsg(
         messageId: Uuid = Uuid.random(),
-        lamport: Long,
-        prevId: Uuid?,
+        prevIds: List<Uuid>,
     ): MessagePayload.Text =
         MessagePayload.Text(
             messageId = messageId,
@@ -88,11 +89,31 @@ class SyncIntegrationTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDevice,
             authorSignature = byteArrayOf(1),
-            prevId = prevId,
-            lamportClock = lamport,
+            prevIds = prevIds,
             createdAt = epochSeconds(0L),
-            text = "m$lamport",
+            text = "m",
         )
+
+    /**
+     * Seeds [repo] the way the DagEngine would: row insert plus one parent edge per
+     * prevId (the frontier query reads edges, not payload fields).
+     */
+    private suspend fun seed(
+        repo: FakeMessageRepository,
+        msg: MessagePayload.Text,
+        isOrphaned: Boolean,
+        ancestryComplete: Boolean,
+    ) {
+        repo.insert(
+            msg,
+            isOrphaned = isOrphaned,
+            ancestryComplete = ancestryComplete,
+            verificationState = VerificationState.VERIFIED,
+        )
+        for (parentId in msg.prevIds) {
+            repo.insertParent(msg.messageId, parentId)
+        }
+    }
 
     private suspend fun awaitPendingSyncCount(count: Int) {
         while (pendingRepo.all().size < count) {
@@ -119,17 +140,17 @@ class SyncIntegrationTest {
     fun gapSync_missingMessageRequestedAndReceived_gapClosesAndSyncDeleted() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            // Local already has the anchor message at lamport 0.
-            val anchor = textMsg(lamport = 0, prevId = null)
-            localMessageRepo.insert(anchor, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            // Local already has the anchor message.
+            val anchor = textMsg(prevIds = emptyList())
+            seed(localMessageRepo, anchor, isOrphaned = false, ancestryComplete = true)
 
-            // Remote has the full chain 0..2; local only has 0. msg2 is the orphan on local.
+            // Remote has the full chain; local only has the anchor. msg2 is the orphan on local.
             val remoteMessageRepo = FakeMessageRepository()
-            val m1 = textMsg(lamport = 1, prevId = anchor.messageId)
-            val m2 = textMsg(lamport = 2, prevId = m1.messageId)
-            remoteMessageRepo.insert(anchor, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            remoteMessageRepo.insert(m1, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            remoteMessageRepo.insert(m2, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            val m1 = textMsg(prevIds = listOf(anchor.messageId))
+            val m2 = textMsg(prevIds = listOf(m1.messageId))
+            seed(remoteMessageRepo, anchor, isOrphaned = false, ancestryComplete = true)
+            seed(remoteMessageRepo, m1, isOrphaned = false, ancestryComplete = true)
+            seed(remoteMessageRepo, m2, isOrphaned = false, ancestryComplete = true)
 
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
@@ -169,8 +190,7 @@ class SyncIntegrationTest {
             withTimeout(10.seconds) { awaitPendingSyncCount(1) }
             assertEquals(1, pendingRepo.all().size)
             val sync = pendingRepo.all().single()
-            assertEquals(0L, sync.anchorLamport)
-            assertEquals(2L, sync.orphanLamport)
+            assertEquals(m1.messageId, sync.targetMessageId)
 
             // The retry processor sends a SyncRequest to the remote device.
             localStack.tor.awaitSendCount(1)
@@ -180,18 +200,19 @@ class SyncIntegrationTest {
                 SystemEnvelope.decode(sent.payload).decodePayload() as SystemPayload.SyncRequest
             assertEquals(roomId, syncRequest.roomId)
             assertEquals(sync.syncId, syncRequest.syncId)
-            assertEquals(0L, syncRequest.anchorLamport)
-            assertEquals(2L, syncRequest.orphanLamport)
+            assertEquals(listOf(m1.messageId), syncRequest.missingIds)
+            assertEquals(listOf(anchor.messageId), syncRequest.knownIds)
 
-            // Remote handles the request and sends the missing messages back.
+            // Remote handles the request and sends the missing message back.
+            // Only m1 is returned: the responder serves the target plus its ancestry,
+            // and the orphan m2 is already present locally (it triggered the sync).
             remoteHandler.onSyncRequested(syncRequest, sourceDevice = localDevice)
-            withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(2) }
+            withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(1) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
                 MessageEnvelope.decode(bin.payload).decodePayload()
             }
             assertTrue(returned.any { it.messageId == m1.messageId }, "missing message m1 not returned")
-            assertTrue(returned.any { it.messageId == m2.messageId }, "orphan m2 not returned")
 
             // Relay each returned message back into the local node.
             returned.forEach { router.emitIncoming(it) }
@@ -208,29 +229,29 @@ class SyncIntegrationTest {
     }
 
     /**
-     * Range sync: local seq is behind a ping -> a pending sync is created -> the retry processor
-     * sends a SyncRequest -> the remote returns all missing messages -> they are ingested back and
-     * the sync is deleted.
+     * Frontier sync: a ping advertises a tip unknown locally -> one pending sync per tip ->
+     * the retry processor sends a SyncRequest -> the remote returns the tip plus its ancestry
+     * down to our known frontier -> they are ingested back and the sync is deleted.
      */
     @Test
     fun rangeSync_missingMessagesRequestedAndReceived_syncDeleted() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            // Local has messages 0 and 1; remote has 0..4. Ping advertises lamport 4.
-            val m0 = textMsg(lamport = 0, prevId = null)
-            val m1 = textMsg(lamport = 1, prevId = m0.messageId)
-            localMessageRepo.insert(m0, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            localMessageRepo.insert(m1, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            // Local has messages 0 and 1; remote has 0..4. Ping advertises the tip m4.
+            val m0 = textMsg(prevIds = emptyList())
+            val m1 = textMsg(prevIds = listOf(m0.messageId))
+            seed(localMessageRepo, m0, isOrphaned = false, ancestryComplete = true)
+            seed(localMessageRepo, m1, isOrphaned = false, ancestryComplete = true)
 
             val remoteMessageRepo = FakeMessageRepository()
-            val m2 = textMsg(lamport = 2, prevId = m1.messageId)
-            val m3 = textMsg(lamport = 3, prevId = m2.messageId)
-            val m4 = textMsg(lamport = 4, prevId = m3.messageId)
-            remoteMessageRepo.insert(m0, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            remoteMessageRepo.insert(m1, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            remoteMessageRepo.insert(m2, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            remoteMessageRepo.insert(m3, isOrphaned = false, verificationState = VerificationState.VERIFIED)
-            remoteMessageRepo.insert(m4, isOrphaned = false, verificationState = VerificationState.VERIFIED)
+            val m2 = textMsg(prevIds = listOf(m1.messageId))
+            val m3 = textMsg(prevIds = listOf(m2.messageId))
+            val m4 = textMsg(prevIds = listOf(m3.messageId))
+            seed(remoteMessageRepo, m0, isOrphaned = false, ancestryComplete = true)
+            seed(remoteMessageRepo, m1, isOrphaned = false, ancestryComplete = true)
+            seed(remoteMessageRepo, m2, isOrphaned = false, ancestryComplete = true)
+            seed(remoteMessageRepo, m3, isOrphaned = false, ancestryComplete = true)
+            seed(remoteMessageRepo, m4, isOrphaned = false, ancestryComplete = true)
 
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
@@ -265,21 +286,19 @@ class SyncIntegrationTest {
             coordinator.start(scope)
             retryProcessor.runIn(scope)
 
-            // Ping triggers a range sync request.
-            localRoomRepo.updateLocalSeq(roomId, 1L)
-            coordinator.requestRangeSync(roomId, pingLamport = 4L)
+            // Ping triggers a frontier sync request for the unknown tip m4.
+            coordinator.requestFrontierSync(roomId, listOf(m4.messageId))
             withTimeout(10.seconds) { awaitPendingSyncCount(1) }
             assertEquals(1, pendingRepo.all().size)
             val sync = pendingRepo.all().single()
-            assertEquals(1L, sync.anchorLamport)
-            assertEquals(4L, sync.orphanLamport)
+            assertEquals(m4.messageId, sync.targetMessageId)
 
             localStack.tor.awaitSendCount(1)
             val syncRequest =
                 SystemEnvelope.decode(localStack.tor.sends.single().second.payload)
                     .decodePayload() as SystemPayload.SyncRequest
-            assertEquals(1L, syncRequest.anchorLamport)
-            assertEquals(4L, syncRequest.orphanLamport)
+            assertEquals(listOf(m4.messageId), syncRequest.missingIds)
+            assertEquals(listOf(m1.messageId), syncRequest.knownIds)
 
             remoteHandler.onSyncRequested(syncRequest, sourceDevice = localDevice)
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(3) }
@@ -313,7 +332,7 @@ private class RecordingRouter : Router {
 
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
-    override val pingPayloads: Flow<List<Pair<RoomId, Long>>> = MutableSharedFlow()
+    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = MutableSharedFlow()
 
     val sent = mutableListOf<MessagePayload>()
 

@@ -13,7 +13,6 @@ CREATE TABLE messages (
     sender_account_id TEXT AS AccountId NOT NULL,
     author_device_id TEXT AS PeerId NOT NULL,
     verification_state TEXT AS VerificationState NOT NULL,
-    lamport_clock INTEGER NOT NULL,
     created_at_epoch_seconds INTEGER AS Instant NOT NULL,
     payload_type TEXT AS MessagePayloadType NOT NULL,
     message_payload BLOB NOT NULL,
@@ -41,28 +40,26 @@ CREATE TABLE causal_hold (
     FOREIGN KEY (orphaned_message_id) REFERENCES messages(message_id)
 );
 
-CREATE INDEX messages_room_lamport_idx ON messages(room_id, lamport_clock);
 CREATE INDEX messages_sender_idx ON messages(sender_account_id);
 CREATE INDEX messages_author_device_idx ON messages(author_device_id);
 CREATE INDEX message_parents_parent_idx ON message_parents(parent_id);
 CREATE INDEX messages_room_display_order_idx ON messages(
     room_id,
     created_at_epoch_seconds DESC,
-    lamport_clock DESC,
     message_id DESC
 );
 CREATE INDEX causal_hold_orphan_idx ON causal_hold(orphaned_message_id);
 
--- Paginated room view, ordered newest -> oldest by (createdAtEpochSeconds, lamportClock, messageId).
+-- Paginated room view, ordered newest -> oldest by (createdAtEpochSeconds, messageId).
 -- Pass null cursor values to read the latest page; pass the oldest row of the previous page to load older.
 selectMessagesInRoomPageDesc :
 SELECT * FROM messages
 WHERE room_id = :roomId
   AND verification_state != 'REJECTED'
-  AND ((:cursorCreated IS NULL AND :cursorLamport IS NULL AND :cursorMessageId IS NULL) OR
-       (created_at_epoch_seconds, lamport_clock, message_id) <
-       (:cursorCreated, :cursorLamport, :cursorMessageId))
-ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC
+  AND ((:cursorCreated IS NULL AND :cursorMessageId IS NULL) OR
+       (created_at_epoch_seconds, message_id) <
+       (:cursorCreated, :cursorMessageId))
+ORDER BY created_at_epoch_seconds DESC, message_id DESC
 LIMIT :limit;
 
 -- ---- message CRUD ----
@@ -74,13 +71,12 @@ INSERT OR IGNORE INTO messages (
     sender_account_id,
     author_device_id,
     verification_state,
-    lamport_clock,
     created_at_epoch_seconds,
     payload_type,
     message_payload,
     is_orphaned,
     ancestry_complete
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessageById:
 SELECT * FROM messages WHERE message_id = ?;
@@ -113,21 +109,22 @@ WHERE author_device_id = ? AND verification_state = 'PENDING';
 selectAllPending:
 SELECT * FROM messages WHERE verification_state = 'PENDING';
 
-selectMaxLamportInRoom:
-SELECT MAX(lamport_clock) FROM messages WHERE room_id = ?;
+-- True (1) if the room holds any message at all (used for genesis/empty-room checks).
+selectHasMessagesInRoom:
+SELECT EXISTS(SELECT 1 FROM messages WHERE room_id = ?);
 
--- Highest-lamport non-rejected message; append-guard fallback only (all tips parked).
+-- Newest non-rejected message; append-guard fallback only (all tips parked).
 selectLatestInRoom:
 SELECT * FROM messages
 WHERE room_id = ?
   AND verification_state != 'REJECTED'
-ORDER BY lamport_clock DESC, created_at_epoch_seconds DESC, message_id DESC
+ORDER BY created_at_epoch_seconds DESC, message_id DESC
 LIMIT 1;
 
 selectAllMessagesInRoom:
 SELECT * FROM messages
 WHERE room_id = ?
-ORDER BY created_at_epoch_seconds DESC, lamport_clock DESC, message_id DESC;
+ORDER BY created_at_epoch_seconds DESC, message_id DESC;
 
 updateMessageOrphanedFlag:
 UPDATE messages SET is_orphaned = ? WHERE message_id = ?;

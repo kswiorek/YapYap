@@ -157,7 +157,6 @@ sealed interface MessagePayload {
      * message references the room's chainable frontier at append time.
      */
     val prevIds: List<Uuid>
-    val lamportClock: Long
     /**
      * Sender's wall-clock composition time, set once by [org.yapyap.orchestrator.dag.DagEngine.append]
      * at send time and carried on the wire unchanged. Distinct from
@@ -180,13 +179,11 @@ sealed interface MessagePayload {
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
         override val prevIds: List<Uuid>,
-        override val lamportClock: Long,
         override val createdAt: Instant,
         val text: String,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
-            require(lamportClock >= 0) { "lamportClock must be >= 0" }
             if (authorSignature != null) {
                 require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
             }
@@ -213,11 +210,11 @@ sealed interface MessagePayload {
 
         companion object {
             /**
-             * Generous reserve for the fixed [Text] header bytes added by [encode] around the
-             * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
-             * + authorDeviceId(2+64) + prevIds(4+16*n) + lamportClock(8) + createdAt(8) + text length
-             * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
-             * for the margin; the fixed portion is ~135 bytes.
+              * Generous reserve for the fixed [Text] header bytes added by [encode] around the
+              * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
+              * + authorDeviceId(2+64) + prevIds(4+16*n) + createdAt(8) + text length
+              * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
+              * for the margin; the fixed portion is ~127 bytes.
              */
             const val ENCODED_HEADER_RESERVE_BYTES: Int = 512
 
@@ -233,7 +230,6 @@ sealed interface MessagePayload {
                     senderAccountId = header.senderAccountId,
                     authorDeviceId = header.authorDeviceId,
                     prevIds = header.prevIds,
-                    lamportClock = header.lamportClock,
                     createdAt = header.createdAt,
                     text = text,
                     authorSignature = authorSignature,
@@ -247,7 +243,6 @@ sealed interface MessagePayload {
 
             other as Text
 
-            if (lamportClock != other.lamportClock) return false
             if (createdAt != other.createdAt) return false
             if (messageId != other.messageId) return false
             if (roomId != other.roomId) return false
@@ -262,8 +257,7 @@ sealed interface MessagePayload {
         }
 
         override fun hashCode(): Int {
-            var result = lamportClock.hashCode()
-            result = 31 * result + createdAt.hashCode()
+            var result = createdAt.hashCode()
             result = 31 * result + messageId.hashCode()
             result = 31 * result + roomId.hashCode()
             result = 31 * result + senderAccountId.hashCode()
@@ -282,14 +276,12 @@ sealed interface MessagePayload {
         override val senderAccountId: AccountId,
         override val authorDeviceId: PeerId,
         override val prevIds: List<Uuid>,
-        override val lamportClock: Long,
         override val createdAt: Instant,
         val eventBytes: ByteArray,
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         override val roomId = RoomId.GLOBAL
         init {
-            require(lamportClock >= 0) { "lamportClock must be >= 0" }
             if (authorSignature != null) {
                 require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
             }
@@ -329,7 +321,6 @@ sealed interface MessagePayload {
                     senderAccountId = header.senderAccountId,
                     authorDeviceId = header.authorDeviceId,
                     prevIds = header.prevIds,
-                    lamportClock = header.lamportClock,
                     createdAt = header.createdAt,
                     eventBytes = eventBytes,
                     authorSignature = authorSignature,
@@ -357,7 +348,6 @@ private data class MessagePayloadHeader(
     val senderAccountId: AccountId,
     val authorDeviceId: PeerId,
     val prevIds: List<Uuid>,
-    val lamportClock: Long,
     val createdAt: Instant,
 )
 
@@ -379,7 +369,6 @@ private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writePeerId(authorDeviceId)
     writer.writeInt(prevIds.size)
     prevIds.forEach { writer.writeUuid(it) }
-    writer.writeLong(lamportClock)
     writer.writeLong(createdAt.epochSeconds)
 }
 
@@ -394,7 +383,6 @@ private fun readCommonHeader(reader: ByteReader, expected: MessagePayloadType): 
         senderAccountId = AccountId(reader.readString()),
         authorDeviceId = reader.readPeerId(),
         prevIds = List(reader.readInt()) { reader.readUuid() },
-        lamportClock = reader.readLong(),
         createdAt = Instant.fromEpochSeconds(reader.readLong()),
     )
 }

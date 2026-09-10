@@ -315,8 +315,7 @@ sealed interface SystemPayload {
         /**
          * The sender's chainable frontier per room: tips with transitively complete
          * local ancestry. A tip unknown to the receiver means the receiver is behind
-         * on that branch, even at equal lamport clocks (scalar comparison cannot see
-         * divergent branches).
+         * on that branch.
          */
         val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
     ): SystemPayload {

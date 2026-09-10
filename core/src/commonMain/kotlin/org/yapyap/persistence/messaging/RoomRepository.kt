@@ -52,9 +52,10 @@ class DefaultRoomRepository(
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         withContext(dbDispatcher) {
             database.roomQueries.ensureRoomExists(roomId, type, name)
+            //TODO: check if room actually created
             AppLog.debug(
                 component = LogComponent.DATABASE,
-                event = LogEvent.ROOM_LOCAL_SEQ_UPDATED,
+                event = LogEvent.ROOM_CREATED,
                 message = "Ensured room row exists",
                 fields = mapOf(
                     "roomId" to roomId,

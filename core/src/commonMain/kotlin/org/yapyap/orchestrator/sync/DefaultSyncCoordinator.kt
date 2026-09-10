@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
@@ -129,7 +130,7 @@ class DefaultSyncCoordinator(
         )
     }
 
-    private suspend fun candidateAccountsFor(roomId: RoomId): List<org.yapyap.crypto.identity.AccountId> {
+    private suspend fun candidateAccountsFor(roomId: RoomId): List<AccountId> {
         return roomRepository.membersOfRoom(roomId)
             .filter { it != identityResolver.getLocalAccountId() }
     }

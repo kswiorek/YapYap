@@ -71,7 +71,7 @@ class BootstrapEnvelopeCodecTest {
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsorrelay.onion", 443),
-            dagHeadLamport = 12L,
+            dagHeadTipIds = listOf(Uuid.random()),
         )
     }
 

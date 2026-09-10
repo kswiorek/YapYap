@@ -23,30 +23,46 @@ import kotlin.uuid.Uuid
 
 class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()
+    private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
 
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
+        ancestryComplete: Boolean,
         verificationState: VerificationState,
     ): Boolean {
         if (byId.containsKey(payload.messageId)) {
             // INSERT OR IGNORE semantics — duplicated key is a no-op.
             return true
         }
-        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState)
+        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState, ancestryComplete)
         return true
     }
 
     override suspend fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
-    override suspend fun findRoomTail(roomId: RoomId): MessageRow? =
-        byId.values
-            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
-            .maxWithOrNull(
-                compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAt }
-                    .thenBy { it.payload.messageId }
-            )
+    override suspend fun findRoomFrontier(roomId: RoomId): List<MessageRow> {
+        // Mirror selectRoomFrontier: chainable messages no chainable message references as a parent.
+        val chainable = byId.values.filter {
+            it.payload.roomId == roomId && it.ancestryComplete && it.verificationState != VerificationState.REJECTED
+        }
+        val referenced = chainable
+            .flatMap { child -> parentIds[child.payload.messageId].orEmpty() }
+            .toSet()
+        return chainable.filter { it.payload.messageId !in referenced }
+    }
+
+    override suspend fun findParents(messageId: Uuid): List<Uuid> =
+        parentIds[messageId].orEmpty().toList()
+
+    override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
+        parentIds.getOrPut(messageId) { mutableListOf() }.add(parentId)
+    }
+
+    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<MessageRow> =
+        byId.values.filter { row ->
+            row.payload.roomId == roomId && parentId in parentIds[row.payload.messageId].orEmpty()
+        }
 
     override suspend fun findMessagesInRoomPageDesc(
         roomId: RoomId,
@@ -57,7 +73,6 @@ class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
             .sortedWith(
                 compareByDescending<MessageRow> { it.payload.createdAt }
-                    .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
         val filtered = if (cursor == null) {
@@ -65,11 +80,9 @@ class FakeMessageRepository : MessageRepository {
         } else {
             all.filter { row ->
                 val rowCreated = row.payload.createdAt
-                val rowLamport = row.payload.lamportClock
                 val rowId = row.payload.messageId
                 rowCreated < cursor.createdAt ||
-                        (rowCreated == cursor.createdAt && rowLamport < cursor.lamportClock) ||
-                        (rowCreated == cursor.createdAt && rowLamport == cursor.lamportClock && cursor.messageId.let { rowId < it })
+                        (rowCreated == cursor.createdAt && rowId < cursor.messageId)
             }
         }
         return filtered.take(limit)
@@ -80,18 +93,28 @@ class FakeMessageRepository : MessageRepository {
             .filter { it.payload.roomId == roomId }
             .sortedWith(
                 compareByDescending<MessageRow> { it.payload.createdAt }
-                    .thenByDescending { it.payload.lamportClock }
                     .thenByDescending { it.payload.messageId }
             )
 
-    override suspend fun maxLamportInRoom(roomId: RoomId): Long? =
+    override suspend fun hasMessages(roomId: RoomId): Boolean =
+        byId.values.any { it.payload.roomId == roomId }
+
+    override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =
         byId.values
-            .filter { it.payload.roomId == roomId }
-            .maxOfOrNull { it.payload.lamportClock }
+            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
+            .maxWithOrNull(
+                compareBy<MessageRow> { it.payload.createdAt }
+                    .thenBy { it.payload.messageId }
+            )
 
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
+    }
+
+    override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) {
+        val row = byId[messageId] ?: return
+        byId[messageId] = row.copy(ancestryComplete = complete)
     }
 
     override suspend fun updateVerificationState(messageId: Uuid, state: VerificationState) {
@@ -106,33 +129,6 @@ class FakeMessageRepository : MessageRepository {
 
     override suspend fun findAllPending(): List<MessageRow> =
         byId.values.filter { it.verificationState == VerificationState.PENDING }.toList()
-
-    override suspend fun isOrphanAtLamport(roomId: RoomId, lamport: Long): Boolean =
-        byId.values.any { it.payload.roomId == roomId && it.payload.lamportClock == lamport && it.isOrphaned }
-
-    override suspend fun maxLamportBelow(roomId: RoomId, lamport: Long): Long? =
-        byId.values
-            .filter { it.payload.roomId == roomId && it.payload.lamportClock < lamport }
-            .maxOfOrNull { it.payload.lamportClock }
-
-    override suspend fun findMessagesInLamportRange(
-        roomId: RoomId,
-        lowerInclusive: Long,
-        upperInclusive: Long,
-        limit: Int,
-    ): List<MessageRow> =
-        byId.values
-            .filter { it.payload.roomId == roomId }
-            .filter { it.payload.lamportClock in lowerInclusive..upperInclusive }
-            .sortedWith(
-                compareBy<MessageRow> { it.payload.lamportClock }
-                    .thenBy { it.payload.createdAt }
-                    .thenBy { it.payload.messageId }
-            )
-            .take(limit)
-
-    override suspend fun countAtLamport(roomId: RoomId, lamport: Long): Long =
-        byId.values.count { it.payload.roomId == roomId && it.payload.lamportClock == lamport }.toLong()
 }
 
 /**
@@ -142,7 +138,6 @@ class FakeMessageRepository : MessageRepository {
 class FakeRoomRepository(
     private val members: Map<RoomId, List<AccountId>> = emptyMap(),
 ) : RoomRepository {
-    private val seqs = mutableMapOf<RoomId, Long>()
     private val memberLists: MutableMap<RoomId, MutableList<AccountId>> =
         members.mapValues { it.value.toMutableList() }.toMutableMap()
     private val roomsFound = mutableSetOf<RoomId>()
@@ -150,14 +145,8 @@ class FakeRoomRepository(
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         memberLists[roomId].orEmpty()
 
-    override suspend fun updateLocalSeq(roomId: RoomId, seqN: Long) {
-        seqs[roomId] = seqN
-    }
-
-    override suspend fun getLocalSeq(roomId: RoomId): Long? = seqs[roomId]
-
-    override suspend fun getLocalSeqForPeer(peerId: PeerId): List<Pair<RoomId, Long>> =
-        seqs.map { (roomId, seqN) -> roomId to seqN }
+    override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> =
+        (memberLists.keys + roomsFound).toList()
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         roomsFound.add(roomId)
@@ -188,6 +177,9 @@ class FakeCausalHoldRepository(
         }
 
     override suspend fun findAll(): List<CausalHoldRow> = rows.toList()
+
+    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+        rows.count { it.orphanedMessageId == orphanedMessageId }.toLong()
 
     override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
         rows.removeAll { it.missingPrevId == missingPrevId }

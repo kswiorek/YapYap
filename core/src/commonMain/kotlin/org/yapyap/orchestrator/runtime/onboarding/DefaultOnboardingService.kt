@@ -64,7 +64,7 @@ internal class DefaultOnboardingService(
         }
         // 3. Readiness, BEFORE any write: an empty global room means this device hasn't
         //    onboarded/synced yet — appending here would fork a parallel genesis.
-        if (messageRepository.maxLamportInRoom(RoomId.GLOBAL) == null) {
+        if (!messageRepository.hasMessages(RoomId.GLOBAL)) {
             return SponsorOutcome.Refused(SponsorRefusal.SponsorNotReady)
         }
 

@@ -29,13 +29,12 @@ data class MessageRow(
 /**
  * Composite cursor for stable pagination of room messages.
  *
- * Display ordering is `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` â€” a total
+ * Display ordering is `(createdAtEpochSeconds DESC, messageId DESC)` — a total
  * order with no ties, so pagination is stable across live inserts and reloads. The cursor captures
  * the oldest row of the currently-loaded window so the next page begins strictly below it.
  */
 data class MessageCursor(
     val createdAt: Instant,
-    val lamportClock: Long,
     val messageId: Uuid,
 )
 
@@ -73,10 +72,10 @@ interface MessageRepository {
 
     suspend fun findAllInRoom(roomId: RoomId): List<MessageRow>
 
-    /** Max lamport_clock in the room (null if empty). */
-    suspend fun maxLamportInRoom(roomId: RoomId): Long?
+    /** True if the room holds any message at all (genesis/empty-room checks). */
+    suspend fun hasMessages(roomId: RoomId): Boolean
 
-    /** Highest-lamport non-rejected message (append-guard fallback only). Null if room is empty. */
+    /** Newest non-rejected message (append-guard fallback only). Null if room is empty. */
     suspend fun findLatestInRoom(roomId: RoomId): MessageRow?
 
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
@@ -112,7 +111,6 @@ class DefaultMessageRepository(
             sender_account_id = payload.senderAccountId,
             author_device_id = payload.authorDeviceId,
             verification_state = verificationState,
-            lamport_clock = payload.lamportClock,
             created_at_epoch_seconds = payload.createdAt,
             payload_type = payload.payloadType,
             message_payload = payload.encode(),
@@ -128,7 +126,6 @@ class DefaultMessageRepository(
                 fields = mapOf(
                     "messageId" to payload.messageId,
                     "roomId" to payload.roomId,
-                    "lamportClock" to payload.lamportClock,
                     "isOrphaned" to isOrphaned,
                     "ancestryComplete" to ancestryComplete,
                 ),
@@ -165,7 +162,6 @@ class DefaultMessageRepository(
                     fields = mapOf(
                         "messageId" to messageId,
                         "roomId" to row.payload.roomId,
-                        "lamportClock" to row.payload.lamportClock,
                         "isOrphaned" to row.isOrphaned,
                     ),
                 )
@@ -213,7 +209,6 @@ class DefaultMessageRepository(
             val rows = queries.selectMessagesInRoomPageDesc(
                 roomId = roomId,
                 cursorCreated = cursor?.createdAt,
-                cursorLamport = cursor?.lamportClock,
                 cursorMessageId = cursor?.messageId,
                 limit = limit.toLong(),
             ).executeAsList().map { it.toRow() }
@@ -224,7 +219,6 @@ class DefaultMessageRepository(
                 fields = mapOf(
                     "roomId" to roomId,
                     "limit" to limit,
-                    "cursorLamport" to cursor?.lamportClock,
                     "resultCount" to rows.size,
                 ),
             )
@@ -246,19 +240,9 @@ class DefaultMessageRepository(
             rows
         }
 
-    override suspend fun maxLamportInRoom(roomId: RoomId): Long? =
+    override suspend fun hasMessages(roomId: RoomId): Boolean =
         withContext(dbDispatcher) {
-            val max = queries.selectMaxLamportInRoom(roomId).executeAsOne().MAX
-            AppLog.debug(
-                component = LogComponent.DATABASE,
-                event = LogEvent.MESSAGE_LAMPORT_QUERIED,
-                message = "Queried max lamport clock in room",
-                fields = mapOf(
-                    "roomId" to roomId,
-                    "maxLamportClock" to (max ?: "null"),
-                ),
-            )
-            max
+            queries.selectHasMessagesInRoom(roomId).executeAsOne()
         }
 
     override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =

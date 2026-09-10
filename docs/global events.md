@@ -7,8 +7,10 @@ the reasoning. The verification-state substrate (tri-state ingest, store-don't-d
 handling) is implemented and assumed here; the `DeviceAdded` → reverify hook and the boot sweep are
 wiring steps that land with the projector (§9 step 0, §10).
 
-Sprint-4 revisions: §2 (fold input — pure function of the stored set) and §3 (absolute ban rules)
-supersede earlier drafts; §11 records the rejected alternatives so they are not re-derived.
+Sprint-4 revisions: §2 (fold input — pure function of the stored set) and §3 (ban cut rules —
+ancestry-scoped; the earlier "absolute ban rules" draft was rejected on device-rotation UX
+grounds, see §11) supersede earlier drafts; §11 records the rejected alternatives so they are
+not re-derived.
 
 Related: [`guide.md`](guide.md), [`e2ee.md`](e2ee.md), [`ban diagram.mmd`](ban diagram.mmd),
 [`Onboarding diagram.mmd`](Onboarding diagram.mmd), [`db schema.mmd`](db schema.mmd).
@@ -22,8 +24,9 @@ Related: [`guide.md`](guide.md), [`e2ee.md`](e2ee.md), [`ban diagram.mmd`](ban d
   The projector (`RbacProjector`) is the **sole writer** of their chain-derived columns.
 - Every message carries an author signature; security comes from being able to follow the chain of
   signed events back to the origin device. No event is trusted in isolation — validity is a function
-  of the fold state at the event's position in the chain, with two position-independent (absolute)
-  exceptions for device-add authorization (§3).
+  of the fold state at the event's position in the chain, with two exceptions for device-add
+  authorization that reach beyond the event's own position: the branch-1 ban cut and the
+  absolute account-key rule (§3).
 - Events contain **as little information as possible**: only keys and bindings that cannot be derived.
   Everything else (admin status, membership, removal state) is derived from the log.
 
@@ -42,9 +45,11 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
 
 ## 2. Canonical order and the fold
 
-- **Fold order**: `(lamport_clock ASC, created_at ASC, message_id ASC)`. This is always a valid
-  topological order because `DagEngine.append` sets `lamport = prev.lamport + 1` exactly; ties only
-  occur between concurrent siblings, resolved deterministically by the composite.
+- **Fold order**: topological order over the `prevIds` edges present in the stored set
+  (Kahn's algorithm; `(created_at ASC, message_id ASC)` tiebreak between ready nodes).
+  Edge-following order is correct by construction — parents always replay before their
+  children — with no dependence on any scalar clock. Nodes that never become ready
+  (a forged causality cycle) replay last, deterministically.
 - **Always fold in canonical order — never apply events in arrival order.** Concurrent opposing
   writes (e.g. `GrantAdmin(A)` vs `RemoveAdmin(A)` as siblings from two admins) resolve differently
   per node under arrival-order application; canonical order makes the fold deterministic and
@@ -61,12 +66,11 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
       dies while a descendant survives), but the failure mode is total and silent. Folding orphans
       degrades instead: events past a gap are evaluated against incomplete shadow state and
       self-correct if the gap ever closes.
-    - Why this is safe: excluding orphans was never a security boundary. The chain is dense
-      (`lamport = prev + 1` from genesis), so an attacker reaches *any* position with a non-orphan
-      sibling forgery (real parent, `parent.lamport + 1`) that passes the structural check. The
-      backdating hole is closed absolutely in §3, not by fold input filtering.
-    - The fold re-derives the lamport structural check itself (parent present → `lamport ==
-    parent.lamport + 1`), so the ingest-time check is a fast path, not the authority.
+    - Why this is safe: excluding orphans was never a security boundary. Positions are
+      self-declared (`prevIds` and `createdAt` are attacker-controlled and signed by the
+      attacker's own valid key), so an attacker reaches *any* position with a non-orphan
+      sibling forgery (real parent). The backdating hole is closed by the ban cut in §3,
+      not by fold input filtering.
 - **Unresolvable author → PENDING, never REJECTED.** An event whose author is not in shadow state
   (its credentials sit in a gap) is skipped and stays PENDING — the global-room analogue of
   `UNKNOWN_AUTHOR → PENDING` in the chat tier. We cannot confirm any of that author's signatures
@@ -92,7 +96,7 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
     position** — account-key-authorized device add (§8.2 recovery, where no device of A exists yet to
     sign; the signature is relayed as data by any member, and possession of the recovery key is the
     authorization). This is what makes recovery on a fresh device possible without a sponsor. It
-    composes with the absolute ban rules below: a tombstoned account invalidates account-key-signed
+    composes with the ban cut rules below (rule 2): a tombstoned account invalidates account-key-signed
     AddDevices *anywhere in the fold* — a leaked recovery key of a banned account re-enters nothing
     (positional validity alone was evadable by backdating).
 - `GrantAdmin` / `RemoveAdmin` / `RemoveDevice(other)` / `RemoveAccount(other)`: signer's account
@@ -107,55 +111,119 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
   fold corrects it from the genesis event; fold immediately after genesis append so the GUI reflects it.)
 - **Don't cut off the branch**: validity is evaluated against fold state *at the event's position*.
   A removed admin's earlier grants remain valid; only its later events become invalid. Same principle
-  applies to chat history (see §6). One deliberate exception: branch-1 AddDevice authorizations are
-  absolute (see below).
+applies to chat history (see §6). One deliberate exception: branch-1 AddDevice authorizations are
+scoped by the ban cut (see below).
 - Duplicate `AddDevice` for an existing (or tombstoned) device_id → invalid. Re-adding after removal
   requires a fresh key set → new device_id → effectively a new device. This is what makes removal a ban.
 - Duplicate `AddAccount` for an existing (active or tombstoned) account_id → invalid. Without this,
   re-adding a banned account is a trivial bypass of the account-key ban rule.
 
-### Absolute ban rules (backdating defense)
+### Ban cut rules (backdating defense)
 
-Positions are self-declared: `lamport`, `prevId` and `createdAt` are attacker-controlled and signed
-by the attacker's own valid key, and the chain is dense (`lamport = prev + 1` from genesis), so a
-backdated event — sibling or orphan — can be placed *before* its author's removal while remaining
-structurally valid. Positional validity therefore cannot stop a banned principal from smuggling one
-last authorization past its ban, in any DAG shape. The fix makes the two device-add authorization
-paths **absolute** (set-level, position-independent — still pure functions of the stored set, so
-convergence holds):
+Positions are self-declared: `prevIds` and `createdAt` are attacker-controlled and signed
+by the attacker's own valid key, so a backdated event — sibling or orphan — can be placed
+*before* its author's removal while remaining structurally valid. Positional validity therefore
+cannot stop a banned principal from smuggling one last authorization past its ban, in any DAG
+shape. Worse: a forged backdated add and a legitimate pre-ban add are *cryptographically
+identical* under positional semantics — no rule evaluated on event content and position can
+distinguish them. The fix introduces the only unforgeable ordering dimension the system has
+for free: **what the banner had actually synced when the ban was appended** — the ban node's
+own ancestry, signed by the banner and immutable. *The ban seals the frontier it was
+appended at.*
 
-1. **Branch-1 adds die with their author.** A branch-1 `AddDevice` (own-account, no `key_signature`
-   — the device's signature *is* the authorization) is valid only if its author is not tombstoned
-   **anywhere in the fold**. The kill is transitive: devices branch-1-added by a banned device, and
-   devices added by *those* devices, form the authorization subtree rooted at the banned device and
-   die with it (fixpoint closure over tombstoned authors).
-2. **Account-key adds die with the account.** A `key_signature`-authorized `AddDevice` (branches 2/3)
-   targeting account A is valid only if A is not tombstoned anywhere in the fold. The relay's
-   authorship is transport, not authorization — the account key is — so device bans never touch
-   these events, and account bans kill them at every position.
+Mechanism: `DagEngine.append` references the room's full covering antichain, so a
+`RemoveDevice` node is a merge point over everything the banner had stored and could fold.
+Its **vouching set** = the transitive closure of its `prevIds` = every chainable
+(ancestry-complete, non-REJECTED) stored event at append time. Parked orphans (open gaps) and
+REJECTED events are excluded (`selectRoomFrontier`): the banner vouches only for what it could
+fold. The ban's `prevIds` are fixed and signed at append time, so a forgery created afterwards
+can never enter the closure no matter what position it declares; a collaborating relay can
+store and broadcast it (store-don't-drop is untouched) — the fold judges it outside the
+vouching set. Both rules below remain pure functions of the stored set (ancestry is derived
+from `prevIds` edges), so §2's convergence argument applies unchanged.
+
+1. **Branch-1 adds are cut by their author's ban.** The **first** `RemoveDevice(D)` in canonical
+   order — any author, self-removal included — defines D's cut. Every branch-1 `AddDevice`
+   (own-account, no `key_signature` — the device's signature *is* the authorization) authored
+   by D that is **not an ancestor of that ban node** is invalid: deterministically, on every
+   node, whenever it arrives. The cut is transitive: an add invalidated by the cut implies its
+   author device's tombstone, and that author's own branch-1 adds die with it (fixpoint closure
+   over the branch-1 authorization subtree, cut-aware).
+2. **Account-key adds die with the account (absolute, unchanged).** A `key_signature`-authorized
+   `AddDevice` (branches 2/3) targeting account A is valid only if A is not tombstoned anywhere
+   in the fold. The relay's authorship is transport, not authorization — the account key is —
+   so device bans never touch these events, and account bans kill them at every position.
+   Account removal is rare and the account key is the crown jewel: no UX cost to being absolute
+   here.
 
 An invalidated AddDevice projects as an **implied `RemoveDevice` at the ban's position** (§5
 machinery: status flip, keys stay resolvable, re-add requires a fresh device_id) — never a
 retraction to "never existed", which would make the device's pre-ban messages unverifiable. The
-removed device's own messages keep positional validity (pre-ban positions valid, post-ban invalid).
+removed device's own messages keep positional validity (pre-ban positions valid, post-ban
+invalid).
 
-**Invariant:** after `RemoveDevice(D)` lands, D's account's device set is exactly its
-account-key-authorized baseline — every device D's key authorized, before, after, or backdated
-around the ban, is out. This kills both the backdated evasion and the forward one (a compromised
-device quietly adding an evil sibling while still active: the ban cleans it up retroactively).
+**Invariant:** after `RemoveDevice(D)` lands, D can never again cause a valid authorization —
+anything D signs afterwards is either positioned after the ban (positional kill) or positioned
+before it but outside the ban's ancestry (cut). D's account's device set is its
+account-key-authorized baseline **plus the branch-1 subtree inside the ban's ancestry that the
+banner declined to cascade-ban**.
 
-**Collateral (accepted, account-local):** devices branch-1-added by the banned device need re-adding
-(via a surviving sibling, or the recovery code if none). Sponsored members and account-key-added
-devices are unaffected — their AddDevices are authorized by their own account keys — so banning a
-prolific sponsor (even the genesis device) is a routine single-account recovery, not a network
-reset. `AddAccount` sponsorship is untouched: mesh re-entry as a *fresh* account is open by design
-and grants no access to existing rooms (E2EE room membership is separate).
+**Sponsorship untouched:** sponsored members and account-key-added devices are unaffected by a
+device ban — their AddDevices are authorized by their own account keys — so banning a prolific
+sponsor (even the genesis device) is a routine single-account recovery, not a network reset.
+`AddAccount` sponsorship is untouched: mesh re-entry as a *fresh* account is open by design and
+grants no access to existing rooms (E2EE room membership is separate).
 
-**Residual (accepted):** a removed *admin's* device backdating a `GrantAdmin` survives rules 1–2
-(it is not a device-add) — bounded to one action the device could have taken honestly at that
-position, revocable by living admins, auditable in the log. No data loss at the storage/sync layer
-(store-don't-drop; re-added devices sync full history); readable *decrypted* history on a fresh
-E2EE device is a key-sharing question (see [`e2ee.md`](e2ee.md)), separate from ban semantics.
+**Collateral (accepted, small):** D-authored branch-1 adds the banner had not synced —
+concurrent with the ban, still in flight, or parked as orphans at ban time — are cut. The
+honest case is rare (device adds are human-paced; the window is sync latency) and recoverable
+by re-onboarding the device from a surviving sibling (fresh device_id per the duplicate rule;
+the account and history survive). The malicious case is exactly the puppet window the cut must
+kill.
+
+**Residual (accepted — forced by the rotation UX requirement, not by this design):** devices D
+added *while still active*, whose adds synced before the ban landed, are ancestors of the ban
+and survive — and they are cryptographically indistinguishable from legitimate siblings (the
+rotation scenario's PC). Sparing the one means sparing the other; the UX requirement is
+precisely that decision. Mitigation: the ban UI surfaces "devices D added" (the still-active
+branch-1 authorization subtree) with an optional **cascade-ban**, sequenced
+**ban-first-then-query** — append `RemoveDevice(D)`, fold, then offer `RemoveDevice(E)` per
+survivor; the subtree is frozen once the ban lands (post-ban arrivals are auto-cut), so the
+query is stable and complete. A second `RemoveDevice(D)` can never kill a survivor — killing E
+always requires `RemoveDevice(E)`. The add-spam race terminates for the same reason: adds
+synced pre-ban are visible and cascade-bannable in one selection; adds in flight or forged
+post-ban are auto-cut on arrival, everywhere, forever. Pre-ban-active puppets can read traffic
+during their active window — bounded by the sprint-5b key rotation, not by control-plane rules.
+
+**Self-removal cuts too.** Otherwise the discard-old-phone-then-stolen flow reopens the attack
+through self-removal (a thief backdates an add positioned before the self-removal). An honest
+self-removal naturally includes all of D's own adds in its ancestry — D authored them, so they
+are in its stored frontier. Residual: a malicious D can self-ban off a deliberately stale
+frontier to grief its own account's devices — no access gain, auditable, accepted.
+
+**Edge rules:**
+- Duplicate `RemoveDevice(D)`: the first in canonical order defines the cut; later ones are
+  redundant. Backdated duplicate bans are authorable only by admins/account siblings (trusted
+  or already-compromised principals) — griefing-only, auditable.
+- The vouching set is frozen at append time: open gaps in GLOBAL at that moment are permanently
+  unvouched. Rare at 10–20 users and PENDING-softened while gaps stay open;
+  `publishRemoveDevice` may warn/wait while `openGaps(GLOBAL)` is non-empty (decide at
+  implementation).
+- Scope: the cut touches branch-1 `AddDevice` only. D's message authorship is untouched (§5);
+  D's backdated `GrantAdmin` remains the accepted residual below. (The same cut could later be
+  extended to `GrantAdmin` — same rule shape; collateral = concurrent honest grants,
+  re-grantable.)
+
+**Structural prerequisite:** the `TODO(append-guard)` in `DefaultDagEngine` (empty-frontier
+fallback to the newest single message) must be resolved to refuse-and-error — a ban appended
+through the fallback vouches for a single chain only and would cut D's entire subtree.
+
+**Residual (admin events, accepted):** a removed *admin's* device backdating a `GrantAdmin`
+survives the cut (it is not a device-add) — bounded to one action the device could have taken
+honestly at that position, revocable by living admins, auditable in the log. No data loss at
+the storage/sync layer (store-don't-drop; re-added devices sync full history); readable
+*decrypted* history on a fresh E2EE device is a key-sharing question (see
+[`e2ee.md`](e2ee.md)), separate from ban semantics.
 
 ## 4. Verification architecture (two tiers)
 
@@ -187,7 +255,7 @@ E2EE device is a key-sharing question (see [`e2ee.md`](e2ee.md)), separate from 
      ignore the device.
   3. Re-add detection: a tombstone lets the fold deterministically reject reuse of a removed device_id.
 - Removal is still effectively a ban: returning requires a completely new key set → new device_id.
-- Invalidated AddDevices (§3 absolute rules) project the same way: an implied `RemoveDevice` at the
+- Invalidated AddDevices (§3 ban cut rules) project the same way: an implied `RemoveDevice` at the
   ban's position — a tombstone, never a "never-existed" retraction (the device's pre-ban messages
   must stay verifiable).
 - `devices` needs a **status column** (schema change; `accounts` already has one). Also consider
@@ -208,17 +276,16 @@ E2EE device is a key-sharing question (see [`e2ee.md`](e2ee.md)), separate from 
 - **Store everything, flag state, never permanently drop** — the orphan machinery philosophy,
   extended to verification. Nothing is ever missing from the DB, so the sync machinery never chases
   a message it will re-drop (the neverending sync-loop is structurally impossible).
-- **Structural queries see everything; behavioral queries filter.** Gap closure, lamport ranges,
+- **Structural queries see everything; behavioral queries filter.** Gap closure,
   counts, orphan checks are unfiltered. Only tail computation (`selectRoomTail`) and display
   (`selectMessagesInRoomPageDesc`) exclude `REJECTED`. Never chain off a `REJECTED` message.
 - **Sync serves stored messages regardless of verification state** — they are signed, tamper-evident
   bytes; each node verifies independently. Refusing to serve `REJECTED` exports the loop to peers.
-- **Lamport structural check**: `child.lamport == prev.lamport + 1`, enforced at ingest (parent
-  present) and at gap closure (parent arrives). Violation → `REJECTED` (kept in storage). This is not
-  authentication — it preserves the invariant that lamport-sort is a valid topological order, which
-  the fold relies on. Without it a forged lamport can fold a child *before* its causal parent and
-  silently neutralize the parent's effect ("remove before create"). The fold re-derives this check
-  itself (parent present → check), so the ingest-time check is a fast path, not the authority.
+- **No positional checks.** There is no scalar clock to forge: causal order is derived
+  from `prevIds` edges at read time (sync streaming, fold), so a forged position is
+  meaningless by construction. The one unorderable shape — a causality cycle (A→B→A) —
+  is detected structurally: its members never become ready in a topological sort and
+  replay last, keeping their ancestry incomplete.
 - The `messages` FKs to `accounts`/`devices` were removed: the log is the source of truth, the tables
   are derived, and authorship validity is position-dependent — a static row-existence FK was
   semantically wrong anyway. `room_id` and `causal_hold` FKs stay.
@@ -247,7 +314,7 @@ RbacProjector(
 - **Absence is ambiguous; the fold disambiguates.** A row present in the DB but absent from the fold
   output is either (a) *unverifiable* — its Add event was skipped (credentials in a gap; stays
   PENDING) — leave untouched, or (b) *invalidated* — its Add event was processed and failed (explicit
-  Remove, §3 absolute rule, or per-position authorization) — project the removal and emit the
+   Remove, §3 ban cut rule, or per-position authorization) — project the removal and emit the
   reversal `IdentityStateChange`. The fold knows which case applies; a gap must never cause (a) to
   be treated as (b).
 - **Verdicts may flip as the stored set grows** (gap closure, late siblings). The commit overwrites
@@ -351,7 +418,10 @@ declines during that transient window (the request retries elsewhere).
 ## 9. Build order & test matrix
 
 Order: **step 0 — GLOBAL room presence & membership** → typed codec → projector fold + commit →
-`devices.status` migration → genesis wiring → onboarding handshake (last).
+`devices.status` migration → genesis wiring → onboarding handshake (last). The
+`DefaultDagEngine` append-guard fix (refuse when the chainable frontier is empty but the room
+holds messages) lands with the projector fold — a ban's vouching set is the frontier it
+references (§3), so the newest-message fallback would silently narrow it.
 
 **Step 0 — the GLOBAL room must exist as a real room.** Nothing today seeds the `rooms` row for
 `RoomId.GLOBAL` (only a JVM test fixture inserts rooms). Consequences: because `messages.room_id`
@@ -362,15 +432,15 @@ pings. The projector's broadcast path also needs "all accounts" as the recipient
 
 Decision (agreed): **the projector maintains `room_members` rows for the GLOBAL room** — on every
 `AccountAdded` insert `(GLOBAL, account, MEMBER)`, on `AccountRemoved` delete. This keeps every
-existing join/query (sync candidates, ping lamports, broadcast) working unchanged — global-room
+existing join/query (sync candidates, ping frontiers, broadcast) working unchanged — global-room
 membership *is* chain-derived (every account is a member), so writing it in the commit is redundant
 by choice but preserves the rest of the machinery with zero special-casing. A `rooms` row for
 `RoomId.GLOBAL` (`type = GLOBAL_CONTROL`, `local_seq_n = -1`) must also be seeded once, idempotently
 (DB init or boot), which alone fixes the `messages.room_id` FK and `local_seq_n` tracking.
 
 The fold source is `findAllInRoom(GLOBAL)` — *all* messages, no `is_orphaned` /
-`verification_state` filtering (§2: the fold is a pure function of the stored set) — sorted
-canonically (`lamport ASC, created_at ASC, message_id ASC`) in memory (fine at 10–20 users).
+`verification_state` filtering (§2: the fold is a pure function of the stored set) — topologically
+sorted over `prevIds` edges in memory (fine at 10–20 users).
 
 Negative tests (done-criteria d3):
 - non-admin `GrantAdmin` ignored;
@@ -380,16 +450,25 @@ Negative tests (done-criteria d3):
 - duplicate device_id re-add after removal;
 - concurrent `GrantAdmin`/`RemoveAdmin` siblings converge to the same state on all nodes
   (the divergence case — most important);
-- forged-lamport child sorts before its parent → structural check → `REJECTED`;
+- causality cycle (A→B→A) is unorderable → members replay last, ancestry stays incomplete;
 - message from tombstoned author: stored `VERIFIED`, history preserved, no sync loop;
-- backdated branch-1 `AddDevice` by a banned device → invalid (direct, and via an intermediate
-  device — the cascade case);
+- backdated branch-1 `AddDevice` by a banned device (post-ban forgery relayed by a collaborating
+  member) → invalid (direct, and via an intermediate device — the cascade case);
 - backdated account-key `AddDevice` (branch-3 relay) for a removed account → invalid;
 - `AddAccount` for a tombstoned (or already-active) account_id → invalid;
 - sponsored members and account-key-added devices survive their sponsor's ban — including a
   genesis-device ban (single-account recovery, no network reset);
+- **device rotation (the regression test for §3's revision)**: ban the genesis device → its
+  pre-ban *synced* branch-1 adds (the PC, the sponsored new phone) survive with their
+  device_ids intact — fails under the rejected absolute-invalidation drafts (§11);
+- branch-1 add concurrent with the ban (unsynced at ban time, arrives after) → invalid;
+- backdated add positioned before D's own **self-removal** → invalid (discarded-phone flow);
+- duplicate `RemoveDevice(D)`: the first in canonical order defines the cut;
+- branch-1 add parked as an orphan on the banner's node at ban time → outside the vouching
+  set → invalid;
+- cascade-ban: a survivor E dies to `RemoveDevice(E)`, never to a second `RemoveDevice(D)`;
 - wrong verdict issued during an open gap flips when the gap closes (no terminal `REJECTED` —
-  the fold re-derives).
+  the fold re-derives; includes cut verdicts issued against an incomplete ban ancestry).
 
 ## 10. Implemented substrate & open items
 
@@ -398,7 +477,8 @@ Negative tests (done-criteria d3):
   already-displayed items on PENDING/VERIFIED → REJECTED via `VerificationStateChange`).
   Global-room PENDING events are not touched by reverify (the projector folds them).
 - **Not yet wired (land with the projector)**: the `stateChanges.DeviceAdded` →
-  `reverifyPendingFor` hook, and the boot sweep (`reverifyAllPending` once after the first fold).
+  `reverifyPendingFor` hook, the boot sweep (`reverifyAllPending` once after the first fold),
+  and the still-active branch-1 subtree query for the cascade-ban UI (ban-first-then-query, §3).
 - SPK rotation / handshake edge cases (see [`e2ee.md`](e2ee.md)).
 - Relay eviction policy for banned devices' queued packets (§5 — decide when implementing 4d).
 - Push notifications (deferred project-wide).
@@ -420,7 +500,25 @@ Negative tests (done-criteria d3):
   breaks branch-2/3 onboarding and recovery, and does not stop the actual attack: the relay's
   authorship is transport, not authorization (the account key is), and the ban evasion is a
   backdated *branch-1* add, which stays legal under that rule.
-- **Unscoped absolute invalidation** (a ban kills *all* AddDevices authored by the banned device):
-  rejected — banning a prolific sponsor (the genesis device) would reset the whole network's
-  devices. Scoped to authorization source instead (§3): only branch-1 adds, where the device's
-  signature is the authorization.
+- **Absolute (position-independent) invalidation of the banned device's adds** — two drafts:
+  unscoped (a ban kills *all* AddDevices authored by the banned device; resets the whole
+  network when a prolific sponsor is banned) and branch-1-scoped (only own-account adds; still
+  kills the rotation scenario): rejected. Rotation counterexample: the genesis phone
+  branch-1-adds the PC and sponsors the new phone; banning the old phone kills both → zero
+  active devices → recovery-key re-onboard of every survivor with fresh device_ids and cache
+  loss. Routine device rotation must not require the recovery key. Superseded by the
+  ancestry-scoped cut (§3): the ban voids exactly the authorizations the banner never vouched
+  for, and the banner explicitly curates (cascade-ban) what it did vouch for.
+- **Witness co-signatures / freshness proofs on AddDevice** (valid only if countersigned by k
+  members within a window): rejected — requires members online (offline-first design), and
+  witness timestamps are self-declared → convergence risk.
+- **Total order / consensus for the global room**: rejected — heavy, conflicts with offline
+  store-and-forward. Note: the deferred `prevIds[]` merge-event model (above) is unrelated to
+  the cut — the cut needs ancestry only, which the current multi-parent append already
+  provides; the rule generalizes unchanged if that model is ever adopted.
+- **2-of-n account-device authorization for adds** (a device-add needs two account devices):
+  rejected — fails exactly at single-device accounts, which is where rotation starts.
+- **Enforcement-layer-only** (accept the smuggled device in the fold; let the sprint-5b key
+  rotation exclude it): rejected — divergent recipient sets per node; the firewall,
+  banned-source check, and relay selection all read the projection; the fold is the single
+  source of truth.

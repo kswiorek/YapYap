@@ -49,8 +49,13 @@ class FakeInboundMessagePipeline : InboundMessagePipeline {
 /**
  * In-memory [PendingSyncRepository] that faithfully tracks [nextAttemptAt], unlike the
  * simpler [org.yapyap.routing.router.InMemoryPendingSyncRepository] used elsewhere.
+ *
+ * [frontierOf] recomputes the requester's chainable frontier fresh on every
+ * [buildSyncRequest], mirroring the real repository (which never stores knownIds).
  */
-class FakePendingSyncRepository : PendingSyncRepository {
+class FakePendingSyncRepository(
+    private val frontierOf: suspend (RoomId) -> List<Uuid> = { emptyList() },
+) : PendingSyncRepository {
     private class Entry(
         var row: PendingSyncRow,
         var nextAttemptAt: Instant,
@@ -61,8 +66,7 @@ class FakePendingSyncRepository : PendingSyncRepository {
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: RoomId,
-        anchorLamport: Long,
-        orphanLamport: Long,
+        targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
         nextAttemptAt: Instant,
     ) {
@@ -70,8 +74,7 @@ class FakePendingSyncRepository : PendingSyncRepository {
             PendingSyncRow(
                 syncId = syncId,
                 roomId = roomId,
-                anchorLamport = anchorLamport,
-                orphanLamport = orphanLamport,
+                targetMessageId = targetMessageId,
                 candidateAccounts = candidateAccounts,
                 attemptedDevices = emptySet(),
                 attempts = 0,
@@ -80,12 +83,24 @@ class FakePendingSyncRepository : PendingSyncRepository {
         )
     }
 
-    override suspend fun updateOrphanLamport(syncId: Uuid, orphanLamport: Long) {
-        entries[syncId]?.let { it.row = it.row.copy(orphanLamport = orphanLamport) }
-    }
-
     override suspend fun deleteSync(syncId: Uuid) {
         entries.remove(syncId)
+    }
+
+    override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid) {
+        entries.entries.removeAll { (_, entry) ->
+            entry.row.roomId == roomId && entry.row.targetMessageId == targetMessageId
+        }
+    }
+
+    override suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest? {
+        val entry = entries[syncId] ?: return null
+        return SystemPayload.SyncRequest(
+            roomId = entry.row.roomId,
+            syncId = syncId,
+            missingIds = listOf(entry.row.targetMessageId),
+            knownIds = frontierOf(entry.row.roomId),
+        )
     }
 
     override suspend fun earliestDueAt(): Instant? =
@@ -118,8 +133,10 @@ class FakePendingSyncRepository : PendingSyncRepository {
         entries[syncId]?.let { it.row = it.row.copy(attemptedDevices = it.row.attemptedDevices + deviceId) }
     }
 
-    override suspend fun findGapSyncByAnchor(roomId: RoomId, anchorLamport: Long): PendingSyncRow? =
-        entries.values.firstOrNull { it.row.roomId == roomId && it.row.anchorLamport == anchorLamport }?.row
+    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow? =
+        entries.values.firstOrNull {
+            it.row.roomId == roomId && it.row.targetMessageId == targetMessageId
+        }?.row
 
     fun all(): List<PendingSyncRow> = entries.values.map { it.row }
 

@@ -139,7 +139,7 @@ internal class DefaultGlobalEventProjector(
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
     ) {
-        require(messageRepository.maxLamportInRoom(RoomId.GLOBAL) == null) {
+        require(!messageRepository.hasMessages(RoomId.GLOBAL)) {
             "genesis requires an empty global room"
         }
         val accountKey = requireNotNull(account.key) { "genesis requires the account public key" }
@@ -297,31 +297,49 @@ internal class DefaultGlobalEventProjector(
     private suspend fun foldAndCommit(trigger: String): Unit =
         TODO(
             "global events fold ($trigger): read findAllInRoom(GLOBAL) — ALL messages, no " +
-                    "isOrphaned / verificationState filtering (§2) — sort (lamportClock, " +
-                    "createdAt, messageId); replay into shadow state with per-event author " +
+                    "isOrphaned / verificationState filtering (§2) — topologically sort over " +
+                    "prevIds edges (Kahn's algorithm, (createdAt, messageId) tiebreak; " +
+                    "unordered leftovers, i.e. a forged causality cycle, replay last); replay " +
+                    "into shadow state with per-event author " +
                     "resolution (AddDevice self-introduction special case), authorSignature " +
                     "verification against shadow keys via cryptoProvider.verifyDetached, §3 " +
                     "authorization branches, keySignature re-verification via " +
-                    "AddDevice.bindingBytes(), and the fold's own lamport structural check " +
-                    "(parent present → lamport == parent + 1). Unresolvable author → skip + keep " +
+                    "AddDevice.bindingBytes(). Unresolvable author → skip + keep " +
                     "PENDING, never REJECTED (UNKNOWN_AUTHOR analogue). While any gap is open in " +
                     "GLOBAL, negative verdicts persist as PENDING (provisional); only a gap-free " +
-                    "fold issues REJECTED. Then the absolute ban post-pass (§3): branch-1 " +
-                    "AddDevices whose author is tombstoned anywhere → invalid, transitively " +
-                    "(fixpoint closure over the branch-1 authorization subtree); keySignature " +
-                    "AddDevices for a tombstoned account → invalid; AddAccount for an existing " +
-                    "accountId → invalid; invalidated AddDevices project as implied RemoveDevice " +
-                    "at the ban's position (tombstone, never retract). Write verification states " +
-                    "as outputs via updateVerificationState (flips allowed as the stored set " +
-                    "grows). Commit as a merge preserving local-only fields (is_local_*, " +
-                    "reliability, last-seen, push token, prekeys) plus the provisional clear + " +
-                    "placeholder fix-up; absence-because-unverifiable rows left untouched, " +
-                    "absence-because-invalidated rows retracted with reversal IdentityStateChange " +
-                    "emissions (§7); maintain room_members(GLOBAL); diff against the previous " +
-                    "commit and emit IdentityStateChange. Prerequisites: devices.status migration " +
-                    "(shared ACTIVE/BANNED enum), commit-shaped IdentityKeyRepository methods " +
-                    "(account upsert w/ admin+status, device upsert w/ binding+status+provisional, " +
-                    "account tombstones), RoomRepository.removeMember, and the global-room PENDING " +
-                    "ingest policy (§4 verificationPolicy).",
+                    "fold issues REJECTED. Then the ban cut post-pass (§3, ancestry-scoped): " +
+                    "during the topological pass collect each RemoveDevice node's transitive " +
+                    "prevIds closure over the in-memory graph (memoized; payloads carry the " +
+                    "edges — no extra repository queries); the FIRST RemoveDevice(D) in " +
+                    "canonical order (any author — self-removal cuts too) defines D's cut; a " +
+                    "branch-1 AddDevice authored by D is invalid iff it is NOT an ancestor of " +
+                    "that ban node — deterministically, on every node, whenever it arrives " +
+                    "(the ban's prevIds were signed by the banner before any post-ban forgery " +
+                    "existed, so a backdated sibling can never enter the closure); the cut is " +
+                    "transitive (fixpoint over the branch-1 authorization subtree: an add " +
+                    "invalidated by the cut implies its author device's tombstone, killing " +
+                    "that author's own branch-1 adds); keySignature AddDevices for a " +
+                    "tombstoned account → invalid (unchanged, absolute); AddAccount for an " +
+                    "existing accountId → invalid; invalidated AddDevices project as implied " +
+                    "RemoveDevice at the ban's position (tombstone, never retract). Write " +
+                    "verification states as outputs via updateVerificationState (flips " +
+                    "allowed as the stored set grows). Commit as a merge preserving " +
+                    "local-only fields (is_local_*, reliability, last-seen, push token, " +
+                    "prekeys) plus the provisional clear + placeholder fix-up; " +
+                    "absence-because-unverifiable rows left untouched, " +
+                    "absence-because-invalidated rows retracted with reversal " +
+                    "IdentityStateChange emissions (§7); maintain room_members(GLOBAL); diff " +
+                    "against the previous commit and emit IdentityStateChange; expose the " +
+                    "still-active branch-1 authorization subtree per device for the " +
+                    "cascade-ban UI (ban-first-then-query — the subtree freezes once the ban " +
+                    "lands, §3). Prerequisites: devices.status migration (shared " +
+                    "ACTIVE/BANNED enum), commit-shaped IdentityKeyRepository methods " +
+                    "(account upsert w/ admin+status, device upsert w/ binding+status+" +
+                    "provisional, account tombstones), RoomRepository.removeMember, the " +
+                    "global-room PENDING ingest policy (§4 verificationPolicy), and the " +
+                    "DefaultDagEngine append-guard fix (refuse to append when the room holds " +
+                    "messages but the chainable frontier is empty — a ban appended through " +
+                    "the newest-message fallback would vouch for a single chain only and cut " +
+                    "the banned device's entire subtree, §3).",
         )
 }

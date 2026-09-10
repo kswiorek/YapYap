@@ -33,7 +33,7 @@ interface DagEngine {
 
     /**
      * Paginated room view ordered by display order
-     * `(createdAtEpochSeconds DESC, lamportClock DESC, messageId DESC)` (newest first).
+     * `(createdAtEpochSeconds DESC, messageId DESC)` (newest first).
      *
      * @param before If non-null, return messages strictly older than this cursor
      *               (i.e. the next page below the oldest row of the previous page).

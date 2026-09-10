@@ -10,7 +10,6 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.DeviceType
-import org.yapyap.persistence.key.BootstrapKeySource
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -52,7 +51,7 @@ class BootstrapInboundIntegrationTest {
             torByPeer = mutableMapOf(newcomer.device.deviceId to tor.advertisedEndpoint),
             clock = clock,
             crypto = crypto,
-            bootstrapKeySource = BootstrapKeySource { secret.copyOf() },
+            bootstrapKeySource = { secret.copyOf() },
         )
         val router = e2eeRouterUnderTest(stack, tor = tor, clock = clock)
         router.start()
@@ -63,9 +62,9 @@ class BootstrapInboundIntegrationTest {
                 device = sponsor.device,
                 deviceType = DeviceType.DESKTOP,
                 torEndpoint = TorEndpoint("sponsor.onion", 80),
-                dagHeadLamport = 0L,
+                dagHeadTipIds = emptyList(),
             )
-            val bootstrapEnvelope = BootstrapProtection(crypto, BootstrapKeySource { secret.copyOf() })
+            val bootstrapEnvelope = BootstrapProtection(crypto) { secret.copyOf() }
                 .protect(payload, sponsor.device.deviceId, newcomer.device.deviceId, clock.now(), secret.copyOf())
             val binary = BinaryEnvelope(
                 packetId = Uuid.random(),

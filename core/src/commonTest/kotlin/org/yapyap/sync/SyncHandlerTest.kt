@@ -20,25 +20,24 @@ class SyncHandlerTest {
     private val remoteAccount = AccountId("handler-remote-account")
     private val roomId = RoomId(Uuid.random())
 
-    private fun textMsg(lamport: Long): MessagePayload.Text =
+    private fun textMsg(): MessagePayload.Text =
         MessagePayload.Text(
             messageId = Uuid.random(),
             roomId = roomId,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDevice,
             authorSignature = byteArrayOf(1),
-            prevId = null,
-            lamportClock = lamport,
+            prevIds = emptyList(),
             createdAt = epochSeconds(0L),
-            text = "m$lamport",
+            text = "m",
         )
 
     private fun syncRequest(): SystemPayload.SyncRequest =
         SystemPayload.SyncRequest(
             roomId = roomId,
             syncId = Uuid.random(),
-            anchorLamport = 0L,
-            orphanLamport = 5L,
+            missingIds = emptyList(),
+            knownIds = emptyList(),
         )
 
     @Test
@@ -47,7 +46,7 @@ class SyncHandlerTest {
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
         )
-        val payloadProvider = RecordingSyncPayloadProvider(messages = listOf(textMsg(1), textMsg(2)))
+        val payloadProvider = RecordingSyncPayloadProvider(messages = listOf(textMsg(), textMsg()))
         val handler = SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
 
         handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
@@ -80,7 +79,7 @@ class SyncHandlerTest {
         val syncId = Uuid.random()
         pendingRepo.insertSync(
             syncId = syncId, roomId = roomId,
-            anchorLamport = 0L, orphanLamport = 5L,
+            targetMessageId = Uuid.random(),
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
         val handler = SyncHandler(stack.outboundMessenger, RecordingSyncPayloadProvider(), pendingRepo, stack.systemSender)

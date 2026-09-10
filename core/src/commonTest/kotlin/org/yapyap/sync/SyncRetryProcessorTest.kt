@@ -52,7 +52,7 @@ class SyncRetryProcessorTest {
         val syncId = Uuid.random()
         repo.insertSync(
             syncId = syncId, roomId = roomId,
-            anchorLamport = 0L, orphanLamport = 5L,
+            targetMessageId = Uuid.random(),
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = now,
         )
         val processor = buildProcessor(stack, FixedSyncPeerPolicy(nextDevice = remoteDevice), repo)
@@ -78,7 +78,7 @@ class SyncRetryProcessorTest {
         val syncId = Uuid.random()
         repo.insertSync(
             syncId = syncId, roomId = roomId,
-            anchorLamport = 0L, orphanLamport = 5L,
+            targetMessageId = Uuid.random(),
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = now,
         )
         val processor = buildProcessor(stack, FixedSyncPeerPolicy(nextDevice = null), repo)

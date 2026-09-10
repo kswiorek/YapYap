@@ -11,20 +11,17 @@ sealed interface MessageDisplayItem {
     val messageId: Uuid
     val accountId: AccountId
     val timestamp: Instant
-    val displayOrderId: Long
 
     data class Text(
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
-        override val displayOrderId: Long,
         val text: String,
     ): MessageDisplayItem
     data class File(
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
-        override val displayOrderId: Long,
         val fileId: String,
         val fileName: String,
         val fileSize: Long,
@@ -33,7 +30,6 @@ sealed interface MessageDisplayItem {
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
-        override val displayOrderId: Long,
         val missingPrevIds: List<Uuid>,
     ): MessageDisplayItem
 }

@@ -101,7 +101,7 @@ class BootstrapInboundHandlerTest {
             device = deviceRecord(deviceId),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsor.onion", 80),
-            dagHeadLamport = 0L,
+            dagHeadTipIds = emptyList(),
         )
 
     private suspend fun sampleRecoveryRequest(deviceId: PeerId): RecoveryRequest {

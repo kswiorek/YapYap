@@ -45,7 +45,6 @@ erDiagram
         string space_id FK "Which Server this belongs to (Nullable)"
         string type "TEXT_CHANNEL, VOICE_CHANNEL, or GLOBAL_CONTROL"
         string name "e.g., '#general'"
-        integer local_seq_n "The local Lamport Clock for this DAG"
     }
 
     ROOM_MEMBERS {
@@ -64,7 +63,6 @@ erDiagram
         string room_id FK "Which DAG this belongs to"
         string sender_account_pub_key FK "Human author"
         string prev_id FK "Pointer to parent message (DAG Link)"
-        integer lamport_clock "Seq N for total ordering"
         string payload_type "TEXT, FILE_OFFER, REVOKE_DEVICE, etc."
         blob encrypted_payload "Opaque E2EE bytes"
         string lifecycle_state "CREATED, SENT, ACKED, ARCHIVED"

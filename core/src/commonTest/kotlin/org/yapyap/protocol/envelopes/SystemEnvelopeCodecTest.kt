@@ -54,8 +54,8 @@ class SystemEnvelopeCodecTest {
         val original = SystemPayload.SyncRequest(
             roomId = RoomId(Uuid.random()),
             syncId = Uuid.random(),
-            anchorLamport = 42L,
-            orphanLamport = 7L,
+            missingIds = listOf(Uuid.random(), Uuid.random()),
+            knownIds = listOf(Uuid.random()),
         )
         val decoded = SystemPayload.SyncRequest.decode(original.encode())
         assertSyncRequestEquals(original, decoded)
@@ -77,7 +77,10 @@ class SystemEnvelopeCodecTest {
             pingId = samplePacketId,
             isReply = false,
             selfReportedAvailability = 0.2,
-            roomLamports = listOf(RoomId(Uuid.random()) to 7L, RoomId(Uuid.random()) to 42L),
+            roomFrontiers = listOf(
+                RoomId(Uuid.random()) to listOf(Uuid.random(), Uuid.random()),
+                RoomId(Uuid.random()) to listOf(Uuid.random()),
+            ),
         )
         val decoded = SystemPayload.Ping.decode(original.encode())
         assertPingEquals(original, decoded)
@@ -90,7 +93,7 @@ class SystemEnvelopeCodecTest {
             pingId = samplePacketId,
             isReply = true,
             selfReportedAvailability = 0.8,
-            roomLamports = emptyList(),
+            roomFrontiers = emptyList(),
         )
         val decoded = SystemPayload.Ping.decode(original.encode())
         assertPingEquals(original, decoded)
@@ -98,12 +101,12 @@ class SystemEnvelopeCodecTest {
     }
 
     @Test
-    fun systemPayload_ping_emptyLamports_encodeDecode_roundTrip() {
+    fun systemPayload_ping_emptyFrontiers_encodeDecode_roundTrip() {
         val original = SystemPayload.Ping(
             pingId = samplePacketId,
             isReply = false,
             selfReportedAvailability = 1.0,
-            roomLamports = emptyList(),
+            roomFrontiers = emptyList(),
         )
         val decoded = SystemPayload.Ping.decode(original.encode())
         assertPingEquals(original, decoded)
@@ -156,8 +159,8 @@ class SystemEnvelopeCodecTest {
         val syncRequest = SystemPayload.SyncRequest(
             roomId = RoomId(Uuid.random()),
             syncId = Uuid.random(),
-            anchorLamport = 1234L,
-            orphanLamport = 10L,
+            missingIds = listOf(Uuid.random()),
+            knownIds = listOf(Uuid.random(), Uuid.random()),
         )
         val env = SystemEnvelope(
             systemEnvelopeId = Uuid.random(),
@@ -251,8 +254,8 @@ class SystemEnvelopeCodecTest {
     private fun assertSyncRequestEquals(expected: SystemPayload.SyncRequest, actual: SystemPayload.SyncRequest) {
         assertEquals(expected.roomId, actual.roomId)
         assertEquals(expected.syncId, actual.syncId)
-        assertEquals(expected.anchorLamport, actual.anchorLamport)
-        assertEquals(expected.orphanLamport, actual.orphanLamport)
+        assertEquals(expected.missingIds, actual.missingIds)
+        assertEquals(expected.knownIds, actual.knownIds)
     }
 
     private fun assertSyncNackEquals(expected: SystemPayload.SyncNack, actual: SystemPayload.SyncNack) {
@@ -263,7 +266,7 @@ class SystemEnvelopeCodecTest {
     private fun assertPingEquals(expected: SystemPayload.Ping, actual: SystemPayload.Ping) {
         assertEquals(expected.pingId, actual.pingId)
         assertEquals(expected.isReply, actual.isReply)
-        assertEquals(expected.roomLamports, actual.roomLamports)
+        assertEquals(expected.roomFrontiers, actual.roomFrontiers)
         // The wire value is quantised to a byte (1/255 granularity).
         assertEquals(
             expected.selfReportedAvailability,

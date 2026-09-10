@@ -37,23 +37,19 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun roomRepository_ensureRoomExists_seedsGlobalRoom_idempotently_andPreservesSeq() = runTest {
+    fun roomRepository_ensureRoomExists_seedsGlobalRoom_idempotently() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         val repo = DefaultRoomRepository(db)
 
-        // Seeding creates the row with local_seq_n = -1 (no messages yet).
         repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
-        assertEquals(-1L, repo.getLocalSeq(RoomId.GLOBAL))
         assertEquals(emptyList<AccountId>(), repo.membersOfRoom(RoomId.GLOBAL))
 
-        // Local progress advances local_seq_n...
-        repo.updateLocalSeq(RoomId.GLOBAL, 5L)
-        assertEquals(5L, repo.getLocalSeq(RoomId.GLOBAL))
-
-        // ...and a later idempotent seed must NOT reset it back to -1.
+        // ...and a later idempotent seed must NOT wipe membership.
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
         repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
-        assertEquals(5L, repo.getLocalSeq(RoomId.GLOBAL))
+        assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
     }
 
     @Test

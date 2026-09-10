@@ -302,7 +302,6 @@ internal class DefaultMessagingService(
                 messageId = payload.messageId,
                 accountId = payload.senderAccountId,
                 timestamp = payload.createdAt,
-                displayOrderId = payload.lamportClock,
                 missingPrevIds = it.missingPrevIds,
             )
         }
@@ -376,7 +375,6 @@ internal class DefaultMessagingService(
             messageId = messageId,
             accountId = senderAccountId,
             timestamp = createdAt,
-            displayOrderId = lamportClock,
             text = text,
         )
         else -> null
@@ -427,7 +425,6 @@ internal class DefaultMessagingService(
                 val oldest = page.last()
                 oldestCursor = MessageCursor(
                     createdAt = oldest.createdAt,
-                    lamportClock = oldest.lamportClock,
                     messageId = oldest.messageId,
                 )
                 _hasMoreOlder.value = page.size >= initialPageSize
@@ -451,7 +448,6 @@ internal class DefaultMessagingService(
                 val oldest = page.last()
                 oldestCursor = MessageCursor(
                     createdAt = oldest.createdAt,
-                    lamportClock = oldest.lamportClock,
                     messageId = oldest.messageId,
                 )
                 _hasMoreOlder.value = page.size >= pageSize
@@ -499,10 +495,8 @@ internal class DefaultMessagingService(
                 }
 
                 // Display list is oldest -> newest; insert before the first item newer than [item].
-                // Composite tie-break: (timestamp, displayOrderId, accountId.id) — matches the DB
-                // display-order index, which uses messageId as the final tiebreak. Same-sender
-                // messages never share a lamport clock, so (timestamp, lamport, accountId) is unique
-                // among display items and messageId is not needed here.
+                // Composite order (timestamp, messageId) matches the DB display-order index.
+                // messageId is the primary key, so the pair is unique among display items.
                 val insertIdx = current.indexOfFirst { it.isDisplayAfter(item) }
                 if (insertIdx == -1) {
                     current.add(item)
@@ -528,12 +522,11 @@ internal class DefaultMessagingService(
 
         /**
          * True if `this` is strictly newer than [other] per the composite display order
-         * `(createdAt, lamportClock, accountId)`.
+         * `(createdAt, messageId)`.
          */
         private fun MessageDisplayItem.isDisplayAfter(other: MessageDisplayItem): Boolean {
             if (timestamp != other.timestamp) return timestamp > other.timestamp
-            if (displayOrderId != other.displayOrderId) return displayOrderId > other.displayOrderId
-            return accountId.id > other.accountId.id
+            return messageId > other.messageId
         }
 
         private fun buildDisplayList(
@@ -549,7 +542,6 @@ internal class DefaultMessagingService(
                         messageId = msg.messageId,
                         accountId = msg.senderAccountId,
                         timestamp = msg.createdAt,
-                        displayOrderId = msg.lamportClock,
                         text = msg.text,
                     )
                 )
@@ -561,7 +553,6 @@ internal class DefaultMessagingService(
                             messageId = msg.messageId,
                             accountId = msg.senderAccountId,
                             timestamp = msg.createdAt,
-                            displayOrderId = msg.lamportClock,
                             missingPrevIds = orphanedGap,
                         )
                     )
