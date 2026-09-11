@@ -41,6 +41,7 @@ data class MessageEnvelope(
         writer.writeByteArray(payload)
         return writer.toByteArray()
     }
+
     fun decodePayload(): MessagePayload = MessagePayload.decode(payload)
 
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
@@ -76,7 +77,7 @@ data class MessageEnvelope(
          */
         const val ENCODED_OVERHEAD_BYTES: Int = 263
 
-            fun decode(bytes: ByteArray): MessageEnvelope {
+        fun decode(bytes: ByteArray): MessageEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid message envelope magic" }
@@ -87,7 +88,7 @@ data class MessageEnvelope(
             val messageEnvelopeId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
-                val createdAt = Instant.fromEpochSeconds(reader.readLong())
+            val createdAt = Instant.fromEpochSeconds(reader.readLong())
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()
@@ -157,6 +158,7 @@ sealed interface MessagePayload {
      * message references the room's chainable frontier at append time.
      */
     val prevIds: List<Uuid>
+
     /**
      * Sender's wall-clock composition time, set once by [org.yapyap.orchestrator.dag.DagEngine.append]
      * at send time and carried on the wire unchanged. Distinct from
@@ -191,7 +193,7 @@ sealed interface MessagePayload {
 
         override val payloadType: MessagePayloadType = MessagePayloadType.TEXT
 
-            override fun withSignature(signature: ByteArray): Text = copy(authorSignature = signature)
+        override fun withSignature(signature: ByteArray): Text = copy(authorSignature = signature)
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(256 + text.length + (authorSignature?.size ?: 4))
@@ -210,15 +212,15 @@ sealed interface MessagePayload {
 
         companion object {
             /**
-              * Generous reserve for the fixed [Text] header bytes added by [encode] around the
-              * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
-              * + authorDeviceId(2+64) + prevIds(4+16*n) + createdAt(8) + text length
-              * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
-              * for the margin; the fixed portion is ~127 bytes.
+             * Generous reserve for the fixed [Text] header bytes added by [encode] around the
+             * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
+             * + authorDeviceId(2+64) + prevIds(4+16*n) + createdAt(8) + text length
+             * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
+             * for the margin; the fixed portion is ~127 bytes.
              */
             const val ENCODED_HEADER_RESERVE_BYTES: Int = 512
 
-                    fun decode(bytes: ByteArray): Text {
+            fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.TEXT)
                 val text = reader.readString()
@@ -281,6 +283,7 @@ sealed interface MessagePayload {
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         override val roomId = RoomId.GLOBAL
+
         init {
             if (authorSignature != null) {
                 require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
@@ -289,7 +292,7 @@ sealed interface MessagePayload {
 
         override val payloadType: MessagePayloadType = MessagePayloadType.GLOBAL_EVENT
 
-            override fun withSignature(signature: ByteArray): GlobalEvent = copy(authorSignature = signature)
+        override fun withSignature(signature: ByteArray): GlobalEvent = copy(authorSignature = signature)
 
         /** Decodes [eventBytes] into the typed control event (two-level dispatch). */
         fun decodeEvent(): GlobalEventPayload = GlobalEventPayload.decode(eventBytes)

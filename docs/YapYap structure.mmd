@@ -3,13 +3,12 @@ config:
   layout: elk
 ---
 flowchart TD
-    classDef layer fill:#f8f9fa,stroke:#ced4da,stroke-width:2px,rx:10px,ry:10px;
-    classDef feature fill:#d4edda,stroke:#28a745,stroke-width:2px;
-    classDef logic fill:#fff3cd,stroke:#ffc107,stroke-width:2px;
-    classDef crypto fill:#f8d7da,stroke:#dc3545,stroke-width:2px;
-    classDef network fill:#cce5ff,stroke:#007bff,stroke-width:2px;
-    classDef api fill:#e2e3e5,stroke:#6c757d,stroke-width:2px;
-
+    classDef layer fill: #f8f9fa, stroke: #ced4da, stroke-width: 2px, rx: 10px, ry: 10px;
+    classDef feature fill: #d4edda, stroke: #28a745, stroke-width: 2px;
+    classDef logic fill: #fff3cd, stroke: #ffc107, stroke-width: 2px;
+    classDef crypto fill: #f8d7da, stroke: #dc3545, stroke-width: 2px;
+    classDef network fill: #cce5ff, stroke: #007bff, stroke-width: 2px;
+    classDef api fill: #e2e3e5, stroke: #6c757d, stroke-width: 2px;
     subgraph ClientAPI ["Layer 5: Client Interface"]
         IPC(["Local API (Kotlin)"]):::api
     end
@@ -38,26 +37,20 @@ flowchart TD
         RTCMedia["WebRTC Media Streams"]:::network
     end
 
-    %% Connections
+%% Connections
     IPC --> Features
-    
     AsyncMsg --> Inbox
     RealTimeMsg --> Router
     BigFiles --> Router
     AVCalls --> Router
-
     Inbox --> StateSync
     StateSync --> Router
-    
     Router --> Identity
     Router --> E2EE
-    
-    %% Network Routing decisions
+%% Network Routing decisions
     E2EE --> Tor
     E2EE --> RTCData
-    
-    Router -.-> |Signaling| Tor
+    Router -.->|Signaling| Tor
     Router --> RTCMedia
-    
-    %% Notes
-    class ClientAPI,Features,CoreLogic,Security,Network layer;
+%% Notes
+class ClientAPI, Features, CoreLogic, Security, Network layer;

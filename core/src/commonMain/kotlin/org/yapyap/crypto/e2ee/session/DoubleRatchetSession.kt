@@ -63,6 +63,7 @@ class DoubleRatchetSession private constructor(
             remoteDh != null && isSupersededDhChain(frame.dhPublicKey) -> {
                 throw CryptoSessionException.SupersededDhChain(frame.messageNumber)
             }
+
             else -> {
                 if (remoteDh != null) {
                     markDhChainSuperseded(remoteDh)
@@ -415,7 +416,7 @@ internal fun writeInt(target: ByteArray, offset: Int, value: Int) {
 internal fun readInt(bytes: ByteArray, offset: Int): Int {
     require(offset + 4 <= bytes.size) { "unexpected end of ratchet ciphertext" }
     return ((bytes[offset].toInt() and 0xff) shl 24) or
-        ((bytes[offset + 1].toInt() and 0xff) shl 16) or
-        ((bytes[offset + 2].toInt() and 0xff) shl 8) or
-        (bytes[offset + 3].toInt() and 0xff)
+            ((bytes[offset + 1].toInt() and 0xff) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xff) shl 8) or
+            (bytes[offset + 3].toInt() and 0xff)
 }

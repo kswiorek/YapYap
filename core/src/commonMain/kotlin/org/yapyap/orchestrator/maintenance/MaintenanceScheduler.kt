@@ -17,12 +17,14 @@ class MaintenanceScheduler(
     suspend fun runOnce() {
         tasks.forEach { task ->
             runCatching { task() }  // log-and-continue, never let one task kill the loop
-                .onFailure { e -> AppLog.error(
-                    component = LogComponent.ORCHESTRATOR,
-                    event = LogEvent.MAINTENANCE_FAILED,
-                    message = "Maintenance task failed:",
-                    throwable = e,
-                ) }
+                .onFailure { e ->
+                    AppLog.error(
+                        component = LogComponent.ORCHESTRATOR,
+                        event = LogEvent.MAINTENANCE_FAILED,
+                        message = "Maintenance task failed:",
+                        throwable = e,
+                    )
+                }
         }
     }
 
@@ -30,7 +32,9 @@ class MaintenanceScheduler(
         config.map { it.maintenanceInterval }
             .distinctUntilChanged()
             .collectLatest { interval ->
-                while (isActive) { delay(interval); runOnce() }
+                while (isActive) {
+                    delay(interval); runOnce()
+                }
             }
     }
 }

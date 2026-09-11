@@ -91,15 +91,17 @@ class DefaultCryptoProvider(
         )
 
     override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
-        val privateEdDsaKey =  edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.RAW, privateKey)
+        val privateEdDsaKey =
+            edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.RAW, privateKey)
 
-        return  privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.RAW)
+        return privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.RAW)
     }
 
     override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray {
-        val privateXdhKey =  xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(XDH.PrivateKey.Format.RAW, privateKey)
+        val privateXdhKey =
+            xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(XDH.PrivateKey.Format.RAW, privateKey)
 
-        return  privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.RAW)
+        return privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.RAW)
     }
 
     private suspend fun aeadKey(key: ByteArray): ChaCha20Poly1305.Key {
@@ -148,7 +150,11 @@ class DefaultCryptoProvider(
         return privateKey.signatureGenerator().generateSignature(message)
     }
 
-    override suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean {
+    override suspend fun verifyDetached(
+        publicSigningKey: ByteArray,
+        message: ByteArray,
+        signature: ByteArray
+    ): Boolean {
         val publicKey = edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
             format = EdDSA.PublicKey.Format.RAW,
             bytes = publicSigningKey,

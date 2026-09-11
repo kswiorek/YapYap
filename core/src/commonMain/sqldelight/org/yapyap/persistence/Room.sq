@@ -37,6 +37,10 @@ insertRoomMember:
 INSERT OR REPLACE INTO room_members (room_id, account_id, role, joined_timestamp)
 VALUES (?, ?, ?, ?);
 
+removeRoomMember:
+DELETE FROM room_members
+WHERE room_id = ? AND account_id = ?;
+
 -- Rooms a peer belongs to (drives which rooms we exchange frontiers about in pings).
 selectRoomsOfPeer:
 SELECT r.room_id

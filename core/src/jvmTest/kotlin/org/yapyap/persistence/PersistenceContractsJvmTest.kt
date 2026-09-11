@@ -130,13 +130,16 @@ class PersistenceContractsJvmTest {
             signing = IdentityPublicKeyRecord("s-a", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(0x21)),
             encryption = IdentityPublicKeyRecord("e-a", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x31)),
         )
-        repo.insertLocalDevice(accountId = accountId, identity = devA,)
+        repo.insertLocalDevice(accountId = accountId, identity = devA)
 
         assertEquals(accountRecord.accountId.id, repo.getAccountRecord(accountId)!!.accountId.id)
         assertEquals(deviceA.id, repo.getDeviceRecord(deviceA)!!.deviceId.id)
 
         assertContentEquals(byteArrayOf(0x21), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.SIGNING)!!.publicKey)
-        assertContentEquals(byteArrayOf(0x31), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.ENCRYPTION)!!.publicKey)
+        assertContentEquals(
+            byteArrayOf(0x31),
+            repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.ENCRYPTION)!!.publicKey
+        )
 
         val torBefore = requireNotNull(repo.resolveTorEndpointForDevice(deviceA))
         assertTrue(torBefore.onionAddress.endsWith(".onion"))
@@ -505,7 +508,7 @@ class PersistenceContractsJvmTest {
             payload = relayPayload,
         ).encode().size.toLong()
 
-        val evicted = outbox.pruneRelayOverCapacity(relayBlobSize-1)
+        val evicted = outbox.pruneRelayOverCapacity(relayBlobSize - 1)
         assertTrue(evicted >= 1)
         assertTrue(outbox.relayCacheBytes() <= relayBlobSize)
         assertEquals(1, outbox.listAllForTarget(FixtureDevicePeerId).size)

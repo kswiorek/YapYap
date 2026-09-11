@@ -21,6 +21,7 @@ interface RoomRepository {
     suspend fun roomsOfPeer(peerId: PeerId): List<RoomId>
     suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String)
     suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole)
+    suspend fun removeMember(roomId: RoomId, accountId: AccountId)
 }
 
 class DefaultRoomRepository(
@@ -31,7 +32,7 @@ class DefaultRoomRepository(
         withContext(dbDispatcher) {
             val members = database.roomQueries.selectAllMembersForRoom(roomId)
                 .executeAsList()
-                .map {it.account_id}
+                .map { it.account_id }
             AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.ROOM_MEMBERS_QUERIED,
@@ -76,6 +77,21 @@ class DefaultRoomRepository(
                     "roomId" to roomId,
                     "accountId" to accountId,
                     "role" to role,
+                ),
+            )
+        }
+    }
+
+    override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
+        withContext(dbDispatcher) {
+            database.roomQueries.removeRoomMember(roomId, accountId)
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.ROOM_MEMBERS_QUERIED,
+                message = "Removed room member",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "accountId" to accountId,
                 ),
             )
         }

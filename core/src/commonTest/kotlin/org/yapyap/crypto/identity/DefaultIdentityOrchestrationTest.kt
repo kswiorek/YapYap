@@ -16,10 +16,10 @@ class DefaultIdentityOrchestrationTest {
     private val fixedTor = TorEndpoint(onionAddress = "fixture-identity.onion", port = 443)
 
     private fun stack(): Triple<
-        InMemoryIdentityKeyRepository,
-        InMemoryKeyStore,
-        Pair<DefaultIdentityResolver, DefaultIdentityProvisioning>,
-        > {
+            InMemoryIdentityKeyRepository,
+            InMemoryKeyStore,
+            Pair<DefaultIdentityResolver, DefaultIdentityProvisioning>,
+            > {
         val repo = InMemoryIdentityKeyRepository(defaultLocalTor = fixedTor)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()

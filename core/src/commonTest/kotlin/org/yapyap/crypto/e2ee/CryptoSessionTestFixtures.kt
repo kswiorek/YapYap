@@ -80,10 +80,17 @@ internal class TestIdentityResolver(
                 device.signedPreKey?.takeIf { it.keyId == signedPreKeyId }
                     ?: error("Signed prekey not found: $signedPreKeyId")
             }
+
             else -> device.signedPreKey
                 ?: error("Missing signed prekey on roster for deviceId=$deviceId")
         }
-        require(cryptoProvider.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
+        require(
+            cryptoProvider.verifyDetached(
+                device.signing.publicKey,
+                signedPreKey.publicKey,
+                signedPreKey.signature
+            )
+        ) {
             "failed to verify signed prekey signature"
         }
         return X3dhRemotePeerKeys(

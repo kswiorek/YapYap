@@ -131,7 +131,8 @@ internal class SystemSender(
         val transport = transportPolicy.resolve(
             target,
             hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
-            retries = 0).transport
+            retries = 0
+        ).transport
         sendSystemEnvelope(request, transport, context)
     }
 
@@ -183,7 +184,7 @@ internal class SystemSender(
     suspend fun sendPing(
         target: PeerId,
         payload: SystemPayload.Ping,
-    )  {
+    ) {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
@@ -210,7 +211,7 @@ internal class SystemSender(
 
     suspend fun sendLogOff(
         target: PeerId,
-    )  {
+    ) {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,

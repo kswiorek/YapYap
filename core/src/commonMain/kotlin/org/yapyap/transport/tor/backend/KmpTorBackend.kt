@@ -171,14 +171,18 @@ class KmpTorBackend(
             } catch (error: SocksConnectException) {
                 val shouldRetry =
                     error.code in configSnapshot.socksTransientFailureCodes &&
-                        TimeSource.Monotonic.markNow() < deadline
+                            TimeSource.Monotonic.markNow() < deadline
                 if (!shouldRetry) {
                     AppLog.error(
                         component = LogComponent.TOR_BACKEND,
                         event = LogEvent.SESSION_FAILED,
                         message = "SOCKS connect failed for Tor send",
                         throwable = error,
-                        fields = mapOf("targetHost" to target.onionAddress, "targetPort" to target.port, "code" to error.code),
+                        fields = mapOf(
+                            "targetHost" to target.onionAddress,
+                            "targetPort" to target.port,
+                            "code" to error.code
+                        ),
                     )
                     throw TransportException.TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
                 }
@@ -216,7 +220,9 @@ class KmpTorBackend(
 
                 if (ready) return@withTimeoutOrNull
 
-                if (torRuntime == null) {throw TransportException.TorException.TorRuntimeError("Tor runtime exitted before ready")}
+                if (torRuntime == null) {
+                    throw TransportException.TorException.TorRuntimeError("Tor runtime exitted before ready")
+                }
                 delay(150.milliseconds)
             }
         }
@@ -229,6 +235,11 @@ class KmpTorBackend(
         while (scope?.isActive == true) {
             val client = runCatching { listener.accept() }.getOrElse { break }
 
+            // TODO(sprint-4d firewall): socket-level decentralized firewall — check the
+            // connecting onion against the BANNED device set (committed by the global events
+            // fold) and instantly close the connection at accept time, before any frame is
+            // read (docs/ban diagram.mmd steps 8–9). Absence from the banned set (including
+            // unknown onions) must NOT close — absence asserts nothing.
             scope?.launch {
                 try {
                     val input = client.openReadChannel()

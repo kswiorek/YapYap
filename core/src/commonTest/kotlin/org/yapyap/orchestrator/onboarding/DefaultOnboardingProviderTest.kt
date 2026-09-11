@@ -93,6 +93,7 @@ private class NoopGlobalEventProjector : GlobalEventProjector {
     override suspend fun publishRemoveAdmin(targetAccountId: AccountId) = Unit
     override suspend fun publishRemoveAccount(targetAccountId: AccountId) = Unit
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = Unit
+    override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = emptyList()
 }
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)

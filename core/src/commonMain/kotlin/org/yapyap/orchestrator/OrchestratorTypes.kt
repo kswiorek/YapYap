@@ -6,9 +6,7 @@ import org.yapyap.protocol.envelopes.Invite
 
 enum class OrchestratorState {
     Created,
-    Unlocking,
-    SetupRequired,    // app: show onboarding; relay: should not linger here
-    BootRecovering,
+    SetupRequired,
     Starting,
     Running,
     Stopping,
@@ -38,7 +36,7 @@ sealed interface SetupIntent {
      */
     data class NewAccountFirstDevice(
         val accountName: String,
-    ): SetupIntent
+    ) : SetupIntent
 
     /**
      * Out-of-band bootstrap endpoint, supplied by the user for account recovery (and later for
@@ -60,9 +58,9 @@ sealed interface SetupIntent {
     data class ImportAccountRecoveryKey(
         val recoveryKey: String,
         val bootstrapEndpoint: BootstrapEndpoint,
-    ): SetupIntent
+    ) : SetupIntent
 
-    data object AddDeviceToExistingAccount: SetupIntent
+    data object AddDeviceToExistingAccount : SetupIntent
 }
 
 data class SetupResult(

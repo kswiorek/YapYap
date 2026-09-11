@@ -113,14 +113,6 @@ SELECT * FROM messages WHERE verification_state = 'PENDING';
 selectHasMessagesInRoom:
 SELECT EXISTS(SELECT 1 FROM messages WHERE room_id = ?);
 
--- Newest non-rejected message; append-guard fallback only (all tips parked).
-selectLatestInRoom:
-SELECT * FROM messages
-WHERE room_id = ?
-  AND verification_state != 'REJECTED'
-ORDER BY created_at_epoch_seconds DESC, message_id DESC
-LIMIT 1;
-
 selectAllMessagesInRoom:
 SELECT * FROM messages
 WHERE room_id = ?

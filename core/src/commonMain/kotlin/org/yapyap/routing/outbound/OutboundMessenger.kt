@@ -89,6 +89,7 @@ internal class OutboundMessenger(
                 permanent == deviceCount -> SendFailureKind.PERMANENT
                 else -> SendFailureKind.MIXED
             }
+
             SendMessageStatus.PARTIAL -> when {
                 permanent > 0 -> SendFailureKind.MIXED
                 notReady > 0 -> SendFailureKind.NOT_READY
@@ -259,6 +260,7 @@ internal class OutboundMessenger(
                 )
                 PeerSendOutcome.PermanentFailure
             }
+
             ProtectionDisposition.RETRYABLE,
             ProtectionDisposition.DEFER,
                 -> {

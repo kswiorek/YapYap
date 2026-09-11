@@ -69,7 +69,8 @@ class PlaintextWebRtcSignalProtection(
         )
     }
 
-    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
 
     override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 
@@ -119,7 +120,11 @@ class SignedWebRtcSignalProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed WebRTC signal envelope",
-            fields = mapOf("sessionId" to envelope.signalEnvelopeId, "source" to envelope.source, "kind" to envelope.kind.name),
+            fields = mapOf(
+                "sessionId" to envelope.signalEnvelopeId,
+                "source" to envelope.source,
+                "kind" to envelope.kind.name
+            ),
         )
         return WebRtcSignal(
             kind = envelope.kind,
@@ -129,7 +134,8 @@ class SignedWebRtcSignalProtection(
         )
     }
 
-    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
 
     override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 
@@ -209,12 +215,17 @@ class SignedAndEncryptedWebRtcSignalProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed and encrypted Signal envelope",
-            fields = mapOf("sessionId" to envelope.signalEnvelopeId, "source" to envelope.source, "kind" to envelope.kind.name),
+            fields = mapOf(
+                "sessionId" to envelope.signalEnvelopeId,
+                "source" to envelope.source,
+                "kind" to envelope.kind.name
+            ),
         )
         return signalPayload
     }
 
-    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
 
     override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 

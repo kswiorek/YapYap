@@ -16,9 +16,9 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         records.values
             .firstOrNull {
                 it.peerDeviceId == peerDeviceId &&
-                    it.sessionEpoch == sessionEpoch &&
-                    it.canonical &&
-                    it.meta.status == SessionStatus.ACTIVE
+                        it.sessionEpoch == sessionEpoch &&
+                        it.canonical &&
+                        it.meta.status == SessionStatus.ACTIVE
             }
             ?.let { copyRecord(it) }
 
@@ -94,8 +94,8 @@ internal class MapBackedCryptoSessionStore : CryptoSessionStore {
         records.values
             .filter {
                 it.peerDeviceId == peerDeviceId &&
-                    it.sessionEpoch == sessionEpoch &&
-                    it.meta.role == role
+                        it.sessionEpoch == sessionEpoch &&
+                        it.meta.role == role
             }
             .maxOfOrNull { it.meta.sessionGeneration }
 

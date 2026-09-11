@@ -22,7 +22,12 @@ interface IdentityProvisioning {
     /** Restore local account from a recovery code (keystore + local accounts row). */
     suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord
 
-    suspend fun provisionDeviceIdentity(accountId: AccountId, deviceType: DeviceType, deviceIdentity: DeviceIdentityRecord, torEndpoint: TorEndpoint)
+    suspend fun provisionDeviceIdentity(
+        accountId: AccountId,
+        deviceType: DeviceType,
+        deviceIdentity: DeviceIdentityRecord,
+        torEndpoint: TorEndpoint
+    )
 
     suspend fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus)
 

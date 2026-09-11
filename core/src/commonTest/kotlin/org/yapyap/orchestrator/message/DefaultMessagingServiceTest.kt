@@ -128,6 +128,35 @@ class DefaultMessagingServiceTest {
     }
 
     @Test
+    fun sendTextMessage_parkedFrontier_returnsHistoryIncomplete_andSendsNothing() =
+        runTest(UnconfinedTestDispatcher()) {
+            dagEngine.ingest(
+                MessagePayload.Text(
+                    messageId = Uuid.random(),
+                    roomId = roomId,
+                    senderAccountId = remoteAccount,
+                    prevIds = listOf(Uuid.random()),
+                    createdAt = clock.now(),
+                    text = "waiting for prev",
+                    authorDeviceId = PeerId("test-device"),
+                    authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+                ),
+            )
+            val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+            val service = newService(this, pipeline)
+            startStack(this, pipeline, service)
+
+            val result = service.sendTextMessage(roomId, "hello from local")
+
+            assertEquals(SendMessageStatus.FAILURE, result.status)
+            assertEquals(SendFailureKind.HISTORY_INCOMPLETE, result.failureKind)
+            assertEquals(0, result.peersTotal)
+            assertEquals(0, result.peersQueued)
+            assertTrue(router.sentTargets.isEmpty())
+            assertEquals(1, messageRepo.byId.size)
+        }
+
+    @Test
     fun sendTextMessage_toEmptyRoom_returnsSuccessWithZeroPeers() = runTest(UnconfinedTestDispatcher()) {
         roomMembershipRepo.members[roomId] = emptyList()
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
@@ -493,6 +522,8 @@ private class FakeRoomRepository(
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = Unit
 
     override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) = Unit
+
+    override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = Unit
 }
 
 private class FakeMessageRepository : MessageRepository {
@@ -573,14 +604,6 @@ private class FakeMessageRepository : MessageRepository {
 
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
-
-    override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =
-        byId.values
-            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
-            .maxWithOrNull(
-                compareBy<MessageRow> { it.payload.createdAt }
-                    .thenBy { it.payload.messageId }
-            )
 
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
@@ -704,6 +727,7 @@ private class RecordingRouter : Router {
         _incomingMessages.emit(payload)
     }
 }
+
 private class FakeSignatureProvider : SignatureProvider {
     override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
 

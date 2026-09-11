@@ -104,17 +104,19 @@ sealed class ProtectionException(
                 is CryptoSessionException.Replay,
                 is CryptoSessionException.MessageSkipExceeded,
                 is CryptoSessionException.OversizedFrame,
-                -> SessionViolation(error)
+                    -> SessionViolation(error)
+
                 is CryptoSessionException.SupersededDhChain -> SessionGap(error)
                 is CryptoSessionException.DecryptionFailed ->
                     AuthenticationFailed(AuthenticationReason.DECRYPT_AUTH_FAILED, error)
+
                 is CryptoSessionException.NoSession,
                 is CryptoSessionException.HandshakeRequired,
                 is CryptoSessionException.HandshakeMismatch,
                 is CryptoSessionException.MissingOfferedOpk,
                 is CryptoSessionException.OpkConsumeFailed,
                 is CryptoSessionException.MissingInitiatorEphemeral,
-                -> SessionNotReady(error)
+                    -> SessionNotReady(error)
             }
 
         fun mapEncryptDecryptFailure(error: Exception): ProtectionException =

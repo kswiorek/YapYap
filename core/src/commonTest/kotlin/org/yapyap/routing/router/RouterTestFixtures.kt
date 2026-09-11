@@ -203,7 +203,7 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
         delegate.openBootstrap(envelope)
 }
 
-internal class FakeSyncPayloadProvider : SyncPayloadProvider{
+internal class FakeSyncPayloadProvider : SyncPayloadProvider {
     override suspend fun getMessages(syncRequest: SystemPayload.SyncRequest): List<MessagePayload> {
         error("not used in router transport tests")
     }
@@ -358,7 +358,7 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
-    override suspend fun getLocalDeviceId(): PeerId  = error("not used")
+    override suspend fun getLocalDeviceId(): PeerId = error("not used")
     override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
@@ -572,6 +572,7 @@ internal class E2eeIdentityResolverForRouter(
                 device.signedPreKey?.takeIf { it.keyId == signedPreKeyId }
                     ?: error("Signed prekey not found: $signedPreKeyId")
             }
+
             else -> device.signedPreKey
                 ?: error("Missing signed prekey on roster for deviceId=$deviceId")
         }
@@ -626,7 +627,8 @@ internal fun buildE2eeRouterStack(
         clock = clock,
         cryptoLimits = MutableStateFlow(testCryptoLimits()),
         sessionConfig = MutableStateFlow(
-            CryptoSessionConfig())
+            CryptoSessionConfig()
+        )
     )
     val signatureProvider = DefaultSignatureProvider(identity, crypto)
     val protection = DefaultEnvelopeProtectionService(

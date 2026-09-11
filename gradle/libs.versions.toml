@@ -59,13 +59,13 @@ runtime = { module = "io.matthewnelson.kmp-tor:runtime", version.ref = "runtime"
 sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "androidDriver" }
 sqlite-jdbc = { module = "io.github.willena:sqlite-jdbc", version.ref = "sqliteJdbc" }
 webrtc-java = { module = "dev.onvoid.webrtc:webrtc-java", version.ref = "webrtcJava" }
-ktor-network = { module = "io.ktor:ktor-network", version.ref = "ktor"}
-ktor-io = { module = "io.ktor:ktor-io", version.ref = "ktor"}
-tor-resource-exec-tor = { module = "io.matthewnelson.kmp-tor:resource-exec-tor", version.ref = "kmpTorResource"}
-tor-resource-noexec-tor = { module = "io.matthewnelson.kmp-tor:resource-noexec-tor", version.ref = "kmpTorResource"}
-kotlinx-io-core = {module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinxIoCore"}
-tomlkt = {module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlktVersion"}
-kotlinx-serialization-core = {module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization"}
+ktor-network = { module = "io.ktor:ktor-network", version.ref = "ktor" }
+ktor-io = { module = "io.ktor:ktor-io", version.ref = "ktor" }
+tor-resource-exec-tor = { module = "io.matthewnelson.kmp-tor:resource-exec-tor", version.ref = "kmpTorResource" }
+tor-resource-noexec-tor = { module = "io.matthewnelson.kmp-tor:resource-noexec-tor", version.ref = "kmpTorResource" }
+kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinxIoCore" }
+tomlkt = { module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlktVersion" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization" }
 
 
 [plugins]

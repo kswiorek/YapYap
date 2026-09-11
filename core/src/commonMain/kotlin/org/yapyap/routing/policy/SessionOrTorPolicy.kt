@@ -8,13 +8,17 @@ import org.yapyap.routing.router.RouterTransport
 class SessionOrTorPolicy(
     private val config: StateFlow<RouterConfig>,
 ) : OutboundPolicy {
-    override fun resolve(target: PeerId, hasWebRtcSession: Boolean, retries: Long, forced: RouterTransport?): ResolvedOutbound {
+    override fun resolve(
+        target: PeerId,
+        hasWebRtcSession: Boolean,
+        retries: Long,
+        forced: RouterTransport?
+    ): ResolvedOutbound {
         val configSnapshot = config.value
         var transport: RouterTransport
         if (forced != null) {
             transport = forced
-        }
-        else if (hasWebRtcSession) {
+        } else if (hasWebRtcSession) {
             transport = RouterTransport.WEBRTC
         } else {
             transport = RouterTransport.TOR

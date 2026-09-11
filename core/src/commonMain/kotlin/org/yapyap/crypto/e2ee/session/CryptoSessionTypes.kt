@@ -72,6 +72,7 @@ data class SessionWireFrame(
 
 sealed interface RatchetInnerPlaintext {
     val bytes: ByteArray
+
     data class Payload(override val bytes: ByteArray) : RatchetInnerPlaintext
 
     data class WithControl(

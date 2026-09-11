@@ -227,6 +227,7 @@ class MessageEnvelopeCodecTest {
                 assertTextPayloadEquals(expected, actual)       // ← replace plain assertEquals
             expected is MessagePayload.GlobalEvent && actual is MessagePayload.GlobalEvent ->
                 assertGlobalEventPayloadEquals(expected, actual)
+
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }

@@ -63,7 +63,8 @@ class PlaintextMessageProtection(
         return messagePayload
     }
 
-    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
 
     override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
 
@@ -124,12 +125,17 @@ class SignedMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed message envelope",
-            fields = mapOf("messageId" to envelope.messageEnvelopeId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
+            fields = mapOf(
+                "messageId" to envelope.messageEnvelopeId,
+                "source" to envelope.source,
+                "payloadType" to messagePayload.payloadType.name
+            ),
         )
         return messagePayload
     }
 
-    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
 
     override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
 
@@ -233,12 +239,17 @@ class SignedAndEncryptedMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Verified signed and encrypted message envelope",
-            fields = mapOf("messageId" to envelope.messageEnvelopeId, "source" to envelope.source, "payloadType" to messagePayload.payloadType.name),
+            fields = mapOf(
+                "messageId" to envelope.messageEnvelopeId,
+                "source" to envelope.source,
+                "payloadType" to messagePayload.payloadType.name
+            ),
         )
         return messagePayload
     }
 
-    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> = envelope.observableHeaderValues()
+    override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
 
     override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
 

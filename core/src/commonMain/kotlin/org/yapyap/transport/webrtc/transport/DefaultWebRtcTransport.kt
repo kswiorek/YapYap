@@ -20,7 +20,8 @@ class DefaultWebRtcTransport(
     private val incomingEnvelopeFlow = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
     private val sessionStateFlow = MutableStateFlow<WebRtcSessionState?>(null)
-    private val incomingCallInviteFlow = MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
+    private val incomingCallInviteFlow =
+        MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
     private val callStateFlow = MutableStateFlow<WebRtcAvSessionState?>(null)
     private val outgoingBootstrapSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
 
@@ -81,6 +82,7 @@ class DefaultWebRtcTransport(
                             fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.NEGOTIATING.name),
                         )
                     }
+
                     is WebRtcSessionEvent.Connected -> {
                         sessionStateFlow.value =
                             WebRtcSessionState(
@@ -94,6 +96,7 @@ class DefaultWebRtcTransport(
                             fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.CONNECTED.name),
                         )
                     }
+
                     is WebRtcSessionEvent.Closed -> {
                         sessionStateFlow.value =
                             WebRtcSessionState(
@@ -107,6 +110,7 @@ class DefaultWebRtcTransport(
                             fields = mapOf("peer" to event.peer, "phase" to WebRtcSessionPhase.CLOSED.name),
                         )
                     }
+
                     is WebRtcSessionEvent.Failed -> {
                         sessionStateFlow.value =
                             WebRtcSessionState(
@@ -135,6 +139,7 @@ class DefaultWebRtcTransport(
                             options = avOptionsByPeer[event.peer],
                         )
                     }
+
                     is WebRtcAvChannelEvent.Active -> {
                         callStateFlow.value = WebRtcAvSessionState(
                             peer = event.peer,
@@ -142,6 +147,7 @@ class DefaultWebRtcTransport(
                             options = avOptionsByPeer[event.peer],
                         )
                     }
+
                     is WebRtcAvChannelEvent.Removed -> {
                         pendingIncomingCallByPeer.remove(event.peer)
                         avOptionsByPeer.remove(event.peer)
@@ -150,6 +156,7 @@ class DefaultWebRtcTransport(
                             phase = WebRtcAvSessionPhase.ENDED,
                         )
                     }
+
                     is WebRtcAvChannelEvent.Failed -> {
                         pendingIncomingCallByPeer.remove(event.peer)
                         avOptionsByPeer.remove(event.peer)
@@ -310,6 +317,7 @@ class DefaultWebRtcTransport(
                     fields = mapOf("source" to signal.source),
                 )
             }
+
             WebRtcSignalKind.REJECT -> {
                 val reason = signal.payload.decodeToString()
                 sessionStateFlow.value =
@@ -319,6 +327,7 @@ class DefaultWebRtcTransport(
                         reason = reason,
                     )
             }
+
             else -> {
                 AppLog.debug(
                     component = LogComponent.WEBRTC_TRANSPORT,
@@ -342,11 +351,14 @@ class DefaultWebRtcTransport(
                 } catch (e: Exception) {
                     throw TransportException.WebRtcException.DecodeError("BinaryEnvelope decode error: ${e.message}")
                 }
-                incomingEnvelopeFlow.emit(WebRtcIncomingEnvelope(
-                    source = frame.source,
-                    envelope = envelope,
-                ))
+                incomingEnvelopeFlow.emit(
+                    WebRtcIncomingEnvelope(
+                        source = frame.source,
+                        envelope = envelope,
+                    )
+                )
             }
+
             WebRtcDataType.AV_DATA -> {
                 handleAvControlFrame(frame)
                 incomingAvFrameFlow.emit(frame)
@@ -387,6 +399,7 @@ class DefaultWebRtcTransport(
                     options = message.options,
                 )
             }
+
             is AvControlMessage.Accept -> {
                 avOptionsByPeer[frame.source] = message.options
                 callStateFlow.value = WebRtcAvSessionState(
@@ -395,6 +408,7 @@ class DefaultWebRtcTransport(
                     options = message.options,
                 )
             }
+
             is AvControlMessage.Reject -> {
                 pendingIncomingCallByPeer.remove(frame.source)
                 avOptionsByPeer.remove(frame.source)
@@ -405,6 +419,7 @@ class DefaultWebRtcTransport(
                     reason = message.reason,
                 )
             }
+
             is AvControlMessage.Update -> {
                 avOptionsByPeer[frame.source] = message.options
                 callStateFlow.value = WebRtcAvSessionState(
@@ -413,6 +428,7 @@ class DefaultWebRtcTransport(
                     options = message.options,
                 )
             }
+
             is AvControlMessage.End -> {
                 pendingIncomingCallByPeer.remove(frame.source)
                 avOptionsByPeer.remove(frame.source)
@@ -436,11 +452,25 @@ class DefaultWebRtcTransport(
 private sealed interface AvControlMessage {
     val kindName: String
 
-    data class Invite(val options: AvSessionOptions) : AvControlMessage { override val kindName: String = "INVITE" }
-    data class Accept(val options: AvSessionOptions) : AvControlMessage { override val kindName: String = "ACCEPT" }
-    data class Reject(val reason: String) : AvControlMessage { override val kindName: String = "REJECT" }
-    data class Update(val options: AvSessionOptions) : AvControlMessage { override val kindName: String = "UPDATE" }
-    data class End(val reason: String?) : AvControlMessage { override val kindName: String = "END" }
+    data class Invite(val options: AvSessionOptions) : AvControlMessage {
+        override val kindName: String = "INVITE"
+    }
+
+    data class Accept(val options: AvSessionOptions) : AvControlMessage {
+        override val kindName: String = "ACCEPT"
+    }
+
+    data class Reject(val reason: String) : AvControlMessage {
+        override val kindName: String = "REJECT"
+    }
+
+    data class Update(val options: AvSessionOptions) : AvControlMessage {
+        override val kindName: String = "UPDATE"
+    }
+
+    data class End(val reason: String?) : AvControlMessage {
+        override val kindName: String = "END"
+    }
 
     fun encode(): ByteArray {
         val writer = ByteWriter(32)
@@ -450,18 +480,22 @@ private sealed interface AvControlMessage {
                 writer.writeByte(1)
                 writeAvSessionOptions(writer, this.options)
             }
+
             is Accept -> {
                 writer.writeByte(2)
                 writeAvSessionOptions(writer, this.options)
             }
+
             is Reject -> {
                 writer.writeByte(3)
                 writer.writeString(this.reason)
             }
+
             is Update -> {
                 writer.writeByte(4)
                 writeAvSessionOptions(writer, this.options)
             }
+
             is End -> {
                 writer.writeByte(5)
                 writer.writeNullableString(this.reason)
@@ -481,7 +515,8 @@ private sealed interface AvControlMessage {
     companion object {
         fun decode(bytes: ByteArray): AvControlMessage = decodeAvControlMessage(bytes)
 
-        private val AV_CONTROL_MAGIC = byteArrayOf('Y'.code.toByte(), 'A'.code.toByte(), 'V'.code.toByte(), '1'.code.toByte())
+        private val AV_CONTROL_MAGIC =
+            byteArrayOf('Y'.code.toByte(), 'A'.code.toByte(), 'V'.code.toByte(), '1'.code.toByte())
 
         private fun decodeAvControlMessage(bytes: ByteArray): AvControlMessage =
             run {
@@ -499,6 +534,7 @@ private sealed interface AvControlMessage {
                     reader.requireFullyRead()
                 }
             }
+
         private fun readAvSessionOptions(reader: ByteReader): AvSessionOptions {
             val flags = reader.readUnsignedByte()
             val quality = reader.readUnsignedByte()

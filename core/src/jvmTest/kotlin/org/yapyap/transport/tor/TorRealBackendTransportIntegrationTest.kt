@@ -38,9 +38,11 @@ class TorRealBackendTransportIntegrationTest {
         SystemFileSystem.createDirectories(tempDir)
         val backend = KmpTorBackend(
             torStateRootPath = tempDir,
-            config = MutableStateFlow(TorBackendConfig(
-                startupTimeout = 180.seconds,
-            )),
+            config = MutableStateFlow(
+                TorBackendConfig(
+                    startupTimeout = 180.seconds,
+                )
+            ),
         )
         val transport = DefaultTorTransport(backend = backend)
         val local = PeerId("0".repeat(64))
@@ -89,9 +91,11 @@ class TorRealBackendTransportIntegrationTest {
         SystemFileSystem.createDirectories(tempDir)
         val backend = KmpTorBackend(
             torStateRootPath = tempDir,
-            config = MutableStateFlow(TorBackendConfig(
-                startupTimeout = 180.seconds,
-            )),
+            config = MutableStateFlow(
+                TorBackendConfig(
+                    startupTimeout = 180.seconds,
+                )
+            ),
         )
         val transport = DefaultTorTransport(backend = backend)
         val local = PeerId("0".repeat(64))

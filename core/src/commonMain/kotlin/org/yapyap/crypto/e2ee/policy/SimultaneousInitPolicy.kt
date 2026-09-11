@@ -38,7 +38,7 @@ internal object SimultaneousInitPolicy {
             return false
         }
         return canonicalRecord.meta.sessionGeneration == frame.sessionGeneration &&
-            canonicalRecord.ratchetState.recvMessageNumber == 0
+                canonicalRecord.ratchetState.recvMessageNumber == 0
     }
 
     fun shouldAttachOutboundWire(loaded: LoadedSession, epoch: Int): Boolean {

@@ -1,10 +1,12 @@
 # Router decomposition guide
 
-This document tracks the incremental split of `DefaultRouter` into focused collaborators. The public `Router` API stays unchanged; only internal structure moves.
+This document tracks the incremental split of `DefaultRouter` into focused collaborators. The public `Router` API stays
+unchanged; only internal structure moves.
 
 ## Goal
 
-`DefaultRouter` is now a thin orchestrator that composes single-responsibility classes, matching the existing `routing/outbox` and `routing/policy` packages.
+`DefaultRouter` is now a thin orchestrator that composes single-responsibility classes, matching the existing
+`routing/outbox` and `routing/policy` packages.
 
 ## Target package layout
 
@@ -98,7 +100,8 @@ Owns inbound reply envelopes:
 - `sendNack(...)`
 - `sendDispositionForDuplicate(...)`
 
-Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `InboundEnvelopeProcessor` delegates ACK/NACK to `AckResponder`.
+Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `InboundEnvelopeProcessor` delegates ACK/NACK to
+`AckResponder`.
 
 ### Step 3: Per-type inbound handlers
 
@@ -109,7 +112,8 @@ Uses `EnvelopeDispatcher` to send protected `SYSTEM` envelopes. `InboundEnvelope
 - `SystemInboundHandler` — decodes/opens system payloads, returns `SystemInboundResult`
 - `FileInboundHandler` — stub until Sprint 5
 
-Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHandler.kt`. System message outcomes use `SystemInboundResult` in `RoutingTypes.kt`.
+Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHandler.kt`. System message outcomes use
+`SystemInboundResult` in `RoutingTypes.kt`.
 
 ### Step 4: `InboundEnvelopeProcessor`
 
@@ -117,7 +121,8 @@ Inbound protection failure mapping lives in `routing/inbound/InboundEnvelopeHand
 
 Owns the inbound pipeline and transport ingress wrappers:
 
-- `handle(envelope, transport)` — dedup → expiry → target check → handler dispatch → ACK/NACK (or `SystemInboundResult` effects for SYSTEM)
+- `handle(envelope, transport)` — dedup → expiry → target check → handler dispatch → ACK/NACK (or `SystemInboundResult`
+  effects for SYSTEM)
 - `handleTorInbound(...)` — Tor endpoint learning + processing
 - `handleWebRtcInbound(...)` — WebRTC envelope processing
 
@@ -130,7 +135,8 @@ Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
 - `processDue()` — prune expired, dispatch due entries in parallel, wake loop
 - `runIn(scope)` — start the retry loop job (called from `DefaultRouter.start()`)
 - `onWebRtcSessionConnected(peerId, sessionId)` — accelerate retries for peer
-- `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (applied by `InboundEnvelopeProcessor` on `SystemInboundResult.RemoveFromOutbox`)
+- `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (applied by `InboundEnvelopeProcessor` on
+  `SystemInboundResult.RemoveFromOutbox`)
 - `enqueueAndWake(envelope, nextRetryAt)` — enqueue outbound send + wake loop (used by `OutboundMessenger`)
 - `recordSendAttempt(packetId, nextRetryAt, now)` — record dispatch attempt after immediate send
 - `wake()` — notify retry loop
@@ -145,7 +151,8 @@ Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
 
 Owns outbound message send:
 
-- `sendMessage(account, payload, forceTransport)` — peer fan-out, protection, outbox enqueue via `OutboxProcessor`, immediate dispatch
+- `sendMessage(account, payload, forceTransport)` — peer fan-out, protection, outbox enqueue via `OutboxProcessor`,
+  immediate dispatch
 - Outbound protection failure mapping in `routing/outbound/ProtectionRouting.kt`
 
 `DefaultRouter.sendMessage` delegates here after the started check.
@@ -169,12 +176,12 @@ Wired from `webRtcTransport.outgoingBootstrapSignals` collector in `DefaultRoute
 
 ## Sprint alignment
 
-| Sprint | Extension point |
-|--------|-----------------|
-| 3 Boot recovery | `OutboxProcessor.processDue()` and `pruneRelayOverCapacityOnBoot()` on startup |
-| 5 Files | `FileInboundHandler` + outbound file enqueue via `OutboundMessenger` |
-| 6 WebRTC resilience | `WebRtcBootstrapSignaler`, `OutboxProcessor.onWebRtcSessionConnected` |
-| 4 Relay / firewall | Tor endpoint update stays in Tor ingress wrapper |
+| Sprint              | Extension point                                                                |
+|---------------------|--------------------------------------------------------------------------------|
+| 3 Boot recovery     | `OutboxProcessor.processDue()` and `pruneRelayOverCapacityOnBoot()` on startup |
+| 5 Files             | `FileInboundHandler` + outbound file enqueue via `OutboundMessenger`           |
+| 6 WebRTC resilience | `WebRtcBootstrapSignaler`, `OutboxProcessor.onWebRtcSessionConnected`          |
+| 4 Relay / firewall  | Tor endpoint update stays in Tor ingress wrapper                               |
 
 ## Testing strategy
 
@@ -185,4 +192,5 @@ Existing tests remain the safety net:
 - `DefaultRouterE2eeIntegrationTest` — end-to-end encrypted delivery
 - `DefaultRouterLiveIntegrationTest` — live WebRTC (when enabled)
 
-Focused unit tests for extracted classes can be added where practical (e.g. `EnvelopeDispatcher` with recording transports, `AckResponder` with a fake dispatcher).
+Focused unit tests for extracted classes can be added where practical (e.g. `EnvelopeDispatcher` with recording
+transports, `AckResponder` with a fake dispatcher).

@@ -57,7 +57,7 @@ internal suspend fun seedLocalAccountAndDevice(
         ),
     )
     repo.insertLocalAccount(identity = accountRecord)
-    repo.insertLocalDevice(accountId = accountId, identity = deviceRecord,)
+    repo.insertLocalDevice(accountId = accountId, identity = deviceRecord)
 }
 
 internal val FixtureAccountId = AccountId("fixture-account-id")

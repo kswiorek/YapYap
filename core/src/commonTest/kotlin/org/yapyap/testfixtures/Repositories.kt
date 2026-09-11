@@ -99,14 +99,6 @@ class FakeMessageRepository : MessageRepository {
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
 
-    override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =
-        byId.values
-            .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
-            .maxWithOrNull(
-                compareBy<MessageRow> { it.payload.createdAt }
-                    .thenBy { it.payload.messageId }
-            )
-
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
@@ -154,6 +146,10 @@ class FakeRoomRepository(
 
     override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) {
         memberLists.getOrPut(roomId) { mutableListOf() }.add(accountId)
+    }
+
+    override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
+        memberLists[roomId]?.remove(accountId)
     }
 }
 

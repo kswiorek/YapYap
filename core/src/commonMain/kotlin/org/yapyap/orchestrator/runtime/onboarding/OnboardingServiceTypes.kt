@@ -14,7 +14,9 @@ sealed interface SponsorOutcome {
 
 sealed interface SponsorRefusal {
     data object SponsorNotAdmin : SponsorRefusal   // incl. the revocation race
-    data object SponsorNotReady : SponsorRefusal   // GLOBAL empty — still onboarding/syncing
+    data object SponsorNotReady :
+        SponsorRefusal   // GLOBAL empty or unchainable (every tip parked) — still onboarding/syncing
+
     data class MalformedInvite(val defect: InviteDefect) : SponsorRefusal
 }
 

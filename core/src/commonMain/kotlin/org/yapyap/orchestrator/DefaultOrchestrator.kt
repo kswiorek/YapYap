@@ -147,7 +147,7 @@ class DefaultOrchestrator(
             //   configStore.applyNetwork(fetched) before backends read the derived config.
 
 
-            torBackend    = createTorBackend(configStore.torConfig, torStateRoot)
+            torBackend = createTorBackend(configStore.torConfig, torStateRoot)
             webRtcBackend = createWebRtcBackend(configStore.webRtcConfig)
 
             keyStore = DefaultKeyStore(keyringSessionFactory)
@@ -172,8 +172,7 @@ class DefaultOrchestrator(
                 _state.value = OrchestratorState.Starting
                 init()
                 _state.value = OrchestratorState.Running
-            }
-            catch (_: CryptoException) {
+            } catch (_: CryptoException) {
                 _state.value = OrchestratorState.SetupRequired
             }
         } catch (e: Throwable) {
@@ -226,6 +225,7 @@ class DefaultOrchestrator(
                     recoveryKey = recoveryKey,
                 )
             }
+
             is SetupIntent.NewAccountFirstDevice -> {
                 val account = identityProvisioning.createNewAccountIdentity(intent.accountName)
                 val device = identityProvisioning.createNewDeviceIdentity()
@@ -268,6 +268,7 @@ class DefaultOrchestrator(
                     recoveryKey = recoveryKey,
                 )
             }
+
             is SetupIntent.ImportAccountRecoveryKey -> {
                 val account = identityProvisioning.importLocalAccountFromRecovery(intent.recoveryKey)
                 val device = identityProvisioning.createNewDeviceIdentity()
@@ -309,6 +310,7 @@ class DefaultOrchestrator(
                     recoveryKey = null,
                 )
             }
+
             is SetupIntent.AddDeviceToExistingAccount -> {
                 //TODO: if device is headless and belongs to an account, exclude from message fanount but not global room?
                 val account = identityProvisioning.createPlaceholderAccountIdentity()
@@ -458,6 +460,7 @@ class DefaultOrchestrator(
             dagEngine = dagEngine,
             pipeline = pipeline,
             messageRepository = messageRepo,
+            identityKeyRepository = identityRepo,
             identityResolver = identityResolver,
             roomRepository = roomRepository,
             router = router,
@@ -552,14 +555,13 @@ class DefaultOrchestrator(
         } catch (e: Throwable) {
             _lastError.value = e
             _state.value = OrchestratorState.Failed
-        }
-        finally {
+        } finally {
             _state.value = OrchestratorState.Stopped
         }
     }
 
     override fun runtime(): OrchestratorRuntime {
-        check(bootConfig.mode == NodeMode.FULL_CLIENT) { "runtime() requires FULL_CLIENT mode"}
+        check(bootConfig.mode == NodeMode.FULL_CLIENT) { "runtime() requires FULL_CLIENT mode" }
         check(_state.value == OrchestratorState.Running) { "Orchestrator must be Running" }
         return orchestratorRuntime
     }

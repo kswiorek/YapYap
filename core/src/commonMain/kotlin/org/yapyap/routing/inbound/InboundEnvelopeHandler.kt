@@ -45,5 +45,6 @@ internal fun inboundResultForProtectionFailure(ex: ProtectionException): Inbound
                 PacketNackReason.PROTECTION_FAILED
             },
         )
+
         ProtectionDisposition.RETRYABLE -> InboundHandleResult.Rejected(PacketNackReason.PROTECTION_FAILED)
     }

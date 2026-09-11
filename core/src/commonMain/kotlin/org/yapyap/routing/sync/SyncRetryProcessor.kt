@@ -87,6 +87,7 @@ internal class SyncRetryProcessor(
             )
         }
     }
+
     //TODO prune unsolvable rows
     private suspend fun processDueRow(row: PendingSyncRow, now: Instant) {
         val candidateDevices = ctx.identityResolver.getAllPeerDevicesForAccounts(row.candidateAccounts)

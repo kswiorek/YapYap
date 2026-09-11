@@ -78,6 +78,7 @@ internal class SystemInboundHandler(
                     sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
                 )
             }
+
             is SystemPayload.PacketNack -> {
                 when (payload.reason) {
                     PacketNackReason.EXPIRED -> {
@@ -96,6 +97,7 @@ internal class SystemInboundHandler(
                             sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
                         )
                     }
+
                     PacketNackReason.PROTECTION_FAILED -> {
                         AppLog.warn(
                             component = LogComponent.ROUTER,
@@ -110,6 +112,7 @@ internal class SystemInboundHandler(
                         )
                         InboundHandleResult.Success()
                     }
+
                     PacketNackReason.DECLINED -> {
                         AppLog.info(
                             component = LogComponent.ROUTER,
@@ -126,6 +129,7 @@ internal class SystemInboundHandler(
                             sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
                         )
                     }
+
                     else -> {
                         AppLog.debug(
                             component = LogComponent.ROUTER,
@@ -144,6 +148,7 @@ internal class SystemInboundHandler(
                     // in `else` above: transient or peer-side, so the retry schedule is kept.
                 }
             }
+
             is SystemPayload.SyncRequest -> {
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -159,6 +164,7 @@ internal class SystemInboundHandler(
                     sideEffects = listOf(InboundSideEffect.SyncRequested(systemEnvelope.source, payload)),
                 )
             }
+
             is SystemPayload.SyncNack -> {
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -174,6 +180,7 @@ internal class SystemInboundHandler(
                     sideEffects = listOf(InboundSideEffect.MarkPeerAttempted(systemEnvelope.source, payload.syncId)),
                 )
             }
+
             is SystemPayload.TypingIndicator -> {
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -198,6 +205,7 @@ internal class SystemInboundHandler(
                 }
                 InboundHandleResult.Success()
             }
+
             is SystemPayload.Ping -> {
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -206,10 +214,11 @@ internal class SystemInboundHandler(
                     fields = mapOf(
                         "source" to systemEnvelope.source,
                         "roomPayloadCount" to payload.roomFrontiers.size,
-                        ),
+                    ),
                 )
                 InboundHandleResult.Success(listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)))
             }
+
             is SystemPayload.LogOff -> {
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -222,7 +231,10 @@ internal class SystemInboundHandler(
 
                 InboundHandleResult.Success(listOf(InboundSideEffect.PeerOffline(systemEnvelope.source)))
             }
-            else -> {TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")}
+
+            else -> {
+                TODO("Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")
+            }
         }
     }
 }

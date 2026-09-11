@@ -72,6 +72,10 @@ internal class InboundEnvelopeProcessor(
     ) {
         val receivedAt = ctx.clock.now()
         peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
+        // TODO(sprint-4d device status): banned-source check — drop envelopes whose source
+        // device is BANNED (IdentityKeyRepository.getDeviceStatus, committed by the global
+        // events fold) before dedup/dispatch. Unknown/absent status must NOT drop (absence
+        // asserts nothing — pre-bootstrap sponsors and gap-skipped devices stay routable).
         if (!ctx.packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
                 sourceDeviceId = inbound.source,
@@ -175,6 +179,7 @@ internal class InboundEnvelopeProcessor(
                         endpointOverride = provenSourceEndpoint
                     )
                 }
+
             is InboundHandleResult.Deferred -> {
                 AppLog.info(
                     component = LogComponent.ROUTER,
@@ -188,6 +193,7 @@ internal class InboundEnvelopeProcessor(
                 )
                 ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
             }
+
             is InboundHandleResult.Rejected ->
                 if (inbound.dispositionRequested) {
                     systemSender.sendNack(
@@ -211,12 +217,16 @@ internal class InboundEnvelopeProcessor(
                         nextRetryAt = ctx.clock.now() + ctx.routerConfig.value.ackLifetime,
                         relayMessage = true,
                     )
+
                 is InboundSideEffect.RemoveFromOutbox ->
                     outboxProcessor.onOutboundPacketDelivered(effect.packetId)
+
                 is InboundSideEffect.SyncRequested ->
                     syncHandler.onSyncRequested(effect.sync, effect.peerId)
+
                 is InboundSideEffect.MarkPeerAttempted ->
                     syncHandler.onMarkPeerAttempted(effect.syncId, effect.peerId)
+
                 is InboundSideEffect.PeerHeartbeat -> pingProvider.handlePing(effect.peerId, effect.ping)
                 is InboundSideEffect.PeerOffline -> peerAvailabilityRegistry.markOffline(effect.peerId)
             }

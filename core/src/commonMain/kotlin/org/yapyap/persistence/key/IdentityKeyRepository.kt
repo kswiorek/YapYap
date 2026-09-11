@@ -12,6 +12,47 @@ interface IdentityKeyRepository {
     /** Chain-derived membership status, or null when absent (absence asserts nothing — treat as "not yet known", never "removed"). */
     suspend fun getAccountStatus(accountId: AccountId): AccountStatus?
 
+    /** Chain-derived device ban state, or null when absent (same absence semantics as [getAccountStatus]). */
+    suspend fun getDeviceStatus(deviceId: PeerId): AccountStatus?
+
+    /**
+     * Projector commit write: upserts the chain-derived account columns (pub key, admin, status,
+     * display name) and clears `provisional` (the fold now carries the Add event). Preserves
+     * local-only columns (`is_local_account`, key id/version bookkeeping — minted as chain
+     * placeholders when the row is fresh).
+     */
+    suspend fun upsertChainAccount(
+        accountId: AccountId,
+        accountSigningPublicKey: ByteArray?,
+        isAdmin: Boolean,
+        status: AccountStatus,
+        displayName: String,
+    )
+
+    /**
+     * Projector commit write: upserts the chain-derived device columns (binding, keys, type,
+     * key signature, status) and clears `provisional`. Preserves local-only columns
+     * (`is_local_device`, key id bookkeeping, SPK pointer, push token, reliability, last-seen).
+     * A live-updated onion is preserved on confirmed rows (Tor rotation has no chain event);
+     * provisional rows are fixed up to the event values wholesale.
+     */
+    suspend fun upsertChainDevice(
+        deviceId: PeerId,
+        accountId: AccountId,
+        deviceType: DeviceType,
+        torEndpoint: TorEndpoint,
+        signingPublicKey: ByteArray,
+        encryptionPublicKey: ByteArray,
+        keySignature: ByteArray?,
+        status: AccountStatus,
+    )
+
+    /** Projector commit write: status flip to BANNED with admin revoked, keys stay resolvable. No-op when the row is absent. */
+    suspend fun tombstoneAccount(accountId: AccountId)
+
+    /** Projector commit write: status flip to BANNED, keys stay resolvable. No-op when the row is absent. */
+    suspend fun tombstoneDevice(deviceId: PeerId)
+
     suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord?
 
     suspend fun insertLocalDevice(accountId: AccountId, identity: DeviceIdentityRecord, provisional: Boolean = true)
@@ -22,6 +63,9 @@ interface IdentityKeyRepository {
 
     /** Local account's admin flag (false when absent) — the sponsor's fail-fast read. Chain-owned; seeded locally, projector-corrected. */
     suspend fun isLocalAccountAdmin(): Boolean
+
+    /** Chain-derived admin flag for any account (false when absent — absence asserts nothing). */
+    suspend fun isAccountAdmin(accountId: AccountId): Boolean
 
     /** Provisional bit of a device row (true when absent — unknown rows are unconfirmed by definition). */
     suspend fun isDeviceProvisional(deviceId: PeerId): Boolean

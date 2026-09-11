@@ -401,7 +401,10 @@ class DefaultCryptoSessionManagerTest {
         assertEquals(2, epoch2Decoded.sessionEpoch)
         assertNotNull(epoch2Decoded.outerHandshake)
         assertEquals(X3dhMode.FOUR_DH, epoch2Decoded.outerHandshake.mode)
-        assertNotEquals(epoch2Decoded.outerHandshake.ephemeralPublicKey, epoch1Decoded.outerHandshake!!.ephemeralPublicKey)
+        assertNotEquals(
+            epoch2Decoded.outerHandshake.ephemeralPublicKey,
+            epoch1Decoded.outerHandshake!!.ephemeralPublicKey
+        )
 
         val opened = bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
         assertContentEquals(byteArrayOf(3), opened)
@@ -435,10 +438,12 @@ class DefaultCryptoSessionManagerTest {
             alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(1)),
         )
         bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
-        val firstOfferedOpkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
+        val firstOfferedOpkId =
+            bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
 
         bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(3))
-        val secondOfferedOpkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
+        val secondOfferedOpkId =
+            bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
 
         assertEquals(firstOfferedOpkId, secondOfferedOpkId)
         assertEquals(OpkStatus.OFFERED, bobOpkStore.status(firstOfferedOpkId))
@@ -492,7 +497,10 @@ class DefaultCryptoSessionManagerTest {
         assertNull(aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1))
 
         alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
-        assertEquals(2, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration)
+        assertEquals(
+            2,
+            aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration
+        )
 
         alice.decryptMessage(bobPeer.device.deviceId, gen1OfferFrame)
 
@@ -611,7 +619,10 @@ class DefaultCryptoSessionManagerTest {
             bobPeer.device.deviceId,
             bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2)),
         )
-        assertEquals(SessionStatus.ACTIVE, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.status)
+        assertEquals(
+            SessionStatus.ACTIVE,
+            aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.status
+        )
         assertEquals(
             SessionStatus.PENDING,
             aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 2).single().meta.status,
@@ -621,7 +632,10 @@ class DefaultCryptoSessionManagerTest {
 
         val epoch2Frame = alice.encryptMessage(bobPeer.device.deviceId, byteArrayOf(3))
         bob.decryptMessage(alicePeer.device.deviceId, epoch2Frame)
-        assertEquals(SessionStatus.ACTIVE, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.status)
+        assertEquals(
+            SessionStatus.ACTIVE,
+            aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.status
+        )
 
         alice.decryptMessage(
             bobPeer.device.deviceId,
@@ -818,7 +832,8 @@ class DefaultCryptoSessionManagerTest {
         val decoded = codec.decodeSessionWireFrame(frame)
         val tampered = codec.encode(
             decoded.copy(
-                ratchet = decoded.ratchet.copy(body = decoded.ratchet.body.copyOf().also { if (it.isNotEmpty()) it[0] = (it[0] + 1).toByte() }),
+                ratchet = decoded.ratchet.copy(
+                    body = decoded.ratchet.body.copyOf().also { if (it.isNotEmpty()) it[0] = (it[0] + 1).toByte() }),
             ),
         )
 
@@ -969,7 +984,10 @@ class DefaultCryptoSessionManagerTest {
         ).run()
 
         assertEquals(1, aliceStore.loadSessions(bobPeer.device.deviceId, sessionEpoch = 1).size)
-        assertEquals(SessionRole.INITIATOR, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.role)
+        assertEquals(
+            SessionRole.INITIATOR,
+            aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.role
+        )
     }
 
     @Test
@@ -1091,7 +1109,10 @@ class DefaultCryptoSessionManagerTest {
             SessionStatus.SUPERSEDED,
             aliceSessions.single { it.meta.sessionGeneration == 1 }.meta.status,
         )
-        assertEquals(2, aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration)
+        assertEquals(
+            2,
+            aliceStore.loadActiveCanonical(bobPeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration
+        )
     }
 
     @Test
@@ -1161,7 +1182,10 @@ class DefaultCryptoSessionManagerTest {
                 .single { it.meta.sessionGeneration == 1 }
                 .meta.status,
         )
-        assertEquals(2, bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration)
+        assertEquals(
+            2,
+            bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.sessionGeneration
+        )
     }
 
     @Test

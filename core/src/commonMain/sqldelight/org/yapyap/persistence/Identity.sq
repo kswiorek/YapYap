@@ -34,6 +34,11 @@ CREATE TABLE devices (
     encryption_key_id TEXT NOT NULL,
     encryption_key_version INTEGER NOT NULL,
     key_signature BLOB,
+    -- Chain-derived ban state (projector-owned; ACTIVE on insert, BANNED by explicit
+    -- RemoveDevice or the global-events §3 ban cut — never row deletion, keys stay resolvable
+    -- for historical verification). Shared ACTIVE/BANNED enum with accounts (UNBOUND is
+    -- unused for devices).
+    status TEXT AS AccountStatus NOT NULL,
     current_signed_prekey_id TEXT,
     push_token TEXT,
     reliability_score REAL NOT NULL,
@@ -97,6 +102,11 @@ SELECT is_admin
 FROM accounts
 WHERE is_local_account = 1;
 
+selectAccountAdminById:
+SELECT is_admin
+FROM accounts
+WHERE account_id = ?;
+
 selectAllAccounts:
 SELECT *
 FROM accounts;
@@ -116,12 +126,18 @@ INSERT OR REPLACE INTO devices (
     encryption_key_id,
     encryption_key_version,
     key_signature,
+    status,
     current_signed_prekey_id,
     push_token,
     reliability_score,
     last_seen_timestamp,
     provisional
-) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectDeviceStatusById:
+SELECT status
+FROM devices
+WHERE device_id = ?;
 
 updateDeviceCurrentSignedPreKey:
 UPDATE devices

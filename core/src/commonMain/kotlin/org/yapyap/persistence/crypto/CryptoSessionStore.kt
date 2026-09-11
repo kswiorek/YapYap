@@ -82,6 +82,7 @@ internal object CryptoSessionCanonicalInvariant {
                     }
                 }
             }
+
             else -> {
                 val promoteRole = preferredRole(active)
                 val promoteSession = active.first { it.meta.role == promoteRole }

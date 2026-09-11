@@ -1,4 +1,5 @@
 package org.yapyap.crypto.e2ee.manager
+
 import org.yapyap.protocol.PeerId
 
 enum class SessionUpgradePolicy {

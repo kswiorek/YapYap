@@ -227,14 +227,19 @@ class SystemEnvelopeCodecTest {
         when {
             expected is SystemPayload.PacketAck && actual is SystemPayload.PacketAck ->
                 assertPacketAckEquals(expected, actual)
+
             expected is SystemPayload.PacketNack && actual is SystemPayload.PacketNack ->
                 assertPacketNackEquals(expected, actual)
+
             expected is SystemPayload.SyncRequest && actual is SystemPayload.SyncRequest ->
                 assertSyncRequestEquals(expected, actual)
+
             expected is SystemPayload.SyncNack && actual is SystemPayload.SyncNack ->
                 assertSyncNackEquals(expected, actual)
+
             expected is SystemPayload.Ping && actual is SystemPayload.Ping ->
                 assertPingEquals(expected, actual)
+
             else -> fail("Payload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }

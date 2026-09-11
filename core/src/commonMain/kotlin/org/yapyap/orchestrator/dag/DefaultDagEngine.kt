@@ -65,15 +65,18 @@ class DefaultDagEngine(
         val authorDeviceId = identityResolver.getLocalDeviceId()
         val createdAt = clock.now()
         val frontier = messageRepository.findRoomFrontier(roomId)
-        val prevIds: List<Uuid>
-        if (frontier.isNotEmpty()) {
-            prevIds = frontier.map { it.payload.messageId }
+        val prevIds: List<Uuid> = if (frontier.isNotEmpty()) {
+            frontier.map { it.payload.messageId }
+        } else if (messageRepository.hasMessages(roomId)) {
+            AppLog.warn(
+                component = LogComponent.DAG,
+                event = LogEvent.APPEND_REFUSED,
+                message = "Append refused — room holds messages but the chainable frontier is empty",
+                fields = mapOf("roomId" to roomId),
+            )
+            throw DagException.FrontierUnavailable(roomId)
         } else {
-            // TODO(append-guard): refuse to append when the room holds messages but the
-            // chainable frontier is empty (every tip parked) — appending now would fork
-            // a second root. Falls back to the newest stored message for now.
-            val latest = messageRepository.findLatestInRoom(roomId)
-            prevIds = latest?.let { listOf(it.payload.messageId) } ?: emptyList()
+            emptyList()
         }
         val parents = prevIds.mapNotNull { messageRepository.findById(it) }
         val ancestryComplete = parents.size == prevIds.size && parents.all { it.ancestryComplete }
@@ -90,6 +93,7 @@ class DefaultDagEngine(
                 createdAt = createdAt,
                 text = draft.text,
             )
+
             is MessageDraft.GlobalEvent -> MessagePayload.GlobalEvent(
                 messageId = messageId,
                 senderAccountId = senderAccountId,

@@ -9,7 +9,7 @@ interface OutboundPolicy {
         target: PeerId,
         hasWebRtcSession: Boolean,
         retries: Long,
-        forced: RouterTransport?=null,      // non-null only in tests / explicit override
+        forced: RouterTransport? = null,      // non-null only in tests / explicit override
     ): ResolvedOutbound
 }
 

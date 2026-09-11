@@ -41,8 +41,10 @@ val webrtcNativeClassifier: String? = run {
         osName.contains("win") -> if (arch.contains("64")) "windows-x86_64" else null
         osName.contains("mac") || osName.contains("darwin") ->
             if (arch.contains("aarch64") || arch.contains("arm64")) "macos-aarch64" else "macos-x86_64"
+
         osName.contains("linux") ->
             if (arch.contains("aarch64") || arch.contains("arm64")) "linux-aarch64" else "linux-x86_64"
+
         else -> null
     }
 }

@@ -234,7 +234,8 @@ class DefaultIdentityResolver(
             throw e
         }
         if (device.keySignature == null) {
-            val e = CryptoException.IncompleteRecord("Missing keySignature for device ${deviceId.id}, cannot verify device identity.")
+            val e =
+                CryptoException.IncompleteRecord("Missing keySignature for device ${deviceId.id}, cannot verify device identity.")
             AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
@@ -247,7 +248,8 @@ class DefaultIdentityResolver(
 
         val verifyMessage = device.encryption.publicKey + device.encryption.keyId.encodeToByteArray()
         if (!cryptoProvider.verifyDetached(device.signing.publicKey, verifyMessage, device.keySignature)) {
-            val e = CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
+            val e =
+                CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
             AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
@@ -303,7 +305,11 @@ class DefaultIdentityResolver(
         val signedPreKey = when {
             signedPreKeyId != null -> {
                 val stored = publicKeyRepository.getSignedPreKey(signedPreKeyId)
-                    ?: throw  CryptoException.MissingKey(signedPreKeyId, IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+                    ?: throw CryptoException.MissingKey(
+                        signedPreKeyId,
+                        IdentityKeyPurpose.SIGNED_PREKEY,
+                        KeyType.PUBLIC
+                    ).also {
                         AppLog.error(
                             component = LogComponent.CRYPTO,
                             event = LogEvent.KEY_LOOKUP_MISS,
@@ -317,8 +323,13 @@ class DefaultIdentityResolver(
                 }
                 stored
             }
+
             else -> device.signedPreKey
-                ?: throw CryptoException.MissingKey(device.signedPreKey?.keyId ?: "", IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+                ?: throw CryptoException.MissingKey(
+                    device.signedPreKey?.keyId ?: "",
+                    IdentityKeyPurpose.SIGNED_PREKEY,
+                    KeyType.PUBLIC
+                ).also {
                     AppLog.error(
                         component = LogComponent.CRYPTO,
                         event = LogEvent.KEY_LOOKUP_MISS,
@@ -329,7 +340,8 @@ class DefaultIdentityResolver(
                 }
         }
         if (!cryptoProvider.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
-            val e = CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
+            val e =
+                CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
             AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
@@ -351,7 +363,11 @@ class DefaultIdentityResolver(
         val device = getLocalDeviceIdentityRecord()
         val activeId = publicKeyRepository.getActiveSignedPreKeyForDevice(device.deviceId)?.keyId
             ?: device.signedPreKey?.keyId
-            ?: throw CryptoException.MissingKey(device.signedPreKey?.keyId ?: "", IdentityKeyPurpose.SIGNED_PREKEY, KeyType.PUBLIC).also {
+            ?: throw CryptoException.MissingKey(
+                device.signedPreKey?.keyId ?: "",
+                IdentityKeyPurpose.SIGNED_PREKEY,
+                KeyType.PUBLIC
+            ).also {
                 AppLog.error(
                     component = LogComponent.CRYPTO,
                     event = LogEvent.KEY_LOOKUP_MISS,

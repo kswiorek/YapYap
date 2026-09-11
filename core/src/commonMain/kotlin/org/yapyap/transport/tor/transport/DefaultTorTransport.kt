@@ -95,7 +95,11 @@ class DefaultTorTransport(
             component = LogComponent.TOR_TRANSPORT,
             event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
             message = "Sent Tor envelope",
-            fields = mapOf("packetType" to envelope.packetType.name, "target" to target.onionAddress, "targetPort" to target.port),
+            fields = mapOf(
+                "packetType" to envelope.packetType.name,
+                "target" to target.onionAddress,
+                "targetPort" to target.port
+            ),
         )
     }
 }

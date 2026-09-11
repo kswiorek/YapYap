@@ -118,7 +118,7 @@ class JvmWebRtcBackend(
             WebRtcSignalKind.ICE -> handleRemoteIce(signal)
             WebRtcSignalKind.REJECT,
             WebRtcSignalKind.CANCEL,
-            -> teardownRemote(signal.source, "Remote ${signal.kind.name.lowercase()}")
+                -> teardownRemote(signal.source, "Remote ${signal.kind.name.lowercase()}")
         }
     }
 
@@ -489,7 +489,7 @@ class JvmWebRtcBackend(
 
                         RTCPeerConnectionState.DISCONNECTED,
                         RTCPeerConnectionState.NEW,
-                        -> Unit
+                            -> Unit
                     }
                 }
 
@@ -500,7 +500,11 @@ class JvmWebRtcBackend(
                         component = LogComponent.WEBRTC_BACKEND,
                         event = LogEvent.SESSION_STATE_CHANGED,
                         message = "Attached inbound data channel",
-                        fields = mapOf("peer" to session.remotePeer, "dataType" to dataType.name, "label" to channel.label),
+                        fields = mapOf(
+                            "peer" to session.remotePeer,
+                            "dataType" to dataType.name,
+                            "label" to channel.label
+                        ),
                     )
                     attachDataChannel(session, channel, dataType)
                 }
@@ -649,15 +653,22 @@ class JvmWebRtcBackend(
         val signalMutex = Mutex()
         val disposed = AtomicBoolean(false)
 
-        @Volatile var envelopeDataChannel: RTCDataChannel? = null
-        @Volatile var avDataChannel: RTCDataChannel? = null
+        @Volatile
+        var envelopeDataChannel: RTCDataChannel? = null
 
-        @Volatile var remoteDescriptionApplied: Boolean = false
+        @Volatile
+        var avDataChannel: RTCDataChannel? = null
+
+        @Volatile
+        var remoteDescriptionApplied: Boolean = false
         val pendingIceCandidates = mutableListOf<RTCIceCandidate>()
         val renegotiationPending = AtomicBoolean(false)
 
-        @Volatile var envelopeChannelOpen: CompletableDeferred<Unit> = CompletableDeferred()
-        @Volatile var avChannelOpen: CompletableDeferred<Unit> = CompletableDeferred()
+        @Volatile
+        var envelopeChannelOpen: CompletableDeferred<Unit> = CompletableDeferred()
+
+        @Volatile
+        var avChannelOpen: CompletableDeferred<Unit> = CompletableDeferred()
 
         fun channelFor(dataType: WebRtcDataType): RTCDataChannel? = when (dataType) {
             WebRtcDataType.ENVELOPE_BINARY -> envelopeDataChannel

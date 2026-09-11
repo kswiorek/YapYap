@@ -33,7 +33,8 @@ internal class Epoch2Upgrade(
             is CryptoSessionException.HandshakeMismatch,
             is CryptoSessionException.MissingOfferedOpk,
             is CryptoSessionException.OpkConsumeFailed,
-            -> true
+                -> true
+
             else -> false
         }
     }

@@ -55,6 +55,7 @@ class DatabaseFactory(
                     device_typeAdapter = EnumColumnAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
+                    statusAdapter = EnumColumnAdapter(),
                     last_seen_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 dedupAdapter = Dedup.Adapter(
@@ -135,7 +136,7 @@ class DatabaseFactory(
     }
 }
 
-class UuidAdapter: ColumnAdapter<Uuid, String> {
+class UuidAdapter : ColumnAdapter<Uuid, String> {
     override fun decode(databaseValue: String): Uuid {
         return Uuid.parseHex(databaseValue)
     }
@@ -156,7 +157,7 @@ class RoomIdAdapter : ColumnAdapter<RoomId, String> {
     override fun encode(value: RoomId) = value.value.toHexString()
 }
 
-class AccountIdAdapter: ColumnAdapter<AccountId, String> {
+class AccountIdAdapter : ColumnAdapter<AccountId, String> {
     override fun decode(databaseValue: String): AccountId {
         return AccountId(databaseValue)
     }
@@ -166,10 +167,11 @@ class AccountIdAdapter: ColumnAdapter<AccountId, String> {
     }
 }
 
-class PeerIdAdapter: ColumnAdapter<PeerId, String> {
+class PeerIdAdapter : ColumnAdapter<PeerId, String> {
     override fun decode(databaseValue: String): PeerId {
         return PeerId(databaseValue)
     }
+
     override fun encode(value: PeerId): String {
         return value.id
     }

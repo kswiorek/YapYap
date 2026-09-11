@@ -36,14 +36,16 @@ class DefaultIdentityProvisioning(
             LOCAL_DEVICE_KEY_PREFIX + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
-            signingKey.publicKey)
+            signingKey.publicKey
+        )
         val privateSigningKeyRef =
             KeyReference(keyId = signingKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
         val encryptionKeyRecord = IdentityPublicKeyRecord(
             LOCAL_DEVICE_KEY_PREFIX + "encryption",
             0,
             IdentityKeyPurpose.ENCRYPTION,
-            encryptionKey.publicKey)
+            encryptionKey.publicKey
+        )
         val privateEncryptionKeyRef = KeyReference(
             keyId = encryptionKeyRecord.keyId,
             purpose = IdentityKeyPurpose.ENCRYPTION,
@@ -77,7 +79,13 @@ class DefaultIdentityProvisioning(
             deviceId = deviceId,
         )
 
-        val identity = DeviceIdentityRecord(deviceId, signingKeyRecord, encryptionKeyRecord, signedPreKey = signedPreKey, keySignature = keySignature)
+        val identity = DeviceIdentityRecord(
+            deviceId,
+            signingKeyRecord,
+            encryptionKeyRecord,
+            signedPreKey = signedPreKey,
+            keySignature = keySignature
+        )
 
         val accountRecord = identityResolver.getLocalAccountIdentityRecord()
 
@@ -105,7 +113,10 @@ class DefaultIdentityProvisioning(
         deviceId: PeerId
     ): SignedPreKeyRecord {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
-        val spkId = "spk-${cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}"
+        val spkId = "spk-${
+            cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
+                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+        }"
         val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
         val record = SignedPreKeyRecord(
             deviceId = deviceId,
@@ -120,7 +131,10 @@ class DefaultIdentityProvisioning(
 
     override suspend fun provisionSignedPreKey(): SignedPreKeyRecord {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
-        val spkId = "spk-${cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}"
+        val spkId = "spk-${
+            cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
+                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+        }"
         val signingPrivateKey = identityResolver.getLocalDevicePrivateKey(purpose = IdentityKeyPurpose.SIGNING)
         val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
         val deviceId = identityResolver.getLocalDeviceId()
@@ -154,7 +168,8 @@ class DefaultIdentityProvisioning(
             LOCAL_ACCOUNT_KEY_PREFIX + "signing",
             0,
             IdentityKeyPurpose.SIGNING,
-            signingKey.publicKey)
+            signingKey.publicKey
+        )
 
         val privateAccountKeyRef =
             KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
@@ -245,11 +260,19 @@ class DefaultIdentityProvisioning(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
             message = "Provisioned local device identity",
-            fields = mapOf("deviceId" to deviceIdentity.deviceId, "accountId" to accountId, "torEndpoint" to torEndpoint.toString()),
+            fields = mapOf(
+                "deviceId" to deviceIdentity.deviceId,
+                "accountId" to accountId,
+                "torEndpoint" to torEndpoint.toString()
+            ),
         )
     }
 
-    override suspend fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus) {
+    override suspend fun provisionAccountIdentity(
+        accountIdentity: AccountIdentityRecord,
+        admin: Boolean,
+        status: AccountStatus
+    ) {
         publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, accountIdentity.displayName)
         AppLog.info(
             component = LogComponent.CRYPTO,

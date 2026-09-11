@@ -100,7 +100,7 @@ class BaseProtectionObservabilityTest {
 
         override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
             envelope.observableHeaderValues() +
-                (MessageEnvelope.Companion.Fields.PAYLOAD to envelope.payload)
+                    (MessageEnvelope.Companion.Fields.PAYLOAD to envelope.payload)
 
         override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
 
@@ -140,7 +140,7 @@ class BaseProtectionObservabilityTest {
 
         override fun observableHeaderValues(envelope: WebRtcSignalEnvelope): Map<String, Any?> =
             envelope.observableHeaderValues() +
-                (WebRtcSignalEnvelope.Companion.Fields.PROTECTED_PAYLOAD to envelope.payload)
+                    (WebRtcSignalEnvelope.Companion.Fields.PROTECTED_PAYLOAD to envelope.payload)
 
         override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 

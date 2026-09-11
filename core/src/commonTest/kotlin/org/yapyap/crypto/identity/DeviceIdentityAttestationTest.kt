@@ -14,10 +14,10 @@ import kotlin.test.*
 
 class DeviceIdentityAttestationTest {
     private fun resolverStack(): Triple<
-        InMemoryIdentityKeyRepository,
-        InMemoryKeyStore,
-        Pair<DefaultIdentityResolver, DefaultIdentityProvisioning>,
-    > {
+            InMemoryIdentityKeyRepository,
+            InMemoryKeyStore,
+            Pair<DefaultIdentityResolver, DefaultIdentityProvisioning>,
+            > {
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
@@ -73,7 +73,7 @@ class DeviceIdentityAttestationTest {
         )
         repo.insertPeerDevice(accountId, DeviceType.DESKTOP, tamperedKeySignature, peerTor)
 
-        assertFailsWith<CryptoException.IncompleteRecord>{resolver.resolvePeerIdentityRecord(tamperedKeyPeerId)}
+        assertFailsWith<CryptoException.IncompleteRecord> { resolver.resolvePeerIdentityRecord(tamperedKeyPeerId) }
         assertFailsWith<CryptoException.IncompleteRecord> {
             resolver.resolvePeerX3dhRemoteKeys(tamperedKeyPeerId)
         }

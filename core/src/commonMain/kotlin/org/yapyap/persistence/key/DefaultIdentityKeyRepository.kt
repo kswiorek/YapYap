@@ -21,6 +21,12 @@ class DefaultIdentityKeyRepository(
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : IdentityKeyRepository {
 
+    private companion object {
+        /** Locally-minted key id/version for fold-derived rows (the chain carries raw keys only). */
+        const val CHAIN_KEY_ID = "chain"
+        const val CHAIN_KEY_VERSION = 0L
+    }
+
     override suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -64,6 +70,154 @@ class DefaultIdentityKeyRepository(
         withContext(dbDispatcher) {
             database.identityQueries.selectAccountStatusById(accountId).executeAsOneOrNull()
         }
+
+    override suspend fun getDeviceStatus(deviceId: PeerId): AccountStatus? =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectDeviceStatusById(deviceId).executeAsOneOrNull()
+        }
+
+    override suspend fun upsertChainAccount(
+        accountId: AccountId,
+        accountSigningPublicKey: ByteArray?,
+        isAdmin: Boolean,
+        status: AccountStatus,
+        displayName: String,
+    ) {
+        withContext(dbDispatcher) {
+            val queries = database.identityQueries
+            database.transaction {
+                val existing = queries.selectAccountById(accountId).executeAsOneOrNull()
+                queries.putAccount(
+                    account_id = accountId,
+                    account_pub_key = accountSigningPublicKey,
+                    is_local_account = existing?.is_local_account ?: false,
+                    pub_key_version = existing?.pub_key_version ?: CHAIN_KEY_VERSION,
+                    pub_key_id = existing?.pub_key_id ?: CHAIN_KEY_ID,
+                    is_admin = isAdmin,
+                    status = status,
+                    display_name = displayName,
+                    provisional = false,
+                )
+            }
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+                message = "Committed chain-derived account identity record",
+                fields = mapOf("accountId" to accountId, "isAdmin" to isAdmin, "status" to status),
+            )
+        }
+    }
+
+    override suspend fun upsertChainDevice(
+        deviceId: PeerId,
+        accountId: AccountId,
+        deviceType: DeviceType,
+        torEndpoint: TorEndpoint,
+        signingPublicKey: ByteArray,
+        encryptionPublicKey: ByteArray,
+        keySignature: ByteArray?,
+        status: AccountStatus,
+    ) {
+        withContext(dbDispatcher) {
+            val queries = database.identityQueries
+            database.transaction {
+                val existing = queries.selectDeviceById(deviceId).executeAsOneOrNull()
+                // Fresh rows take the event endpoint; confirmed rows keep a live-updated onion
+                // (Tor rotation has no chain event — the fold must not clobber it). Provisional
+                // rows are fixed up to the chain values wholesale.
+                val confirmed = existing != null && !existing.provisional
+                queries.putDevice(
+                    device_id = deviceId,
+                    is_local_device = existing?.is_local_device ?: false,
+                    account_id = accountId,
+                    device_type = deviceType,
+                    onion_address = if (confirmed) existing.onion_address else torEndpoint.onionAddress,
+                    onion_port = if (confirmed) existing.onion_port else torEndpoint.port.toLong(),
+                    signing_pub_key = signingPublicKey,
+                    signing_key_id = existing?.signing_key_id ?: CHAIN_KEY_ID,
+                    signing_key_version = existing?.signing_key_version ?: CHAIN_KEY_VERSION,
+                    encryption_pub_key = encryptionPublicKey,
+                    encryption_key_id = existing?.encryption_key_id ?: CHAIN_KEY_ID,
+                    encryption_key_version = existing?.encryption_key_version ?: CHAIN_KEY_VERSION,
+                    key_signature = keySignature,
+                    status = status,
+                    current_signed_prekey_id = existing?.current_signed_prekey_id,
+                    push_token = existing?.push_token,
+                    reliability_score = existing?.reliability_score ?: defaults.reliabilityScore,
+                    last_seen_timestamp = existing?.last_seen_timestamp ?: defaults.lastSeenTimestamp,
+                    provisional = false,
+                )
+            }
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+                message = "Committed chain-derived device identity record",
+                fields = mapOf("deviceId" to deviceId, "accountId" to accountId, "status" to status),
+            )
+        }
+    }
+
+    override suspend fun tombstoneAccount(accountId: AccountId) {
+        withContext(dbDispatcher) {
+            val queries = database.identityQueries
+            database.transaction {
+                val existing = queries.selectAccountById(accountId).executeAsOneOrNull() ?: return@transaction
+                queries.putAccount(
+                    account_id = existing.account_id,
+                    account_pub_key = existing.account_pub_key,
+                    is_local_account = existing.is_local_account,
+                    pub_key_version = existing.pub_key_version,
+                    pub_key_id = existing.pub_key_id,
+                    is_admin = false,
+                    status = AccountStatus.BANNED,
+                    display_name = existing.display_name,
+                    provisional = false,
+                )
+            }
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+                message = "Tombstoned account identity record",
+                fields = mapOf("accountId" to accountId),
+            )
+        }
+    }
+
+    override suspend fun tombstoneDevice(deviceId: PeerId) {
+        withContext(dbDispatcher) {
+            val queries = database.identityQueries
+            database.transaction {
+                val existing = queries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return@transaction
+                queries.putDevice(
+                    device_id = existing.device_id,
+                    is_local_device = existing.is_local_device,
+                    account_id = existing.account_id,
+                    device_type = existing.device_type,
+                    onion_address = existing.onion_address,
+                    onion_port = existing.onion_port,
+                    signing_pub_key = existing.signing_pub_key,
+                    signing_key_id = existing.signing_key_id,
+                    signing_key_version = existing.signing_key_version,
+                    encryption_pub_key = existing.encryption_pub_key,
+                    encryption_key_id = existing.encryption_key_id,
+                    encryption_key_version = existing.encryption_key_version,
+                    key_signature = existing.key_signature,
+                    status = AccountStatus.BANNED,
+                    current_signed_prekey_id = existing.current_signed_prekey_id,
+                    push_token = existing.push_token,
+                    reliability_score = existing.reliability_score,
+                    last_seen_timestamp = existing.last_seen_timestamp,
+                    provisional = false,
+                )
+            }
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
+                message = "Tombstoned device identity record",
+                fields = mapOf("deviceId" to deviceId),
+            )
+        }
+    }
 
     override suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
         withContext(dbDispatcher) {
@@ -207,6 +361,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = identity.encryption.keyId,
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
+                    status = AccountStatus.ACTIVE,
                     current_signed_prekey_id = identity.signedPreKey?.keyId,
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,
@@ -257,6 +412,11 @@ class DefaultIdentityKeyRepository(
             database.identityQueries.selectLocalAccountAdmin().executeAsOneOrNull() ?: false
         }
 
+    override suspend fun isAccountAdmin(accountId: AccountId): Boolean =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectAccountAdminById(accountId).executeAsOneOrNull() ?: false
+        }
+
     override suspend fun isDeviceProvisional(deviceId: PeerId): Boolean =
         withContext(dbDispatcher) {
             database.identityQueries.selectDeviceProvisionalById(deviceId).executeAsOneOrNull() ?: true
@@ -264,7 +424,8 @@ class DefaultIdentityKeyRepository(
 
     override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? =
         withContext(dbDispatcher) {
-            val device = database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return@withContext null
+            val device =
+                database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return@withContext null
             when (purpose) {
                 IdentityKeyPurpose.SIGNING -> {
                     if (device.signing_key_id.isBlank() || device.signing_pub_key.isEmpty()) return@withContext null
@@ -393,6 +554,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = identity.encryption.keyId,
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
+                    status = AccountStatus.ACTIVE,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,
@@ -434,6 +596,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = identity.encryption.keyId,
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
+                    status = AccountStatus.ACTIVE,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,

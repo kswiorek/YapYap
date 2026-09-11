@@ -42,7 +42,7 @@ data class MessageLimits(
             )
             // Messages must fit through EITHER transport → use min.
             val maxText = (cryptoBudget(transport.maxRoutableBytes).maxInnerPlaintextBytes
-                - MessagePayload.Text.ENCODED_HEADER_RESERVE_BYTES)
+                    - MessagePayload.Text.ENCODED_HEADER_RESERVE_BYTES)
             return MessageLimits(transport, crypto, maxText)
         }
 
@@ -52,16 +52,16 @@ data class MessageLimits(
          */
         private fun cryptoBudget(envelopeBytes: Int): CryptoBudget {
             val maxSessionWireFrame = (envelopeBytes
-                - BinaryEnvelope.ENCODED_HEADER_BYTES
-                - MessageEnvelope.ENCODED_OVERHEAD_BYTES)
+                    - BinaryEnvelope.ENCODED_HEADER_BYTES
+                    - MessageEnvelope.ENCODED_OVERHEAD_BYTES)
 
             val maxRatchetBody = (maxSessionWireFrame
-                - SessionWireFrame.MAX_HEADER_BYTES
-                - RatchetCiphertext.HEADER_BYTES)
+                    - SessionWireFrame.MAX_HEADER_BYTES
+                    - RatchetCiphertext.HEADER_BYTES)
 
             val maxInnerPlaintext = (maxRatchetBody
-                - DefaultCryptoProvider.AEAD_OVERHEAD_BYTES
-                - RatchetInnerPlaintext.ENCODED_OVERHEAD)
+                    - DefaultCryptoProvider.AEAD_OVERHEAD_BYTES
+                    - RatchetInnerPlaintext.ENCODED_OVERHEAD)
 
             return CryptoBudget(
                 maxSessionWireFrameBytes = maxSessionWireFrame,

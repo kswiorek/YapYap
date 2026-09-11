@@ -14,7 +14,8 @@ class JvmEncryptedDriverFactory(
 ) : DriverFactory {
     override fun createDriver(): SqlDriver {
         val path = databaseFile.toString().replace('\\', '/')   // JDBC wants forward slashes
-        val url = "jdbc:sqlite:file:$path?cipher=sqlcipher&key=${masterKey.toHexString()}&foreign_keys=on&journal_mode=WAL"
+        val url =
+            "jdbc:sqlite:file:$path?cipher=sqlcipher&key=${masterKey.toHexString()}&foreign_keys=on&journal_mode=WAL"
 
         AppLog.info(
             component = LogComponent.DATABASE,

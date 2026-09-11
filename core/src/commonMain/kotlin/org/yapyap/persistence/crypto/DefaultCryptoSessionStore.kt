@@ -84,7 +84,11 @@ class DefaultCryptoSessionStore(
                     )
                 }
             }
-            CryptoSessionCanonicalInvariant.ensure(record.peerDeviceId, record.sessionEpoch, this@DefaultCryptoSessionStore)
+            CryptoSessionCanonicalInvariant.ensure(
+                record.peerDeviceId,
+                record.sessionEpoch,
+                this@DefaultCryptoSessionStore
+            )
         }
     }
 

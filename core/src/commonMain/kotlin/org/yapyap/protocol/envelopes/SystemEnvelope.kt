@@ -70,7 +70,7 @@ data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'S'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-            fun decode(bytes: ByteArray): SystemEnvelope {
+        fun decode(bytes: ByteArray): SystemEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid system envelope magic" }
@@ -81,7 +81,7 @@ data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
             val correlationId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
-                val createdAt = Instant.fromEpochSeconds(reader.readLong())
+            val createdAt = Instant.fromEpochSeconds(reader.readLong())
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()
@@ -113,7 +113,7 @@ sealed interface SystemPayload {
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PACKET_ACK
 
-            override fun encode(): ByteArray {
+        override fun encode(): ByteArray {
             val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 1)
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(packetId)
@@ -146,7 +146,7 @@ sealed interface SystemPayload {
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PACKET_NACK
 
-            override fun encode(): ByteArray {
+        override fun encode(): ByteArray {
             val writer = ByteWriter(21 + (reasonText?.length ?: 0))
             writer.writeByte(kind.wireValue.toInt())
             writer.writeUuid(packetId)
@@ -176,58 +176,60 @@ sealed interface SystemPayload {
             }
         }
     }
-        data class SyncRequest(
-            val roomId: RoomId,
-            val syncId: Uuid,
-            /**
-             * Message IDs the requester is missing (gap parents from causal holds and/or
-             * frontier tips learned from a ping). The responder serves these messages plus
-             * their ancestry down to [knownIds].
-             */
-            val missingIds: List<Uuid>,
-            /**
-             * The requester's chainable frontier at dispatch time: tips whose ancestry is
-             * transitively complete locally. The responder stops its ancestor walk at these
-             * IDs (everything below them is present at the requester). Recomputed fresh on
-             * every attempt, never stored. Empty for a fresh device (serve down to genesis).
-             */
-            val knownIds: List<Uuid>,
-        ): SystemPayload {
-            override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
 
-            override fun encode(): ByteArray {
-                val writer =
-                    ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + (missingIds.size + knownIds.size) * Uuid.SIZE_BYTES)
-                writer.writeByte(kind.wireValue.toInt())
-                writer.writeUuid(roomId.value)
-                writer.writeUuid(syncId)
-                writer.writeInt(missingIds.size)
-                missingIds.forEach { writer.writeUuid(it) }
-                writer.writeInt(knownIds.size)
-                knownIds.forEach { writer.writeUuid(it) }
-                return writer.toByteArray()
-            }
+    data class SyncRequest(
+        val roomId: RoomId,
+        val syncId: Uuid,
+        /**
+         * Message IDs the requester is missing (gap parents from causal holds and/or
+         * frontier tips learned from a ping). The responder serves these messages plus
+         * their ancestry down to [knownIds].
+         */
+        val missingIds: List<Uuid>,
+        /**
+         * The requester's chainable frontier at dispatch time: tips whose ancestry is
+         * transitively complete locally. The responder stops its ancestor walk at these
+         * IDs (everything below them is present at the requester). Recomputed fresh on
+         * every attempt, never stored. Empty for a fresh device (serve down to genesis).
+         */
+        val knownIds: List<Uuid>,
+    ) : SystemPayload {
+        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
 
-            companion object {
-                fun decode(bytes: ByteArray): SyncRequest {
-                    val reader = ByteReader(bytes)
-                    require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
-                        "Expected SYNC_REQUEST payload kind"
-                    }
-                    val roomId = RoomId(reader.readUuid())
-                    val syncId = reader.readUuid()
-                    val missingIds = List(reader.readInt()) { reader.readUuid() }
-                    val knownIds = List(reader.readInt()) { reader.readUuid() }
-                    reader.requireFullyRead()
-                    return SyncRequest(
-                        roomId = roomId,
-                        syncId = syncId,
-                        missingIds = missingIds,
-                        knownIds = knownIds,
-                    )
+        override fun encode(): ByteArray {
+            val writer =
+                ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + (missingIds.size + knownIds.size) * Uuid.SIZE_BYTES)
+            writer.writeByte(kind.wireValue.toInt())
+            writer.writeUuid(roomId.value)
+            writer.writeUuid(syncId)
+            writer.writeInt(missingIds.size)
+            missingIds.forEach { writer.writeUuid(it) }
+            writer.writeInt(knownIds.size)
+            knownIds.forEach { writer.writeUuid(it) }
+            return writer.toByteArray()
+        }
+
+        companion object {
+            fun decode(bytes: ByteArray): SyncRequest {
+                val reader = ByteReader(bytes)
+                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
+                    "Expected SYNC_REQUEST payload kind"
                 }
+                val roomId = RoomId(reader.readUuid())
+                val syncId = reader.readUuid()
+                val missingIds = List(reader.readInt()) { reader.readUuid() }
+                val knownIds = List(reader.readInt()) { reader.readUuid() }
+                reader.requireFullyRead()
+                return SyncRequest(
+                    roomId = roomId,
+                    syncId = syncId,
+                    missingIds = missingIds,
+                    knownIds = knownIds,
+                )
             }
         }
+    }
+
     data class SyncNack(
         val syncId: Uuid,
         val reason: String,
@@ -240,6 +242,7 @@ sealed interface SystemPayload {
             writer.writeString(reason)
             return writer.toByteArray()
         }
+
         companion object {
             fun decode(bytes: ByteArray): SyncNack {
                 val reader = ByteReader(bytes)
@@ -318,7 +321,7 @@ sealed interface SystemPayload {
          * on that branch.
          */
         val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
-    ): SystemPayload {
+    ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PING
         override fun encode(): ByteArray {
             val writer =
@@ -368,6 +371,7 @@ sealed interface SystemPayload {
             writer.writeByte(kind.wireValue.toInt())
             return writer.toByteArray()
         }
+
         fun decode(bytes: ByteArray): LogOff {
             val reader = ByteReader(bytes)
             require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.LOG_OFF) {

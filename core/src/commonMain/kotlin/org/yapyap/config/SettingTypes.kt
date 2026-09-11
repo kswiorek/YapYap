@@ -256,12 +256,13 @@ fun TomlTable.toOverrides(): Overrides = buildMap {
     }
 }
 
-private val ConfigValue.raw: Any get() = when (this) {
-    is ConfigValue.Number -> value
-    is ConfigValue.Text -> value
-    is ConfigValue.Toggle -> value
-    is ConfigValue.Period -> value.toString()
-}
+private val ConfigValue.raw: Any
+    get() = when (this) {
+        is ConfigValue.Number -> value
+        is ConfigValue.Text -> value
+        is ConfigValue.Toggle -> value
+        is ConfigValue.Period -> value.toString()
+    }
 
 // ---------------------------------------------------------------------------
 // Generic derivation / projection, driven by the registry.

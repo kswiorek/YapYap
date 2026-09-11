@@ -156,7 +156,7 @@ class DefaultSignatureProviderTest {
         val message = "m".encodeToByteArray()
         val sig = signatureProvider.sign(message)
 
-        assertFailsWith<CryptoException.MissingDeviceRecord>{signatureProvider.verify(otherPeerId, message, sig)}
+        assertFailsWith<CryptoException.MissingDeviceRecord> { signatureProvider.verify(otherPeerId, message, sig) }
     }
 
     /**
@@ -176,7 +176,10 @@ class DefaultSignatureProviderTest {
             require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }
             return localSigningPrivateKey
         }
-        override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used in test")
+
+        override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+            error("not used in test")
+
         override suspend fun getLocalDeviceId(): PeerId = error("not used in test")
         override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
@@ -191,7 +194,8 @@ class DefaultSignatureProviderTest {
 
         override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used in test")
 
-        override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used in test")
+        override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
+            error("not used in test")
 
         override suspend fun resolvePeerX3dhRemoteKeys(
             deviceId: PeerId,
@@ -200,6 +204,7 @@ class DefaultSignatureProviderTest {
 
         override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used in test")
 
-        override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used in test")
+        override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord =
+            error("not used in test")
     }
 }

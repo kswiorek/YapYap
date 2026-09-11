@@ -70,7 +70,7 @@ data class WebRtcSignalEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'W'.code.toByte(), 'S'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-            fun decode(bytes: ByteArray): WebRtcSignalEnvelope {
+        fun decode(bytes: ByteArray): WebRtcSignalEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid WebRTC signal envelope magic" }
@@ -82,7 +82,7 @@ data class WebRtcSignalEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
             val sessionId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
-                val createdAt = Instant.fromEpochSeconds(reader.readLong())
+            val createdAt = Instant.fromEpochSeconds(reader.readLong())
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()

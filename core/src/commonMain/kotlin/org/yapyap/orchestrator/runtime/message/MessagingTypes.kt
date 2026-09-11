@@ -17,7 +17,8 @@ sealed interface MessageDisplayItem {
         override val accountId: AccountId,
         override val timestamp: Instant,
         val text: String,
-    ): MessageDisplayItem
+    ) : MessageDisplayItem
+
     data class File(
         override val messageId: Uuid,
         override val accountId: AccountId,
@@ -25,13 +26,14 @@ sealed interface MessageDisplayItem {
         val fileId: String,
         val fileName: String,
         val fileSize: Long,
-    ): MessageDisplayItem
+    ) : MessageDisplayItem
+
     data class Gap(
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
         val missingPrevIds: List<Uuid>,
-    ): MessageDisplayItem
+    ) : MessageDisplayItem
 }
 
 data class IncomingMessageEvent(

@@ -8,7 +8,7 @@ import org.yapyap.routing.router.RoutingContext
 internal class EnvelopeDispatcher(
     private val ctx: RoutingContext,
 ) {
-   suspend fun dispatch(
+    suspend fun dispatch(
         envelope: BinaryEnvelope,
         transport: RouterTransport,
         /**
@@ -24,6 +24,7 @@ internal class EnvelopeDispatcher(
                 endpointOverride ?: ctx.identityResolver.resolveTorEndpointForDevice(envelope.target),
                 envelope,
             )
+
             RouterTransport.WEBRTC -> {
                 ctx.webRtcTransport.sendEnvelope(
                     targetId = envelope.target,

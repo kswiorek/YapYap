@@ -52,6 +52,7 @@ class BootstrapProtection(
             createdAt,
             requireNotNull(sharedSecret) { "INTRO protection requires the shared secret" },
         )
+
         is RecoveryRequest -> BootstrapEnvelope(
             scheme = BootstrapSecurityScheme.ACCOUNT_SIGNED,
             bootstrapEnvelopeId = Uuid.random(),

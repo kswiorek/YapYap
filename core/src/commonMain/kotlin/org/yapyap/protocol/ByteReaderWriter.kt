@@ -65,6 +65,7 @@ class ByteReader(private val bytes: ByteArray) {
         if (len == 0xffff) return null
         return readBytes(len).decodeToString()
     }
+
     fun readPeerId(): PeerId {
         return PeerId(readString())
     }

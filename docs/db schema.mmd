@@ -6,9 +6,9 @@ erDiagram
 %% ==========================================
 %% DOMAIN 1: IDENTITY & HARDWARE
 %% ==========================================
-    ACCOUNTS ||--o{ DEVICES : owns
-    ACCOUNTS ||--o{ ROOM_MEMBERS : joins
-    ACCOUNTS ||--o{ MESSAGES : authors
+    ACCOUNTS ||--o{ DEVICES: owns
+    ACCOUNTS ||--o{ ROOM_MEMBERS: joins
+    ACCOUNTS ||--o{ MESSAGES: authors
 
     ACCOUNTS {
         string account_pub_key PK "The mathematically unique, constant ID"
@@ -30,9 +30,9 @@ erDiagram
 %% ==========================================
 %% DOMAIN 2: THE DAG ENGINE (Logical State)
 %% ==========================================
-    SPACES ||--o{ ROOMS : groups
-    ROOMS ||--o{ ROOM_MEMBERS : contains
-    ROOMS ||--o{ MESSAGES : contains
+    SPACES ||--o{ ROOMS: groups
+    ROOMS ||--o{ ROOM_MEMBERS: contains
+    ROOMS ||--o{ MESSAGES: contains
 
     SPACES {
         string space_id PK "The 'Server' ID"
@@ -54,9 +54,9 @@ erDiagram
         integer joined_timestamp
     }
 
-    MESSAGES ||--o{ CAUSAL_HOLD : blocks
-    MESSAGES ||--o{ OUTBOX : queues
-    MESSAGES ||--o{ FILE_TRANSFERS : owns_file
+    MESSAGES ||--o{ CAUSAL_HOLD: blocks
+    MESSAGES ||--o{ OUTBOX: queues
+    MESSAGES ||--o{ FILE_TRANSFERS: owns_file
 
     MESSAGES {
         string message_id PK "Hash of payload + metadata"
@@ -72,9 +72,9 @@ erDiagram
 %% ==========================================
 %% DOMAIN 3: TRANSPORT & RECOVERY
 %% ==========================================
-    DEVICES ||--o{ PENDING_SYNCS : targets
-    DEVICES ||--o{ OUTBOX : routes_to
-    DEVICES ||--o{ DEDUP : received_from
+    DEVICES ||--o{ PENDING_SYNCS: targets
+    DEVICES ||--o{ OUTBOX: routes_to
+    DEVICES ||--o{ DEDUP: received_from
 
     CAUSAL_HOLD {
         string gap_id PK
@@ -98,7 +98,7 @@ erDiagram
         integer expires_at "TTL limit (e.g., 48 hours)"
     }
 
-    FILE_TRANSFERS ||--o{ FILE_CHUNK_TRACKER : tracks_chunks
+    FILE_TRANSFERS ||--o{ FILE_CHUNK_TRACKER: tracks_chunks
 
     FILE_TRANSFERS {
         string transfer_id PK "From FileEnvelope.transferId"
@@ -115,7 +115,7 @@ erDiagram
     }
 
     FILE_CHUNK_TRACKER {
-        string transfer_id PK,FK "Link to parent transfer"
+        string transfer_id PK, FK "Link to parent transfer"
         integer chunk_index PK "The specific chunk number"
         string status "MISSING, REQUESTED, WRITTEN"
     }
@@ -129,7 +129,7 @@ erDiagram
 %% ==========================================
 %% DOMAIN 4: E2EE CRYPTOGRAPHY
 %% ==========================================
-    DEVICES ||--o{ CRYPTO_SESSIONS : secures
+    DEVICES ||--o{ CRYPTO_SESSIONS: secures
 
     CRYPTO_SESSIONS {
         string session_id PK

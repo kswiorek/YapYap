@@ -13,6 +13,7 @@ import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
+
 internal class PingProvider(
     private val ctx: RoutingContext,
     private val config: StateFlow<RouterConfig>,
@@ -84,6 +85,10 @@ internal class PingProvider(
      * duplicated ping cannot start an echo loop.
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
+        // TODO(sprint-4d device status): ignore pings from BANNED devices
+        // (IdentityKeyRepository.getDeviceStatus, committed by the global events fold) — no
+        // frontier processing, no echo, no availability tracking. Unknown/absent status must
+        // NOT ignore (absence asserts nothing).
         pingPayloadFlow.emit(ping.roomFrontiers)
         peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
 

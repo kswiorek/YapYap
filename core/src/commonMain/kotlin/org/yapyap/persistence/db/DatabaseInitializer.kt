@@ -27,6 +27,7 @@ class DatabaseInitializer(
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
             }
+
             currentVersion < targetVersion -> {
                 schema.migrate(driver, currentVersion, targetVersion)
                 setUserVersion(driver, targetVersion)
@@ -37,6 +38,7 @@ class DatabaseInitializer(
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
             }
+
             else -> AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.DATABASE_INITIALIZED,

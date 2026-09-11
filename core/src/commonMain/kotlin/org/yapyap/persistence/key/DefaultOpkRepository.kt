@@ -23,7 +23,10 @@ class DefaultOpkRepository(
 
     override suspend fun allocate(): LocalOneTimePreKey = withContext(dbDispatcher) {
         val keyPair = crypto.generateEncryptionKeyPair()
-        val opkId = "opk-${crypto.sha256(keyPair.publicKey).take(OPK_ID_BYTES).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}"
+        val opkId = "opk-${
+            crypto.sha256(keyPair.publicKey).take(OPK_ID_BYTES)
+                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+        }"
         val opk = LocalOneTimePreKey(
             keyId = opkId,
             publicKey = keyPair.publicKey,
@@ -58,7 +61,8 @@ class DefaultOpkRepository(
     }
 
     override suspend fun consume(opkId: String): LocalOneTimePreKey? = withContext(dbDispatcher) {
-        val row = database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return@withContext null
+        val row =
+            database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return@withContext null
         if (row.status != OpkStatus.OFFERED) return@withContext null
         if (row.device_id != localDeviceId) return@withContext null
         database.identityQueries.markOneTimePreKeyConsumed(
@@ -76,7 +80,8 @@ class DefaultOpkRepository(
     }
 
     override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? = withContext(dbDispatcher) {
-        val row = database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return@withContext null
+        val row =
+            database.identityQueries.selectOneTimePreKeyById(opkId).executeAsOneOrNull() ?: return@withContext null
         if (row.device_id != localDeviceId) return@withContext null
         if (row.status != OpkStatus.ALLOCATED && row.status != OpkStatus.OFFERED) return@withContext null
         val privateKey = keyStore.getKey(opkPrivateKeyRef(opkId)) ?: return@withContext null

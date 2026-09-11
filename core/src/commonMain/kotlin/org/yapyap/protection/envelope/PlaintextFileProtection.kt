@@ -75,7 +75,7 @@ class PlaintextFileProtection(
             transferId = input.transferId,
             source = input.source.id,
             target = input.target.id,
-            createdAt= input.createdAt,
+            createdAt = input.createdAt,
             securityScheme = input.securityScheme,
             payload = payload,
         )

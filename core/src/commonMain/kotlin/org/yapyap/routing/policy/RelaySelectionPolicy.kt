@@ -30,6 +30,10 @@ internal class DefaultRelaySelectionPolicy(
 
     override suspend fun selectRelays(targetDevice: PeerId): List<PeerId> {
         val config = routerConfig.value
+        // TODO(sprint-4d device status): filter out BANNED relay candidates
+        // (IdentityKeyRepository.getDeviceStatus, committed by the global events fold) —
+        // banned devices are not relay candidates (docs/global events.md §5). Unknown/absent
+        // status must NOT filter (absence asserts nothing).
         val candidates = ctx.identityResolver.getAllPeers()
             .filter { it != ctx.localDeviceId && it != targetDevice }
         val scored = candidates.mapNotNull { peer ->

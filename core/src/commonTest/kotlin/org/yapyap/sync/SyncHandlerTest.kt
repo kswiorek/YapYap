@@ -47,7 +47,8 @@ class SyncHandlerTest {
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
         )
         val payloadProvider = RecordingSyncPayloadProvider(messages = listOf(textMsg(), textMsg()))
-        val handler = SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
+        val handler =
+            SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
 
         handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
 
@@ -64,7 +65,8 @@ class SyncHandlerTest {
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
         )
         val payloadProvider = RecordingSyncPayloadProvider(messages = emptyList())
-        val handler = SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
+        val handler =
+            SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
 
         handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
 
@@ -82,7 +84,8 @@ class SyncHandlerTest {
             targetMessageId = Uuid.random(),
             candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
         )
-        val handler = SyncHandler(stack.outboundMessenger, RecordingSyncPayloadProvider(), pendingRepo, stack.systemSender)
+        val handler =
+            SyncHandler(stack.outboundMessenger, RecordingSyncPayloadProvider(), pendingRepo, stack.systemSender)
 
         handler.onMarkPeerAttempted(syncId, peerId = remoteDevice)
 

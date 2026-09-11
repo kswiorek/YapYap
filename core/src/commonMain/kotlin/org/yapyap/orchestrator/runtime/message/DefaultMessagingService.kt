@@ -188,7 +188,8 @@ internal class DefaultMessagingService(
         }
 
         val previous = typingTimeoutMutex.withLock {
-            _typingState.value += (event.roomId to ((_typingState.value[event.roomId] ?: emptySet()) + event.senderAccountId))
+            _typingState.value += (event.roomId to ((_typingState.value[event.roomId]
+                ?: emptySet()) + event.senderAccountId))
             typingTimeoutJobs.put(key, timeoutJob)
         }
         previous?.cancel()
@@ -235,7 +236,22 @@ internal class DefaultMessagingService(
             )
         }
 
-        val payload = dagEngine.append(roomId, MessageDraft.Text(text))
+        val payload = try {
+            dagEngine.append(roomId, MessageDraft.Text(text))
+        } catch (e: DagException.FrontierUnavailable) {
+            AppLog.warn(
+                component = LogComponent.MESSAGING,
+                event = LogEvent.APPEND_REFUSED,
+                message = "Text message not sent — room holds messages but the chainable frontier is empty",
+                fields = mapOf("roomId" to roomId),
+            )
+            return SendMessageResult(
+                status = SendMessageStatus.FAILURE,
+                peersTotal = 0,
+                peersQueued = 0,
+                failureKind = SendFailureKind.HISTORY_INCOMPLETE,
+            )
+        }
 
         val members = roomRepository.membersOfRoom(roomId)
 
@@ -286,7 +302,8 @@ internal class DefaultMessagingService(
             check(openWindows[roomId] == null) {
                 "Room $roomId is already open; close it first"
             }
-            val window = DefaultRoomMessageWindow(roomId, initialPageSize, serviceScope ?: error("MessagingService not started"))
+            val window =
+                DefaultRoomMessageWindow(roomId, initialPageSize, serviceScope ?: error("MessagingService not started"))
             openWindows[roomId] = window
             return window
         }
@@ -318,7 +335,7 @@ internal class DefaultMessagingService(
     }
 
     private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload) {
-        when(payload) {
+        when (payload) {
             is MessagePayload.Text -> {
                 val localAccountId = identityResolver.getLocalAccountId()
                 if (payload.senderAccountId == localAccountId) return
@@ -338,6 +355,7 @@ internal class DefaultMessagingService(
                     )
                 )
             }
+
             else -> {}//TODO Handle other message types
         }
     }
@@ -359,6 +377,7 @@ internal class DefaultMessagingService(
                 results.firstOrNull { it.failureKind != null }?.failureKind
                     ?: SendFailureKind.MIXED
             }
+
             SendMessageStatus.PARTIAL -> SendFailureKind.MIXED
         }
 
@@ -377,6 +396,7 @@ internal class DefaultMessagingService(
             timestamp = createdAt,
             text = text,
         )
+
         else -> null
     }
 

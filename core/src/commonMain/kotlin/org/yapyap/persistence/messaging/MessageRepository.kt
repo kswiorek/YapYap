@@ -75,9 +75,6 @@ interface MessageRepository {
     /** True if the room holds any message at all (genesis/empty-room checks). */
     suspend fun hasMessages(roomId: RoomId): Boolean
 
-    /** Newest non-rejected message (append-guard fallback only). Null if room is empty. */
-    suspend fun findLatestInRoom(roomId: RoomId): MessageRow?
-
     suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean)
 
     /** Mark a stored message's ancestry transitively complete/incomplete. */
@@ -243,11 +240,6 @@ class DefaultMessageRepository(
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         withContext(dbDispatcher) {
             queries.selectHasMessagesInRoom(roomId).executeAsOne()
-        }
-
-    override suspend fun findLatestInRoom(roomId: RoomId): MessageRow? =
-        withContext(dbDispatcher) {
-            queries.selectLatestInRoom(roomId).executeAsOneOrNull()?.toRow()
         }
 
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {

@@ -87,6 +87,7 @@ data class RouterConfig(
         require(maxRelays > 0) { "maxRelays must be > 0" }
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }
     }
+
     fun getRetryDelaySeconds(transport: RouterTransport): Duration = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelay
         RouterTransport.TOR -> torRetryDelay

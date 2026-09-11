@@ -19,6 +19,7 @@ interface PacketOutbox {
         relayMessage: Boolean = false,
         targetEndpoint: TorEndpoint? = null,
     )
+
     suspend fun markDelivered(packetId: Uuid)
     suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant)
     suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant)

@@ -10,7 +10,7 @@ class DefaultEnvelopeProtectionService(
     val messageProtection: MessageProtection,
     val systemProtection: SystemProtection,
     val bootstrapProtection: BootstrapProtection,
-): EnvelopeProtectionService {
+) : EnvelopeProtectionService {
     override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
         webRtcSignalProtection.protect(input, context)
 

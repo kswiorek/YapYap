@@ -58,11 +58,17 @@ class CryptoProviderDefaultsTest {
         override suspend fun sha256(bytes: ByteArray): ByteArray = error("not stubbed: sha256")
         override fun randomBytes(size: Int): ByteArray = error("not stubbed: randomBytes")
         override suspend fun generateSigningKeyPair(): SigningKeyPair = error("not stubbed: generateSigningKeyPair")
-        override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair = error("not stubbed: generateEncryptionKeyPair")
+        override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair =
+            error("not stubbed: generateEncryptionKeyPair")
+
         override suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray =
             error("not stubbed: signDetached")
 
-        override suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean =
+        override suspend fun verifyDetached(
+            publicSigningKey: ByteArray,
+            message: ByteArray,
+            signature: ByteArray
+        ): Boolean =
             error("not stubbed: verifyDetached")
 
         override fun generateNonce(scheme: SignalSecurityScheme): ByteArray =

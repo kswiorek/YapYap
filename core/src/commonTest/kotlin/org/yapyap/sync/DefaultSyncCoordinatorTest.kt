@@ -89,7 +89,12 @@ class DefaultSyncCoordinatorTest {
     fun requestFrontierSync_knownTip_createsNothing() = runTest {
         val coordinator = buildCoordinator()
         val known = textMsg(roomId, prevIds = emptyList())
-        messageRepo.insert(known, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.VERIFIED)
+        messageRepo.insert(
+            known,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.VERIFIED
+        )
 
         coordinator.requestFrontierSync(roomId, listOf(known.messageId))
 
@@ -102,7 +107,12 @@ class DefaultSyncCoordinatorTest {
         // parents our causal holds already chase — no new sync in either case.
         val coordinator = buildCoordinator()
         val orphan = textMsg(roomId, prevIds = listOf(Uuid.random()))
-        messageRepo.insert(orphan, isOrphaned = true, ancestryComplete = false, verificationState = VerificationState.VERIFIED)
+        messageRepo.insert(
+            orphan,
+            isOrphaned = true,
+            ancestryComplete = false,
+            verificationState = VerificationState.VERIFIED
+        )
 
         coordinator.requestFrontierSync(roomId, listOf(orphan.messageId))
 

@@ -47,10 +47,28 @@ sealed interface IngestResult {
         override val verificationState: VerificationState = VerificationState.VERIFIED,
     ) : IngestResult
 }
+
 @JvmInline
 value class RoomId(val value: Uuid) {
     companion object {
         /** The single global control room shared by every device. */
         val GLOBAL = RoomId(Uuid.NIL)
     }
+}
+
+/**
+ * Domain failures of the room DAG engine. State refusals are typed values in this
+ * hierarchy; generic throws stay reserved for programming errors and infrastructure failures.
+ */
+sealed class DagException(message: String) : Exception(message) {
+    /**
+     * The room holds messages but its chainable frontier is empty — every tip is parked
+     * on an open gap, or every stored message is REJECTED. Appending now would fork a
+     * second root instead of chaining the room DAG, so the append is refused and nothing
+     * is written. Transient while gaps are open (retry once they close); permanent while
+     * the room holds only REJECTED messages.
+     */
+    class FrontierUnavailable(val roomId: RoomId) : DagException(
+        "Cannot append in room $roomId: chainable frontier is empty but the room holds messages",
+    )
 }

@@ -20,7 +20,9 @@ internal class RetryLoop(
 ) {
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
-    fun notifyChanged() { wake.trySend(Unit) }
+    fun notifyChanged() {
+        wake.trySend(Unit)
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun runIn(scope: CoroutineScope): Job = scope.launch {

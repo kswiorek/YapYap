@@ -82,6 +82,86 @@ class DefaultDagEngineTest {
     }
 
     @Test
+    fun append_parkedFrontier_throwsFrontierUnavailable_andWritesNothing() = runTest {
+        val orphan = MessagePayload.Text(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevIds = listOf(Uuid.random()),
+            createdAt = clock.now(),
+            text = "waiting for prev",
+        )
+        assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
+        assertEquals(1, messageRepo.byId.size)
+
+        val failure = assertFailsWith<DagException.FrontierUnavailable> {
+            dagEngine.append(roomId, MessageDraft.Text("blocked"))
+        }
+        assertEquals(roomId, failure.roomId)
+        assertEquals(1, messageRepo.byId.size)
+    }
+
+    @Test
+    fun append_rejectedOnlyRoom_throwsFrontierUnavailable() = runTest {
+        messageRepo.insert(
+            payload = MessagePayload.Text(
+                messageId = Uuid.random(),
+                roomId = roomId,
+                senderAccountId = remoteAccount,
+                authorDeviceId = remoteDeviceId,
+                authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+                prevIds = emptyList(),
+                createdAt = clock.now(),
+                text = "forged",
+            ),
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.REJECTED,
+        )
+
+        assertFailsWith<DagException.FrontierUnavailable> {
+            dagEngine.append(roomId, MessageDraft.Text("blocked"))
+        }
+        assertEquals(1, messageRepo.byId.size)
+    }
+
+    @Test
+    fun append_afterGapCloses_chainsOffRecoveredFrontier() = runTest {
+        val missingId = Uuid.random()
+        val orphan = MessagePayload.Text(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevIds = listOf(missingId),
+            createdAt = clock.now(),
+            text = "waiting for prev",
+        )
+        assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
+        assertFailsWith<DagException.FrontierUnavailable> {
+            dagEngine.append(roomId, MessageDraft.Text("blocked"))
+        }
+
+        val missing = MessagePayload.Text(
+            messageId = missingId,
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevIds = emptyList(),
+            createdAt = clock.now(),
+            text = "i am the prev",
+        )
+        assertTrue(dagEngine.ingest(missing) is IngestResult.Inserted)
+
+        val appended = dagEngine.append(roomId, MessageDraft.Text("unblocked"))
+        assertEquals(listOf(orphan.messageId), appended.prevIds)
+    }
+
+    @Test
     fun ingest_newMessageWithExistingPrev_returnsInserted_noGaps() = runTest {
         val first = dagEngine.append(roomId, MessageDraft.Text("first"))
 
@@ -411,7 +491,12 @@ class DefaultDagEngineTest {
     @Test
     fun reverifyPendingFor_knownAuthor_transitionsPendingToVerified() = runTest {
         val payload = textPayload()
-        messageRepo.insert(payload, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.PENDING)
+        messageRepo.insert(
+            payload,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.PENDING
+        )
 
         val results = dagEngine.reverifyPendingFor(remoteDeviceId)
 
@@ -433,7 +518,12 @@ class DefaultDagEngineTest {
             clock = clock,
         )
         val payload = textPayload()
-        messageRepo.insert(payload, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.PENDING)
+        messageRepo.insert(
+            payload,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.PENDING
+        )
 
         val results = unknownEngine.reverifyPendingFor(remoteDeviceId)
 

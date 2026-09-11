@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.runtime.onboarding
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.globalevent.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
@@ -69,10 +70,17 @@ internal class DefaultOnboardingService(
         }
 
         // Append before sending: the intro's dagHead must already include the newcomer's events.
-        if (newcomerAccount == null) {
-            projector.publishOwnAccountDevice(invite)
-        } else {
-            projector.publishSponsoredNewAccount(invite, admin)
+        // A parked global frontier (open gaps at every tip) refuses the append — same outcome
+        // as not ready: the sponsor's history is still syncing, so nothing is appended and
+        // no intro goes out.
+        try {
+            if (newcomerAccount == null) {
+                projector.publishOwnAccountDevice(invite)
+            } else {
+                projector.publishSponsoredNewAccount(invite, admin)
+            }
+        } catch (e: DagException.FrontierUnavailable) {
+            return SponsorOutcome.Refused(SponsorRefusal.SponsorNotReady)
         }
 
         val sponsorAccount = identityResolver.getLocalAccountIdentityRecord()

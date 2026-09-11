@@ -179,16 +179,20 @@ class FileEnvelopeCodecTest {
                 assertEquals(expected.chunkCount, actual.chunkCount)
                 assertContentEquals(expected.chunkCiphertext, actual.chunkCiphertext)
             }
+
             expected is FilePayload.Ack && actual is FilePayload.Ack -> {
                 assertEquals(expected.highestContiguousChunk, actual.highestContiguousChunk)
                 assertContentEquals(expected.missingChunkIndices, actual.missingChunkIndices)
             }
+
             expected is FilePayload.Complete && actual is FilePayload.Complete ->
                 assertContentEquals(expected.objectHash, actual.objectHash)
+
             expected is FilePayload.Cancel && actual is FilePayload.Cancel -> {
                 assertEquals(expected.reasonCode, actual.reasonCode)
                 assertEquals(expected.reasonText, actual.reasonText)
             }
+
             else -> fail("FilePayload kinds differ: ${expected::class} vs ${actual::class}")
         }
     }

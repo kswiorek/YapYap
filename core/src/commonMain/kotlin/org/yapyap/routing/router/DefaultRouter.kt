@@ -60,7 +60,7 @@ class DefaultRouter(
     val peerAvailabilityStore: PeerAvailabilityStore,
     val bootstrapSessionStore: BootstrapSessionStore,
     val identityKeyRepository: IdentityKeyRepository,
-): Router {
+) : Router {
 
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -84,8 +84,10 @@ class DefaultRouter(
     private val systemSender = SystemSender(
         routingContext,
         transportPolicy,
-        envelopeDispatcher)
+        envelopeDispatcher
+    )
     private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
+
     // Fed by SystemInboundHandler when a typing indicator system envelope is received.
     private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
 
@@ -145,7 +147,8 @@ class DefaultRouter(
         outboundMessenger,
         syncPayloadProvider,
         syncRepository,
-        systemSender)
+        systemSender
+    )
     private val typingIndicatorDispatcher = TypingIndicatorDispatcher(
         ctx = routingContext,
         systemSender = systemSender,
@@ -211,8 +214,7 @@ class DefaultRouter(
         try {
             torEndpoint = torTransport.start()
             webRtcTransport.start(localDeviceIdentity!!.deviceId)
-        }
-        catch (e: Exception) {
+        } catch (e: Exception) {
             webRtcTransport.stop()
             torTransport.stop()
             throw e

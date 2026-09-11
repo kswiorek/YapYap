@@ -37,6 +37,7 @@ enum class SendFailureKind {
     NOT_READY,
     PERMANENT,
     TOO_LARGE,
+    HISTORY_INCOMPLETE,
     MIXED,
 }
 
@@ -83,6 +84,7 @@ internal sealed interface InboundSideEffect {
 
 internal sealed interface InboundHandleResult {
     val sideEffects: List<InboundSideEffect>
+
     data class Success(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
     data class Deferred(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
     data class Rejected(

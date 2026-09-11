@@ -148,8 +148,8 @@ internal class SessionBootstrap(
         sessionStore.loadSessions(peerDeviceId, sessionEpoch = 2)
             .firstOrNull {
                 it.canonical &&
-                    it.meta.status == SessionStatus.PENDING &&
-                    it.meta.role == SessionRole.INITIATOR
+                        it.meta.status == SessionStatus.PENDING &&
+                        it.meta.role == SessionRole.INITIATOR
             }
 
     private suspend fun bootstrapEpoch1Responder(peerDeviceId: PeerId, wire: X3dhWireInfo): LoadedSession {

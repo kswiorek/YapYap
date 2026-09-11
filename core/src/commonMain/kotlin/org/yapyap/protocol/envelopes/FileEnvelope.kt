@@ -63,7 +63,7 @@ data class FileEnvelope(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'F'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
-            fun decode(bytes: ByteArray): FileEnvelope {
+        fun decode(bytes: ByteArray): FileEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
             require(magic.contentEquals(MAGIC)) { "Invalid file envelope magic" }
@@ -74,7 +74,7 @@ data class FileEnvelope(
             val transferId = reader.readUuid()
             val source = reader.readPeerId()
             val target = reader.readPeerId()
-                val createdAt = Instant.fromEpochSeconds(reader.readLong())
+            val createdAt = Instant.fromEpochSeconds(reader.readLong())
             val nonce = reader.readByteArray()
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
             val signature = reader.readNullableByteArray()

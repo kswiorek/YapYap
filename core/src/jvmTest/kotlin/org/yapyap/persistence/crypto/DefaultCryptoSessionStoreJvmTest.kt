@@ -73,8 +73,20 @@ class DefaultCryptoSessionStoreJvmTest {
 
         val store = DefaultCryptoSessionStore(db)
         val peer = FixtureRemotePeerId
-        val initiator = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.INITIATOR, canonical = true)
-        val responder = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.RESPONDER, canonical = false)
+        val initiator = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.INITIATOR,
+            canonical = true
+        )
+        val responder = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.RESPONDER,
+            canonical = false
+        )
 
         store.save(initiator)
         store.save(responder)
@@ -85,8 +97,12 @@ class DefaultCryptoSessionStoreJvmTest {
         store.setCanonical(peer, sessionEpoch = 1, SessionRole.INITIATOR, sessionGeneration = 1, canonical = false)
         store.setCanonical(peer, sessionEpoch = 1, SessionRole.RESPONDER, sessionGeneration = 1, canonical = true)
         assertEquals(SessionRole.RESPONDER, store.loadActiveCanonical(peer, sessionEpoch = 1)!!.meta.role)
-        assertFalse(store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.canonical)
-        assertTrue(store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.RESPONDER }.canonical)
+        assertFalse(
+            store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.canonical
+        )
+        assertTrue(
+            store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.RESPONDER }.canonical
+        )
     }
 
     @Test
@@ -123,8 +139,20 @@ class DefaultCryptoSessionStoreJvmTest {
 
         val store = DefaultCryptoSessionStore(db)
         val peer = FixtureRemotePeerId
-        val initiator = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.INITIATOR, canonical = true)
-        val responder = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.RESPONDER, canonical = true)
+        val initiator = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.INITIATOR,
+            canonical = true
+        )
+        val responder = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.RESPONDER,
+            canonical = true
+        )
 
         store.save(initiator)
         store.save(responder)
@@ -143,8 +171,20 @@ class DefaultCryptoSessionStoreJvmTest {
 
         val store = DefaultCryptoSessionStore(db)
         val peer = FixtureRemotePeerId
-        val initiator = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.INITIATOR, canonical = true)
-        val responder = sampleRecord(peer, sessionEpoch = 1, status = SessionStatus.ACTIVE, role = SessionRole.RESPONDER, canonical = false)
+        val initiator = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.INITIATOR,
+            canonical = true
+        )
+        val responder = sampleRecord(
+            peer,
+            sessionEpoch = 1,
+            status = SessionStatus.ACTIVE,
+            role = SessionRole.RESPONDER,
+            canonical = false
+        )
         store.save(initiator)
         store.save(responder)
 
@@ -156,8 +196,14 @@ class DefaultCryptoSessionStoreJvmTest {
             updatedAt = epochSeconds(2_000L),
         )
 
-        assertEquals(SessionStatus.SUPERSEDED, store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.meta.status)
-        assertEquals(SessionStatus.ACTIVE, store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.RESPONDER }.meta.status)
+        assertEquals(
+            SessionStatus.SUPERSEDED,
+            store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.INITIATOR }.meta.status
+        )
+        assertEquals(
+            SessionStatus.ACTIVE,
+            store.loadSessions(peer, sessionEpoch = 1).single { it.meta.role == SessionRole.RESPONDER }.meta.status
+        )
         assertNull(store.loadActiveCanonical(peer, sessionEpoch = 1))
     }
 

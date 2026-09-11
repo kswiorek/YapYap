@@ -46,7 +46,12 @@ class DefaultSyncPayloadProviderTest {
         )
 
     private suspend fun seed(msg: MessagePayload.Text) {
-        messageRepo.insert(msg, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.VERIFIED)
+        messageRepo.insert(
+            msg,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.VERIFIED
+        )
     }
 
     private fun syncRequest(missingIds: List<Uuid>, knownIds: List<Uuid>): SystemPayload.SyncRequest =
@@ -64,7 +69,8 @@ class DefaultSyncPayloadProviderTest {
         val m2 = textMsg(prevIds = listOf(m1.messageId))
         seed(m0); seed(m1); seed(m2)
 
-        val result = provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)))
+        val result =
+            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)))
 
         assertEquals(listOf(m1.messageId, m2.messageId), result.map { it.messageId })
     }
@@ -76,7 +82,8 @@ class DefaultSyncPayloadProviderTest {
         val m2 = textMsg(prevIds = listOf(m1.messageId))
         seed(m0); seed(m1); seed(m2)
 
-        val result = provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m1.messageId)))
+        val result =
+            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m1.messageId)))
 
         assertEquals(listOf(m2.messageId), result.map { it.messageId })
     }
@@ -101,7 +108,8 @@ class DefaultSyncPayloadProviderTest {
         val m3 = textMsg(prevIds = listOf(m1.messageId, m2.messageId))
         seed(m0); seed(m1); seed(m2); seed(m3)
 
-        val result = provider.getMessages(syncRequest(missingIds = listOf(m3.messageId), knownIds = listOf(m0.messageId)))
+        val result =
+            provider.getMessages(syncRequest(missingIds = listOf(m3.messageId), knownIds = listOf(m0.messageId)))
 
         val ids = result.map { it.messageId }
         assertEquals(3, ids.size)
@@ -135,7 +143,8 @@ class DefaultSyncPayloadProviderTest {
         val m2 = textMsg(prevIds = listOf(Uuid.random()))
         seed(m0); seed(m2)
 
-        val result = provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)))
+        val result =
+            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)))
 
         assertEquals(listOf(m2.messageId), result.map { it.messageId })
     }

@@ -38,10 +38,12 @@ internal class InMemoryIdentityKeyRepository(
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
     val devices = mutableMapOf<String, DeviceIdentityRecord>()
     val accountStatuses = mutableMapOf<String, AccountStatus>()
+    val accountAdmins = mutableMapOf<String, Boolean>()
+    val deviceStatuses = mutableMapOf<String, AccountStatus>()
     val provisionalDevices = mutableSetOf<String>()
     val provisionalAccounts = mutableSetOf<String>()
-    var localDevice : DeviceIdentityRecord? = null
-    var localAccount : AccountIdentityRecord? = null
+    var localDevice: DeviceIdentityRecord? = null
+    var localAccount: AccountIdentityRecord? = null
     var localAdmin: Boolean = false
     private val signedPreKeys = mutableMapOf<String, SignedPreKeyRecord>()
     private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
@@ -54,6 +56,81 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun getAccountStatus(accountId: AccountId): AccountStatus? =
         accountStatuses[accountId.id]
+
+    override suspend fun getDeviceStatus(deviceId: PeerId): AccountStatus? =
+        deviceStatuses[deviceId.id]
+
+    override suspend fun upsertChainAccount(
+        accountId: AccountId,
+        accountSigningPublicKey: ByteArray?,
+        isAdmin: Boolean,
+        status: AccountStatus,
+        displayName: String,
+    ) {
+        val key = accountSigningPublicKey?.let {
+            IdentityPublicKeyRecord(
+                keyId = "chain",
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.SIGNING,
+                publicKey = it,
+            )
+        } ?: accounts[accountId.id]?.key
+        accounts[accountId.id] = AccountIdentityRecord(accountId, displayName, key)
+        accountStatuses[accountId.id] = status
+        accountAdmins[accountId.id] = isAdmin
+        provisionalAccounts.remove(accountId.id)
+        if (localAccount?.accountId == accountId) localAdmin = isAdmin
+    }
+
+    override suspend fun upsertChainDevice(
+        deviceId: PeerId,
+        accountId: AccountId,
+        deviceType: DeviceType,
+        torEndpoint: TorEndpoint,
+        signingPublicKey: ByteArray,
+        encryptionPublicKey: ByteArray,
+        keySignature: ByteArray?,
+        status: AccountStatus,
+    ) {
+        val existing = devices[deviceId.id]
+        val confirmed = existing != null && deviceId.id !in provisionalDevices
+        if (!confirmed) torForDevice[deviceId.id] = torEndpoint
+        val merged = DeviceIdentityRecord(
+            deviceId = deviceId,
+            signing = IdentityPublicKeyRecord(
+                keyId = "chain",
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.SIGNING,
+                publicKey = signingPublicKey,
+            ),
+            encryption = IdentityPublicKeyRecord(
+                keyId = "chain",
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.ENCRYPTION,
+                publicKey = encryptionPublicKey,
+            ),
+            signedPreKey = existing?.signedPreKey,
+            keySignature = keySignature,
+        )
+        devices[deviceId.id] = merged
+        deviceStatuses[deviceId.id] = status
+        provisionalDevices.remove(deviceId.id)
+        deviceToAccount[deviceId.id] = accountId.id
+        peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(deviceId.id)
+        if (localDevice?.deviceId == deviceId) localDevice = merged
+    }
+
+    override suspend fun tombstoneAccount(accountId: AccountId) {
+        if (!accounts.containsKey(accountId.id)) return
+        accountStatuses[accountId.id] = AccountStatus.BANNED
+        provisionalAccounts.remove(accountId.id)
+    }
+
+    override suspend fun tombstoneDevice(deviceId: PeerId) {
+        if (!devices.containsKey(deviceId.id)) return
+        deviceStatuses[deviceId.id] = AccountStatus.BANNED
+        provisionalDevices.remove(deviceId.id)
+    }
 
     override suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
         devices[deviceId.id]?.let { device ->
@@ -68,6 +145,7 @@ internal class InMemoryIdentityKeyRepository(
         provisional: Boolean,
     ) {
         devices[identity.deviceId.id] = identity
+        deviceStatuses[identity.deviceId.id] = AccountStatus.ACTIVE
         if (provisional) provisionalDevices.add(identity.deviceId.id) else provisionalDevices.remove(identity.deviceId.id)
         localDevice = identity
         deviceToAccount[identity.deviceId.id] = accountId.id
@@ -98,6 +176,7 @@ internal class InMemoryIdentityKeyRepository(
         provisional: Boolean,
     ) {
         devices[identity.deviceId.id] = identity
+        deviceStatuses[identity.deviceId.id] = AccountStatus.ACTIVE
         if (provisional) provisionalDevices.add(identity.deviceId.id) else provisionalDevices.remove(identity.deviceId.id)
         deviceToAccount[identity.deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
@@ -116,10 +195,14 @@ internal class InMemoryIdentityKeyRepository(
         localAccount = identity
         localAdmin = admin
         accounts[identity.accountId.id] = identity
+        accountAdmins[identity.accountId.id] = admin
         if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
 
     override suspend fun isLocalAccountAdmin(): Boolean = localAdmin
+
+    override suspend fun isAccountAdmin(accountId: AccountId): Boolean =
+        accountAdmins[accountId.id] ?: false
 
     override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
         val d = devices[deviceId.id] ?: return null
@@ -134,6 +217,7 @@ internal class InMemoryIdentityKeyRepository(
                     publicKey = spk.publicKey,
                 )
             }
+
             IdentityKeyPurpose.BOOTSTRAP_SECRET -> null
         }
     }
@@ -151,6 +235,7 @@ internal class InMemoryIdentityKeyRepository(
     ) {
         accounts[identity.accountId.id] = identity
         accountStatuses[identity.accountId.id] = status
+        accountAdmins[identity.accountId.id] = admin
         if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
 
@@ -302,8 +387,8 @@ internal class InMemoryOpkRepository(
     override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> {
         val expired = keys.filterValues {
             it.status == OpkStatus.OFFERED &&
-                it.offeredAt != null &&
-                it.offeredAt!! < cutoff
+                    it.offeredAt != null &&
+                    it.offeredAt!! < cutoff
         }.keys.toList()
         for (opkId in expired) {
             keys.remove(opkId)
