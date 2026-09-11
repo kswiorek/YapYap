@@ -66,14 +66,14 @@ internal class OutboxProcessor(
         packetOutbox.recordAttempt(packetId, nextRetryAt, at)
     }
 
-    suspend fun onWebRtcSessionConnected(peerId: PeerId) {
+    suspend fun onPeerOnline(peerId: PeerId) {
         val now = ctx.clock.now()
         packetOutbox.setDueForTarget(peerId, now)
         wake()
         AppLog.info(
             component = LogComponent.ROUTER,
-            event = LogEvent.OUTBOX_WEBRTC_DUE_SET,
-            message = "WebRTC session connected; accelerated outbox retries for peer",
+            event = LogEvent.OUTBOX_ONLINE_DUE_SET,
+            message = "Peer online accelerated outbox retries",
             fields = mapOf(
                 "peerId" to peerId,
                 "nextRetryAt" to now,

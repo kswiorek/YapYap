@@ -191,6 +191,7 @@ class DefaultRouter(
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
     private var webRtcSessionJob: Job? = null
+    private var onlinePeerJob: Job? = null
     private var outboxRetryJob: Job? = null
     private var syncRetryJob: Job? = null
 
@@ -264,8 +265,14 @@ class DefaultRouter(
         webRtcSessionJob = scope.launch {
             webRtcTransport.sessionStates.collect { state ->
                 if (state.phase == WebRtcSessionPhase.CONNECTED) {
-                    outboxProcessor.onWebRtcSessionConnected(state.peerId)
+                    outboxProcessor.onPeerOnline(state.peerId)
                 }
+            }
+        }
+
+        onlinePeerJob = scope.launch {
+            peerAvailabilityRegistry.onlineEvents.collect { state ->
+                outboxProcessor.onPeerOnline(state)
             }
         }
 
