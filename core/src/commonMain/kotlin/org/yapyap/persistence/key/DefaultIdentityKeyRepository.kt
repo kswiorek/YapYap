@@ -7,8 +7,8 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -66,12 +66,12 @@ class DefaultIdentityKeyRepository(
             })
         }
 
-    override suspend fun getAccountStatus(accountId: AccountId): AccountStatus? =
+    override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         withContext(dbDispatcher) {
             database.identityQueries.selectAccountStatusById(accountId).executeAsOneOrNull()
         }
 
-    override suspend fun getDeviceStatus(deviceId: PeerId): AccountStatus? =
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? =
         withContext(dbDispatcher) {
             database.identityQueries.selectDeviceStatusById(deviceId).executeAsOneOrNull()
         }
@@ -80,7 +80,7 @@ class DefaultIdentityKeyRepository(
         accountId: AccountId,
         accountSigningPublicKey: ByteArray?,
         isAdmin: Boolean,
-        status: AccountStatus,
+        status: IdentityStatus,
         displayName: String,
     ) {
         withContext(dbDispatcher) {
@@ -116,7 +116,7 @@ class DefaultIdentityKeyRepository(
         signingPublicKey: ByteArray,
         encryptionPublicKey: ByteArray,
         keySignature: ByteArray?,
-        status: AccountStatus,
+        status: IdentityStatus,
     ) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -169,7 +169,7 @@ class DefaultIdentityKeyRepository(
                     pub_key_version = existing.pub_key_version,
                     pub_key_id = existing.pub_key_id,
                     is_admin = false,
-                    status = AccountStatus.BANNED,
+                    status = IdentityStatus.BANNED,
                     display_name = existing.display_name,
                     provisional = false,
                 )
@@ -202,7 +202,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = existing.encryption_key_id,
                     encryption_key_version = existing.encryption_key_version,
                     key_signature = existing.key_signature,
-                    status = AccountStatus.BANNED,
+                    status = IdentityStatus.BANNED,
                     current_signed_prekey_id = existing.current_signed_prekey_id,
                     push_token = existing.push_token,
                     reliability_score = existing.reliability_score,
@@ -361,7 +361,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = identity.encryption.keyId,
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
-                    status = AccountStatus.ACTIVE,
+                    status = IdentityStatus.ACTIVE,
                     current_signed_prekey_id = identity.signedPreKey?.keyId,
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,
@@ -394,7 +394,7 @@ class DefaultIdentityKeyRepository(
                 pub_key_version = identity.key?.keyVersion,
                 pub_key_id = identity.key?.keyId,
                 is_admin = admin,
-                status = AccountStatus.ACTIVE,
+                status = IdentityStatus.ACTIVE,
                 display_name = identity.displayName,
                 provisional = provisional,
             )
@@ -478,7 +478,7 @@ class DefaultIdentityKeyRepository(
     override suspend fun insertPeerAccount(
         identity: AccountIdentityRecord,
         admin: Boolean,
-        status: AccountStatus,
+        status: IdentityStatus,
         displayName: String,
         provisional: Boolean,
     ) {
@@ -516,7 +516,7 @@ class DefaultIdentityKeyRepository(
                     pub_key_version = identity.key?.keyVersion,
                     pub_key_id = identity.key?.keyId,
                     is_admin = admin,
-                    status = AccountStatus.ACTIVE,
+                    status = IdentityStatus.ACTIVE,
                     display_name = displayName,
                     provisional = true,
                 )
@@ -554,7 +554,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = identity.encryption.keyId,
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
-                    status = AccountStatus.ACTIVE,
+                    status = IdentityStatus.ACTIVE,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,
@@ -596,7 +596,7 @@ class DefaultIdentityKeyRepository(
                     encryption_key_id = identity.encryption.keyId,
                     encryption_key_version = identity.encryption.keyVersion,
                     key_signature = identity.keySignature,
-                    status = AccountStatus.ACTIVE,
+                    status = IdentityStatus.ACTIVE,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,
                     reliability_score = defaults.reliabilityScore,

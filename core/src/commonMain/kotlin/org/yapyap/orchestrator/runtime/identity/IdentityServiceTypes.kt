@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.runtime.identity
 
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
@@ -12,7 +12,7 @@ data class AccountView(
     val displayName: String,
     val isAdmin: Boolean,
     /** Chain-derived membership status (ACTIVE / BANNED / UNBOUND). */
-    val status: AccountStatus,
+    val status: IdentityStatus,
     val isLocal: Boolean,
     val availability: AccountAvailability,
     val devices: List<DeviceView>,
@@ -23,7 +23,7 @@ data class DeviceView(
     val deviceId: PeerId,
     val deviceType: DeviceType,
     /** Chain-derived device state (ACTIVE / BANNED). */
-    val status: AccountStatus,
+    val status: IdentityStatus,
     val isLocal: Boolean,
     /** True until the global fold carries the device's Add event. */
     val provisional: Boolean,

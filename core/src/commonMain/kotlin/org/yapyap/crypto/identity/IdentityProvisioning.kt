@@ -1,7 +1,7 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.TorEndpoint
 
 interface IdentityProvisioning {
@@ -29,7 +29,7 @@ interface IdentityProvisioning {
         torEndpoint: TorEndpoint
     )
 
-    suspend fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: AccountStatus)
+    suspend fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: IdentityStatus)
 
     suspend fun provisionSignedPreKey(): SignedPreKeyRecord
 }

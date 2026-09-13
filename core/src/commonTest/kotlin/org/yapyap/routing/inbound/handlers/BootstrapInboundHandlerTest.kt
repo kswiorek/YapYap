@@ -10,8 +10,8 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.BootstrapKeySource
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
@@ -317,7 +317,7 @@ class BootstrapInboundHandlerTest {
         identityRepo.insertPeerAccount(
             payload.account,
             admin = false,
-            status = AccountStatus.ACTIVE,
+            status = IdentityStatus.ACTIVE,
             displayName = "Recovering"
         )
         val result = handler.handle(
@@ -349,7 +349,7 @@ class BootstrapInboundHandlerTest {
         identityRepo.insertPeerAccount(
             payload.account,
             admin = false,
-            status = AccountStatus.ACTIVE,
+            status = IdentityStatus.ACTIVE,
             displayName = "Recovering"
         )
         val result = handler.handle(
@@ -377,7 +377,7 @@ class BootstrapInboundHandlerTest {
         identityRepo.insertPeerAccount(
             payload.account,
             admin = false,
-            status = AccountStatus.BANNED,
+            status = IdentityStatus.BANNED,
             displayName = "Recovering"
         )
         val result = handler.handle(
@@ -428,7 +428,7 @@ class BootstrapInboundHandlerTest {
         identityRepo.insertPeerAccount(
             payload.account,
             admin = false,
-            status = AccountStatus.ACTIVE,
+            status = IdentityStatus.ACTIVE,
             displayName = "Recovering"
         )
         val result = handler.handle(

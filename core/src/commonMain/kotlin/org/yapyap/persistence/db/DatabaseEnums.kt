@@ -1,6 +1,6 @@
 package org.yapyap.persistence.db
 
-enum class AccountStatus {
+enum class IdentityStatus {
     ACTIVE,
     BANNED,
     UNBOUND,

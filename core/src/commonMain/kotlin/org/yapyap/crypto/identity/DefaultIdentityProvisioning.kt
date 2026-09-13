@@ -4,8 +4,8 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyStore
@@ -271,7 +271,7 @@ class DefaultIdentityProvisioning(
     override suspend fun provisionAccountIdentity(
         accountIdentity: AccountIdentityRecord,
         admin: Boolean,
-        status: AccountStatus
+        status: IdentityStatus
     ) {
         publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, accountIdentity.displayName)
         AppLog.info(

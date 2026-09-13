@@ -1,0 +1,32 @@
+%% Global control-room fold (GlobalEventProjector.foldAndCommit) — design level.
+%% See docs/global events.md §2–§3. The fold is a pure function of the stored set:
+%% every node holding the same messages computes the identical fixpoint.
+
+flowchart TD
+    LOAD["Load: all GLOBAL-room messages<br/>(no orphan / verdict filtering)"]
+    SCAFFOLD["Scaffolding: child adjacency + canonical order<br/>(Kahn topo sort, createdAt/messageId tiebreak)<br/>+ memoized ancestor closures"]
+    GENESIS["Genesis election: empty-prevIds AddAccount<br/>with most transitive descendants"]
+    INPUT["Fold input: the chainable graph<br/>(ancestry-complete AND reachable from the winning root)"]
+    WALK["Replay walk over canonical order<br/>into shadow state, with carried revocations"]
+    LOOP{"found == carried?"}
+    VERDICTS["Write verdicts (only on change)"]
+    COMMIT["Merge commit: upserts + tombstones<br/>+ GLOBAL membership + diff vs last commit"]
+    LOAD --> SCAFFOLD --> GENESIS --> INPUT --> WALK --> LOOP
+    LOOP -- " no: new revocation, carry and re-walk " --> WALK
+    LOOP -- " no: state seen before (oscillation),<br/>keep maximal-revocation fixpoint<br/>(contested principal loses) " --> VERDICTS
+    LOOP -- " yes (fixpoint) " --> VERDICTS --> COMMIT
+    WALK --> D1{"In fold input<br/>and no poisoned parent?"}
+    D1 -- " no: PENDING (not folded) " --> PENDING["PENDING"]
+    D1 -- yes --> D2{"Decodable GlobalEvent?"}
+    D2 -- " no: REJECTED + poison descendants " --> REJECTED["REJECTED"]
+    D2 -- yes --> D3{"Author resolves?<br/>(shadow device or genesis key)"}
+    D3 -- " no: PENDING " --> PENDING
+    D3 -- yes --> D4{"Author signature valid?"}
+    D4 -- " no: REJECTED + poison " --> REJECTED
+    D4 -- yes --> D5{"Author cut? (carried ban sealing<br/>its ancestry-exterior, or sequential<br/>walk ban; self + direct opponent exempt)"}
+    D5 -- " yes: ignored, stored VERIFIED " --> IGNORED["ignored, VERIFIED<br/>(authentic, no effect)"]
+    D5 -- no --> D6{"Admin-gated and sealed? (carried/sequential<br/>demotion sealing its interval; direct<br/>opponent exempt; genesis never demoted)"}
+    D6 -- " yes: ignored, stored VERIFIED " --> IGNORED
+    D6 -- no --> D7{"Positional authorization holds?<br/>(genesis RemoveAdmin/RemoveAccount ignored)"}
+    D7 -- " no: ignored, stored VERIFIED " --> IGNORED
+    D7 -- " yes: apply to shadow state, VERIFIED,<br/>record bans / demotions / tombstones " --> APPLY["VERIFIED + effect"]

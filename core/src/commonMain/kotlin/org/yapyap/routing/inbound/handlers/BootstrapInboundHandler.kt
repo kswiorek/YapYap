@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.AccountStatus
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.protection.ProtectionException
@@ -137,7 +137,7 @@ internal class BootstrapInboundHandler(
                 InboundHandleResult.Deferred()
             }
 
-            AccountStatus.ACTIVE -> null
+            IdentityStatus.ACTIVE -> null
             else -> {
                 AppLog.info(
                     component = LogComponent.ROUTER,

@@ -1,7 +1,7 @@
 import kotlin.Boolean;
 import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
-import org.yapyap.persistence.db.AccountStatus;
+import org.yapyap.persistence.db.IdentityStatus;
 import org.yapyap.persistence.db.DeviceType;
 import org.yapyap.persistence.db.OpkStatus;
 import org.yapyap.protocol.PeerId;
@@ -13,7 +13,7 @@ CREATE TABLE accounts (
     pub_key_version INTEGER,
     pub_key_id TEXT,
     is_admin INTEGER AS Boolean NOT NULL,
-    status TEXT AS AccountStatus NOT NULL,
+    status TEXT AS IdentityStatus NOT NULL,
     display_name TEXT NOT NULL,
     -- Intro-seeded or freshly provisioned row awaiting fold confirmation (cleared by the
     -- projector's commit). Unconfirmed: usable locally, not as chain proof.
@@ -38,7 +38,7 @@ CREATE TABLE devices (
     -- RemoveDevice or the global-events §3 ban cut — never row deletion, keys stay resolvable
     -- for historical verification). Shared ACTIVE/BANNED enum with accounts (UNBOUND is
     -- unused for devices).
-    status TEXT AS AccountStatus NOT NULL,
+    status TEXT AS IdentityStatus NOT NULL,
     current_signed_prekey_id TEXT,
     push_token TEXT,
     reliability_score REAL NOT NULL,

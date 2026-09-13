@@ -1,8 +1,8 @@
 package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.*
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 
@@ -10,10 +10,10 @@ interface IdentityKeyRepository {
     suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
 
     /** Chain-derived membership status, or null when absent (absence asserts nothing — treat as "not yet known", never "removed"). */
-    suspend fun getAccountStatus(accountId: AccountId): AccountStatus?
+    suspend fun getAccountStatus(accountId: AccountId): IdentityStatus?
 
     /** Chain-derived device ban state, or null when absent (same absence semantics as [getAccountStatus]). */
-    suspend fun getDeviceStatus(deviceId: PeerId): AccountStatus?
+    suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus?
 
     /**
      * Projector commit write: upserts the chain-derived account columns (pub key, admin, status,
@@ -25,7 +25,7 @@ interface IdentityKeyRepository {
         accountId: AccountId,
         accountSigningPublicKey: ByteArray?,
         isAdmin: Boolean,
-        status: AccountStatus,
+        status: IdentityStatus,
         displayName: String,
     )
 
@@ -44,7 +44,7 @@ interface IdentityKeyRepository {
         signingPublicKey: ByteArray,
         encryptionPublicKey: ByteArray,
         keySignature: ByteArray?,
-        status: AccountStatus,
+        status: IdentityStatus,
     )
 
     /** Projector commit write: status flip to BANNED with admin revoked, keys stay resolvable. No-op when the row is absent. */
@@ -98,7 +98,7 @@ interface IdentityKeyRepository {
     suspend fun insertPeerAccount(
         identity: AccountIdentityRecord,
         admin: Boolean,
-        status: AccountStatus,
+        status: IdentityStatus,
         displayName: String,
         provisional: Boolean = true
     )

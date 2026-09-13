@@ -548,8 +548,9 @@ private class FakeMessageRepository : MessageRepository {
     override suspend fun findById(messageId: Uuid): MessageRow? = byId[messageId]
 
     override suspend fun findRoomFrontier(roomId: RoomId): List<MessageRow> {
+        // Mirror selectRoomFrontier (VERIFIED-only chainability).
         val chainable = byId.values.filter {
-            it.payload.roomId == roomId && it.ancestryComplete && it.verificationState != VerificationState.REJECTED
+            it.payload.roomId == roomId && it.ancestryComplete && it.verificationState == VerificationState.VERIFIED
         }
         val referenced = chainable
             .flatMap { child -> parentIds[child.payload.messageId].orEmpty() }

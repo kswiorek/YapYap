@@ -185,7 +185,7 @@ class PersistenceContractsJvmTest {
         repo.insertPeerAccount(
             identity = record,
             admin = true,
-            status = AccountStatus.ACTIVE,
+            status = IdentityStatus.ACTIVE,
             displayName = "Peer Account",
         )
 

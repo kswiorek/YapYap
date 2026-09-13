@@ -19,7 +19,9 @@ CREATE TABLE messages (
     is_orphaned INTEGER AS Boolean NOT NULL,
     -- Transitively complete ancestry: every parent present and itself complete.
     -- Maintained by DagEngine (set at insert, re-derived at gap closure).
-    -- Conjunction with verification_state != 'REJECTED' defines a chainable message.
+    -- Conjunction with verification_state = 'VERIFIED' defines a chainable message:
+    -- a node advertises and builds only on what it has folded and trusted
+    -- (verify-then-advertise, never the reverse).
     ancestry_complete INTEGER AS Boolean NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(room_id)
 );
@@ -81,22 +83,24 @@ INSERT OR IGNORE INTO messages (
 selectMessageById:
 SELECT * FROM messages WHERE message_id = ?;
 
--- Chainable frontier (covering antichain): chainable messages that no chainable
+-- Chainable frontier (covering antichain): VERIFIED messages that no VERIFIED
 -- message references as a parent. Used by DagEngine.append and as the sync/ping
 -- stop set (below a frontier tip everything is present by transitivity).
--- Parked orphan tips are excluded and rejoin automatically once their gap closes.
+-- A node publishes only what it vouches for: PENDING tips (unverified ancestry or
+-- unresolvable authorship) are never advertised and never built on. Parked orphan
+-- tips are excluded and rejoin automatically once their gap closes *and* they verify.
 selectRoomFrontier:
 SELECT * FROM messages m
 WHERE m.room_id = :roomId
   AND m.ancestry_complete = 1
-  AND m.verification_state != 'REJECTED'
+  AND m.verification_state = 'VERIFIED'
   AND NOT EXISTS (
     SELECT 1 FROM message_parents mp
     JOIN messages c ON c.message_id = mp.message_id
     WHERE mp.parent_id = m.message_id
       AND c.room_id = m.room_id
       AND c.ancestry_complete = 1
-      AND c.verification_state != 'REJECTED'
+      AND c.verification_state = 'VERIFIED'
   );
 
 updateMessageVerificationState:

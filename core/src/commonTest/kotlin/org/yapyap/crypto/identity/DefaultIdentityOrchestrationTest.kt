@@ -2,8 +2,8 @@ package org.yapyap.crypto.identity
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.AccountStatus
 import org.yapyap.persistence.db.DeviceType
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -154,7 +154,7 @@ class DefaultIdentityOrchestrationTest {
         provisioning.provisionAccountIdentity(
             accountIdentity = acc,
             admin = false,
-            status = AccountStatus.ACTIVE,
+            status = IdentityStatus.ACTIVE,
         )
 
         assertNotNull(repo.accounts["external-acc-id"])
