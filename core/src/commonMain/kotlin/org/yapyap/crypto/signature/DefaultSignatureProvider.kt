@@ -118,6 +118,7 @@ class DefaultSignatureProvider(
         }
 
         // Account→device binding via roster.
+        //TODO: not filter banned
         val peerCandidates = identityResolver.getAllPeerDevicesForAccount(accountId)
         if (authorDeviceId !in peerCandidates) {
             AppLog.warn(

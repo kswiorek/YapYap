@@ -4,6 +4,7 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -41,7 +42,7 @@ internal class InboundEnvelopeProcessor(
             // keep the existing self-healing overwrite below (Tor onion rotation).
             AppLog.debug(
                 component = LogComponent.ROUTER,
-                event = LogEvent.STARTED,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
                 message = "Tor inbound from unknown device; skipped endpoint reconciliation",
                 fields = mapOf("sourceDeviceId" to inbound.envelope.source),
             )
@@ -70,12 +71,33 @@ internal class InboundEnvelopeProcessor(
         transport: RouterTransport,
         provenSourceEndpoint: TorEndpoint? = null,
     ) {
+
+        // TODO: decide what to do with unknown devices
+        try {
+            val status = ctx.identityResolver.getDeviceStatus(inbound.source)
+            if (status == IdentityStatus.BANNED){
+                AppLog.warn(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.BANNED_DEVICE_PACKET,
+                    message = "Inbound from banned device; skipped processing",
+                    fields = mapOf("sourceDeviceId" to inbound.source),
+                )
+                return
+            }
+        }
+        catch (e: CryptoException) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Inbound from unknown device; skipped processing",
+                fields = mapOf("sourceDeviceId" to inbound.source),
+            )
+            return
+        }
+
         val receivedAt = ctx.clock.now()
         peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
-        // TODO(sprint-4d device status): banned-source check — drop envelopes whose source
-        // device is BANNED (IdentityKeyRepository.getDeviceStatus, committed by the global
-        // events fold) before dedup/dispatch. Unknown/absent status must NOT drop (absence
-        // asserts nothing — pre-bootstrap sponsors and gap-skipped devices stay routable).
+
         if (!ctx.packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
                 sourceDeviceId = inbound.source,

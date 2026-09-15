@@ -20,7 +20,7 @@ internal class SyncHandler(
 ) {
     //TODO check if source is in the requested room.
     suspend fun onSyncRequested(payload: SyncRequest, sourceDevice: PeerId) {
-        val messages = syncPayloadProvider.getMessages(payload)
+        val messages = syncPayloadProvider.getMessages(payload, sourceDevice)
         if (messages.isEmpty()) {
             AppLog.info(
                 component = LogComponent.ROUTER,

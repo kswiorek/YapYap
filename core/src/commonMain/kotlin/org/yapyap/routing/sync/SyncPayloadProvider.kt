@@ -2,13 +2,14 @@ package org.yapyap.routing.sync
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.router.RouterConfig
 import kotlin.uuid.Uuid
 
 interface SyncPayloadProvider {
-    suspend fun getMessages(syncRequest: SyncRequest): List<MessagePayload>
+    suspend fun getMessages(syncRequest: SyncRequest, peerId: PeerId): List<MessagePayload>
 }
 
 class DefaultSyncPayloadProvider(
@@ -16,7 +17,7 @@ class DefaultSyncPayloadProvider(
     private val routerConfig: StateFlow<RouterConfig>,
 ) : SyncPayloadProvider {
 
-    override suspend fun getMessages(syncRequest: SyncRequest): List<MessagePayload> {
+    override suspend fun getMessages(syncRequest: SyncRequest, peerId: PeerId): List<MessagePayload> {
         val roomId = syncRequest.roomId
         // Page size is purely the responder's policy; the requester's retry loop
         // re-requests until every target arrives, so no per-request limit is needed.

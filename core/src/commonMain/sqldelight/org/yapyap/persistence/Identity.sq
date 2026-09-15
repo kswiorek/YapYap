@@ -225,10 +225,10 @@ WHERE is_local_account = 1;
 selectDevicesByAccountId:
 SELECT *
 FROM devices
-WHERE account_id = ?;
+WHERE account_id = ? AND status != 'BANNED';
 
 selectDevicesByAccountIds:
-SELECT device_id FROM devices WHERE account_id IN ?;
+SELECT device_id FROM devices WHERE account_id IN ? AND status != 'BANNED';
 
 selectAccountIdByDeviceId:
 SELECT account_id
@@ -242,19 +242,15 @@ SET
     onion_port = ?
 WHERE device_id = ?;
 
-selectAllDevices:
-SELECT *
-FROM devices;
-
 selectAllDeviceIds:
 SELECT device_id
-FROM devices;updateDeviceSigningKey:
+FROM devices;
 UPDATE devices
 SET
     signing_pub_key = ?,
     signing_key_id = ?,
     signing_key_version = ?
-WHERE device_id = ?;
+WHERE device_id = ? AND status != 'BANNED';
 
 updateDeviceEncryptionKey:
 UPDATE devices

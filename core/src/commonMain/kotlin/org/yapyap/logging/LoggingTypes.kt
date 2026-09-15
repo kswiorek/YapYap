@@ -101,6 +101,7 @@ enum class LogEvent {
     GLOBAL_FOLD_COMMITTED,
     GLOBAL_FOLD_BAN_DIVERGED,
     GLOBAL_BAN_PUBLISHED_WITH_OPEN_GAPS,
+    BANNED_DEVICE_PACKET,
 }
 
 enum class LogComponent {

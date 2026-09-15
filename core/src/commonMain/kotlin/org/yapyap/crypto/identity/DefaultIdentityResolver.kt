@@ -6,6 +6,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyStore
@@ -184,6 +185,10 @@ class DefaultIdentityResolver(
         return identity
     }
 
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus {
+        return publicKeyRepository.getDeviceStatus(deviceId)?: throw CryptoException.MissingDeviceRecord(deviceId.id)
+    }
+
     override suspend fun isLocalAccountAdmin(): Boolean =
         publicKeyRepository.isLocalAccountAdmin()
 
@@ -285,8 +290,7 @@ class DefaultIdentityResolver(
     }
 
     override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> {
-        if (accountIds.isEmpty()) return emptyList()
-        return accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+        return publicKeyRepository.getAllPeerDevicesForAccounts(accountIds)
     }
 
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? {
