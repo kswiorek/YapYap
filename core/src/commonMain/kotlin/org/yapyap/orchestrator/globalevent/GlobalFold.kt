@@ -239,42 +239,43 @@ internal suspend fun replayFold(
         val authorIsShadow = shadowAuthor != null
         val authorAccountId = shadowAuthor?.accountId
 
-        // A revocation never seals its concurrent direct opponent (narrow,
-        // type-matched): that paradox belongs to the restart loop, not the seal.
-        fun opposesSeal(seal: Uuid): Boolean {
+        // A revocation never counts against a concurrent mutual revoker: this node
+        // and the seal concurrently revoke each other's principals (device or
+        // account, any revocation types — ban, demotion, removal). That paradox
+        // belongs to the restart loop, not the seal. Single directed edges
+        // (third-party grief), sequential nodes and non-revocations are unaffected.
+        fun revokesPrincipal(
+            ev: GlobalEventPayload,
+            targetDev: PeerId,
+            targetAcct: AccountId?,
+        ): Boolean = when (ev) {
+            is GlobalEventPayload.RemoveDevice -> ev.targetDeviceId == targetDev
+            is GlobalEventPayload.RemoveAdmin -> ev.targetAccountId == targetAcct
+            is GlobalEventPayload.RemoveAccount ->
+                ev.targetAccountId == targetAcct || devices[targetDev]?.accountId == ev.targetAccountId
+
+            else -> false
+        }
+
+        fun mutuallyRevoked(seal: Uuid): Boolean {
             if (id in ancestors.getValue(seal) || seal in ancestors.getValue(id)) return false
             val sealNode = nodes[seal] ?: return false
-            val sealEvent = sealNode.event
-            return when (event) {
-                is GlobalEventPayload.RemoveDevice ->
-                    sealEvent is GlobalEventPayload.RemoveDevice &&
-                            event.targetDeviceId == sealNode.authorDeviceId &&
-                            authorId == sealEvent.targetDeviceId
-
-                is GlobalEventPayload.RemoveAdmin ->
-                    sealEvent is GlobalEventPayload.RemoveAdmin &&
-                            event.targetAccountId == sealNode.senderAccountId &&
-                            authorAccountId == sealEvent.targetAccountId
-
-                is GlobalEventPayload.RemoveAccount ->
-                    sealEvent is GlobalEventPayload.RemoveAccount &&
-                            event.targetAccountId == sealNode.senderAccountId &&
-                            authorAccountId == sealEvent.targetAccountId
-
-                else -> false
-            }
+            val sealEvent = sealNode.event ?: return false
+            val sealAuthorAcct = devices[sealNode.authorDeviceId]?.accountId ?: return false
+            return revokesPrincipal(event, sealNode.authorDeviceId, sealAuthorAcct) &&
+                    revokesPrincipal(sealEvent, authorId, authorAccountId)
         }
 
         fun effectiveAdmin(account: AccountId): Boolean {
             val acc = accounts[account] ?: return false
             if (acc.status != IdentityStatus.ACTIVE) return false
             if (acc.isAdmin) return true
-            // Demoted only by a concurrent direct opponent → still admin here;
+            // Demoted only by a concurrent mutual revoker → still admin here;
             // settled demotions count.
             val walkSeal = walkDemotions[account]
-            if (walkSeal != null && opposesSeal(walkSeal)) return true
+            if (walkSeal != null && mutuallyRevoked(walkSeal)) return true
             val carriedSeal = carriedDemotions[account]
-            return carriedSeal != null && opposesSeal(carriedSeal)
+            return carriedSeal != null && mutuallyRevoked(carriedSeal)
         }
 
         // Demotion seal: voids admin-gated events at-or-before the demotion that sit
@@ -282,19 +283,24 @@ internal suspend fun replayFold(
         fun sealed(account: AccountId): Boolean {
             val seal = demotionOf(account) ?: return false
             if (seal == id) return false
-            if (opposesSeal(seal)) return false
+            if (mutuallyRevoked(seal)) return false
             if (positionOf.getValue(id) > positionOf.getValue(seal)) return false
             return id !in ancestors.getValue(seal)
         }
         // Author cut: sequential walk bans kill inline (first mover wins); carried
-        // bans seal their ancestry-exterior (self, vouched ancestry and direct
-        // opponents exempt). Poisoned/unresolvable nodes never reach here.
+        // bans seal their ancestry-exterior (own defining node and vouched ancestry
+        // exempt). Deliberately no mutual-revoker exemption here: liveness outranks
+        // authority — acts by a banned author are void, full stop. Concurrent
+        // counter-bans still resolve (both void → oscillation → maximal pick keeps
+        // mutual destruction); the mutual exemption lives only on the demotion
+        // side (effectiveAdmin/sealed), where the position-gated seal can't
+        // oscillate on its own. Poisoned/unresolvable nodes never reach here.
         val walkBanOfAuthor = walkBans[authorId]
         val authorCutInline = walkBanOfAuthor != null && walkBanOfAuthor != id &&
                 walkBanOfAuthor in ancestors.getValue(id)
         val carriedBanSeal = carriedBans[authorId]
         val authorCutCarried = carriedBanSeal != null && carriedBanSeal != id &&
-                id !in ancestors.getValue(carriedBanSeal) && !opposesSeal(carriedBanSeal)
+                id !in ancestors.getValue(carriedBanSeal)
         if (authorCutInline || authorCutCarried) {
             // Banned device acting outside the ban's ancestry: void, no shadow effect.
             if (event is GlobalEventPayload.AddDevice && event.deviceId !in devices) {

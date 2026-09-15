@@ -1325,6 +1325,45 @@ class DefaultGlobalEventProjectorTest {
     }
 
     @Test
+    fun ban_survives_backdated_self_serving_demotion() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        val (accountB, deviceB) = h.secondAdminAccount()
+        runCurrent()
+        // Third admin C: the banner (genesis itself is irrevocable, so the duel
+        // runs between grant-derived admins).
+        val (accountC, deviceC) = h.secondAdminAccount()
+        runCurrent()
+
+        // True order: C bans the rogue device at the frontier.
+        h.become(deviceC, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(deviceB.deviceId)
+        runCurrent()
+
+        // The rogue counter-demotes C, backdated to sort before the ban. A ban
+        // target can't demote its way out: self-serving demotions don't disqualify
+        // the banner, and the carried ban then voids the demotion — a single ban
+        // suffices, no demote → ban → re-grant round-trip.
+        val forged = globalNode(
+            crypto = h.crypto,
+            author = deviceB,
+            prevIds = listOf(h.rootId()),
+            createdAt = epochSeconds(12_000L),
+            event = GlobalEventPayload.RemoveAdmin(accountC.accountId),
+        )
+        h.store(forged)
+        runCurrent()
+
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(deviceB.deviceId))
+        assertTrue(h.identityRepo.isAccountAdmin(accountC.accountId))
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
+        assertContains(h.seen, IdentityStateChange.DeviceRemoved(deviceB.deviceId))
+    }
+
+    @Test
     fun demote_then_regrant_restores_admin() = runTest {
         val h = newHarness()
         h.startIn(backgroundScope)
