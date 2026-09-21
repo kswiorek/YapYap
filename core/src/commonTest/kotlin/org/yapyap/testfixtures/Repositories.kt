@@ -4,6 +4,7 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
@@ -193,6 +194,7 @@ class FakeIdentityResolver(
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
     override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")

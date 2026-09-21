@@ -70,5 +70,17 @@ data class AccountIdentityRecord(
     val key: IdentityPublicKeyRecord? = null,
 )
 
-const val LOCAL_DEVICE_KEY_PREFIX = "yapyap:local_device:"
-const val LOCAL_ACCOUNT_KEY_PREFIX = "yapyap:local_account:"
+/** Single keystore/DB key namespace for all YapYap-held keys. All key IDs below derive from this. */
+const val YAPYAP_KEY_PREFIX = "yapyap:"
+
+const val LOCAL_DEVICE_KEY_PREFIX = YAPYAP_KEY_PREFIX + "local_device:"
+const val LOCAL_ACCOUNT_KEY_PREFIX = YAPYAP_KEY_PREFIX + "local_account:"
+
+/** Signed-prekey IDs (`yapyap:spk-<hex>`, wire-visible in X3DH). */
+const val SPK_KEY_PREFIX = YAPYAP_KEY_PREFIX + "spk-"
+
+/** One-time-prekey IDs (`yapyap:opk-<hex>`, wire-visible in 4-DH upgrade offers). */
+const val OPK_KEY_PREFIX = YAPYAP_KEY_PREFIX + "opk-"
+
+/** SQLCipher master-key ID (keystore only, never on the wire). */
+const val MASTER_KEY_ID = YAPYAP_KEY_PREFIX + "db-master-key"

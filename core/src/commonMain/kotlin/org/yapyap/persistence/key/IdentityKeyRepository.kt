@@ -115,6 +115,9 @@ interface IdentityKeyRepository {
 
     suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord?
 
+    /** All signed-prekey IDs registered for a device (keystore cleanup at wipe). */
+    suspend fun getSignedPreKeyIds(deviceId: PeerId): List<String>
+
     suspend fun insertSignedPreKey(spk: SignedPreKeyRecord)
 
     suspend fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord)

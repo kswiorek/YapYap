@@ -14,6 +14,7 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.crypto.CryptoSessionStore
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -37,6 +38,8 @@ internal class TestIdentityResolver(
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("not used in crypto session tests")
+
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("not used in crypto session tests")

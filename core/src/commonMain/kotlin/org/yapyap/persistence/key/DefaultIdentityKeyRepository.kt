@@ -651,6 +651,11 @@ class DefaultIdentityKeyRepository(
             }
         }
 
+    override suspend fun getSignedPreKeyIds(deviceId: PeerId): List<String> =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectSignedPreKeyIdsForDevice(deviceId).executeAsList()
+        }
+
     override suspend fun insertSignedPreKey(spk: SignedPreKeyRecord) {
         withContext(dbDispatcher) {
             database.identityQueries.insertSignedPreKey(

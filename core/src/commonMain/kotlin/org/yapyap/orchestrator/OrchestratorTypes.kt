@@ -1,17 +1,19 @@
 package org.yapyap.orchestrator
 
+import org.yapyap.orchestrator.boot.ResetReason
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.Invite
 
-enum class OrchestratorState {
-    Created,
-    SetupRequired,
-    Starting,
-    Running,
-    Stopping,
-    Stopped,
-    Failed,
+sealed interface OrchestratorState {
+    data object Created : OrchestratorState
+    data object SetupRequired : OrchestratorState
+    data class ResetRequired(val reason: ResetReason, val details: String = "") : OrchestratorState
+    data object Starting : OrchestratorState
+    data object Running : OrchestratorState
+    data object Stopping : OrchestratorState
+    data object Stopped : OrchestratorState
+    data class Failed(val cause: Throwable) : OrchestratorState
 }
 
 enum class NodeMode {

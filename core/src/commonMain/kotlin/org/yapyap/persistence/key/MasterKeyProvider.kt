@@ -1,6 +1,7 @@
 package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.IdentityKeyPurpose
+import org.yapyap.crypto.identity.MASTER_KEY_ID
 import org.yapyap.crypto.primitives.CryptoProvider
 
 /**
@@ -36,7 +37,7 @@ class DefaultMasterKeyProvider(
     }
 
     companion object {
-        const val DEFAULT_KEY_ID: String = "db-master-key"
+        const val DEFAULT_KEY_ID: String = MASTER_KEY_ID
         const val DEFAULT_KEY_SIZE_BYTES: Int = 32
     }
 }

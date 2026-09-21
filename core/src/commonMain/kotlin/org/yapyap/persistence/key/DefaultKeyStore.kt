@@ -75,6 +75,14 @@ class DefaultKeyStore(
         return "${ref.purpose.name.lowercase()}:${ref.keyId}:${ref.type.name.lowercase()}"
     }
 
+    override suspend fun deleteAll() {
+        // Well-known refs only — OS keyrings cannot be enumerated. Dynamic spk-*/opk-*
+        // IDs are enumerated from the DB by the wipe caller (see LocalStoreReset).
+        for (ref in wellKnownKeyRefs()) {
+            deleteKey(ref)
+        }
+    }
+
     @OptIn(ExperimentalEncodingApi::class)
     private fun encode(bytes: ByteArray): String = Base64.encode(bytes)
 

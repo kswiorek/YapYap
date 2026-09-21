@@ -2,8 +2,8 @@ package org.yapyap.persistence.key
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.LocalOneTimePreKey
+import org.yapyap.crypto.identity.OPK_KEY_PREFIX
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.OpkStatus
@@ -23,10 +23,8 @@ class DefaultOpkRepository(
 
     override suspend fun allocate(): LocalOneTimePreKey = withContext(dbDispatcher) {
         val keyPair = crypto.generateEncryptionKeyPair()
-        val opkId = "opk-${
-            crypto.sha256(keyPair.publicKey).take(OPK_ID_BYTES)
-                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-        }"
+        val opkId = OPK_KEY_PREFIX + crypto.sha256(keyPair.publicKey).take(OPK_ID_BYTES)
+            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         val opk = LocalOneTimePreKey(
             keyId = opkId,
             publicKey = keyPair.publicKey,
@@ -110,8 +108,14 @@ class DefaultOpkRepository(
             expiredIds
         }
 
-    private fun opkPrivateKeyRef(opkId: String): KeyReference =
-        KeyReference(keyId = opkId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
+    override suspend fun opkIds(): List<String> =
+        withContext(dbDispatcher) {
+            database.identityQueries
+                .selectOneTimePreKeyIdsForDevice(localDeviceId)
+                .executeAsList()
+        }
+
+    private fun opkPrivateKeyRef(opkId: String): KeyReference = oneTimePreKeyPrivateRef(opkId)
 
     companion object {
         private const val OPK_ID_BYTES = 8

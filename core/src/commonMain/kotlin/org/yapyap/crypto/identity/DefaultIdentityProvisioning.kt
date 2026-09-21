@@ -6,10 +6,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.key.KeyReference
-import org.yapyap.persistence.key.KeyStore
-import org.yapyap.persistence.key.KeyType
+import org.yapyap.persistence.key.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import kotlin.time.Clock
@@ -93,8 +90,7 @@ class DefaultIdentityProvisioning(
             accountId = accountRecord.accountId,
             identity = identity
         )
-        val spkRef =
-            KeyReference(keyId = signedPreKey.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
+        val spkRef = signedPreKeyPrivateRef(signedPreKey.keyId)
 
         keyStore.putKey(spkRef, signedPreKey.privateKey!!)
 
@@ -113,10 +109,8 @@ class DefaultIdentityProvisioning(
         deviceId: PeerId
     ): SignedPreKeyRecord {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
-        val spkId = "spk-${
-            cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
-                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-        }"
+        val spkId = SPK_KEY_PREFIX + cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
+            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
         val record = SignedPreKeyRecord(
             deviceId = deviceId,
@@ -131,10 +125,8 @@ class DefaultIdentityProvisioning(
 
     override suspend fun provisionSignedPreKey(): SignedPreKeyRecord {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
-        val spkId = "spk-${
-            cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
-                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-        }"
+        val spkId = SPK_KEY_PREFIX + cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
+            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         val signingPrivateKey = identityResolver.getLocalDevicePrivateKey(purpose = IdentityKeyPurpose.SIGNING)
         val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
         val deviceId = identityResolver.getLocalDeviceId()
@@ -147,7 +139,7 @@ class DefaultIdentityProvisioning(
             createdAt = clock.now(),
         )
 
-        val spkRef = KeyReference(keyId = record.keyId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
+        val spkRef = signedPreKeyPrivateRef(record.keyId)
 
         keyStore.putKey(spkRef, record.privateKey!!)
 

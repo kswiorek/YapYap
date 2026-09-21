@@ -179,6 +179,7 @@ private class TestIdentities : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = toDeviceRecord(device)
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = toAccountRecord(account)
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
     override suspend fun isLocalAccountAdmin(): Boolean = admin
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")

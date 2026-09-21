@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator
 
+import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -8,7 +9,6 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.config.BootConfig
 import org.yapyap.config.ConfigFileWatcher
-import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
@@ -19,6 +19,12 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.AppLogger
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.boot.BootDiagnoser
+import org.yapyap.orchestrator.boot.BootDiagnosis
+import org.yapyap.orchestrator.boot.LocalStoreReset
+import org.yapyap.orchestrator.boot.ResetReason
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.globalevent.DefaultGlobalEventProjector
@@ -75,11 +81,9 @@ class DefaultOrchestrator(
     private val createConfigFileWatcher: (userSettingsFile: Path) -> ConfigFileWatcher,
 ) : Orchestrator {
 
-    private val _state = MutableStateFlow(OrchestratorState.Created)
-    private val _lastError = MutableStateFlow<Throwable?>(null)
+    private val _state = MutableStateFlow<OrchestratorState>(OrchestratorState.Created)
 
     override val state: StateFlow<OrchestratorState> = _state.asStateFlow()
-    override val lastError: StateFlow<Throwable?> = _lastError.asStateFlow()
 
     private val _onboardingState = MutableStateFlow(OnboardingState.IDLE)
     override val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
@@ -94,9 +98,11 @@ class DefaultOrchestrator(
     private lateinit var cryptoSessionManager: DefaultCryptoSessionManager
     private lateinit var bootstrapSessionStore: BootstrapSessionStore
     private lateinit var database: YapYapDatabase
+    private var dbDriver: SqlDriver? = null
     private lateinit var keyStore: DefaultKeyStore
     private lateinit var cryptoProvider: DefaultCryptoProvider
     private lateinit var identityRepo: DefaultIdentityKeyRepository
+    private var opkRepository: DefaultOpkRepository? = null
     private lateinit var identityProvisioning: DefaultIdentityProvisioning
     private lateinit var dagEngine: DefaultDagEngine
     private lateinit var pipeline: DefaultInboundMessagePipeline
@@ -114,10 +120,9 @@ class DefaultOrchestrator(
 
 
     override suspend fun start() {
-        if (_state.value == OrchestratorState.Running) return
+        if (_state.value is OrchestratorState.Running) return
         orchestratorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         _state.value = OrchestratorState.Starting
-        _lastError.value = null
         try {
             // 1. paths (kotlinx.io.files.Path, resolve via Path(parent, child))
             val databaseFile = Path(dataDirectory, "vault.db")
@@ -156,6 +161,7 @@ class DefaultOrchestrator(
             val dbConnection = DatabaseFactory(createDriverFactory(masterKey, databaseFile)).createConnection()
             identityRepo = DefaultIdentityKeyRepository(dbConnection.database, bootConfig.localDeviceType)
             database = dbConnection.database
+            dbDriver = dbConnection.driver
             identityResolver = DefaultIdentityResolver(
                 cryptoProvider = cryptoProvider,
                 publicKeyRepository = identityRepo,        // DefaultIdentityKeyRepository
@@ -167,22 +173,35 @@ class DefaultOrchestrator(
                 identityResolver,
                 Clock.System,
             )
-            try {
-                identityResolver.getLocalDeviceIdentityRecord()
-                _state.value = OrchestratorState.Starting
-                init()
-                _state.value = OrchestratorState.Running
-            } catch (_: CryptoException) {
-                _state.value = OrchestratorState.SetupRequired
+            // Boot diagnosis owns the Healthy/SetupRequired/ResetRequired decision.
+            when (val diagnosis = BootDiagnoser(identityRepo, keyStore, cryptoProvider).diagnose()) {
+                is BootDiagnosis.Healthy -> {
+                    _state.value = OrchestratorState.Starting
+                    init()
+                    _state.value = OrchestratorState.Running
+                }
+
+                is BootDiagnosis.SetupRequired -> {
+                    _state.value = OrchestratorState.SetupRequired
+                }
+
+                is BootDiagnosis.ResetRequired -> {
+                    _state.value = OrchestratorState.ResetRequired(diagnosis.reason, diagnosis.details)
+                }
             }
         } catch (e: Throwable) {
-            _lastError.value = e
-            _state.value = OrchestratorState.Failed
+            AppLog.error(
+                component = LogComponent.ORCHESTRATOR,
+                event = LogEvent.SESSION_FAILED,
+                message = "Orchestrator start failed",
+                throwable = e,
+            )
+            _state.value = OrchestratorState.Failed(e)
         }
     }
 
     override suspend fun completeSetup(intent: SetupIntent): SetupResult {
-        require(state.value == OrchestratorState.SetupRequired) { "Orchestrator must be in SetupRequired state" }
+        require(state.value is OrchestratorState.SetupRequired) { "Orchestrator must be in SetupRequired state" }
         // The provider owns the session slot: stale secrets (e.g. wiped data dir, live keyring)
         // are cleared through it after init(), before a new session begins.
         when (intent) {
@@ -359,6 +378,7 @@ class DefaultOrchestrator(
             crypto = cryptoProvider,
             localDeviceId = localDeviceId,
         )
+        this.opkRepository = opkRepository
 
         cryptoSessionManager = DefaultCryptoSessionManager(
             crypto = cryptoProvider,
@@ -475,6 +495,24 @@ class DefaultOrchestrator(
                 if (change is IdentityStateChange.DeviceAdded) {
                     dagEngine.reverifyPendingFor(change.deviceId)
                 }
+                // A fold that tombstones our own device/account bans us: halt networking
+                // and block the GUI until resetApp(). Boot-time diagnose() covers bans
+                // found at start; this covers bans arriving while Running.
+                val selfRemoved = when (change) {
+                    is IdentityStateChange.DeviceRemoved ->
+                        change.deviceId == identityRepo.getLocalDeviceRecord()?.deviceId
+
+                    is IdentityStateChange.AccountRemoved ->
+                        change.accountId == identityRepo.getLocalAccountRecord()?.accountId
+
+                    else -> false
+                }
+                if (selfRemoved) {
+                    enterResetRequired(
+                        ResetReason.SELF_BANNED,
+                        "Fold tombstoned local identity ($change)",
+                    )
+                }
             }
         }
         orchestratorScope.launch { dagEngine.reverifyAllPending() }
@@ -543,7 +581,7 @@ class DefaultOrchestrator(
     }
 
     override suspend fun stop() {
-        if (_state.value != OrchestratorState.Running) return
+        if (_state.value !is OrchestratorState.Running) return
         _state.value = OrchestratorState.Stopping
 
         try {
@@ -552,17 +590,87 @@ class DefaultOrchestrator(
             }
             router.stop()
             orchestratorScope.cancel()
-        } catch (e: Throwable) {
-            _lastError.value = e
-            _state.value = OrchestratorState.Failed
-        } finally {
             _state.value = OrchestratorState.Stopped
+        } catch (e: Throwable) {
+            AppLog.error(
+                component = LogComponent.ORCHESTRATOR,
+                event = LogEvent.SESSION_FAILED,
+                message = "Orchestrator stop failed",
+                throwable = e,
+            )
+            _state.value = OrchestratorState.Failed(e)
         }
+    }
+
+    /**
+     * Self-ban teardown: unlike [stop] (which ends in `Stopped`), this lands in
+     * [OrchestratorState.ResetRequired] and keeps the DB open so the next
+     * `start()` can diagnose the tombstoned rows (closing happens at wipe time
+     * in [resetApp]). State flips first so the GUI blocks even if a transport
+     * hangs; every teardown step is best-effort and teardown failures stay in
+     * the log — the ban fact doesn't change because a socket complained.
+     * No-op unless currently `Running` (a single ban emits both `DeviceRemoved`
+     * and `AccountRemoved`, and repeated `init()` calls stack collectors).
+     */
+    private suspend fun enterResetRequired(reason: ResetReason, details: String) {
+        if (_state.value !is OrchestratorState.Running) return
+        _state.value = OrchestratorState.ResetRequired(reason, details)
+        AppLog.error(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.SESSION_FAILED,
+            message = "Local identity removed by global fold, entering ResetRequired",
+            fields = mapOf("reason" to reason.name, "details" to details),
+        )
+        if (::orchestratorRuntime.isInitialized) {
+            runCatching { orchestratorRuntime.stop() }
+        }
+        if (::router.isInitialized) {
+            runCatching { router.stop() }
+        }
+        runCatching { orchestratorScope.cancel() }
+    }
+
+    override suspend fun resetApp() {
+        check(
+            _state.value is OrchestratorState.ResetRequired ||
+                    _state.value is OrchestratorState.Stopped ||
+                    _state.value is OrchestratorState.Failed ||
+                    _state.value is OrchestratorState.SetupRequired
+        ) { "resetApp() requires ResetRequired, Stopped, Failed or SetupRequired (was ${_state.value})" }
+        if (::orchestratorScope.isInitialized) {
+            runCatching { orchestratorScope.cancel() }
+        }
+        val reset = LocalStoreReset(
+            dataDirectory = dataDirectory,
+            // keyStore is lateinit until start() opens it; a fresh store on the same
+            // session factory is equivalent for deleteAll (service-scoped well-known refs).
+            keyStore = if (::keyStore.isInitialized) keyStore else DefaultKeyStore(keyringSessionFactory),
+            closeDatabase = { dbDriver?.close() },
+            // The OS keyring cannot be enumerated, so dynamic spk-*/opk-* IDs are
+            // collected from the DB while it is still open (LocalStoreReset closes
+            // it right after). Best-effort: a corrupt DB still wipes via deleteAll.
+            collectKeyRefs = {
+                if (!::identityRepo.isInitialized) emptyList()
+                else {
+                    val refs = mutableListOf<KeyReference>()
+                    val localDeviceId = identityRepo.getLocalDeviceRecord()?.deviceId
+                    if (localDeviceId != null) {
+                        refs += identityRepo.getSignedPreKeyIds(localDeviceId).map { signedPreKeyPrivateRef(it) }
+                    }
+                    opkRepository?.let { refs += it.opkIds().map { oneTimePreKeyPrivateRef(it) } }
+                    refs
+                }
+            },
+        )
+        reset.wipe()
+        dbDriver = null
+        _onboardingState.value = OnboardingState.IDLE
+        _state.value = OrchestratorState.SetupRequired
     }
 
     override fun runtime(): OrchestratorRuntime {
         check(bootConfig.mode == NodeMode.FULL_CLIENT) { "runtime() requires FULL_CLIENT mode" }
-        check(_state.value == OrchestratorState.Running) { "Orchestrator must be Running" }
+        check(_state.value is OrchestratorState.Running) { "Orchestrator must be Running" }
         return orchestratorRuntime
     }
 }

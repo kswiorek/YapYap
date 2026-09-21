@@ -70,7 +70,10 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)))
+            provider.getMessages(
+                syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)),
+                remoteDevice
+            )
 
         assertEquals(listOf(m1.messageId, m2.messageId), result.map { it.messageId })
     }
@@ -83,7 +86,10 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m1.messageId)))
+            provider.getMessages(
+                syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m1.messageId)),
+                remoteDevice
+            )
 
         assertEquals(listOf(m2.messageId), result.map { it.messageId })
     }
@@ -95,7 +101,8 @@ class DefaultSyncPayloadProviderTest {
         val m2 = textMsg(prevIds = listOf(m1.messageId))
         seed(m0); seed(m1); seed(m2)
 
-        val result = provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()))
+        val result =
+            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()), remoteDevice)
 
         assertEquals(listOf(m0.messageId, m1.messageId, m2.messageId), result.map { it.messageId })
     }
@@ -109,7 +116,10 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2); seed(m3)
 
         val result =
-            provider.getMessages(syncRequest(missingIds = listOf(m3.messageId), knownIds = listOf(m0.messageId)))
+            provider.getMessages(
+                syncRequest(missingIds = listOf(m3.messageId), knownIds = listOf(m0.messageId)),
+                remoteDevice
+            )
 
         val ids = result.map { it.messageId }
         assertEquals(3, ids.size)
@@ -119,7 +129,8 @@ class DefaultSyncPayloadProviderTest {
 
     @Test
     fun unknownTarget_returnsEmptyList() = runTest {
-        val result = provider.getMessages(syncRequest(missingIds = listOf(Uuid.random()), knownIds = emptyList()))
+        val result =
+            provider.getMessages(syncRequest(missingIds = listOf(Uuid.random()), knownIds = emptyList()), remoteDevice)
 
         assertTrue(result.isEmpty())
     }
@@ -130,7 +141,10 @@ class DefaultSyncPayloadProviderTest {
         val foreign = textMsg(prevIds = emptyList()).copy(roomId = otherRoom)
         seed(foreign)
 
-        val result = provider.getMessages(syncRequest(missingIds = listOf(foreign.messageId), knownIds = emptyList()))
+        val result = provider.getMessages(
+            syncRequest(missingIds = listOf(foreign.messageId), knownIds = emptyList()),
+            remoteDevice
+        )
 
         assertTrue(result.isEmpty())
     }
@@ -144,7 +158,10 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m2)
 
         val result =
-            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)))
+            provider.getMessages(
+                syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)),
+                remoteDevice
+            )
 
         assertEquals(listOf(m2.messageId), result.map { it.messageId })
     }
@@ -161,7 +178,10 @@ class DefaultSyncPayloadProviderTest {
             messageRepo,
             MutableStateFlow(RouterConfig(syncMaxMessages = 2)),
         )
-        val result = limitedProvider.getMessages(syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()))
+        val result = limitedProvider.getMessages(
+            syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()),
+            remoteDevice
+        )
 
         assertEquals(2, result.size)
     }

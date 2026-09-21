@@ -24,6 +24,7 @@ import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
@@ -668,6 +669,7 @@ private class FakeIdentityResolver(
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
     override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")

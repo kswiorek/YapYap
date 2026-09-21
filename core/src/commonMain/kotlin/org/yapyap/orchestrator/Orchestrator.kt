@@ -7,7 +7,6 @@ import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 
 interface Orchestrator {
     val state: StateFlow<OrchestratorState>
-    val lastError: StateFlow<Throwable?>
 
     /**
      * Newcomer onboarding lifecycle, in every mode (headless relays have no runtime, so this —
@@ -22,6 +21,15 @@ interface Orchestrator {
     suspend fun stop()
 
     suspend fun completeSetup(intent: SetupIntent): SetupResult
+
+    /**
+     * Terminal offline wipe: deletes local persistence (`vault.db*`, keyring
+     * entries, `tor/`, `state.toml`) and returns to
+     * [OrchestratorState.SetupRequired]. Callable only from
+     * [OrchestratorState.ResetRequired], `Stopped`, `Failed` or `SetupRequired`;
+     * refuses in `Running`/`Starting`.
+     */
+    suspend fun resetApp()
 
     /**
      * Domain APIs. Prefer throwing/checking state over nullable returns

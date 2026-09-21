@@ -148,9 +148,14 @@ class RecordingSyncPayloadProvider(
     var messages: List<MessagePayload> = emptyList(),
 ) : SyncPayloadProvider {
     val requests = mutableListOf<SystemPayload.SyncRequest>()
+    val peerIds = mutableListOf<PeerId>()
 
-    override suspend fun getMessages(syncRequest: SystemPayload.SyncRequest): List<MessagePayload> {
+    override suspend fun getMessages(
+        syncRequest: SystemPayload.SyncRequest,
+        peerId: PeerId,
+    ): List<MessagePayload> {
         requests.add(syncRequest)
+        peerIds.add(peerId)
         return messages
     }
 }

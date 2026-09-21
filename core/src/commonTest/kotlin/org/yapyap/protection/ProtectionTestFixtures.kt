@@ -11,6 +11,7 @@ import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.crypto.primitives.SigningKeyPair
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -196,6 +197,7 @@ internal class FakeIdentityResolverForProtection(
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
     override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {

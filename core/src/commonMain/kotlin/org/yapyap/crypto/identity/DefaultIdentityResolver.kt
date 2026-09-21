@@ -119,9 +119,7 @@ class DefaultIdentityResolver(
     }
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord {
-
         val deviceRecord = publicKeyRepository.getLocalDeviceRecord()
-
         if (deviceRecord != null) {
             AppLog.info(
                 component = LogComponent.CRYPTO,
@@ -130,28 +128,19 @@ class DefaultIdentityResolver(
                 fields = mapOf("deviceId" to deviceRecord.deviceId),
             )
             return deviceRecord
-        } else {
-
-            AppLog.warn(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
-                message = "Local device identity record missing, creating from local keys",
-            )
-
-            val identity = buildLocalDeviceIdentityRecordFromKeys()
-            val accountRecord = getLocalAccountIdentityRecord()
-            publicKeyRepository.insertLocalDevice(
-                accountRecord.accountId,
-                identity,
-            )
-            AppLog.info(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
-                message = "Created and persisted local device identity record",
-                fields = mapOf("deviceId" to identity.deviceId, "accountId" to accountRecord.accountId),
-            )
-            return identity
         }
+        // Strict: a missing row is boot-diagnosis territory (BootDiagnoser ->
+        // ResetRequired), never silently re-inserted here. Re-inserting masks an
+        // intentional wipe and forks chain state (empty displayName, keyVersion 0,
+        // no SPK/tor/admin history).
+        val e = CryptoException.MissingDeviceRecord("local device")
+        AppLog.error(
+            component = LogComponent.CRYPTO,
+            event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+            message = "Local device identity record missing",
+            throwable = e,
+        )
+        throw e
     }
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord {
@@ -168,21 +157,15 @@ class DefaultIdentityResolver(
             return accountRecord
         }
 
-        val identity = buildLocalAccountIdentityRecordFromKeys()
-        AppLog.warn(
+        // Strict: see getLocalDeviceIdentityRecord above.
+        val e = CryptoException.MissingAccountRecord("local account")
+        AppLog.error(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_MISSING,
-            message = "Local account identity record missing, creating from local keys",
+            message = "Local account identity record missing",
+            throwable = e,
         )
-        //TODO fill out accountName when received from swarm
-        publicKeyRepository.insertLocalAccount(identity)
-        AppLog.info(
-            component = LogComponent.CRYPTO,
-            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
-            message = "Created and persisted local account identity record",
-            fields = mapOf("accountId" to identity.accountId),
-        )
-        return identity
+        throw e
     }
 
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus {

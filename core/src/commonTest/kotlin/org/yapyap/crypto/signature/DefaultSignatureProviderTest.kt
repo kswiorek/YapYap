@@ -5,6 +5,7 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import kotlin.test.Test
@@ -170,6 +171,7 @@ class DefaultSignatureProviderTest {
         override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used in test")
 
         override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used in test")
+        override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
         override suspend fun isLocalAccountAdmin(): Boolean = error("not used in test")
 
         override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {

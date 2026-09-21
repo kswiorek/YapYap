@@ -1,6 +1,7 @@
 package org.yapyap.crypto.identity
 
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
@@ -54,30 +55,28 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun resolver_recoversDeviceRecordFromKeystoreWhenDbRowMissing() = runTest {
-        val (repo, store, triple) = stack()
+    fun resolver_throwsWhenDeviceDbRowMissing() = runTest {
+        val (repo, _, triple) = stack()
         val (resolver, provisioning) = triple
 
         provisioning.createNewAccountIdentity(displayName = "Recovery User")
-        val device = provisioning.createNewDeviceIdentity()
+        provisioning.createNewDeviceIdentity()
 
         repo.clearLocalDeviceRecord()
 
-        val recovered = resolver.getLocalDeviceIdentityRecord()
-        assertEquals(device.deviceId, recovered.deviceId)
-        assertContentEquals(device.signing.publicKey, recovered.signing.publicKey)
-        assertContentEquals(device.encryption.publicKey, recovered.encryption.publicKey)
-        assertContentEquals(device.keySignature, recovered.keySignature)
-        assertNotNull(resolver.resolvePeerIdentityRecord(device.deviceId))
+        // Strict: missing rows are BootDiagnoser territory, never re-inserted here.
+        assertFailsWith<CryptoException.MissingDeviceRecord> {
+            resolver.getLocalDeviceIdentityRecord()
+        }
     }
 
     @Test
-    fun resolver_recoversDeviceRecordFromPrivateKeysOnlyWhenPublicKeysMissing() = runTest {
+    fun resolver_throwsWhenDeviceDbRowMissingEvenWithPrivateKeysOnly() = runTest {
         val (repo, store, triple) = stack()
         val (resolver, provisioning) = triple
 
         provisioning.createNewAccountIdentity(displayName = "Private-only recovery")
-        val device = provisioning.createNewDeviceIdentity()
+        provisioning.createNewDeviceIdentity()
 
         val signingKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.SIGNING.name.lowercase()
         val encryptionKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
@@ -85,16 +84,14 @@ class DefaultIdentityOrchestrationTest {
         store.deleteKey(KeyReference(encryptionKeyId, IdentityKeyPurpose.ENCRYPTION, KeyType.PUBLIC))
         repo.clearLocalDeviceRecord()
 
-        val recovered = resolver.getLocalDeviceIdentityRecord()
-        assertEquals(device.deviceId, recovered.deviceId)
-        assertContentEquals(device.signing.publicKey, recovered.signing.publicKey)
-        assertContentEquals(device.encryption.publicKey, recovered.encryption.publicKey)
-        assertContentEquals(device.keySignature, recovered.keySignature)
+        assertFailsWith<CryptoException.MissingDeviceRecord> {
+            resolver.getLocalDeviceIdentityRecord()
+        }
     }
 
     @Test
-    fun resolver_recoversAccountRecordFromKeystoreWhenDbRowMissing() = runTest {
-        val (repo, store, triple) = stack()
+    fun resolver_throwsWhenAccountDbRowMissing() = runTest {
+        val (repo, _, triple) = stack()
         val (resolver, provisioning) = triple
 
         val account = provisioning.createNewAccountIdentity(displayName = "Recovery User")
@@ -102,9 +99,9 @@ class DefaultIdentityOrchestrationTest {
         repo.localAccount = null
 
 
-        val recovered = resolver.getLocalAccountIdentityRecord()
-        assertEquals(account.accountId, recovered.accountId)
-        assertContentEquals(account.key!!.publicKey, recovered.key!!.publicKey)
+        assertFailsWith<CryptoException.MissingAccountRecord> {
+            resolver.getLocalAccountIdentityRecord()
+        }
     }
 
     @Test

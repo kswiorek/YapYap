@@ -25,6 +25,10 @@ internal class InMemoryKeyStore : KeyStore {
     override suspend fun deleteKey(ref: KeyReference) {
         keys.remove(ref)
     }
+
+    override suspend fun deleteAll() {
+        keys.clear()
+    }
 }
 
 /**
@@ -257,6 +261,9 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun getSignedPreKey(spkId: String): SignedPreKeyRecord = signedPreKeys[spkId]!!
 
+    override suspend fun getSignedPreKeyIds(deviceId: PeerId): List<String> =
+        signedPreKeys.values.filter { it.deviceId == deviceId }.map { it.keyId }.sorted()
+
     override suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
         activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it]!! }
 
@@ -396,6 +403,8 @@ internal class InMemoryOpkRepository(
         return expired
     }
 
+    override suspend fun opkIds(): List<String> = keys.keys.sorted()
+
     fun status(opkId: String): OpkStatus? = keys[opkId]?.status
 }
 
@@ -411,4 +420,6 @@ internal class FailingAllocateOpkRepository : OpkRepository {
     override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? = null
 
     override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> = emptyList()
+
+    override suspend fun opkIds(): List<String> = emptyList()
 }

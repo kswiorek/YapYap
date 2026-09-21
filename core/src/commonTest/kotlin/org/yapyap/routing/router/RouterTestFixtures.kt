@@ -17,6 +17,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.*
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
@@ -204,7 +205,10 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
 }
 
 internal class FakeSyncPayloadProvider : SyncPayloadProvider {
-    override suspend fun getMessages(syncRequest: SystemPayload.SyncRequest): List<MessagePayload> {
+    override suspend fun getMessages(
+        syncRequest: SystemPayload.SyncRequest,
+        peerId: PeerId,
+    ): List<MessagePayload> {
         error("not used in router transport tests")
     }
 
@@ -348,6 +352,8 @@ internal class FakeIdentityResolverForRouter(
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("FakeIdentityResolverForRouter: account record not stubbed")
+
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("FakeIdentityResolverForRouter: admin flag not stubbed")
@@ -526,6 +532,8 @@ internal class E2eeIdentityResolverForRouter(
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("E2eeIdentityResolverForRouter: account record not stubbed")
+
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("E2eeIdentityResolverForRouter: admin flag not stubbed")

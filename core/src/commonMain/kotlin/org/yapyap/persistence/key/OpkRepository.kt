@@ -27,4 +27,7 @@ interface OpkRepository {
      * Private key material is removed. Returns pruned opk ids.
      */
     suspend fun pruneExpiredOffers(cutoff: Instant): List<String>
+
+    /** All OPK IDs held for the local device (keystore cleanup at wipe). */
+    suspend fun opkIds(): List<String>
 }
