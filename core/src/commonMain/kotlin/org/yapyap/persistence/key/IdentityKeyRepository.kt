@@ -123,4 +123,9 @@ interface IdentityKeyRepository {
     suspend fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord)
 
     suspend fun getAllDeviceIds(): List<PeerId>
+
+    /** Active-only enumeration (excludes BANNED) for send/relay/ping candidate lists. */
+    suspend fun getAllActiveDeviceIds(): List<PeerId> {
+        return getAllDeviceIds().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+    }
 }

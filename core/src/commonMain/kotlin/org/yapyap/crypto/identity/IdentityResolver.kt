@@ -52,4 +52,15 @@ interface IdentityResolver {
     suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord
 
     suspend fun getAllPeers(): List<PeerId>
+
+    /** Active-only peer list (excludes BANNED) for ping/relay/send fan-out. */
+    suspend fun getAllActivePeers(): List<PeerId> {
+        return getAllPeers().filter {
+            try {
+                getDeviceStatus(it) != IdentityStatus.BANNED
+            } catch (_: Exception) {
+                true
+            }
+        }
+    }
 }

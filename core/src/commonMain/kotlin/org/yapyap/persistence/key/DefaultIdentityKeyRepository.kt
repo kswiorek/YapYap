@@ -694,6 +694,11 @@ class DefaultIdentityKeyRepository(
             database.identityQueries.selectAllDeviceIds().executeAsList()
         }
 
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectActiveDeviceIds().executeAsList()
+        }
+
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         withContext(dbDispatcher) {
             val queries = database.identityQueries

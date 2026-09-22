@@ -83,10 +83,8 @@ class DefaultSignatureProvider(
         }
 
         // The device must belong to the claimed account.
-        val accountForDevice = identityResolver.getAccountIdForDevice(authorDeviceId)
-        if (accountForDevice == null) {
-            return AuthorshipOutcome.UNKNOWN_AUTHOR
-        }
+        val accountForDevice =
+            identityResolver.getAccountIdForDevice(authorDeviceId) ?: return AuthorshipOutcome.UNKNOWN_AUTHOR
         if (accountForDevice != accountId) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
@@ -112,23 +110,6 @@ class DefaultSignatureProvider(
                     "accountId" to accountId,
                     "authorDeviceId" to authorDeviceId,
                     "signedBytesLength" to signedBytes.size,
-                ),
-            )
-            return AuthorshipOutcome.INVALID
-        }
-
-        // Account→device binding via roster.
-        //TODO: not filter banned
-        val peerCandidates = identityResolver.getAllPeerDevicesForAccount(accountId)
-        if (authorDeviceId !in peerCandidates) {
-            AppLog.warn(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,
-                message = "Author device not found in account's roster",
-                fields = mapOf(
-                    "accountId" to accountId,
-                    "authorDeviceId" to authorDeviceId,
-                    "peerCandidates" to peerCandidates,
                 ),
             )
             return AuthorshipOutcome.INVALID

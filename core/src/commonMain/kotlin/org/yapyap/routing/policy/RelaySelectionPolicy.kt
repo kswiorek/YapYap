@@ -30,7 +30,7 @@ internal class DefaultRelaySelectionPolicy(
 
     override suspend fun selectRelays(targetDevice: PeerId): List<PeerId> {
         val config = routerConfig.value
-        val candidates = ctx.identityResolver.getAllPeers()
+        val candidates = ctx.identityResolver.getAllActivePeers()
             .filter { it != ctx.localDeviceId && it != targetDevice }
         val scored = candidates.mapNotNull { peer ->
             peerAvailabilityRegistry.reliabilityScore(peer)?.let { peer to it }

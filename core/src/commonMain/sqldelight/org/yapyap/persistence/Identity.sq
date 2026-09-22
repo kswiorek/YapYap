@@ -255,6 +255,11 @@ WHERE device_id = ?;
 selectAllDeviceIds:
 SELECT device_id
 FROM devices;
+
+selectActiveDeviceIds:
+SELECT device_id
+FROM devices
+WHERE status != 'BANNED';
 UPDATE devices
 SET
     signing_pub_key = ?,

@@ -403,4 +403,8 @@ class DefaultIdentityResolver(
     override suspend fun getAllPeers(): List<PeerId> {
         return publicKeyRepository.getAllDeviceIds()
     }
+
+    override suspend fun getAllActivePeers(): List<PeerId> {
+        return publicKeyRepository.getAllActiveDeviceIds()
+    }
 }

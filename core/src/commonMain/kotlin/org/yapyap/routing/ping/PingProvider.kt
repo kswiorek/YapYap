@@ -64,7 +64,7 @@ internal class PingProvider(
         noPeersMessage: String,
         block: suspend (PeerId) -> Unit,
     ) {
-        val peers = ctx.identityResolver.getAllPeers().filter { it != ctx.localDeviceId }
+        val peers = ctx.identityResolver.getAllActivePeers().filter { it != ctx.localDeviceId }
         if (peers.isEmpty()) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
