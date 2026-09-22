@@ -18,7 +18,8 @@ internal class SyncHandler(
     private val pendingSyncRepository: PendingSyncRepository,
     private val systemSender: SystemSender
 ) {
-    //TODO check if source is in the requested room.
+    // Membership is enforced inside SyncPayloadProvider (roomsOfPeer check):
+    // denial surfaces here as an empty list, hence the generic NACK below.
     suspend fun onSyncRequested(payload: SyncRequest, sourceDevice: PeerId) {
         val messages = syncPayloadProvider.getMessages(payload, sourceDevice)
         if (messages.isEmpty()) {

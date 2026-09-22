@@ -176,7 +176,17 @@ class SyncIntegrationTest {
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(RouterConfig())),
+                syncPayloadProvider = DefaultSyncPayloadProvider(
+                    remoteMessageRepo,
+                    MutableStateFlow(RouterConfig()),
+                    FakeRoomRepository(
+                        mapOf(roomId to listOf(localAccount, remoteAccount)),
+                        mapOf(
+                            localAccount to listOf(localDevice),
+                            remoteAccount to listOf(remoteDevice),
+                        ),
+                    ),
+                ),
                 pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
@@ -277,7 +287,17 @@ class SyncIntegrationTest {
             )
             val remoteHandler = SyncHandler(
                 outboundMessenger = remoteStack.outboundMessenger,
-                syncPayloadProvider = DefaultSyncPayloadProvider(remoteMessageRepo, MutableStateFlow(RouterConfig())),
+                syncPayloadProvider = DefaultSyncPayloadProvider(
+                    remoteMessageRepo,
+                    MutableStateFlow(RouterConfig()),
+                    FakeRoomRepository(
+                        mapOf(roomId to listOf(localAccount, remoteAccount)),
+                        mapOf(
+                            localAccount to listOf(localDevice),
+                            remoteAccount to listOf(remoteDevice),
+                        ),
+                    ),
+                ),
                 pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )

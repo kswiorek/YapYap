@@ -417,7 +417,7 @@ class DefaultOrchestrator(
         // consult rooms + room_members. Seed idempotently.
         roomRepository.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
 
-        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig)
+        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig, roomRepository)
 
         val frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepo)
 

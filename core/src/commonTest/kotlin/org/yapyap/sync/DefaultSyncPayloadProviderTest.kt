@@ -11,6 +11,7 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,7 +27,11 @@ class DefaultSyncPayloadProviderTest {
 
     private val messageRepo = FakeMessageRepository()
     private val config = MutableStateFlow(RouterConfig())
-    private val provider = DefaultSyncPayloadProvider(messageRepo, config)
+    private val roomRepo = FakeRoomRepository(
+        mapOf(roomId to listOf(remoteAccount)),
+        mapOf(remoteAccount to listOf(remoteDevice)),
+    )
+    private val provider = DefaultSyncPayloadProvider(messageRepo, config, roomRepo)
 
     private var tick = 0L
 
@@ -177,6 +182,7 @@ class DefaultSyncPayloadProviderTest {
         val limitedProvider = DefaultSyncPayloadProvider(
             messageRepo,
             MutableStateFlow(RouterConfig(syncMaxMessages = 2)),
+            roomRepo,
         )
         val result = limitedProvider.getMessages(
             syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()),
@@ -184,5 +190,33 @@ class DefaultSyncPayloadProviderTest {
         )
 
         assertEquals(2, result.size)
+    }
+
+    @Test
+    fun nonMember_returnsEmptyList() = runTest {
+        val m0 = textMsg(prevIds = emptyList())
+        seed(m0)
+        val outsider = PeerId("outsider-device")
+
+        val result = provider.getMessages(
+            syncRequest(missingIds = listOf(m0.messageId), knownIds = emptyList()),
+            outsider
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun removedMember_returnsEmptyList() = runTest {
+        val m0 = textMsg(prevIds = emptyList())
+        seed(m0)
+        roomRepo.removeMember(roomId, remoteAccount)
+
+        val result = provider.getMessages(
+            syncRequest(missingIds = listOf(m0.messageId), knownIds = emptyList()),
+            remoteDevice
+        )
+
+        assertTrue(result.isEmpty())
     }
 }

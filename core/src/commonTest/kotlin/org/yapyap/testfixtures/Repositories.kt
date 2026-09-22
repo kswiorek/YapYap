@@ -131,6 +131,7 @@ class FakeMessageRepository : MessageRepository {
  */
 class FakeRoomRepository(
     private val members: Map<RoomId, List<AccountId>> = emptyMap(),
+    private val devicesByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
 ) : RoomRepository {
     private val memberLists: MutableMap<RoomId, MutableList<AccountId>> =
         members.mapValues { it.value.toMutableList() }.toMutableMap()
@@ -139,8 +140,12 @@ class FakeRoomRepository(
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         memberLists[roomId].orEmpty()
 
-    override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> =
-        (memberLists.keys + roomsFound).toList()
+    override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> {
+        val allRooms = (memberLists.keys + roomsFound).toSet()
+        if (devicesByAccount.isEmpty()) return allRooms.toList()
+        val account = devicesByAccount.entries.find { peerId in it.value }?.key ?: return emptyList()
+        return allRooms.filter { account in memberLists[it].orEmpty() }
+    }
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         roomsFound.add(roomId)

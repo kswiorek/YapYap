@@ -1,7 +1,11 @@
 package org.yapyap.routing.sync
 
 import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
@@ -15,10 +19,23 @@ interface SyncPayloadProvider {
 class DefaultSyncPayloadProvider(
     private val messageRepository: MessageRepository,
     private val routerConfig: StateFlow<RouterConfig>,
+    private val roomRepository: RoomRepository,
 ) : SyncPayloadProvider {
 
     override suspend fun getMessages(syncRequest: SyncRequest, peerId: PeerId): List<MessagePayload> {
         val roomId = syncRequest.roomId
+        // Membership gate: only serve rooms the requester's account belongs to.
+        // Denial returns empty so the caller emits the generic "no messages" NACK,
+        // without revealing whether the room is empty or access was denied.
+        if (roomId !in roomRepository.roomsOfPeer(peerId)) {
+            AppLog.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.SYNC_NO_MESSAGES_FOUND,
+                message = "No messages to sync for peer",
+                fields = mapOf("peerId" to peerId, "roomId" to roomId),
+            )
+            return emptyList()
+        }
         // Page size is purely the responder's policy; the requester's retry loop
         // re-requests until every target arrives, so no per-request limit is needed.
         val limit = routerConfig.value.syncMaxMessages
