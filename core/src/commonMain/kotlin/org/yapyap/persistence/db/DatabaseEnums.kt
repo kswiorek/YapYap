@@ -31,7 +31,8 @@ enum class VerificationState {
 
 enum class MessagePayloadType(val wireValue: Byte) {
     TEXT(1),
-    GLOBAL_EVENT(2);
+    GLOBAL_EVENT(2),
+    ROOM_EVENT(3);
 
     companion object {
         fun fromWireValue(value: Byte): MessagePayloadType =

@@ -1,6 +1,7 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.protocol.ByteReader
@@ -11,7 +12,7 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 data class MessageEnvelope(
-    val messageEnvelopeId: Uuid,
+    val messageEnvelopeId: Uuid, //UUID as hash of message content
     val source: PeerId,
     val target: PeerId,
     val createdAt: Instant,
@@ -272,7 +273,6 @@ sealed interface MessagePayload {
         }
     }
 
-    //TODO: How to sync global event dag?
     data class GlobalEvent(
         override val messageId: Uuid,
         override val senderAccountId: AccountId,
@@ -332,6 +332,213 @@ sealed interface MessagePayload {
         }
     }
 
+    /**
+     * Room-DAG node: chat-room messages live here, with their real [roomId]
+     * (unlike [GlobalEvent], which pins [RoomId.GLOBAL]). `ROOM_EVENT` payloads
+     * carry [eventBytes] exactly like `GLOBAL_EVENT` does; `TEXT` nodes share
+     * the same header and authorship layer.
+     */
+    data class RoomEvent(
+        override val messageId: Uuid,
+        override val roomId: RoomId,
+        override val senderAccountId: AccountId,
+        override val authorDeviceId: PeerId,
+        override val prevIds: List<Uuid>,
+        override val createdAt: Instant,
+        val eventBytes: ByteArray,
+        override val authorSignature: ByteArray? = null,
+    ) : MessagePayload {
+        init {
+            if (authorSignature != null) {
+                require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
+            }
+        }
+
+        override val payloadType: MessagePayloadType = MessagePayloadType.ROOM_EVENT
+
+        override fun withSignature(signature: ByteArray): RoomEvent = copy(authorSignature = signature)
+
+        /** Decodes [eventBytes] into the typed room event (two-level dispatch). */
+        fun decodeEvent(): RoomEventPayload = RoomEventPayload.decode(eventBytes)
+
+        override fun encode(): ByteArray {
+            val writer = ByteWriter(256 + eventBytes.size + (authorSignature?.size ?: 4))
+            writeCommonHeader(writer)
+            writer.writeByteArray(eventBytes)
+            writer.writeNullableByteArray(authorSignature)
+            return writer.toByteArray()
+        }
+
+        override fun encodeForAuthorSigning(): ByteArray {
+            val writer = ByteWriter(256 + eventBytes.size)
+            writeCommonHeader(writer)
+            writer.writeByteArray(eventBytes)
+            return writer.toByteArray()
+        }
+
+        /** Verify path: recompute the genesis id from stored row fields, no arg-plumbing. */
+        fun derivationBytes(): ByteArray = derivationBytes(
+            genesisMessageId = messageId,
+            senderAccountId = senderAccountId,
+            authorDeviceId = authorDeviceId,
+            createdAt = createdAt,
+            eventBytes = eventBytes,
+        )
+
+        /** Verify path. */
+        suspend fun deriveRoomId(crypto: CryptoProvider): RoomId =
+            deriveRoomId(
+                crypto = crypto,
+                genesisMessageId = messageId,
+                senderAccountId = senderAccountId,
+                authorDeviceId = authorDeviceId,
+                createdAt = createdAt,
+                eventBytes = eventBytes,
+            )
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other == null || this::class != other::class) return false
+
+            other as RoomEvent
+
+            if (createdAt != other.createdAt) return false
+            if (messageId != other.messageId) return false
+            if (roomId != other.roomId) return false
+            if (senderAccountId != other.senderAccountId) return false
+            if (authorDeviceId != other.authorDeviceId) return false
+            if (prevIds != other.prevIds) return false
+            if (!eventBytes.contentEquals(other.eventBytes)) return false
+            if (!authorSignature.contentEquals(other.authorSignature)) return false
+            if (payloadType != other.payloadType) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = createdAt.hashCode()
+            result = 31 * result + messageId.hashCode()
+            result = 31 * result + roomId.hashCode()
+            result = 31 * result + senderAccountId.hashCode()
+            result = 31 * result + authorDeviceId.hashCode()
+            result = 31 * result + prevIds.hashCode()
+            result = 31 * result + eventBytes.contentHashCode()
+            result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
+            result = 31 * result + payloadType.hashCode()
+            return result
+        }
+
+        companion object {
+            val ROOM_ID_DOMAIN: ByteArray =
+                "YapYapRoomIdV1".encodeToByteArray()
+
+            /**
+             * Append path: pure input assembly, no instance needed.
+             * Covers every genesis field that can differ while keeping the same
+             * `genesisMessageId`, so an id-reuse forgery with different
+             * content/author/timestamp derives a *different* room (ghost),
+             * never a fork of the honest room. Excludes `roomId` and
+             * `authorSignature` (signature covers `roomId` — hashing either
+             * would be circular). `prevIds` is always `[]` by the structural
+             * rule and needs no encoding.
+             */
+            fun derivationBytes(
+                genesisMessageId: Uuid,
+                senderAccountId: AccountId,
+                authorDeviceId: PeerId,
+                createdAt: Instant,
+                eventBytes: ByteArray,
+            ): ByteArray {
+                require(eventBytes.isNotEmpty()) { "eventBytes must not be empty" }
+                val writer = ByteWriter(
+                    ROOM_ID_DOMAIN.size + 16 + 2 +
+                            senderAccountId.id.length + 2 +
+                            authorDeviceId.id.length + 8 + 4 + eventBytes.size,
+                )
+                writer.writeBytes(ROOM_ID_DOMAIN)
+                writer.writeUuid(genesisMessageId)
+                writer.writeString(senderAccountId.id)
+                writer.writePeerId(authorDeviceId)
+                writer.writeLong(createdAt.epochSeconds)
+                writer.writeByteArray(eventBytes)
+                return writer.toByteArray()
+            }
+
+            /** Append path: self-certifying id before construction. */
+            suspend fun deriveRoomId(
+                crypto: CryptoProvider,
+                genesisMessageId: Uuid,
+                senderAccountId: AccountId,
+                authorDeviceId: PeerId,
+                createdAt: Instant,
+                eventBytes: ByteArray,
+            ): RoomId = RoomId(
+                crypto.hashedUuid(
+                    derivationBytes(
+                        genesisMessageId = genesisMessageId,
+                        senderAccountId = senderAccountId,
+                        authorDeviceId = authorDeviceId,
+                        createdAt = createdAt,
+                        eventBytes = eventBytes,
+                    ),
+                ),
+            )
+
+            /**
+             * Sole genesis append path. Derives the self-certifying id
+             * internally — the caller never supplies a roomId, so
+             * derive-for-A-but-construct-with-B is unrepresentable.
+             * Returns the *unsigned* payload; signing follows via
+             * [withSignature] like every other payload type.
+             */
+            suspend fun createGenesis(
+                crypto: CryptoProvider,
+                genesisMessageId: Uuid,
+                senderAccountId: AccountId,
+                authorDeviceId: PeerId,
+                createdAt: Instant,
+                event: RoomEventPayload,
+            ): RoomEvent {
+                val eventBytes = event.encode()
+                val roomId = deriveRoomId(
+                    crypto = crypto,
+                    genesisMessageId = genesisMessageId,
+                    senderAccountId = senderAccountId,
+                    authorDeviceId = authorDeviceId,
+                    createdAt = createdAt,
+                    eventBytes = eventBytes,
+                )
+                return RoomEvent(
+                    messageId = genesisMessageId,
+                    roomId = roomId,
+                    senderAccountId = senderAccountId,
+                    authorDeviceId = authorDeviceId,
+                    prevIds = emptyList(),
+                    createdAt = createdAt,
+                    eventBytes = eventBytes,
+                )
+            }
+
+            fun decode(bytes: ByteArray): RoomEvent {
+                val reader = ByteReader(bytes)
+                val header = readCommonHeader(reader, MessagePayloadType.ROOM_EVENT)
+                val eventBytes = reader.readByteArray()
+                val authorSignature = reader.readNullableByteArray()
+                reader.requireFullyRead()
+                return RoomEvent(
+                    messageId = header.messageId,
+                    roomId = header.roomId,
+                    senderAccountId = header.senderAccountId,
+                    authorDeviceId = header.authorDeviceId,
+                    prevIds = header.prevIds,
+                    createdAt = header.createdAt,
+                    eventBytes = eventBytes,
+                    authorSignature = authorSignature,
+                )
+            }
+        }
+    }
+
     companion object {
         fun decode(bytes: ByteArray): MessagePayload {
             val reader = ByteReader(bytes)
@@ -340,6 +547,7 @@ sealed interface MessagePayload {
             return when (payloadType) {
                 MessagePayloadType.TEXT -> Text.decode(bytes)
                 MessagePayloadType.GLOBAL_EVENT -> GlobalEvent.decode(bytes)
+                MessagePayloadType.ROOM_EVENT -> RoomEvent.decode(bytes)
             }
         }
     }

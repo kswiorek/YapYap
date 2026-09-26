@@ -90,6 +90,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             when (input) {
                 is MessagePayload.Text -> input.messageId
                 is MessagePayload.GlobalEvent -> input.messageId
+                is MessagePayload.RoomEvent -> input.messageId
             }
         return MessageEnvelope(
             messageEnvelopeId = messageId,
