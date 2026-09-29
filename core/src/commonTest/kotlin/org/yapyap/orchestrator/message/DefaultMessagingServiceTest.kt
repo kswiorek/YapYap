@@ -31,6 +31,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -252,12 +253,15 @@ class DefaultMessagingServiceTest {
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
+        // Structural genesis rule: only RoomCreated may have empty prevIds.
+        // Seed a local base so the remote message has a resolvable parent.
+        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         val remoteTimestamp = epochSeconds(1_000_500L)
         val incoming = MessagePayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevIds = emptyList(),
+            prevIds = listOf(base.messageId),
             createdAt = remoteTimestamp,
             text = "hello from remote",
             authorDeviceId = PeerId("test-device"),
@@ -319,6 +323,8 @@ class DefaultMessagingServiceTest {
         val window = service.openRoom(roomId, initialPageSize = 100)
         advanceUntilIdle()
 
+        // Structural genesis rule: the missing parent itself needs a parent.
+        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         // Orphan arrives.
         val orphan = MessagePayload.Text(
             messageId = msg1Uuid,
@@ -341,7 +347,7 @@ class DefaultMessagingServiceTest {
             messageId = prevUuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevIds = emptyList(),
+            prevIds = listOf(base.messageId),
             createdAt = epochSeconds(1_000_400L),
             text = "i am the prev",
             authorDeviceId = PeerId("test-device"),
@@ -373,12 +379,14 @@ class DefaultMessagingServiceTest {
         val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
         advanceUntilIdle()
 
+        // Structural genesis rule: only RoomCreated may have empty prevIds.
+        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         // From remote → emits.
         val remoteIncoming = MessagePayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevIds = emptyList(),
+            prevIds = listOf(base.messageId),
             createdAt = clock.now(),
             text = "hi from remote",
             authorDeviceId = PeerId("test-device"),
@@ -398,7 +406,7 @@ class DefaultMessagingServiceTest {
             messageId = msg2Uuid,
             roomId = roomId,
             senderAccountId = localAccount,
-            prevIds = emptyList(),
+            prevIds = listOf(msg1Uuid),
             createdAt = clock.now(),
             text = "from me",
             authorDeviceId = PeerId("test-device"),
@@ -424,11 +432,12 @@ class DefaultMessagingServiceTest {
         advanceUntilIdle()
 
         val longText = "x".repeat(120)
+        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
         val remoteIncoming = MessagePayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
             senderAccountId = remoteAccount,
-            prevIds = emptyList(),
+            prevIds = listOf(base.messageId),
             createdAt = clock.now(),
             text = longText,
             authorDeviceId = PeerId("test-device"),
@@ -472,6 +481,38 @@ class DefaultMessagingServiceTest {
         // Window stays empty (GlobalEvent filtered out).
         assertEquals(0, window.displayItems.value.size)
         // Event is not emitted (Text-only branch, else branch is a no-op).
+        assertEquals(0, received.size)
+
+        collectorJob.cancel()
+    }
+
+    @Test
+    fun roomEvent_doesNotUpdateWindow_andDoesNotEmitEvent() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val service = newService(this, pipeline)
+        startStack(this, pipeline, service)
+
+        val window = service.openRoom(roomId, initialPageSize = 100)
+        val received = mutableListOf<IncomingMessageEvent>()
+        val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
+        advanceUntilIdle()
+
+        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
+        val roomEvent = MessagePayload.RoomEvent(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            prevIds = listOf(base.messageId),
+            createdAt = clock.now(),
+            eventBytes = RoomEventPayload.MemberAdd(remoteAccount).encode(),
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        )
+        router.emitIncoming(roomEvent)
+        advanceUntilIdle()
+
+        // Window stays empty (RoomEvent filtered out, never mapped to a display item).
+        assertEquals(0, window.displayItems.value.size)
         assertEquals(0, received.size)
 
         collectorJob.cancel()

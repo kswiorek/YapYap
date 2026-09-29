@@ -77,6 +77,7 @@ internal class DefaultMessagingService(
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
                 if (result.payload is MessagePayload.GlobalEvent) return@collect
+                if (result.payload is MessagePayload.RoomEvent) return@collect
                 // A REJECTED message is never shown: skip both the window insert and any notification.
                 if (result.verificationState == VerificationState.REJECTED) return@collect
                 notifyWindowsNewItem(result)
