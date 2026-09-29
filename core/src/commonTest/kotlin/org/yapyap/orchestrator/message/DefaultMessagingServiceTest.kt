@@ -15,6 +15,7 @@ import org.yapyap.crypto.e2ee.testCryptoLimits
 import org.yapyap.crypto.e2ee.testMessageLimits
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
@@ -24,10 +25,7 @@ import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomType
-import org.yapyap.persistence.db.VerificationState
+import org.yapyap.persistence.db.*
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -76,6 +74,7 @@ class DefaultMessagingServiceTest {
             identityResolver = identityResolver,
             clock = clock,
             signatureProvider = FakeSignatureProvider(),
+            cryptoProvider = DefaultCryptoProvider(),
         )
     }
 
@@ -522,7 +521,12 @@ private class FakeRoomRepository(
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = Unit
 
-    override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) = Unit
+    override suspend fun addMember(
+        roomId: RoomId,
+        accountId: AccountId,
+        role: RoomMemberRole,
+        status: RoomMemberStatus,
+    ) = Unit
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = Unit
 }

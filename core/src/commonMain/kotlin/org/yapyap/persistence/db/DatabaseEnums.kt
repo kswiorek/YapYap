@@ -12,15 +12,34 @@ enum class DeviceType {
     HEADLESS,
 }
 
-enum class RoomType {
-    TEXT_CHANNEL,
-    VOICE_CHANNEL,
-    GLOBAL_CONTROL,
+enum class RoomType(val wireValue: Byte) {
+    TEXT_CHANNEL(0),
+    VOICE_CHANNEL(1),
+    GLOBAL_CONTROL(2),
+
+    /**
+     * Local-only provisional marker for rooms we hold messages for but whose
+     * genesis has not folded yet. Never on the wire (`RoomCreated` rejects it);
+     * the room projector overwrites it on genesis commit; the GUI filters it.
+     */
+    UNKNOWN(3);
+
+    companion object {
+        fun fromWireValue(value: Byte): RoomType =
+            entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported room type wire value: $value")
+    }
 }
 
 enum class RoomMemberRole {
     ADMIN,
     MEMBER,
+    OWNER,
+}
+
+enum class RoomMemberStatus {
+    ACTIVE,
+    REMOVED,
 }
 
 enum class VerificationState {

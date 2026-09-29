@@ -6,15 +6,18 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -40,6 +43,7 @@ class DefaultDagEngine(
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
     private val signatureProvider: SignatureProvider,
+    private val cryptoProvider: CryptoProvider,
     private val clock: Clock,
 ) : DagEngine {
 
@@ -151,6 +155,13 @@ class DefaultDagEngine(
                 return@withLock null
             }
 
+            // Provisional room row for pre-genesis orphans: unblocks the messages.room_id
+            // FK so sync can run before the genesis lands. GLOBAL is boot-seeded; the
+            // projector merge overwrites the UNKNOWN placeholder on genesis commit.
+            if (payload.roomId != RoomId.GLOBAL) {
+                roomRepository.ensureRoomExists(payload.roomId, RoomType.UNKNOWN, "")
+            }
+
             // Determine orphan status: orphaned iff any prevId is not in our DB.
             val presentParents = payload.prevIds.mapNotNull { messageRepository.findById(it) }
             val missingPrevIds = payload.prevIds.filter { id ->
@@ -233,21 +244,46 @@ class DefaultDagEngine(
         return result
     }
 
-    private suspend fun classifyVerification(payload: MessagePayload): VerificationState =
+    private suspend fun classifyVerification(payload: MessagePayload): VerificationState {
         if (payload.roomId == RoomId.GLOBAL) {
-            VerificationState.PENDING
-        } else {
-            when (signatureProvider.classifyMessageAuthorship(
-                accountId = payload.senderAccountId,
-                authorDeviceId = payload.authorDeviceId,
-                signedBytes = payload.encodeForAuthorSigning(),
-                signature = payload.authorSignature,
-            )) {
-                AuthorshipOutcome.VALID -> VerificationState.VERIFIED
-                AuthorshipOutcome.INVALID -> VerificationState.REJECTED
-                AuthorshipOutcome.UNKNOWN_AUTHOR -> VerificationState.PENDING
-            }
+            return VerificationState.PENDING
         }
+        return structuralCheck(payload) ?: when (signatureProvider.classifyMessageAuthorship(
+            accountId = payload.senderAccountId,
+            authorDeviceId = payload.authorDeviceId,
+            signedBytes = payload.encodeForAuthorSigning(),
+            signature = payload.authorSignature,
+        )) {
+            AuthorshipOutcome.VALID -> VerificationState.VERIFIED
+            AuthorshipOutcome.INVALID -> VerificationState.REJECTED
+            AuthorshipOutcome.UNKNOWN_AUTHOR -> VerificationState.PENDING
+        }
+    }
+
+    /**
+     * Message-local structural rules (§3): only `RoomCreated` may claim genesis
+     * position, its bytes must decode, and its `roomId` must match the
+     * self-certifying derivation. A non-genesis `RoomCreated` fails the
+     * derivation check on its own — no extra rule. Returns the sticky
+     * `REJECTED` verdict, or null when authorship decides.
+     */
+    private suspend fun structuralCheck(payload: MessagePayload): VerificationState? {
+        if (payload !is MessagePayload.RoomEvent) {
+            return if (payload.prevIds.isEmpty()) VerificationState.REJECTED else null
+        }
+        val event = try {
+            payload.decodeEvent()
+        } catch (_: RuntimeException) {
+            return VerificationState.REJECTED
+        }
+        if (event !is RoomEventPayload.RoomCreated && payload.prevIds.isEmpty()) {
+            return VerificationState.REJECTED
+        }
+        if (event is RoomEventPayload.RoomCreated && payload.deriveRoomId(cryptoProvider) != payload.roomId) {
+            return VerificationState.REJECTED
+        }
+        return null
+    }
 
     override suspend fun reverifyPendingFor(deviceId: PeerId): List<VerificationStateChange> {
         val changes = mutex.withLock {

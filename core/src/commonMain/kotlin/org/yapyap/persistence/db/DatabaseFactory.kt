@@ -79,6 +79,7 @@ class DatabaseFactory(
                 ),
                 room_membersAdapter = Room_members.Adapter(
                     roleAdapter = EnumColumnAdapter(),
+                    statusAdapter = EnumColumnAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
                     joined_timestampAdapter = InstantEpochSecondsAdapter,

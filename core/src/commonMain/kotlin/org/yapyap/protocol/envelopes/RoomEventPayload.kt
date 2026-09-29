@@ -5,6 +5,7 @@ import org.yapyap.persistence.db.MessagePayloadType
 import org.yapyap.persistence.db.RoomType
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
+import kotlin.uuid.Uuid
 
 /**
  * Typed room-membership event carried inside [MessagePayload.RoomEvent.eventBytes].
@@ -30,17 +31,24 @@ sealed interface RoomEventPayload {
      *
      * Member-list targets are ungated in the fold; rows for still-unknown accounts
      * are deferred at projection time.
+     *
+     * The optional [spaceId] names the space this room belongs to (creator-declared,
+     * immutable: a room never moves between spaces). The fold never validates or
+     * consumes it — like member-list targets, an unknown space is ungated in the
+     * fold and resolved at projection time. Null until spaces exist.
      */
     data class RoomCreated(
         val initialMemberIds: List<AccountId>,
         val roomName: String,
         val roomType: RoomType,
+        val spaceId: Uuid?,
     ) : RoomEventPayload {
         override val kind: RoomEventKind = RoomEventKind.ROOM_CREATED
 
         init {
             require(roomName.isNotBlank()) { "roomName must not be blank" }
             require(roomType != RoomType.GLOBAL_CONTROL) { "chat rooms must not use GLOBAL_CONTROL" }
+            require(roomType != RoomType.UNKNOWN) { "room type UNKNOWN is local-only" }
         }
 
         override fun encode(): ByteArray {
@@ -49,7 +57,8 @@ sealed interface RoomEventPayload {
             writer.writeInt(initialMemberIds.size)
             initialMemberIds.forEach { writer.writeString(it.id) }
             writer.writeString(roomName)
-            writer.writeByte(roomType.ordinal)
+            writer.writeByte(roomType.wireValue.toInt())
+            writer.writeNullableUuid(spaceId)
             return writer.toByteArray()
         }
 
@@ -61,11 +70,10 @@ sealed interface RoomEventPayload {
                 }
                 val members = List(reader.readInt()) { AccountId(reader.readString()) }
                 val roomName = reader.readString()
-                val roomTypeOrdinal = reader.readUnsignedByte()
-                val roomType = RoomType.entries.getOrNull(roomTypeOrdinal)
-                    ?: error("Unsupported room type wire value: $roomTypeOrdinal")
+                val roomType = RoomType.fromWireValue(reader.readByte())
+                val spaceId = reader.readNullableUuid()
                 reader.requireFullyRead()
-                return RoomCreated(members, roomName, roomType)
+                return RoomCreated(members, roomName, roomType, spaceId)
             }
         }
     }

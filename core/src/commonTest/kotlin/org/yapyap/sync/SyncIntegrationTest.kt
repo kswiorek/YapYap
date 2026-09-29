@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
@@ -62,6 +63,7 @@ class SyncIntegrationTest {
         roomRepository = localRoomRepo,
         identityResolver = localIdentity,
         signatureProvider = FakeSignatureProvider(),
+        cryptoProvider = DefaultCryptoProvider(),
         clock = localTime,
     )
     private val router = RecordingRouter()

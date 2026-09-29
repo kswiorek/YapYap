@@ -2,6 +2,7 @@ import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.RoomMemberRole;
+import org.yapyap.persistence.db.RoomMemberStatus;
 import org.yapyap.persistence.db.RoomType;
 
 CREATE TABLE rooms (
@@ -16,6 +17,7 @@ CREATE TABLE room_members (
     room_id TEXT AS RoomId NOT NULL,
     account_id TEXT AS AccountId NOT NULL,
     role TEXT AS RoomMemberRole NOT NULL,
+    status TEXT AS RoomMemberStatus NOT NULL,
     joined_timestamp INTEGER AS Instant NOT NULL,
     PRIMARY KEY (room_id, account_id),
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
@@ -34,18 +36,20 @@ INSERT OR IGNORE INTO rooms (room_id, space_id, type, name)
 VALUES (:roomId, NULL, :type, :name);
 
 insertRoomMember:
-INSERT OR REPLACE INTO room_members (room_id, account_id, role, joined_timestamp)
-VALUES (?, ?, ?, ?);
+INSERT OR REPLACE INTO room_members (room_id, account_id, role, status, joined_timestamp)
+VALUES (?, ?, ?, ?, ?);
 
 removeRoomMember:
-DELETE FROM room_members
+UPDATE room_members
+SET status = 'REMOVED'
 WHERE room_id = ? AND account_id = ?;
 
 -- Rooms a peer belongs to (drives which rooms we exchange frontiers about in pings).
+-- Access reader: REMOVED rows never grant sync access.
 selectRoomsOfPeer:
 SELECT r.room_id
 FROM rooms r
-JOIN room_members rm ON rm.room_id = r.room_id
+JOIN room_members rm ON rm.room_id = r.room_id AND rm.status = 'ACTIVE'
 JOIN devices d ON d.account_id = rm.account_id
 WHERE d.device_id = :deviceId;
 

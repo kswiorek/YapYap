@@ -458,6 +458,7 @@ class DefaultOrchestrator(
             roomRepository = roomRepository,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
+            cryptoProvider = cryptoProvider,
             clock = Clock.System,
         )
         pipeline = DefaultInboundMessagePipeline(router, dagEngine)

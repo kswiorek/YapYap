@@ -102,13 +102,13 @@ the information a verdict would.
 
 ### Event types (`RoomEventPayload`, mirroring `GlobalEventPayload`)
 
-| Event          | Carries                                                | Authorization (fold state at position)                                                                                                                                                                        |
-|----------------|--------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `RoomCreated`  | member account list, room name, type                   | Genesis (`prevIds == []`); valid signature + the author's device resolves (authenticity — member-level, §2 no-status-gate); member-list targets are ungated in the fold, deferred only at the projection (§5) |
-| `MemberAdd`    | target account id                                      | Author's account `is_admin` at position (seal-subject)                                                                                                                                                        |
-| `MemberRemove` | target account id, optional successor (owner handover) | Admin-gated for others (owner irrevocable); own-account leave always allowed; owner's own leave requires a valid successor                                                                                    |
-| `AddAdmin`     | target account id                                      | Admin-gated (seal-subject)                                                                                                                                                                                    |
-| `RemoveAdmin`  | target account id                                      | Admin-gated (seal-subject); owner irrevocable                                                                                                                                                                 |
+| Event          | Carries                                                   | Authorization (fold state at position)                                                                                                                                                                                         |
+|----------------|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `RoomCreated`  | member account list, room name, type, optional space UUID | Genesis (`prevIds == []`); valid signature + the author's device resolves (authenticity — member-level, §2 no-status-gate); member-list targets and the space id are ungated in the fold, deferred only at the projection (§5) |
+| `MemberAdd`    | target account id                                         | Author's account `is_admin` at position (seal-subject)                                                                                                                                                                         |
+| `MemberRemove` | target account id, optional successor (owner handover)    | Admin-gated for others (owner irrevocable); own-account leave always allowed; owner's own leave requires a valid successor                                                                                                     |
+| `AddAdmin`     | target account id                                         | Admin-gated (seal-subject)                                                                                                                                                                                                     |
+| `RemoveAdmin`  | target account id                                         | Admin-gated (seal-subject); owner irrevocable                                                                                                                                                                                  |
 
 Codec style mirrors `SystemPayload`/`GlobalEventPayload`: sealed interface, kind byte,
 encode/decode per type, carried inside a new `MessagePayload.RoomEvent` variant (`MessagePayloadType.ROOM_EVENT(3)`).
@@ -291,14 +291,22 @@ room admins.
   `ACTIVE` — the sprint-4 sync gate (`roomsOfPeer`), ping frontier
   snapshots, `DefaultMessagingService` fan-out, sync candidate resolution — so
   `MemberRemove` still cuts sync access for free. The GUI member/flag queries read all
-  rows (status is the badge/hide distinction, §3). The fold is the sole writer; the
-  global projector keeps its own GLOBAL-row semantics unchanged.
+  rows (status is the badge/hide distinction, §3). The room fold is the sole writer of
+  chat rows; GLOBAL rows follow the same status semantics (`REMOVED` retained, never
+  deleted) with the global projector as their sole writer. Every access reader (`roomsOfPeer` first among them) filters
+  `ACTIVE`, so removal cuts sync access from
+  the first `REMOVED` row — including the GLOBAL projector's own tombstone path, whose
+  callers' devices may still be ACTIVE.
 - Commit is a merge for the `rooms` row (name/type from genesis; preserve local-only fields if
   any appear) and a recompute for `room_members` (full recompute per commit — role +
   status from the fold's shadow state; `joined_timestamp` is recomputable or dropped from
   semantics). The provisional row minted by
-  ingest-time `ensureRoomExists` (placeholder type, null-ish name) is merged via a targeted
-  update — not `INSERT OR REPLACE`, which would clobber local-only columns (`space_id`).
+  ingest-time `ensureRoomExists` (type `RoomType.UNKNOWN`, empty name — a local-only
+  provisional marker, never on the wire: the `RoomCreated` codec rejects it, and the GUI
+  filters `UNKNOWN` rooms until the genesis commit overwrites it) is merged via a targeted
+  update — not `INSERT OR REPLACE`, which would clobber local-only columns. `space_id` is
+  genesis-declared: a non-null `RoomCreated.spaceId` writes the column (deferred until the
+  space row exists, like unknown-account member rows); a null one preserves any local value.
 - **Projection deferral for unknown accounts** (the `room_members.account_id` FK stays):
   the fold counts unknown members normally (sovereignty + purity — account existence is
   GLOBAL sync state and must not gate fold authorization; a tombstoned account keeps its
@@ -392,7 +400,9 @@ each extraction its own commit with the equivalence proof attached:
 2. **Ingest substrate**: `ensureRoomExists` on ingest; engine-side classification of
    `RoomEvent` payloads (decode / structural genesis rule / derivation + the existing
    `classifyMessageAuthorship` path, §3); `RoomMemberRole.OWNER` + the
-   `room_members.status` schema change (§5).
+   `room_members.status` schema change (§5). Provisional rows use `RoomType.UNKNOWN`
+   (§5); `removeMember` stays as the GLOBAL-tier op (the global projector owns GLOBAL
+   rows — chat rows flip status via the room projector in step 4, never DELETE).
 3. **Room fold core (fresh)**: accounts-only shadow state (role/status + owner slot +
    ever-member set), seal functions per the global doctrine (simpler — §4), the fixpoint
    loop, fold-set/poison exclusion, no crypto oracles (the verdict
@@ -493,6 +503,10 @@ discipline) plus room-specific cases:
   start; UI last).
 - Servers / room-grouping tier (multiple rooms under server admins) — deliberately
   undesigned; the account-principal fold generalizes, but nothing here should pre-shape it.
+  One reservation: `RoomCreated` already carries an optional `spaceId` (nullable UUID,
+  creator-declared at genesis, immutable — a room never moves between spaces). The room
+  fold never validates or consumes it; it only feeds the `rooms.space_id` merge (§5).
+  Null until spaces exist.
 - E2EE sender keys (sprint 5) consume the same fold-derived member list — sequence the fold
   before 5b key rotation work.
 - Provenance bit (§7) and unsolicited-traffic rate limiting — post-PoC.

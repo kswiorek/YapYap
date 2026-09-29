@@ -9,6 +9,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
@@ -20,7 +21,18 @@ interface RoomRepository {
     /** Rooms [peerId]'s account belongs to (drives which rooms we exchange frontiers about). */
     suspend fun roomsOfPeer(peerId: PeerId): List<RoomId>
     suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String)
-    suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole)
+    suspend fun addMember(
+        roomId: RoomId,
+        accountId: AccountId,
+        role: RoomMemberRole,
+        status: RoomMemberStatus = RoomMemberStatus.ACTIVE,
+    )
+
+    /**
+     * GLOBAL-tier op (the global projector owns GLOBAL rows). Flips the row to
+     * REMOVED and retains it — access readers filter ACTIVE, so removal still
+     * cuts sync access; chat rows flip status via the room projector.
+     */
     suspend fun removeMember(roomId: RoomId, accountId: AccountId)
 }
 
@@ -66,9 +78,14 @@ class DefaultRoomRepository(
         }
     }
 
-    override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) {
+    override suspend fun addMember(
+        roomId: RoomId,
+        accountId: AccountId,
+        role: RoomMemberRole,
+        status: RoomMemberStatus,
+    ) {
         withContext(dbDispatcher) {
-            database.roomQueries.insertRoomMember(roomId, accountId, role, Clock.System.now())
+            database.roomQueries.insertRoomMember(roomId, accountId, role, status, Clock.System.now())
             AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.ROOM_MEMBERS_QUERIED,

@@ -2,11 +2,14 @@
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.testfixtures.*
 import kotlin.test.*
 import kotlin.time.Duration.Companion.seconds
@@ -46,6 +49,7 @@ class DefaultDagEngineTest {
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = signatureProvider,
+            cryptoProvider = DefaultCryptoProvider(),
             clock = clock,
         )
     }
@@ -442,7 +446,7 @@ class DefaultDagEngineTest {
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = emptyList(),
+            prevIds = listOf(Uuid.random()),
             createdAt = clock.now(),
             text = "should be rejected",
         )
@@ -454,6 +458,7 @@ class DefaultDagEngineTest {
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = FakeRejectingSignatureProvider(),
+            cryptoProvider = DefaultCryptoProvider(),
             clock = clock,
         )
 
@@ -461,7 +466,7 @@ class DefaultDagEngineTest {
 
         // A message that fails authorship verification is still stored (so the DAG structure is
         // preserved and sync loops are avoided) but is marked REJECTED.
-        val ingested = result as IngestResult.Inserted
+        val ingested = result as IngestResult.BecameOrphan
         assertEquals(VerificationState.REJECTED, ingested.verificationState)
 
         val stored = messageRepo.findById(msgUuid)
@@ -483,7 +488,7 @@ class DefaultDagEngineTest {
         senderAccountId = remoteAccount,
         authorDeviceId = remoteDeviceId,
         authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-        prevIds = emptyList(),
+        prevIds = listOf(Uuid.random()),
         createdAt = clock.now(),
         text = text,
     )
@@ -515,6 +520,7 @@ class DefaultDagEngineTest {
             roomRepository = roomRepo,
             identityResolver = identityResolver,
             signatureProvider = FakeUnknownAuthorSignatureProvider(),
+            cryptoProvider = DefaultCryptoProvider(),
             clock = clock,
         )
         val payload = textPayload()
@@ -534,5 +540,182 @@ class DefaultDagEngineTest {
     @Test
     fun reverifyAllPending_noPending_returnsEmpty() = runTest {
         assertTrue(dagEngine.reverifyAllPending().isEmpty())
+    }
+
+    @Test
+    fun ingest_textWithEmptyPrevIdsInChatRoom_storesAsRejected() = runTest {
+        val payload = MessagePayload.Text(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevIds = emptyList(),
+            createdAt = clock.now(),
+            text = "forged genesis",
+        )
+
+        val result = dagEngine.ingest(payload)
+
+        val ingested = result as IngestResult.Inserted
+        assertEquals(VerificationState.REJECTED, ingested.verificationState)
+        assertEquals(VerificationState.REJECTED, messageRepo.findById(payload.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun ingest_roomEventNonGenesisWithEmptyPrevIds_storesAsRejected() = runTest {
+        val payload = MessagePayload.RoomEvent(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            prevIds = emptyList(),
+            createdAt = clock.now(),
+            eventBytes = RoomEventPayload.MemberAdd(remoteAccount).encode(),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        )
+
+        val result = dagEngine.ingest(payload)
+
+        val ingested = result as IngestResult.Inserted
+        assertEquals(VerificationState.REJECTED, ingested.verificationState)
+        assertEquals(VerificationState.REJECTED, messageRepo.findById(payload.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun ingest_roomEventUndecodableBytes_storesAsRejected() = runTest {
+        val payload = MessagePayload.RoomEvent(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            prevIds = emptyList(),
+            createdAt = clock.now(),
+            eventBytes = byteArrayOf(0x09),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        )
+
+        val result = dagEngine.ingest(payload)
+
+        val ingested = result as IngestResult.Inserted
+        assertEquals(VerificationState.REJECTED, ingested.verificationState)
+        assertEquals(VerificationState.REJECTED, messageRepo.findById(payload.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun ingest_honestRoomCreatedGenesisFromUnknownAuthor_staysPending() = runTest {
+        val crypto = DefaultCryptoProvider()
+        val unknownEngine = DefaultDagEngine(
+            messageRepository = messageRepo,
+            causalHoldRepository = causalHoldRepo,
+            roomRepository = roomRepo,
+            identityResolver = identityResolver,
+            signatureProvider = FakeUnknownAuthorSignatureProvider(),
+            cryptoProvider = crypto,
+            clock = clock,
+        )
+        val genesis = MessagePayload.RoomEvent.createGenesis(
+            crypto = crypto,
+            genesisMessageId = Uuid.random(),
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            createdAt = clock.now(),
+            event = RoomEventPayload.RoomCreated(
+                initialMemberIds = listOf(remoteAccount),
+                roomName = "test-room",
+                roomType = RoomType.TEXT_CHANNEL,
+                spaceId = null,
+            ),
+        )
+
+        val result = unknownEngine.ingest(genesis)
+
+        val ingested = result as IngestResult.Inserted
+        assertEquals(VerificationState.PENDING, ingested.verificationState)
+        assertEquals(VerificationState.PENDING, messageRepo.findById(genesis.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun ingest_genesisWithMismatchedRoomId_storesAsRejected() = runTest {
+        val crypto = DefaultCryptoProvider()
+        val genesis = MessagePayload.RoomEvent.createGenesis(
+            crypto = crypto,
+            genesisMessageId = Uuid.random(),
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            createdAt = clock.now(),
+            event = RoomEventPayload.RoomCreated(
+                initialMemberIds = listOf(remoteAccount),
+                roomName = "test-room",
+                roomType = RoomType.TEXT_CHANNEL,
+                spaceId = null,
+            ),
+        ).copy(roomId = RoomId(Uuid.random()))
+
+        val result = dagEngine.ingest(genesis)
+
+        val ingested = result as IngestResult.Inserted
+        assertEquals(VerificationState.REJECTED, ingested.verificationState)
+        assertEquals(VerificationState.REJECTED, messageRepo.findById(genesis.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun ingest_roomCreatedWithNonEmptyPrevIds_storesAsRejected() = runTest {
+        val crypto = DefaultCryptoProvider()
+        val genesis = MessagePayload.RoomEvent.createGenesis(
+            crypto = crypto,
+            genesisMessageId = Uuid.random(),
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            createdAt = clock.now(),
+            event = RoomEventPayload.RoomCreated(
+                initialMemberIds = listOf(remoteAccount),
+                roomName = "test-room",
+                roomType = RoomType.TEXT_CHANNEL,
+                spaceId = null,
+            ),
+        ).copy(prevIds = listOf(Uuid.random()))
+
+        val result = dagEngine.ingest(genesis)
+
+        val ingested = result as IngestResult.BecameOrphan
+        assertEquals(VerificationState.REJECTED, ingested.verificationState)
+        assertEquals(VerificationState.REJECTED, messageRepo.findById(genesis.messageId)!!.verificationState)
+    }
+
+    @Test
+    fun ingest_unknownRoom_seedsRoomRow() = runTest {
+        val freshRoom = RoomId(Uuid.random())
+        val orphan = MessagePayload.Text(
+            messageId = Uuid.random(),
+            roomId = freshRoom,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevIds = listOf(Uuid.random()),
+            createdAt = clock.now(),
+            text = "pre-genesis",
+        )
+
+        assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
+        assertTrue(freshRoom in roomRepo.roomsOfPeer(testDeviceId))
+    }
+
+    @Test
+    fun ingest_globalRoom_doesNotSeedRoomRow() = runTest {
+        val payload = MessagePayload.Text(
+            messageId = Uuid.random(),
+            roomId = RoomId.GLOBAL,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            prevIds = listOf(Uuid.random()),
+            createdAt = clock.now(),
+            text = "global",
+        )
+
+        dagEngine.ingest(payload)
+
+        assertTrue(RoomId.GLOBAL !in roomRepo.roomsOfPeer(testDeviceId))
     }
 }

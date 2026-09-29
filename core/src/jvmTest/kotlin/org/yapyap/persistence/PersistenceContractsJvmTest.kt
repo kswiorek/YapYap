@@ -69,6 +69,23 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
+    fun roomRepository_removeMember_retainsRow_butCutsSyncAccess() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        val repo = DefaultRoomRepository(db)
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
+
+        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        assertEquals(listOf(RoomId.GLOBAL), repo.roomsOfPeer(FixtureDevicePeerId))
+
+        repo.removeMember(RoomId.GLOBAL, FixtureAccountId)
+        assertEquals(emptyList<RoomId>(), repo.roomsOfPeer(FixtureDevicePeerId))
+        // Row retained (badge source), access cut.
+        assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
+    }
+
+    @Test
     fun packetDeduplicator_firstSeen_thenDuplicate_thenPruneRestoresFirstSeen() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database

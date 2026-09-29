@@ -256,6 +256,7 @@ private class Harness(
         roomRepository = roomRepo,
         identityResolver = identities,
         signatureProvider = signer,
+        cryptoProvider = crypto,
         clock = clock,
     )
     val projector = DefaultGlobalEventProjector(

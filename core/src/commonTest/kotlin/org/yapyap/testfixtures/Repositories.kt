@@ -4,10 +4,7 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomType
-import org.yapyap.persistence.db.VerificationState
+import org.yapyap.persistence.db.*
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -151,7 +148,12 @@ class FakeRoomRepository(
         roomsFound.add(roomId)
     }
 
-    override suspend fun addMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole) {
+    override suspend fun addMember(
+        roomId: RoomId,
+        accountId: AccountId,
+        role: RoomMemberRole,
+        status: RoomMemberStatus,
+    ) {
         memberLists.getOrPut(roomId) { mutableListOf() }.add(accountId)
     }
 
