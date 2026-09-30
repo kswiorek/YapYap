@@ -1,4 +1,4 @@
-package org.yapyap.orchestrator.globalevent
+package org.yapyap.orchestrator.fold.global
 
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.IdentityStatus

@@ -1,6 +1,7 @@
-package org.yapyap.orchestrator.globalevent
+package org.yapyap.orchestrator.fold.global
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
@@ -193,10 +194,10 @@ private class TestIdentities : IdentityResolver {
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?): X3dhRemotePeerKeys =
         error("not used")
 
-    override suspend fun getCurrentLocalSignedPreKey(): org.yapyap.crypto.identity.SignedPreKeyRecord =
+    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord =
         error("not used")
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): org.yapyap.crypto.identity.SignedPreKeyRecord =
+    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord =
         error("not used")
 
     override suspend fun getAllPeers(): List<PeerId> = error("not used")
@@ -336,7 +337,7 @@ private class Harness(
         messageRepo.findById(messageId)?.verificationState
 }
 
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class DefaultGlobalEventProjectorTest {
 
     private suspend fun newHarness(): Harness {

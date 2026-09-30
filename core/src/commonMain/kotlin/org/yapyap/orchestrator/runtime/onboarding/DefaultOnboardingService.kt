@@ -5,7 +5,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.orchestrator.globalevent.GlobalEventProjector
+import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.persistence.db.DeviceType

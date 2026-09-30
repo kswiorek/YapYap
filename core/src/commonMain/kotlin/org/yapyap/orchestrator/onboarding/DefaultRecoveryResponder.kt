@@ -4,7 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.orchestrator.globalevent.GlobalEventProjector
+import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository

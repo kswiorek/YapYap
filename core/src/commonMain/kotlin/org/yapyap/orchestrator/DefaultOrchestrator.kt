@@ -27,8 +27,8 @@ import org.yapyap.orchestrator.boot.LocalStoreReset
 import org.yapyap.orchestrator.boot.ResetReason
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.orchestrator.globalevent.DefaultGlobalEventProjector
-import org.yapyap.orchestrator.globalevent.IdentityStateChange
+import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
+import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.onboarding.DefaultOnboardingProvider
 import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder

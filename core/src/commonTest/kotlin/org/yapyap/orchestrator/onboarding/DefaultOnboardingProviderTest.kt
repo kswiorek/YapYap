@@ -12,8 +12,8 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.orchestrator.globalevent.GlobalEventProjector
-import org.yapyap.orchestrator.globalevent.IdentityStateChange
+import org.yapyap.orchestrator.fold.global.GlobalEventProjector
+import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.BootstrapSessionStore

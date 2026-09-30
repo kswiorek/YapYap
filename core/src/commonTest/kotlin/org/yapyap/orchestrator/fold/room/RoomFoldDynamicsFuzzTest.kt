@@ -1,4 +1,4 @@
-package org.yapyap.orchestrator.roomevent
+package org.yapyap.orchestrator.fold.room
 
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.RoomMemberRole

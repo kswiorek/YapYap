@@ -1,4 +1,4 @@
-package org.yapyap.orchestrator.globalevent
+package org.yapyap.orchestrator.fold.global
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
