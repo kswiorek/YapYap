@@ -111,7 +111,7 @@ internal suspend fun foldToFixpoint(
     order: List<Uuid>,
     nodes: Map<Uuid, FoldNode>,
     ancestors: Map<Uuid, Set<Uuid>>,
-    foldSet: Set<Uuid>,
+    reachable: Set<Uuid>,
     genesis: GenesisInfo?,
     genesisKey: GenesisKey?,
     crypto: FoldCrypto,
@@ -121,7 +121,7 @@ internal suspend fun foldToFixpoint(
     val history = LinkedHashMap<RevocationState, ReplayResult>()
     var carried = RevocationState(emptyMap(), emptyMap(), emptySet())
     var current = replayFold(
-        order, nodes, ancestors, foldSet, genesis, genesisKey, crypto,
+        order, nodes, ancestors, reachable, genesis, genesisKey, crypto,
         carried.bans, carried.demotions, carried.tombstonedAccounts,
     )
     var walkIndex = 0
@@ -137,7 +137,7 @@ internal suspend fun foldToFixpoint(
         history[found] = current
         carried = found
         current = replayFold(
-            order, nodes, ancestors, foldSet, genesis, genesisKey, crypto,
+            order, nodes, ancestors, reachable, genesis, genesisKey, crypto,
             carried.bans, carried.demotions, carried.tombstonedAccounts,
         )
         walkIndex++
@@ -146,18 +146,12 @@ internal suspend fun foldToFixpoint(
     return current
 }
 
-/**
- * One replay walk over canonical order into shadow state (§2–§3).
- * Verdicts are authenticity-only: REJECTED = proven forgery (poisons structural
- * descendants into PENDING); auth-invalid / cut / sealed / duplicate = ignored
- * VERIFIED (no shadow effect); unresolvable author / outside fold input /
- * poisoned = PENDING.
- */
+/** One replay walk into shadow state. Unreachable or not-all-ancestors-VERIFIED = PENDING. */
 internal suspend fun replayFold(
     order: List<Uuid>,
     nodes: Map<Uuid, FoldNode>,
     ancestors: Map<Uuid, Set<Uuid>>,
-    foldSet: Set<Uuid>,
+    reachable: Set<Uuid>,
     genesis: GenesisInfo?,
     genesisKey: GenesisKey?,
     crypto: FoldCrypto,
@@ -193,9 +187,8 @@ internal suspend fun replayFold(
             poisoned.add(id)
             continue
         }
-        if (id !in foldSet) {
-            // Incomplete ancestry or unreachable from the winning root (detached
-            // sub-DAG, losing genesis branch): not folded, not rejected (§2).
+        // Reachable and every ancestor VERIFIED, else PENDING.
+        if (id !in reachable || ancestors.getValue(id).any { verdicts[it] != VerificationState.VERIFIED }) {
             verdicts[id] = VerificationState.PENDING
             continue
         }
@@ -229,8 +222,8 @@ internal suspend fun replayFold(
             poisoned.add(id)
             continue
         }
+        // Redundant with the check above (kept for an exact poisoned set).
         if (node.prevIds.any { it in poisoned }) {
-            // Descendant of a proven forgery: excluded, but PENDING, not REJECTED.
             verdicts[id] = VerificationState.PENDING
             poisoned.add(id)
             continue

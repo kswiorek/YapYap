@@ -82,8 +82,16 @@ class DefaultDagEngine(
         } else {
             emptyList()
         }
+        // Rooms need same-room, complete, VERIFIED parents; GLOBAL stays presence-only.
         val parents = prevIds.mapNotNull { messageRepository.findById(it) }
-        val ancestryComplete = parents.size == prevIds.size && parents.all { it.ancestryComplete }
+            .filter { it.payload.roomId == roomId }
+        val ancestryComplete = if (roomId == RoomId.GLOBAL) {
+            parents.size == prevIds.size && parents.all { it.ancestryComplete }
+        } else {
+            parents.size == prevIds.size && parents.all {
+                it.ancestryComplete && it.verificationState == VerificationState.VERIFIED
+            }
+        }
         val messageId = Uuid.random()
 
         // Create an unsigned payload (signature is null)
@@ -162,13 +170,16 @@ class DefaultDagEngine(
                 roomRepository.ensureRoomExists(payload.roomId, RoomType.UNKNOWN, "")
             }
 
-            // Determine orphan status: orphaned iff any prevId is not in our DB.
+            // Cross-room prevId counts as missing.
             val presentParents = payload.prevIds.mapNotNull { messageRepository.findById(it) }
-            val missingPrevIds = payload.prevIds.filter { id ->
-                presentParents.none { it.payload.messageId == id }
-            }
+                .filter { it.payload.roomId == payload.roomId }
+            val presentIds = presentParents.map { it.payload.messageId }.toSet()
+            val missingPrevIds = payload.prevIds.filter { it !in presentIds }
             val isOrphaned = missingPrevIds.isNotEmpty()
-            val ancestryComplete = !isOrphaned && presentParents.all { it.ancestryComplete }
+            // GLOBAL ingests provisional false; the fold promotes it.
+            val ancestryComplete = payload.roomId != RoomId.GLOBAL && !isOrphaned && presentParents.all {
+                it.ancestryComplete && it.verificationState == VerificationState.VERIFIED
+            }
 
             // Classify authorship -> verification state. Global-room events defer to the
             // projector (the global DAG is self-verifying: it defines who its own authors may be).
@@ -312,6 +323,13 @@ class DefaultDagEngine(
         if (newState == row.verificationState) return null
 
         messageRepository.updateVerificationState(payload.messageId, newState)
+        // Children born incomplete off a PENDING parent may now complete (rooms only).
+        if (row.verificationState == VerificationState.PENDING &&
+            newState == VerificationState.VERIFIED &&
+            payload.roomId != RoomId.GLOBAL
+        ) {
+            refreshAncestryDown(payload.messageId, mutableSetOf())
+        }
         return VerificationStateChange(
             messageId = payload.messageId,
             roomId = payload.roomId,
@@ -375,23 +393,40 @@ class DefaultDagEngine(
     }
 
     /**
-     * Closes all causal_hold entries whose `missing_prev_id` equals [arrivedMessageId]:
-     * deletes their causal_hold rows, clears the orphan flag only for orphans with no
-     * remaining holds, and re-derives ancestry-completeness (with a downward cascade
-     * to children that were incomplete only because of it).
-     *
-     * Returns the list of closed `missingPrevId`s (all equal to [arrivedMessageId],
-     * one per closed orphan — the UI uses a Set to deduplicate).
+     * Closes holds for [arrivedMessageId] where orphan.room == arrived.room.
+     * Cross-room holds stay open.
      */
     private suspend fun closeGapsFor(
         arrivedMessageId: Uuid,
     ): List<Uuid> {
         val holds = causalHoldRepository.findByMissingPrevId(arrivedMessageId)
         if (holds.isEmpty()) return emptyList()
+        val arrivedRow = messageRepository.findById(arrivedMessageId) ?: return emptyList()
+        val arrivedRoom = arrivedRow.payload.roomId
+        val matching = mutableListOf<CausalHoldRow>()
+        val nonMatching = mutableListOf<CausalHoldRow>()
+        for (hold in holds) {
+            val orphan = messageRepository.findById(hold.orphanedMessageId)
+            if (orphan != null && orphan.payload.roomId == arrivedRoom) {
+                matching.add(hold)
+            } else {
+                nonMatching.add(hold)
+            }
+        }
+        if (matching.isEmpty()) return emptyList()
+        // Delete-all then re-insert the cross-room holds (serialized by the mutex).
         causalHoldRepository.deleteByMissingPrevId(arrivedMessageId)
+        for (hold in nonMatching) {
+            causalHoldRepository.insert(
+                gapId = hold.gapId,
+                missingPrevId = hold.missingPrevId,
+                orphanedMessageId = hold.orphanedMessageId,
+                detectedTimestamp = hold.detectedTimestamp,
+            )
+        }
 
         val refreshed = mutableSetOf<Uuid>()
-        for (hold in holds) {
+        for (hold in matching) {
             refreshAncestryDown(hold.orphanedMessageId, refreshed)
         }
 
@@ -401,18 +436,14 @@ class DefaultDagEngine(
             message = "Gaps closed by arriving message",
             fields = mapOf(
                 "arrivedMessageId" to arrivedMessageId,
-                "closedOrphanCount" to holds.size,
+                "closedOrphanCount" to matching.size,
             ),
         )
 
-        return holds.map { it.missingPrevId }
+        return matching.map { it.missingPrevId }
     }
 
-    /**
-     * Re-derives ancestry-completeness for [messageId]: clears the orphan flag when no
-     * holds remain, flips `ancestry_complete` false→true when every parent is present
-     * and itself complete, and cascades to children. Caller holds [mutex].
-     */
+    /** Clears orphan flags; in rooms also promotes the flag false->true and cascades. */
     private suspend fun refreshAncestryDown(
         messageId: Uuid,
         refreshed: MutableSet<Uuid>,
@@ -424,9 +455,20 @@ class DefaultDagEngine(
             messageRepository.updateOrphanedFlag(messageId, isOrphaned = false)
         }
 
+        if (row.payload.roomId == RoomId.GLOBAL) {
+            // Fold owns the flag in GLOBAL; still recurse for orphan-clearing only.
+            for (child in messageRepository.findChildrenInRoom(messageId, row.payload.roomId)) {
+                refreshAncestryDown(child.payload.messageId, refreshed)
+            }
+            return
+        }
+
         val presentParents = row.payload.prevIds.mapNotNull { messageRepository.findById(it) }
+            .filter { it.payload.roomId == row.payload.roomId }
         val complete = presentParents.size == row.payload.prevIds.size &&
-                presentParents.all { it.ancestryComplete }
+                presentParents.all {
+                    it.ancestryComplete && it.verificationState == VerificationState.VERIFIED
+                }
         if (complete && !row.ancestryComplete) {
             messageRepository.updateAncestryComplete(messageId, complete = true)
             for (child in messageRepository.findChildrenInRoom(messageId, row.payload.roomId)) {

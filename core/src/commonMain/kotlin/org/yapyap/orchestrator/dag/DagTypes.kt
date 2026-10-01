@@ -62,12 +62,10 @@ value class RoomId(val value: Uuid) {
  */
 sealed class DagException(message: String) : Exception(message) {
     /**
-     * The room holds messages but its chainable frontier is empty — every tip is parked
-     * on an open gap, or no tip is VERIFIED yet (unverified ancestry, unresolvable
-     * authorship, or proven forgery). Appending now would fork a second root instead of
-     * chaining the room DAG, so the append is refused and nothing is written. Transient
-     * while gaps are open or verification is pending (retry once they close/verify);
-     * permanent while the room holds only REJECTED messages.
+     * The room holds messages but its chainable frontier is empty — every tip parked on
+     * an open gap, unverified, or excluded by non-VERIFIED ancestry. Appending would fork
+     * a second root, so nothing is written. Transient while gaps/verification resolve;
+     * permanent while only REJECTED remains.
      */
     class FrontierUnavailable(val roomId: RoomId) : DagException(
         "Cannot append in room $roomId: chainable frontier is empty but the room holds messages",

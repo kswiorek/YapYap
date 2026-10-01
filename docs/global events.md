@@ -59,8 +59,10 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
   per node under arrival-order application; canonical order makes the fold deterministic and
   convergent for any node holding the same message set.
 - **The fold is a pure function of the stored message set — and it folds the chainable
-  graph.** Fold input = ancestry-complete messages reachable from the winning genesis root over
-  present edges (one downward descent from the root). This is the same graph the append path
+  graph.** Fold descent = messages reachable from the winning genesis root over
+  present edges (one downward pass); eligibility is computed inline in canonical order —
+  reachable AND every ancestor `VERIFIED` (missing ancestors have no verdict, so they fail
+  closed; no loop needed, cycles/tail fail closed). This is the same graph the append path
   builds on (`selectRoomFrontier` refuses to chain off unverifiable ancestry) — one notion of
   the verified DAG, evaluated by the fold. Everything else (incomplete ancestry, detached
   sub-DAGs, the losing genesis root and its private branch) stays PENDING: not folded, not
@@ -68,7 +70,9 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
   the rest of the control plane keeps folding and appending — and if the event was lost
   everywhere, every node excludes that branch consistently. Convergence is preserved because
   the fold still depends only on the set. (This reverses the earlier "fold everything" draft;
-  see §11.)
+  see §11.) The projector commits both columns (verdict = own bytes, flag = reachable ∧
+  ancestors `VERIFIED`, monotone false→true); the engine writes no flags in GLOBAL
+  (remote ingest lands provisional false).
 - **`verification_state` is authenticity-only** (§6 storage criterion: well-formed + signature
   valid + author ever existed). REJECTED = proven forgery only (bad signature, undecodable,
   wrong payload type, id-derivation mismatch) — permanent, and poisoning structural

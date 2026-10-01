@@ -76,8 +76,8 @@ class DefaultSyncCoordinator(
                 if (messageRepository.findById(tip) == null) {
                     insertSyncForTarget(roomId, tip)
                 }
-                // A known tip is either chainable (ancestry present — nothing to do)
-                // or a local orphan (our causal holds already chase its parents).
+                // Known tip: chainable (nothing to do), orphan (holds chase parents),
+                // or quarantined (complete holds but non-VERIFIED ancestry; nothing to do).
             }
         }
     }

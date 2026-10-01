@@ -10,9 +10,7 @@ interface DagEngine {
     /**
      * Chains a new message off the room's covering antichain and stores it.
      *
-     * @throws DagException.FrontierUnavailable when the room holds messages but its chainable
-     * frontier is empty (every tip parked on an open gap, or no tip VERIFIED yet) — appending
-     * would fork a second root, so nothing is written. Callers map this to a domain failure.
+     * @throws DagException.FrontierUnavailable when the chainable frontier is empty.
      */
     suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload
     suspend fun ingest(payload: MessagePayload): IngestResult?

@@ -334,11 +334,7 @@ internal class DefaultGlobalEventProjector(
         )
     }
 
-    /**
-     * Canonical fold + commit (§2–§7): verdicts are outputs, never inputs.
-     * REJECTED = proven forgery; auth-invalid / cut / sealed / duplicate = ignored
-     * VERIFIED; unresolvable / unreachable / poisoned = PENDING.
-     */
+    /** Fold + commit; the fold owns verdicts and flags in GLOBAL. */
     private suspend fun foldAndCommit(trigger: String) {
         foldMutex.withLock {
             val rows = messageRepository.findAllInRoom(RoomId.GLOBAL)
@@ -351,7 +347,7 @@ internal class DefaultGlobalEventProjector(
             val order = canonicalOrder(byId, children)
             val ancestors = ancestorClosures(byId)
             val genesis = resolveGenesis(byId, children)
-            val foldSet = foldInputSet(byId, children, genesis)
+            val reachable = reachableFrom(byId, children, genesis)
             val genesisKey = genesisSelfIntroKey(order, byId, genesis)
             val nodes = HashMap<Uuid, FoldNode>(byId.size)
             for ((id, row) in byId) nodes[id] = foldNodeOf(row)
@@ -363,11 +359,8 @@ internal class DefaultGlobalEventProjector(
                     cryptoProvider.verifyDetached(key, binding, sig)
             }
 
-            // Restart loop over carried revocations: a backdated event sorting before its
-            // revocation is caught on the restart, where the revocation is known from the
-            // start. See [foldToFixpoint] for the oscillation doctrine.
             val current = foldToFixpoint(
-                order, nodes, ancestors, foldSet, genesis, genesisKey, crypto,
+                order, nodes, ancestors, reachable, genesis, genesisKey, crypto,
                 onOscillation = {
                     AppLog.warn(
                         component = LogComponent.ORCHESTRATOR,
@@ -380,6 +373,14 @@ internal class DefaultGlobalEventProjector(
             for ((messageId, verdict) in current.verdicts) {
                 if (byId.getValue(messageId).verificationState != verdict) {
                     messageRepository.updateVerificationState(messageId, verdict)
+                }
+            }
+            // Promote flags false->true where reachable with all ancestors VERIFIED.
+            for (id in order) {
+                if (id !in reachable) continue
+                if (byId.getValue(id).ancestryComplete) continue
+                if (ancestors.getValue(id).all { current.verdicts[it] == org.yapyap.persistence.db.VerificationState.VERIFIED }) {
+                    messageRepository.updateAncestryComplete(id, complete = true)
                 }
             }
             commit(current, nodes, trigger)
@@ -527,16 +528,14 @@ internal class DefaultGlobalEventProjector(
         return memo
     }
 
-    /**
-     * Fold input: ancestry-complete nodes reachable from the winning root. Everything
-     * else stays PENDING — a lost event parks only its own branch.
-     */
-    private fun foldInputSet(
+    /** Nodes reachable from the winning root over present edges. */
+    private fun reachableFrom(
         byId: Map<Uuid, MessageRow>,
         children: Map<Uuid, List<Uuid>>,
         genesis: GenesisInfo?,
     ): Set<Uuid> {
         if (genesis == null) return emptySet()
+        if (!byId.containsKey(genesis.nodeId)) return emptySet()
         val reachable = HashSet<Uuid>()
         val stack = ArrayDeque<Uuid>()
         reachable.add(genesis.nodeId)
@@ -546,14 +545,10 @@ internal class DefaultGlobalEventProjector(
                 if (reachable.add(child)) stack.add(child)
             }
         }
-        return reachable.filterTo(HashSet()) { byId.getValue(it).ancestryComplete }
+        return reachable
     }
 
-    /**
-     * Genesis self-introduction key: the first `AddDevice` authored by the added
-     * device itself for the genesis account. Self-authenticating; resolves
-     * authorship only, never authorization.
-     */
+    /** First self-authored `AddDevice` for the genesis account. */
     private fun genesisSelfIntroKey(
         order: List<Uuid>,
         byId: Map<Uuid, MessageRow>,

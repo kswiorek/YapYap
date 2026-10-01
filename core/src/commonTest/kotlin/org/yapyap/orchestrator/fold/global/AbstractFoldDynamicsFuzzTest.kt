@@ -193,7 +193,7 @@ class AbstractFoldDynamicsFuzzTest {
                 order = world.order,
                 nodes = world.nodes,
                 ancestors = world.ancestors,
-                foldSet = world.order.toSet(),
+                reachable = world.order.toSet(),
                 genesis = world.genesis,
                 genesisKey = world.genesisKey,
                 crypto = StubCrypto,

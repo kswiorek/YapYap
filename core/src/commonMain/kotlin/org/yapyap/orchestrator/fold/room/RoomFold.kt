@@ -7,34 +7,12 @@ import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.uuid.Uuid
 
 /**
- * Pure fold core of a chat room's membership DAG (§2–§4, see docs/room events.md).
- *
- * Sibling of the global fold ([org.yapyap.orchestrator.globalevent]), written fresh rather
- * than extracted: the authenticity-only verdict decision removed everything a shared kernel
- * would have shared (no crypto oracles, no verdict output, no device dimension, no bans).
- * The two implementations are kept honest by the paired dynamics fuzzers, not by shared code.
- *
- * Inputs carry only what the gates decide on (ids, account authorship, decoded events).
- * Authenticity is precomputed into the stored `verification_state` column by the engine, and
- * the adapter excludes non-`VERIFIED` / non-`RoomEvent` / unreachable / poisoned rows from
- * the fold set — so the core consults no oracle and no live table. **Authorization is purely
- * intra-room**: admin status comes from this fold's own shadow state, never from GLOBAL.
- * The signature makes a cross-DAG reference unrepresentable: there is no parameter through
- * which global state, wall-clock, or live tables could enter. Canonical order is a pure
- * function of the stored room set, and every gate evaluates at position within it — so the
- * same stored set folds to the same fixpoint on every device, regardless of sync arrival
- * order (late receivers replay the identical set; see §2 backdating doctrine).
- *
- * Shadow-effect discipline: authorization-invalid / sealed / duplicate events are **ignored**
- * (no shadow effect — policy failures never fork the chainable graph). The single seal kind
- * (interval-scoped, demotion-shaped) is minted by both `MemberRemove` and `RemoveAdmin`.
+ * Pure fold core of a chat room's membership DAG (see docs/room events.md).
+ * No crypto oracles, no verdict output; the engine precomputes authenticity and the
+ * adapter feeds `VERIFIED` flagged rows only. Same stored set folds identically everywhere.
  */
 
-/**
- * One fold input node. Author is account-level (`senderAccountId`, binding-checked at
- * ingest — the only author proof, §2). A null [event] is an undecodable payload: such rows
- * are `REJECTED` at ingest and never enter the fold set; the core skips them defensively.
- */
+/** One fold input node. Null [event] rows never enter the fold set. */
 data class RoomFoldNode(
     val id: Uuid,
     val authorAccountId: AccountId,
@@ -130,14 +108,7 @@ internal fun roomFoldToFixpoint(
     return current
 }
 
-/**
- * One replay walk over canonical order into shadow state (§2–§4).
- *
- * Nodes outside [foldSet] get no shadow effect (fold-set/poison exclusion is enforced here
- * by skipping; the adapter computes the set). `RoomCreated` anywhere but the genesis node
- * is ignored; the owner's own `MemberRemove` is the atomic handover and is honored only in
- * that shape — every bad shape fails closed (ignored whole).
- */
+/** One replay walk. Nodes outside [foldSet] are skipped; bad shapes fail closed. */
 internal fun replayRoomFold(
     order: List<Uuid>,
     nodes: Map<Uuid, RoomFoldNode>,

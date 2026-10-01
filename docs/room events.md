@@ -162,11 +162,17 @@ member-at-some-point vs never-member, not per-message positional replay (superse
 - Sealed-out adds never count → no row ever → hidden (the §4 collateral case intact).
 - Re-add after removal → row back to `ACTIVE` (full recompute per fold commit); the
   projection and the flags can never disagree (same source).
-- Chainability: an authentic non-member message is chainable (frontier = `VERIFIED` ∧
-  `ancestry_complete`). Harmless: stored regardless (store-don't-drop), being a parent
-  launders nothing, and the covering antichain self-collapses — the next member append
-  references all tips including forger ones. Keeping forger tips out of the frontier is
-  the one thing membership-in-the-verdict would buy; not worth the verdict-flip machinery (§11).
+- Chainability: frontier = own-`VERIFIED` ∧ flag everywhere (`Message.sq`
+  `selectRoomFrontier`). The flag is verdict-aware: ancestors present AND `VERIFIED`
+  (same-room). An authentic message with a `PENDING`/`REJECTED` ancestor is `VERIFIED`
+  on its own merits but never chainable — poisoned tips quarantine (never referenced,
+  dead branches) instead of poisoning the fold. Harmless: stored regardless
+  (store-don't-drop), being a parent launders nothing, and the covering antichain
+  self-collapses over the chainable tips. Keeping forger tips out of the frontier is
+  what the flag buys, without any verdict-flip machinery (§11).
+- Advertisement vs serving: advertisement is policy (ping frontiers never promote
+  poisoned tips), serving is convergence (the responder serves stored garbage so the
+  requester can close holds — `SyncPayloadProvider` stays verdict-blind deliberately).
 - Pre-genesis events need no special casing: missing genesis → missing ancestors →
   orphan → `ancestry_complete = 0` → not chainable — the same path `Text` orphans take
   today.
@@ -182,10 +188,17 @@ Structural rules:
   (it would otherwise not be an orphan).
 - **`ensureRoomExists` on ingest** (idempotent `INSERT OR IGNORE`) — unblocks the
   `messages.room_id` FK for pre-genesis orphans. Today only GLOBAL is seeded.
-- Poisoning is fold-internal: a row whose ancestry includes a `REJECTED` row gets no
-  shadow effect (never membership evidence — same rule as `replayFold`); the *stored*
-  verdict is untouched (authenticity-only), so each descendant is judged on its own
-  merits — a member's reply to garbage is a normal message; the garbage hides by flag.
+- Poisoning is completeness-internal, superseding the earlier fold-internal draft: in
+  rooms the engine enforces it via the verdict-aware flag (child of a `REJECTED` node is
+  born incomplete and never promotes — the freeze-DoS closure); in GLOBAL the fold
+  enforces it walk-internally (inline eligibility: reachable ∧ all ancestors `VERIFIED`).
+  The *stored* verdict is untouched (authenticity-only: own bytes only, never flips down;
+  `REJECTED` sticky, `PENDING`→`VERIFIED`/`REJECTED` monotone), so each descendant is
+  judged on its own merits — a member's reply to garbage is a `VERIFIED` message with
+  flag false (never chainable); the garbage hides by flag. Covering-antichain pressure
+  is why distrust cannot be transitive content-distrust (it would brick rooms — honest
+  appends are forced onto frontier tips): distrust lives in authority (the fold set),
+  content judged on its own merits.
 - Backdating tolerance stays the doctrine: a removed member's backdated message is
   cryptographically indistinguishable from a legitimate pre-removal message that syncs
   late, and the latter *must* verify. Content exercises no authority, so there is nothing
@@ -229,10 +242,14 @@ cuts, no genesis competition. A `SealEngine<P>` with tier callbacks would be abs
 outweighing the shared core — and its main cost, refactoring landed, fuzz-tested
 `GlobalFold` mid-sprint, now buys nothing. What is shared:
 
-- **Graph helpers** — `canonicalOrder`, `childAdjacency`, `ancestorClosures`,
-  `foldInputSet`: pure functions over stored rows with zero tier logic; both projectors
-  call them. Equivalence is still proven by the global dynamics fuzzer + projector tests
-  run unchanged.
+- **Graph helpers** — `canonicalOrder`, `childAdjacency`, `ancestorClosures`
+  (+ `reachableFrom`): pure functions over stored rows with zero tier logic; both projectors
+  call them (mechanical extraction, no tier logic moves). Equivalence is still proven by
+  the global dynamics fuzzer + projector tests run unchanged. `foldInputSet` diverges by
+  tier and is NOT shared: room = flag filter (`VERIFIED` ∧ `RoomEvent` ∧ stored flag ∧
+  reachable-descent, adapter reads the stored flag, no poison recompute); global = inline
+  eligibility (`reachable` descent only, core checks `ancestors.all VERIFIED` in one
+  topological pass).
 - **The fixpoint driver** — `foldToFixpoint`, `RevocationState`, the revocation ranking,
   oscillation detection, genericized over the principal type: small, no callbacks, the
   one piece where an oscillation-handling fix lands once.
@@ -249,9 +266,13 @@ outweighing the shared core — and its main cost, refactoring landed, fuzz-test
 
 Room fold shape: the input adapter maps stored rows to `(id, prevIds, author account =
 senderAccountId` — trusted via §2 — `, decoded event, position)`; the fold set =
-`VERIFIED` `RoomEvent` rows, reachable from the genesis, ancestry-complete, no `REJECTED`
-ancestor; the output = shadow-state sets only (members with role/status, the owner slot,
-the ever-validly-member set) — no verdict map is written (§3).
+`VERIFIED` `RoomEvent` rows, reachable from the genesis, stored flag set (verdict-aware
+`ancestry_complete`: ancestors present AND `VERIFIED`, same-room — engine-written at
+ingest, up-cascaded on reverify; poisoned descendants never promote); the output =
+shadow-state sets only (members with role/status, the owner slot,
+the ever-validly-member set) — no verdict map is written (§3). GLOBAL mirrors this with
+the writer flipped: the fold owns both columns (verdict = own bytes, flag = reachable ∧
+ancestors `VERIFIED`, monotone false→true at commit); the engine never writes flags there.
 
 ### Confirmed: mutual destruction closes the removal-forgery attack
 
@@ -316,20 +337,31 @@ room admins.
   rows are unobservable in the interim: every device-joined path (`roomsOfPeer`, fan-out
   via device resolution) needs devices, and devices imply the account row (`AddAccount` +
   `AddDevice` travel together in GLOBAL). The projection converges; no fork.
-- Re-fold triggers: room insert (orphan creation included), gap closed, GLOBAL commit (lands deferred member rows; the
-  reverify hooks flip stale `PENDING`s first — a fold
+- Re-fold triggers: room insert (orphan creation included), gap closed, any
+  `verificationStateChanges` in the room (reverify flips `PENDING` first — a fold
   reading a stale `PENDING` just gives no shadow effect until the next trigger
-  recomputes), once at boot. Full re-fold per trigger — correct and cheap at
-  10–20 users, same argument as `global events.md §2`.
+  recomputes), GLOBAL commit (lands deferred member rows), once at boot. Per-room mutex
+  with `allChatRoomIds()` sweep (one room's fold never blocks another's); no genesis in
+  store → skip commit (pre-genesis orphans fold only once the genesis lands). Full re-fold
+  per trigger — correct and cheap at 10–20 users, same argument as `global events.md §2`.
 - Verdict wiring (§3 — much smaller than the earlier re-classify plan):
     - The engine classifies every room message at ingest (`Text` exactly as today;
       `RoomEvent` = `classifyMessageAuthorship` + decode + structural + derivation
-      checks). No defer branch; no new repository queries.
+      checks). No defer branch; no new repository queries. The engine is the sole verdict
+      writer for every room message, and writes both columns there: verdict = own bytes,
+      flag = verdict-aware ancestry (present + same-room + complete + `VERIFIED` parents;
+      cross-room prevId = missing parent → orphan+hold, and holds close same-room only —
+      the hold survives the referenced id arriving in its own room). `refreshAncestryDown`
+      up-cascades on gap closure; reverify up-cascades on `PENDING`→`VERIFIED` (engine mutex,
+      before emit). Monotone up-only; no down-cascade needed (`PENDING` already blocks at birth).
     - The existing reverify hooks (`reverifyPendingFor` on `DeviceAdded`, boot
       `reverifyAllPending`) are unchanged and complete — they cover `RoomEvent` uniformly
       with `Text`.
-    - The room projector writes zero verdicts; flags re-query the projection on fold
-      `stateChanges`. The earlier re-classify machinery (pending-by-room query,
+    - The room projector writes zero verdicts and zero flags (flags are engine-owned in
+      rooms); flags re-query the projection on fold `stateChanges`. GLOBAL is the mirror:
+      the global projector writes verdicts + flags (monotone false→true), the engine never
+      writes flags there (ingest inserts provisional false; `refreshAncestryDown` clears
+      `is_orphaned` only). The earlier re-classify machinery (pending-by-room query,
       `refreshAncestryDown` re-classify, fold-commit re-classify) is deleted from the
       plan: membership never touches verdicts, so nothing re-classifies.
 
@@ -392,7 +424,10 @@ and incident forensics. Never a drop condition.
 
 Order is just-in-time: codec and ingest land first (no fold dependencies); the
 global-fold parts are extracted when the fold work reaches for them — never copied —
-each extraction its own commit with the equivalence proof attached:
+each extraction its own commit with the equivalence proof attached. Prep (landed before
+8.4): engine verdict-aware flag in rooms + provisional-false GLOBAL ingest, GLOBAL fold
+reachable + inline eligibility with projector-owned flag promotion, sync trichotomy
+comment. No extraction in prep — global first, `fold/graph/` stays deferred:
 
 1. **Codec**: `RoomEventPayload` (5 kinds; `MemberRemove` carries the optional successor),
    `MessagePayload.RoomEvent` variant, `MessagePayloadType.ROOM_EVENT(3)`,
@@ -405,23 +440,24 @@ each extraction its own commit with the equivalence proof attached:
    rows — chat rows flip status via the room projector in step 4, never DELETE).
 3. **Room fold core (fresh)**: accounts-only shadow state (role/status + owner slot +
    ever-member set), seal functions per the global doctrine (simpler — §4), the fixpoint
-   loop, fold-set/poison exclusion, no crypto oracles (the verdict
-   column is the input). Dynamics fuzzer: room world generator + oracle, no crypto stub (§4). **Extract-on-demand**:
+   loop, fold-set via the stored verdict-aware flag (no poison recompute — §3/§4), no
+   crypto oracles (the verdict column is the input). Dynamics fuzzer: room world generator
+   + oracle, no crypto stub (§4). **Extract-on-demand (deferred past prep)**:
    when the fold or projector reaches for a global-fold part —
    the graph helpers (`canonicalOrder`, `childAdjacency`, `ancestorClosures`,
-   `foldInputSet`), the fixpoint driver if the room restart loop matches the global
+   `reachableFrom`), the fixpoint driver if the room restart loop matches the global
    shape — extract it at that moment, as its own mechanical commit, proven by the global
    dynamics fuzzer (20k seeds) + projector tests run **unchanged**. Never copy instead
    of extracting: the drift risk the sibling-folds decision accepted (§4) is bounded by
-   exactly this discipline. Implementation also reveals the true shared boundary (`foldInputSet`'s genesis input is a
-   parameter — most-descendants resolution is
-   global-only, the room's is the derivation assert; the room `RevocationState` may not
-   match the driver's global shape — extraction then is a decision, not an assumption).
-4. **Room projector**: fold source `findAllInRoom(roomId)` per room (all messages, no
-   filtering — pure function of the stored set); commit the `rooms` merge + the
-   `room_members` recompute (status + roles; deferral for unknown accounts, §5);
-   `stateChanges` flow; re-fold triggers (§5); zero verdict writes; global-ban interaction
-   per the §10 decision.
+   exactly this discipline. Shared boundary (decided in prep): `foldInputSet` diverges —
+   room = stored-flag filter, global = inline eligibility — and is never shared; only the
+   pure graph helpers move.
+4. **Room projector**: fold source `findAllInRoom(roomId)` per room (pure function of the
+   stored set; adapter filters `VERIFIED` ∧ flag ∧ reachable-descent, §4); commit the
+   `rooms` merge + the `room_members` recompute (status + roles; deferral for unknown
+   accounts, §5); `stateChanges` flow; per-room mutex over `allChatRoomIds()` with re-fold
+   triggers (§5); no genesis → skip commit; zero verdict/flag writes; global-ban interaction
+   per the §10 decision. (possibly filter ancestry_complete on input)
 5. **Flags & GUI wiring**: the message-join against `room_members` (status → badge/hide,
    §3); membership-reader queries filter `ACTIVE`; negative tests for the hide-policy (done-criteria d3); reverify-hook
    regression (unchanged behavior).
@@ -466,6 +502,13 @@ discipline) plus room-specific cases:
 - unknown-room message → verdict immediate (authenticity); the orphan machinery gates
   chainability; genesis arrives → fold runs → flags resolve member / non-member — both
   branches; the projector never writes a verdict (regression: no reverify ping-pong);
+- verdict-aware flag: child of a `REJECTED` node is born incomplete and never promotes
+  (freeze-DoS: next admin event still lands on the remaining frontier); child of a
+  `PENDING` (unknown-author) node is born incomplete, promotes on `DeviceAdded` reverify
+  up-cascade; cross-room prevId → orphan+hold, surviving the referenced id arriving in
+  its own room; `refreshAncestryDown` clears orphan flags but never flags in GLOBAL;
+  GLOBAL remote ingest lands flag false → fold promotes monotone false→true; reachable
+  graft on a `PENDING` root stays `PENDING`, never frontier;
 - removed member: post-removal and *backdated-as-pre-removal* messages → `VERIFIED` +
   `REMOVED`-row badge (indistinguishable-by-design, tested as such); never-member author
   → `VERIFIED` + no row → hidden by default (negative test: never rendered as normal);
@@ -488,6 +531,10 @@ discipline) plus room-specific cases:
 
 ## 10. Open items
 
+- **Residual (accepted): `PENDING`-author window.** Garbage authored by an unknown device is
+  provably garbage only after identity lands (reverify flips it `REJECTED`, children stay
+  incomplete). Bounded and pre-existing in GLOBAL; rooms inherit the same window via the
+  engine flag (child born incomplete, never promotes off a `REJECTED` parent).
 - **Global-ban interaction with room authority — decided: Option A, room sovereignty.** The
   room fold ignores global bans entirely; practical exile is the firewall plus a manual
   `MemberRemove` by surviving room admins. No collateral ("don't cut off the branch" holds; a
@@ -567,3 +614,8 @@ discipline) plus room-specific cases:
 - **Separate `OwnerHandover` event kind**: rejected — two events leave a zero- or two-owner
   window between them and an ordering ambiguity when both land; the successor field on the
   owner's self-leave is one atomic, deterministic transition.
+- **Verdict-aware completeness via stored `REJECTED`-only**: superseded by
+  all-ancestors-`VERIFIED`. Checking only "no `REJECTED` ancestor" would promote children of
+  `PENDING` (unresolvable-author, unreachable, gap-parked) nodes into the frontier —
+  re-opening the freeze-DoS and the `PENDING`-window. The flag requires every ancestor
+  `VERIFIED`, not merely non-`REJECTED`.

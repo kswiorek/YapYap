@@ -133,35 +133,43 @@ class DefaultDagEngineTest {
 
     @Test
     fun append_afterGapCloses_chainsOffRecoveredFrontier() = runTest {
-        val missingId = Uuid.random()
+        // Bootstrap from nothing: the missing parent must be a valid genesis —
+        // a remote Text root is REJECTED and quarantines its children.
+        val crypto = DefaultCryptoProvider()
+        val genesisId = Uuid.random()
+        // createGenesis returns unsigned; the fake provider accepts any signature.
+        val genesis = MessagePayload.RoomEvent.createGenesis(
+            crypto = crypto,
+            genesisMessageId = genesisId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            createdAt = clock.now(),
+            event = RoomEventPayload.RoomCreated(
+                initialMemberIds = listOf(remoteAccount),
+                roomName = "test-room",
+                roomType = RoomType.TEXT_CHANNEL,
+                spaceId = null,
+            ),
+        ).withSignature(byteArrayOf(0x01, 0x02, 0x03))
+        val genesisRoom = genesis.roomId
         val orphan = MessagePayload.Text(
             messageId = Uuid.random(),
-            roomId = roomId,
+            roomId = genesisRoom,
             senderAccountId = remoteAccount,
             authorDeviceId = remoteDeviceId,
             authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = listOf(missingId),
+            prevIds = listOf(genesisId),
             createdAt = clock.now(),
             text = "waiting for prev",
         )
         assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
         assertFailsWith<DagException.FrontierUnavailable> {
-            dagEngine.append(roomId, MessageDraft.Text("blocked"))
+            dagEngine.append(genesisRoom, MessageDraft.Text("blocked"))
         }
 
-        val missing = MessagePayload.Text(
-            messageId = missingId,
-            roomId = roomId,
-            senderAccountId = remoteAccount,
-            authorDeviceId = remoteDeviceId,
-            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-            prevIds = emptyList(),
-            createdAt = clock.now(),
-            text = "i am the prev",
-        )
-        assertTrue(dagEngine.ingest(missing) is IngestResult.Inserted)
+        assertTrue(dagEngine.ingest(genesis) is IngestResult.Inserted)
 
-        val appended = dagEngine.append(roomId, MessageDraft.Text("unblocked"))
+        val appended = dagEngine.append(genesisRoom, MessageDraft.Text("unblocked"))
         assertEquals(listOf(orphan.messageId), appended.prevIds)
     }
 
