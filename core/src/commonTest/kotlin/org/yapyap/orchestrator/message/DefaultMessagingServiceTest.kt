@@ -570,6 +570,12 @@ private class FakeRoomRepository(
     ) = Unit
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = Unit
+
+    override suspend fun allChatRoomIds(): List<RoomId> = members.keys.toList()
+
+    override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) = Unit
+
+    override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) = Unit
 }
 
 private class FakeMessageRepository : MessageRepository {
@@ -674,6 +680,13 @@ private class FakeMessageRepository : MessageRepository {
 
     override suspend fun findAllPending(): List<MessageRow> =
         byId.values.filter { it.verificationState == VerificationState.PENDING }.toList()
+
+    override suspend fun findFoldableInRoom(roomId: RoomId): List<MessageRow> =
+        byId.values.filter {
+            it.payload.roomId == roomId &&
+                    it.ancestryComplete &&
+                    it.verificationState == VerificationState.VERIFIED
+        }
 }
 
 private class FakeCausalHoldRepository(

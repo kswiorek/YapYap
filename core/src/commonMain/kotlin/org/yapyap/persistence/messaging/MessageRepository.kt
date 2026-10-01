@@ -72,6 +72,13 @@ interface MessageRepository {
 
     suspend fun findAllInRoom(roomId: RoomId): List<MessageRow>
 
+    /**
+     * Fold input rows (docs/room events.md §4): `VERIFIED` ∧ `ancestry_complete`,
+     * all payload types. Ancestor-closed, so the room fold builds order/closures
+     * over exactly these rows.
+     */
+    suspend fun findFoldableInRoom(roomId: RoomId): List<MessageRow>
+
     /** True if the room holds any message at all (genesis/empty-room checks). */
     suspend fun hasMessages(roomId: RoomId): Boolean
 
@@ -240,6 +247,21 @@ class DefaultMessageRepository(
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         withContext(dbDispatcher) {
             queries.selectHasMessagesInRoom(roomId).executeAsOne()
+        }
+
+    override suspend fun findFoldableInRoom(roomId: RoomId): List<MessageRow> =
+        withContext(dbDispatcher) {
+            val rows = queries.selectFoldableInRoom(roomId).executeAsList().map { it.toRow() }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.MESSAGE_ROOM_QUERIED,
+                message = "Fetched fold input rows in room",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "resultCount" to rows.size,
+                ),
+            )
+            rows
         }
 
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {

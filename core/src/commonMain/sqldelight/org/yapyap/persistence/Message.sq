@@ -122,6 +122,16 @@ SELECT * FROM messages
 WHERE room_id = ?
 ORDER BY created_at_epoch_seconds DESC, message_id DESC;
 
+-- Fold input rows (docs/room events.md §4): the adapter-filtered fold set —
+-- VERIFIED ∧ stored flag, all payload types. Ancestor-closed (the flag requires
+-- every ancestor VERIFIED), so the projector builds order/closures over exactly
+-- these rows. Same two predicates as selectRoomFrontier, minus the tip check.
+selectFoldableInRoom:
+SELECT * FROM messages
+WHERE room_id = :roomId
+  AND ancestry_complete = 1
+  AND verification_state = 'VERIFIED';
+
 updateMessageOrphanedFlag:
 UPDATE messages SET is_orphaned = ? WHERE message_id = ?;
 

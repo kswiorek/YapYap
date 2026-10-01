@@ -9,10 +9,12 @@ import kotlin.uuid.Uuid
 /**
  * Pure fold core of a chat room's membership DAG (see docs/room events.md).
  * No crypto oracles, no verdict output; the engine precomputes authenticity and the
- * adapter feeds `VERIFIED` flagged rows only. Same stored set folds identically everywhere.
+ * adapter feeds the filtered order only. Same stored set folds identically everywhere.
  */
 
-/** One fold input node. Null [event] rows never enter the fold set. */
+/** One fold input node. Null [event] rows (content messages) ride the order as no-ops:
+ * they are needed for ancestry closures and canonical positions but never exercise
+ * authority. */
 data class RoomFoldNode(
     val id: Uuid,
     val authorAccountId: AccountId,
@@ -81,14 +83,13 @@ internal fun roomFoldToFixpoint(
     order: List<Uuid>,
     nodes: Map<Uuid, RoomFoldNode>,
     ancestors: Map<Uuid, Set<Uuid>>,
-    foldSet: Set<Uuid>,
     genesis: RoomGenesisInfo?,
     onOscillation: () -> Unit = {},
     onWalk: (walkIndex: Int, result: RoomReplayResult) -> Unit = { _, _ -> },
 ): RoomReplayResult {
     val history = LinkedHashMap<RoomRevocationState, RoomReplayResult>()
     var carried = RoomRevocationState(emptyMap())
-    var current = replayRoomFold(order, nodes, ancestors, foldSet, genesis, carried.seals)
+    var current = replayRoomFold(order, nodes, ancestors, genesis, carried.seals)
     var walkIndex = 0
     onWalk(walkIndex, current)
     while (true) {
@@ -101,19 +102,27 @@ internal fun roomFoldToFixpoint(
         }
         history[found] = current
         carried = found
-        current = replayRoomFold(order, nodes, ancestors, foldSet, genesis, carried.seals)
+        current = replayRoomFold(order, nodes, ancestors, genesis, carried.seals)
         walkIndex++
         onWalk(walkIndex, current)
     }
     return current
 }
 
-/** One replay walk. Nodes outside [foldSet] are skipped; bad shapes fail closed. */
+/**
+ * One replay walk. Every id in [order] is replayed; null-`event` rows are no-ops and
+ * bad shapes fail closed.
+ *
+ * Contract on [order]: the adapter-filtered fold set — `VERIFIED` ∧ stored-flag rows
+ * (all payload types). The set is ancestor-closed because the flag requires every
+ * ancestor `VERIFIED` (docs/room events.md §4, §11) — so there is no separate fold
+ * set: closures built over the same rows lose nothing, and every id the walk queries
+ * from [ancestors] is in [order].
+ */
 internal fun replayRoomFold(
     order: List<Uuid>,
     nodes: Map<Uuid, RoomFoldNode>,
     ancestors: Map<Uuid, Set<Uuid>>,
-    foldSet: Set<Uuid>,
     genesis: RoomGenesisInfo?,
     carriedSeals: Map<AccountId, Uuid>,
 ): RoomReplayResult {
@@ -176,7 +185,6 @@ internal fun replayRoomFold(
     }
 
     for (id in order) {
-        if (id !in foldSet) continue
         val node = nodes.getValue(id)
         val event = node.event ?: continue
         val author = node.authorAccountId

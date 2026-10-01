@@ -29,6 +29,7 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
+import org.yapyap.orchestrator.fold.room.DefaultRoomEventProjector
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
 import org.yapyap.orchestrator.onboarding.DefaultOnboardingProvider
 import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
@@ -117,6 +118,8 @@ class DefaultOrchestrator(
     private lateinit var recoveryResponder: DefaultRecoveryResponder
 
     private lateinit var projector: DefaultGlobalEventProjector
+
+    private lateinit var roomEventProjector: DefaultRoomEventProjector
 
 
     override suspend fun start() {
@@ -488,6 +491,20 @@ class DefaultOrchestrator(
             cryptoProvider = cryptoProvider,
         )
         projector.start(orchestratorScope)
+
+        // Room membership plane: sole writer of chain-derived chat-room membership
+        // (rooms merge + room_members recompute per room, boot + ingest/reverify/
+        // GLOBAL-commit triggers). Started after the global projector so the boot
+        // sweep sees committed identity; deferred rows land on GLOBAL-commit anyway.
+        roomEventProjector = DefaultRoomEventProjector(
+            pipeline = pipeline,
+            dagEngine = dagEngine,
+            globalEventProjector = projector,
+            messageRepository = messageRepo,
+            roomRepository = roomRepository,
+            identityKeyRepository = identityRepo,
+        )
+        roomEventProjector.start(orchestratorScope)
 
         // A newly committed device may resolve previously PENDING chat authors (the implemented
         // reverify path, §10); the boot sweep runs once after the first fold.

@@ -98,6 +98,14 @@ class FakeMessageRepository : MessageRepository {
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
 
+    override suspend fun findFoldableInRoom(roomId: RoomId): List<MessageRow> =
+        // Mirror selectFoldableInRoom: VERIFIED ∧ stored flag, all payload types.
+        byId.values.filter {
+            it.payload.roomId == roomId &&
+                    it.ancestryComplete &&
+                    it.verificationState == VerificationState.VERIFIED
+        }
+
     override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) {
         val row = byId[messageId] ?: return
         byId[messageId] = row.copy(isOrphaned = isOrphaned)
@@ -159,6 +167,17 @@ class FakeRoomRepository(
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
         memberLists[roomId]?.remove(accountId)
+    }
+
+    override suspend fun allChatRoomIds(): List<RoomId> =
+        (memberLists.keys + roomsFound).filter { it != RoomId.GLOBAL }
+
+    override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) {
+        roomsFound.add(roomId)
+    }
+
+    override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) {
+        memberLists[roomId]?.removeAll { it !in keep }
     }
 }
 

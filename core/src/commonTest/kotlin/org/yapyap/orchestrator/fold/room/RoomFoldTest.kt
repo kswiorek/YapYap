@@ -65,9 +65,8 @@ private class WorldBuilder {
 
     fun fold(
         genesis: RoomGenesisInfo,
-        foldSet: Set<Uuid> = order.toSet(),
         onWalk: (walkIndex: Int, result: RoomReplayResult) -> Unit = { _, _ -> },
-    ): RoomReplayResult = roomFoldToFixpoint(order, nodes, closures(), foldSet, genesis, {}, onWalk)
+    ): RoomReplayResult = roomFoldToFixpoint(order, nodes, closures(), genesis, {}, onWalk)
 }
 
 private fun WorldBuilder.genesis(
@@ -431,6 +430,33 @@ class RoomFoldTest {
         assertEquals(
             FoldRoomMember(TMember, RoomMemberRole.ADMIN, RoomMemberStatus.ACTIVE),
             memberOf(grantWins, TMember),
+        )
+    }
+
+    @Test
+    fun text_rows_ride_the_order_as_noops() {
+        // Content rows (null event) sit in closures and positions — the grant below is
+        // chained over them, as frontier tips are in production — but exercise no
+        // authority: the fold output must equal the content-free world's exactly.
+        val w = WorldBuilder()
+        val g = w.genesis(members = listOf(TAdmin, TMember))
+        w.emit(TOwner, RoomEventPayload.AddAdmin(TAdmin))
+        w.emit(TMember, null)
+        w.emit(TOutsider, null, prevIds = listOf(g.nodeId))
+        w.emit(TAdmin, RoomEventPayload.MemberAdd(TOutsider))
+        val withText = w.fold(g)
+
+        val v = WorldBuilder()
+        val g2 = v.genesis(members = listOf(TAdmin, TMember))
+        v.emit(TOwner, RoomEventPayload.AddAdmin(TAdmin))
+        v.emit(TAdmin, RoomEventPayload.MemberAdd(TOutsider))
+        val withoutText = v.fold(g2)
+
+        assertEquals(withoutText.output, withText.output)
+        assertEquals(withoutText.seals.keys, withText.seals.keys)
+        assertEquals(
+            FoldRoomMember(TOutsider, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE),
+            memberOf(withText, TOutsider),
         )
     }
 }

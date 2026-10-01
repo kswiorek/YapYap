@@ -27,6 +27,9 @@ CREATE TABLE room_members (
 selectAllMembersForRoom:
 SELECT account_id, role FROM room_members WHERE room_id = ?;
 
+selectRoomById:
+SELECT * FROM rooms WHERE room_id = ?;
+
 insertRoom:
 INSERT OR REPLACE INTO rooms (room_id, space_id, type, name)
 VALUES (?, ?, ?, ?);
@@ -52,6 +55,29 @@ FROM rooms r
 JOIN room_members rm ON rm.room_id = r.room_id AND rm.status = 'ACTIVE'
 JOIN devices d ON d.account_id = rm.account_id
 WHERE d.device_id = :deviceId;
+
+-- Chat rooms only (GLOBAL is the global projector's). Boot + GLOBAL-commit sweep.
+selectAllChatRoomIds:
+SELECT room_id FROM rooms WHERE room_id != :globalRoomId;
+
+-- Genesis merge: targeted update, never INSERT OR REPLACE (preserves local-only
+-- columns); provisional UNKNOWN rows are overwritten here. space_id rides
+-- separately (see updateRoomSpaceId): a non-null space writes only once its row
+-- exists, deferred otherwise (FK to spaces).
+updateRoomFromGenesis:
+UPDATE rooms SET name = :name, type = :type WHERE room_id = :roomId;
+
+updateRoomSpaceId:
+UPDATE rooms SET space_id = :spaceId WHERE room_id = :roomId;
+
+-- Defensive convergence: rows outside the fold output shouldn't exist
+-- (members.keys retains REMOVED); the delete keeps the projection exactly equal
+-- to the fold output.
+deleteRoomMembersNotIn:
+DELETE FROM room_members WHERE room_id = :roomId AND account_id NOT IN :keep;
+
+deleteAllRoomMembers:
+DELETE FROM room_members WHERE room_id = :roomId;
 
 CREATE INDEX rooms_space_idx ON rooms(space_id);
 CREATE INDEX room_members_account_idx ON room_members(account_id);

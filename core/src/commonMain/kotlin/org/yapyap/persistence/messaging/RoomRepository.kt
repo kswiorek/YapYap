@@ -34,6 +34,24 @@ interface RoomRepository {
      * cuts sync access; chat rows flip status via the room projector.
      */
     suspend fun removeMember(roomId: RoomId, accountId: AccountId)
+
+    /** Chat room ids (GLOBAL excluded) — the room projector's boot + GLOBAL-commit sweep. */
+    suspend fun allChatRoomIds(): List<RoomId>
+
+    /**
+     * Genesis merge for the `rooms` row (docs/room events.md §5): targeted update of
+     * name/type, never INSERT OR REPLACE (preserves local-only columns). A non-null
+     * [spaceId] writes only once its spaces row exists — deferred otherwise (FK) and
+     * retried on later folds.
+     */
+    suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?)
+
+    /**
+     * Defensive convergence for the `room_members` recompute: rows outside the fold
+     * output shouldn't exist (`members.keys` retains REMOVED); the delete keeps the
+     * projection exactly equal to the fold output.
+     */
+    suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>)
 }
 
 class DefaultRoomRepository(
@@ -111,6 +129,56 @@ class DefaultRoomRepository(
                     "accountId" to accountId,
                 ),
             )
+        }
+    }
+
+    override suspend fun allChatRoomIds(): List<RoomId> =
+        withContext(dbDispatcher) {
+            database.roomQueries.selectAllChatRoomIds(RoomId.GLOBAL).executeAsList()
+        }
+
+    override suspend fun mergeRoomFromGenesis(
+        roomId: RoomId,
+        name: String,
+        type: RoomType,
+        spaceId: String?,
+    ) {
+        withContext(dbDispatcher) {
+            database.roomQueries.updateRoomFromGenesis(name, type, roomId)
+            if (spaceId != null) {
+                // Deferred until the space row exists (FK): a later fold retries.
+                runCatching { database.roomQueries.updateRoomSpaceId(spaceId, roomId) }
+                    .onFailure {
+                        AppLog.debug(
+                            component = LogComponent.DATABASE,
+                            event = LogEvent.ROOM_CREATED,
+                            message = "Deferred room space write — space row absent",
+                            fields = mapOf(
+                                "roomId" to roomId,
+                                "spaceId" to spaceId,
+                            ),
+                        )
+                    }
+            }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.ROOM_CREATED,
+                message = "Merged room row from genesis",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "name" to name,
+                ),
+            )
+        }
+    }
+
+    override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) {
+        withContext(dbDispatcher) {
+            if (keep.isEmpty()) {
+                database.roomQueries.deleteAllRoomMembers(roomId)
+            } else {
+                database.roomQueries.deleteRoomMembersNotIn(roomId, keep)
+            }
         }
     }
 }

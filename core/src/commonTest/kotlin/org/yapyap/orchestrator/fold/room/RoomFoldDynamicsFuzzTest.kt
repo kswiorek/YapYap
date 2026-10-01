@@ -21,6 +21,11 @@ import kotlin.uuid.Uuid
  * Mirrors [org.yapyap.orchestrator.globalevent] `AbstractFoldDynamicsFuzzTest`: `ancestors`
  * are the emitted reference sets (not transitive closures — the dynamics stress, not the
  * seal-definition precision, which [RoomFoldTest] pins with real closures).
+ *
+ * Worlds are ancestor-closed by construction (every emitted ancestry ⊆ order), so
+ * `order` doubles as the fold set per the core contract — there is no separate set.
+ * Content rows interleave the order and the scrubbed-equivalence assertion pins their
+ * no-op property on every seed.
  */
 private fun roomFuzzAccount(i: Int) = AccountId("room-fuzz-acct-$i")
 
@@ -28,7 +33,6 @@ private data class RoomFuzzWorld(
     val order: List<Uuid>,
     val nodes: Map<Uuid, RoomFoldNode>,
     val ancestors: Map<Uuid, Set<Uuid>>,
-    val foldSet: Set<Uuid>,
     val genesis: RoomGenesisInfo,
     /** The planted forger: honestly removed mid-world, forges backdated counter-events. */
     val attacker: AccountId,
@@ -36,8 +40,11 @@ private data class RoomFuzzWorld(
     val expectedOwner: AccountId,
     /** Accounts honestly removed (attacker included): never ACTIVE in the fixpoint. */
     val expectedRemoved: Set<AccountId>,
-    /** Account added only by an out-of-foldSet plant: must never appear. */
+    /** Never-member account: authors only content, and is targeted only by the planted
+     * third-party grant forgery — must never gain a row. */
     val ghost: AccountId,
+    /** Content rows (null events) interleaved in [order]: no-ops by construction. */
+    val textIds: Set<Uuid>,
 )
 
 private fun genRoomWorld(seed: Int): RoomFuzzWorld {
@@ -103,6 +110,20 @@ private fun genRoomWorld(seed: Int): RoomFuzzWorld {
     emit(currentAdmin, RoomEventPayload.MemberRemove(attacker, null), frontier())
     expectedRemoved.add(attacker)
 
+    // Never-member content author: proves stranger content is inert (its author is
+    // never read — content rows skip before the author is consulted).
+    val ghost = AccountId("room-fuzz-ghost-$seed")
+
+    // Content rows interleaved before the forgeries: null events ride the order as
+    // no-ops (needed for closures/positions, never authority). Forgeries below may
+    // chain over them — the production shape, where frontier tips are content.
+    val textIds = HashSet<Uuid>()
+    repeat(1 + r.nextInt(3)) {
+        val author = listOf(attacker, ghost, roomFuzzAccount(r.nextInt(nAccounts))).random(r)
+        val anc = if (r.nextBoolean()) frontier() else order.shuffled(r).take(r.nextInt(order.size + 1)).toSet()
+        textIds.add(emit(author, null, anc))
+    }
+
     // 0..4 forgeries with small stale ancestries (backdated/concurrent).
     val stalePool = order.toList()
     repeat(r.nextInt(5)) {
@@ -155,21 +176,27 @@ private fun genRoomWorld(seed: Int): RoomFuzzWorld {
         }
     }
 
-    // Out-of-foldSet plant: a `MemberAdd` of a fresh account excluded from the fold set —
-    // no shadow effect by construction.
-    val ghost = AccountId("room-fuzz-ghost-$seed")
-    val ghostId = emit(currentAdmin, RoomEventPayload.MemberAdd(ghost), frontier())
+    // Planted third-party grant: the removed attacker adds the never-member ghost.
+    // In-order (a VERIFIED ∧ complete row in production terms), but sealed or ignored
+    // at position — the ghost must never gain a row. Exclusion now lives in the fold
+    // logic, not in a separate set, so the plant is production-reachable.
+    val stalePool2 = order.toList()
+    emit(
+        attacker,
+        RoomEventPayload.MemberAdd(ghost),
+        stalePool2.shuffled(r).take(r.nextInt(stalePool2.size + 1)).toSet(),
+    )
 
     return RoomFuzzWorld(
         order = order,
         nodes = nodes,
         ancestors = ancestors,
-        foldSet = order.toSet() - ghostId,
         genesis = genesis,
         attacker = attacker,
         expectedOwner = expectedOwner,
         expectedRemoved = expectedRemoved,
         ghost = ghost,
+        textIds = textIds,
     )
 }
 
@@ -188,12 +215,23 @@ class RoomFoldDynamicsFuzzTest {
                 order = world.order,
                 nodes = world.nodes,
                 ancestors = world.ancestors,
-                foldSet = world.foldSet,
                 genesis = world.genesis,
                 onOscillation = { oscillations++ },
                 onWalk = { _, _ -> walks++ },
             )
             if (walks > maxWalks) maxWalks = walks
+            // Content-row invariance: the same world with the no-op rows scrubbed
+            // (from the order, the nodes, and every reference set) must fold
+            // identically — content perturbs neither shadow state nor seals.
+            val scrubbed = roomFoldToFixpoint(
+                order = world.order.filter { it !in world.textIds },
+                nodes = world.nodes.filterKeys { it !in world.textIds },
+                ancestors = world.ancestors
+                    .filterKeys { it !in world.textIds }
+                    .mapValues { (_, anc) -> anc - world.textIds },
+                genesis = world.genesis,
+            )
+            assertEquals(result, scrubbed, "seed $seed: content rows perturbed the fold")
             val members = result.output.members
             val active = members.filterValues { it.status == RoomMemberStatus.ACTIVE }
             if (world.attacker in active) {
@@ -222,7 +260,7 @@ class RoomFoldDynamicsFuzzTest {
                 "seed $seed: owner row not OWNER/ACTIVE",
             )
             if (world.ghost in members) {
-                fail("seed $seed: out-of-foldSet plant ${world.ghost} gained a member row")
+                fail("seed $seed: planted third-party grant gave ${world.ghost} a member row")
             }
         }
         println("room-dynamics-fuzz: $seeds seeds, oscillations=$oscillations maxWalks=$maxWalks handovers=$handovers")

@@ -246,8 +246,11 @@ outweighing the shared core — and its main cost, refactoring landed, fuzz-test
   (+ `reachableFrom`): pure functions over stored rows with zero tier logic; both projectors
   call them (mechanical extraction, no tier logic moves). Equivalence is still proven by
   the global dynamics fuzzer + projector tests run unchanged. `foldInputSet` diverges by
-  tier and is NOT shared: room = flag filter (`VERIFIED` ∧ `RoomEvent` ∧ stored flag ∧
-  reachable-descent, adapter reads the stored flag, no poison recompute); global = inline
+  tier and is NOT shared: room = stored-flag filter (the adapter feeds the filtered
+  order — `VERIFIED` ∧ stored flag, all payload types; the filter is ancestor-closed
+  because the flag requires every ancestor `VERIFIED`, so the order doubles as the
+  fold set and no separate set exists; `Text` rows ride it as no-ops, no poison
+  recompute); global = inline
   eligibility (`reachable` descent only, core checks `ancestors.all VERIFIED` in one
   topological pass).
 - **The fixpoint driver** — `foldToFixpoint`, `RevocationState`, the revocation ranking,
@@ -265,10 +268,14 @@ outweighing the shared core — and its main cost, refactoring landed, fuzz-test
   abstracting now from one real instance and one hypothetical.
 
 Room fold shape: the input adapter maps stored rows to `(id, prevIds, author account =
-senderAccountId` — trusted via §2 — `, decoded event, position)`; the fold set =
-`VERIFIED` `RoomEvent` rows, reachable from the genesis, stored flag set (verdict-aware
-`ancestry_complete`: ancestors present AND `VERIFIED`, same-room — engine-written at
-ingest, up-cascaded on reverify; poisoned descendants never promote); the output =
+senderAccountId` — trusted via §2 — `, decoded event, position)` over the filtered
+order only (`VERIFIED` `RoomEvent`-and-`Text` rows with the stored flag set —
+verdict-aware `ancestry_complete`: ancestors present AND `VERIFIED`, same-room —
+engine-written at ingest, up-cascaded on reverify; poisoned descendants never promote).
+The filter is ancestor-closed, so the order doubles as the fold set: no separate set,
+no reachability pass (every filtered row descends from the `VERIFIED` genesis by
+construction), no poison recompute. `Text` rows ride the order as no-ops (needed for
+closures and canonical positions, never authority); the output =
 shadow-state sets only (members with role/status, the owner slot,
 the ever-validly-member set) — no verdict map is written (§3). GLOBAL mirrors this with
 the writer flipped: the fold owns both columns (verdict = own bytes, flag = reachable ∧
@@ -453,11 +460,12 @@ comment. No extraction in prep — global first, `fold/graph/` stays deferred:
    room = stored-flag filter, global = inline eligibility — and is never shared; only the
    pure graph helpers move.
 4. **Room projector**: fold source `findAllInRoom(roomId)` per room (pure function of the
-   stored set; adapter filters `VERIFIED` ∧ flag ∧ reachable-descent, §4); commit the
+   stored set; adapter feeds the filtered order — `VERIFIED` ∧ flag, all payload
+   types, §4); commit the
    `rooms` merge + the `room_members` recompute (status + roles; deferral for unknown
    accounts, §5); `stateChanges` flow; per-room mutex over `allChatRoomIds()` with re-fold
    triggers (§5); no genesis → skip commit; zero verdict/flag writes; global-ban interaction
-   per the §10 decision. (possibly filter ancestry_complete on input)
+   per the §10 decision.
 5. **Flags & GUI wiring**: the message-join against `room_members` (status → badge/hide,
    §3); membership-reader queries filter `ACTIVE`; negative tests for the hide-policy (done-criteria d3); reverify-hook
    regression (unchanged behavior).
