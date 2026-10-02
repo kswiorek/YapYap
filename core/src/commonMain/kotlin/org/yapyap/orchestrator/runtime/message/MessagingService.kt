@@ -31,6 +31,16 @@ interface MessagingService {
     suspend fun openRoom(roomId: RoomId, initialPageSize: Int = 100): RoomMessageWindow
 
     /**
+     * Latest visible message of [roomId] for the room list (docs/room events.md
+     * §3): walks newest→oldest over one page and returns the first non-`REJECTED`
+     * `Text` message whose author passes the render policy. Null when no visible
+     * message exists (empty room, pre-fold room, deferred authors, all-hidden).
+     * The GUI re-pulls this on [incomingMessageEvents]; the event itself carries
+     * no content, so hidden messages never leak through the preview path.
+     */
+    suspend fun roomPreview(roomId: RoomId, scanLimit: Int = 100): RoomPreview?
+
+    /**
      * Start/stop announcing that the local user is typing in [roomId]. While active, the
      * service announces to the room's members every
      * [OrchestratorConfig.typingIndicatorInterval]. The GUI calls this on typing-state

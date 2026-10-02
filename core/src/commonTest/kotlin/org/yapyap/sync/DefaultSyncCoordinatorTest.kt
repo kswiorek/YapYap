@@ -7,6 +7,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -143,6 +144,22 @@ class DefaultSyncCoordinatorTest {
 
         val sync = pendingRepo.all().single()
         assertEquals(listOf(remoteAccount, thirdAccount), sync.candidateAccounts)
+    }
+
+    @Test
+    fun requestFrontierSync_removedMember_isNotACandidate() = runTest {
+        // Access read: REMOVED rows never resolve sync (docs/room events.md §5).
+        // The row is retained (badge source) — only candidacy is cut.
+        val coordinator = buildCoordinator()
+        roomRepo.removeMember(roomId, remoteAccount)
+
+        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()))
+
+        val sync = pendingRepo.all().single()
+        assertTrue(sync.candidateAccounts.isEmpty())
+        // The row itself is retained (badge source) — only candidacy is cut.
+        val statuses = roomRepo.memberStatusesOfRoom(roomId).associate { it.accountId to it.status }
+        assertEquals(RoomMemberStatus.REMOVED, statuses[remoteAccount])
     }
 
     // ------------------------------------------------------------------

@@ -468,7 +468,13 @@ comment. No extraction in prep — global first, `fold/graph/` stays deferred:
    per the §10 decision.
 5. **Flags & GUI wiring**: the message-join against `room_members` (status → badge/hide,
    §3); membership-reader queries filter `ACTIVE`; negative tests for the hide-policy (done-criteria d3); reverify-hook
-   regression (unchanged behavior).
+   regression (unchanged behavior). Landed shape: the join is GUI-side via the
+   `RoomService` status read plus a pull-based `MessagingService.roomPreview`
+   (latest *visible* message, `IncomingMessageEvent` slimmed to a content-free
+   signal); the hide/badge rule has one owner — the pure `messageDisplayPolicy`
+   function in `RoomServiceTypes.kt`, applied, never re-derived. `MessagingService`
+   exposes all non-`REJECTED` messages untouched; delivery targeting (fan-out,
+   typing, sync candidates) reads ACTIVE-only.
 6. **Ping threading** (§6): flow type change `(accountId, roomId, tips)` through
    `Router.pingPayloads` / `PingProvider` / `DefaultOrchestrator` collector /
    `SyncCoordinator.requestFrontierSync`; `addCandidateAccounts` on `PendingSyncRepository`.

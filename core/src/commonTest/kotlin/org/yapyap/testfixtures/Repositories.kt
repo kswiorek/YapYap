@@ -132,24 +132,44 @@ class FakeMessageRepository : MessageRepository {
 
 /**
  * In-memory [RoomRepository]. Members are provided via the [members] map
- * (roomId -> accountIds); defaults to empty when not supplied.
+ * (roomId -> accountIds, all ACTIVE); defaults to empty when not supplied.
+ * Mirrors the SQL semantics: [membersOfRoom] is ACTIVE-only, [removeMember]
+ * flips to REMOVED and retains the row, [addMember] is an upsert.
  */
 class FakeRoomRepository(
     private val members: Map<RoomId, List<AccountId>> = emptyMap(),
     private val devicesByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
 ) : RoomRepository {
-    private val memberLists: MutableMap<RoomId, MutableList<AccountId>> =
-        members.mapValues { it.value.toMutableList() }.toMutableMap()
+    private data class Cell(var role: RoomMemberRole, var status: RoomMemberStatus)
+
+    private val cells: MutableMap<Pair<RoomId, AccountId>, Cell> =
+        members.flatMap { (room, accounts) ->
+            accounts.map { (room to it) to Cell(RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE) }
+        }.toMap().toMutableMap()
     private val roomsFound = mutableSetOf<RoomId>()
 
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
-        memberLists[roomId].orEmpty()
+        cells.filter { (key, cell) -> key.first == roomId && cell.status == RoomMemberStatus.ACTIVE }
+            .map { it.key.second }
+
+    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
+        cells.filter { (key, _) -> key.first == roomId }
+            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> {
-        val allRooms = (memberLists.keys + roomsFound).toSet()
+        // Mirror selectRoomsOfPeer: REMOVED rows never grant sync access.
+        // (roomsFound rows have no membership row yet — pre-fold rooms seed the
+        // rooms table via ensureRoomExists, so they stay visible here.)
+        val activeRooms = cells
+            .filter { (_, cell) -> cell.status == RoomMemberStatus.ACTIVE }
+            .map { it.key.first }
+            .toSet()
+        val allRooms = activeRooms + roomsFound
         if (devicesByAccount.isEmpty()) return allRooms.toList()
         val account = devicesByAccount.entries.find { peerId in it.value }?.key ?: return emptyList()
-        return allRooms.filter { account in memberLists[it].orEmpty() }
+        return allRooms.filter { room ->
+            cells[room to account]?.status == RoomMemberStatus.ACTIVE
+        }
     }
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
@@ -162,22 +182,24 @@ class FakeRoomRepository(
         role: RoomMemberRole,
         status: RoomMemberStatus,
     ) {
-        memberLists.getOrPut(roomId) { mutableListOf() }.add(accountId)
+        // Mirror INSERT OR REPLACE (upsert, no duplicates).
+        cells[roomId to accountId] = Cell(role, status)
     }
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
-        memberLists[roomId]?.remove(accountId)
+        // Mirror the SQL UPDATE: flip to REMOVED, retain the row (badge source).
+        cells[roomId to accountId]?.status = RoomMemberStatus.REMOVED
     }
 
     override suspend fun allChatRoomIds(): List<RoomId> =
-        (memberLists.keys + roomsFound).filter { it != RoomId.GLOBAL }
+        (cells.keys.map { it.first } + roomsFound).filter { it != RoomId.GLOBAL }.toSet().toList()
 
     override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) {
         roomsFound.add(roomId)
     }
 
     override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) {
-        memberLists[roomId]?.removeAll { it !in keep }
+        cells.keys.removeAll { (r, a) -> r == roomId && a !in keep }
     }
 }
 

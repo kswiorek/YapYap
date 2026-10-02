@@ -15,8 +15,28 @@ import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 
+/** One committed `room_members` row: the fold's member-at-some-point record. */
+data class RoomMemberRecord(
+    val accountId: AccountId,
+    val role: RoomMemberRole,
+    val status: RoomMemberStatus,
+)
+
 interface RoomRepository {
+    /**
+     * ACTIVE members of [roomId] (access read: sync gate, fan-out, sync
+     * candidates). REMOVED rows never grant access — removal cuts sync from the
+     * first committed REMOVED row (docs/room events.md §5).
+     */
     suspend fun membersOfRoom(roomId: RoomId): List<AccountId>
+
+    /**
+     * Every member row the fold committed for [roomId], ACTIVE and REMOVED alike
+     * (GUI/badge read). A missing account means never-a-member at fold position;
+     * rows for accounts whose identity has not landed yet are absent until the
+     * re-fold commits them (projection deferral, docs/room events.md §5).
+     */
+    suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord>
 
     /** Rooms [peerId]'s account belongs to (drives which rooms we exchange frontiers about). */
     suspend fun roomsOfPeer(peerId: PeerId): List<RoomId>
@@ -73,6 +93,13 @@ class DefaultRoomRepository(
                 ),
             )
             members
+        }
+
+    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
+        withContext(dbDispatcher) {
+            database.roomQueries.selectMemberStatusesForRoom(roomId)
+                .executeAsList()
+                .map { RoomMemberRecord(it.account_id, it.role, it.status) }
         }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> =

@@ -13,6 +13,8 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
+import org.yapyap.orchestrator.runtime.room.MessageDisplayPolicy
+import org.yapyap.orchestrator.runtime.room.messageDisplayPolicy
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomRepository
@@ -132,7 +134,6 @@ internal class DefaultMessagingService(
         }
     }
 
-    //TODO set typing per accountID
     override suspend fun setTyping(roomId: RoomId, isTyping: Boolean) {
         typingSendMutex.withLock {
             val existing = typingSendJobs[roomId]
@@ -341,17 +342,12 @@ internal class DefaultMessagingService(
                 val localAccountId = identityResolver.getLocalAccountId()
                 if (payload.senderAccountId == localAccountId) return
 
-                val preview = if (payload.text.length > 79) {
-                    payload.text.take(79) + "\u2026"
-                } else {
-                    payload.text
-                }
-
+                // Signal only — no content. The GUI re-pulls roomPreview on this,
+                // so messages the render policy hides never leak via notification.
                 incomingMessageEventFlow.emit(
                     IncomingMessageEvent(
                         roomId = payload.roomId,
                         senderAccountId = payload.senderAccountId,
-                        messagePreview = preview,
                         timestamp = clock.now(),
                     )
                 )
@@ -360,6 +356,26 @@ internal class DefaultMessagingService(
             else -> {}//TODO Handle other message types
         }
     }
+
+    override suspend fun roomPreview(roomId: RoomId, scanLimit: Int): RoomPreview? {
+        // Statuses snapshot: the policy reads the fold-committed rows, so a
+        // re-fold (deferred row landed, re-add) converges the result on re-pull.
+        val statuses = roomRepository.memberStatusesOfRoom(roomId)
+            .associate { it.accountId to it.status }
+        for (msg in dagEngine.getMessagesInRoom(roomId, scanLimit)) {
+            if (msg !is MessagePayload.Text) continue
+            if (messageDisplayPolicy(statuses[msg.senderAccountId]) == MessageDisplayPolicy.HIDDEN_NON_MEMBER) continue
+            return RoomPreview(
+                senderAccountId = msg.senderAccountId,
+                preview = msg.text.toPreview(),
+                timestamp = msg.createdAt,
+            )
+        }
+        return null
+    }
+
+    private fun String.toPreview(): String =
+        if (length > 79) take(79) + "\u2026" else this
 
     private fun aggregateRoomSendResults(results: List<SendMessageResult>): SendMessageResult {
         val totalPeers = results.sumOf { it.peersTotal }

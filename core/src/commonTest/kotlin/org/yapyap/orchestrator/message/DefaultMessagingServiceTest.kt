@@ -367,7 +367,7 @@ class DefaultMessagingServiceTest {
     }
 
     @Test
-    fun incomingMessage_emitsMessageEvent_onlyFromOthers() = runTest(UnconfinedTestDispatcher()) {
+    fun incomingMessage_emitsSignal_onlyFromOthers() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
@@ -381,7 +381,8 @@ class DefaultMessagingServiceTest {
 
         // Structural genesis rule: only RoomCreated may have empty prevIds.
         val base = dagEngine.append(roomId, MessageDraft.Text("base"))
-        // From remote → emits.
+        // From remote → emits a content-free signal (no preview: the GUI re-pulls
+        // roomPreview, so hidden messages never leak through notification).
         val remoteIncoming = MessagePayload.Text(
             messageId = msg1Uuid,
             roomId = roomId,
@@ -398,7 +399,7 @@ class DefaultMessagingServiceTest {
         assertEquals(1, received.size)
         assertEquals(roomId, received[0].roomId)
         assertEquals(remoteAccount, received[0].senderAccountId)
-        assertEquals("hi from remote", received[0].messagePreview)
+        assertEquals(clock.now(), received[0].timestamp)
 
         // From self → no event.
         received.clear()
@@ -415,42 +416,6 @@ class DefaultMessagingServiceTest {
         router.emitIncoming(selfIncoming)
         advanceUntilIdle()
         assertTrue(received.isEmpty())
-
-        collectorJob.cancel()
-    }
-
-    @Test
-    fun incomingMessage_preview_isTruncatedForLongText() = runTest(UnconfinedTestDispatcher()) {
-        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
-        startStack(this, pipeline, service)
-
-        val msg1Uuid = Uuid.random()
-
-        val received = mutableListOf<IncomingMessageEvent>()
-        val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
-        advanceUntilIdle()
-
-        val longText = "x".repeat(120)
-        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
-        val remoteIncoming = MessagePayload.Text(
-            messageId = msg1Uuid,
-            roomId = roomId,
-            senderAccountId = remoteAccount,
-            prevIds = listOf(base.messageId),
-            createdAt = clock.now(),
-            text = longText,
-            authorDeviceId = PeerId("test-device"),
-            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
-        )
-        router.emitIncoming(remoteIncoming)
-        advanceUntilIdle()
-
-        assertEquals(1, received.size)
-        // Preview is padded with ellipsis when text exceeds 80 chars.
-        assertEquals(80, received[0].messagePreview.length)
-        // Last char is the ellipsis codepoint.
-        assertEquals("\u2026", received[0].messagePreview.takeLast(1))
 
         collectorJob.cancel()
     }
@@ -549,14 +514,166 @@ class DefaultMessagingServiceTest {
         assertEquals("a", (window.displayItems.value[0] as MessageDisplayItem.Text).text)
         assertFalse(window.hasMoreOlder.value)
     }
+
+    // ------------------------------------------------------------------
+    // roomPreview (docs/room events.md §3: latest *visible* message)
+    // ------------------------------------------------------------------
+
+    private suspend fun seedText(
+        sender: AccountId,
+        text: String,
+        tick: Long,
+        state: VerificationState = VerificationState.VERIFIED,
+    ): MessagePayload.Text {
+        val msg = MessagePayload.Text(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = sender,
+            prevIds = emptyList(),
+            createdAt = epochSeconds(tick),
+            text = text,
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        )
+        messageRepo.insert(
+            payload = msg,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = state,
+        )
+        return msg
+    }
+
+    @Test
+    fun roomPreview_returnsNewestVisibleMessage() = runTest(UnconfinedTestDispatcher()) {
+        seedText(localAccount, "old", tick = 1L)
+        seedText(remoteAccount, "new", tick = 2L)
+        val service = newService(this)
+
+        val preview = service.roomPreview(roomId)
+
+        assertNotNull(preview)
+        assertEquals(remoteAccount, preview.senderAccountId)
+        assertEquals("new", preview.preview)
+        assertEquals(epochSeconds(2L), preview.timestamp)
+    }
+
+    @Test
+    fun roomPreview_skipsNeverMemberMessages() = runTest(UnconfinedTestDispatcher()) {
+        // Negative test (d3): the newest message is VERIFIED stranger-injection
+        // content — no room_members row — and must never surface as the preview.
+        val stranger = AccountId("msg-stranger")
+        seedText(remoteAccount, "member says hi", tick = 1L)
+        seedText(stranger, "stranger smuggles", tick = 2L)
+        val service = newService(this)
+
+        val preview = service.roomPreview(roomId)
+
+        assertNotNull(preview)
+        assertEquals(remoteAccount, preview.senderAccountId)
+        assertEquals("member says hi", preview.preview)
+    }
+
+    @Test
+    fun roomPreview_returnsRemovedMemberMessage() = runTest(UnconfinedTestDispatcher()) {
+        // Anti-trap: REMOVED is a badge, not a hide — the row exists, so the
+        // message stays visible (the GUI badges it via the status read).
+        roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.REMOVED
+        seedText(remoteAccount, "before i left", tick = 1L)
+        val service = newService(this)
+
+        val preview = service.roomPreview(roomId)
+
+        assertNotNull(preview)
+        assertEquals("before i left", preview.preview)
+    }
+
+    @Test
+    fun roomPreview_skipsRejected_returnsPending() = runTest(UnconfinedTestDispatcher()) {
+        // The page read is verdict-filtered exactly as before (PENDING renders
+        // per the sprint-2 orphan UX; REJECTED never does).
+        seedText(remoteAccount, "pending identity", tick = 1L, state = VerificationState.PENDING)
+        seedText(remoteAccount, "proven forgery", tick = 2L, state = VerificationState.REJECTED)
+        val service = newService(this)
+
+        val preview = service.roomPreview(roomId)
+
+        assertNotNull(preview)
+        assertEquals("pending identity", preview.preview)
+    }
+
+    @Test
+    fun roomPreview_allHidden_returnsNull() = runTest(UnconfinedTestDispatcher()) {
+        seedText(AccountId("msg-stranger"), "nobody vouches", tick = 1L)
+        val service = newService(this)
+
+        assertNull(service.roomPreview(roomId))
+    }
+
+    @Test
+    fun roomPreview_truncatesLongText() = runTest(UnconfinedTestDispatcher()) {
+        seedText(remoteAccount, "x".repeat(120), tick = 1L)
+        val service = newService(this)
+
+        val preview = service.roomPreview(roomId)
+
+        assertNotNull(preview)
+        // Preview is padded with ellipsis when text exceeds 80 chars.
+        assertEquals(80, preview.preview.length)
+        // Last char is the ellipsis codepoint.
+        assertEquals("\u2026", preview.preview.takeLast(1))
+    }
+
+    @Test
+    fun roomPreview_deferredMember_convergesWhenRowLands() = runTest(UnconfinedTestDispatcher()) {
+        // The author's account row has not landed yet: no room_members row, so
+        // the (genuine, VERIFIED) message hides exactly like a never-member's.
+        val latecomer = AccountId("msg-latecomer")
+        seedText(latecomer, "i was here all along", tick = 1L)
+        val service = newService(this)
+        assertNull(service.roomPreview(roomId))
+
+        // GLOBAL commit lands the identity; the re-fold commits the member row.
+        roomMembershipRepo.members[roomId] = listOf(localAccount, remoteAccount, latecomer)
+
+        val preview = service.roomPreview(roomId)
+        assertNotNull(preview)
+        assertEquals("i was here all along", preview.preview)
+    }
+
+    @Test
+    fun sendTextMessage_fanOut_skipsRemovedMembers() = runTest(UnconfinedTestDispatcher()) {
+        roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.REMOVED
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val service = newService(this, pipeline)
+        startStack(this, pipeline, service)
+
+        val result = service.sendTextMessage(roomId, "hello")
+
+        assertEquals(SendMessageStatus.SUCCESS, result.status)
+        // REMOVED rows never receive fan-out: only the local account is targeted.
+        assertEquals(listOf(localAccount), router.sentTargets)
+    }
 }
 
 /* ---------- fakes (pure Kotlin, commonTest-safe) ---------- */
 
 private class FakeRoomRepository(
     val members: MutableMap<RoomId, List<AccountId>>,
+    /** Per-(room, account) status overrides; absent entries read as ACTIVE. */
+    val statuses: MutableMap<Pair<RoomId, AccountId>, RoomMemberStatus> = mutableMapOf(),
 ) : RoomRepository {
-    override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> = members[roomId] ?: emptyList()
+    override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
+        // Mirror the ACTIVE-only access read.
+        members[roomId].orEmpty().filter { statuses[roomId to it] != RoomMemberStatus.REMOVED }
+
+    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> {
+        val accounts = (members[roomId].orEmpty() + statuses.keys.filter { it.first == roomId }.map { it.second })
+            .toSet()
+        return accounts.map { account ->
+            RoomMemberRecord(account, RoomMemberRole.MEMBER, statuses[roomId to account] ?: RoomMemberStatus.ACTIVE)
+        }
+    }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = members.keys.toList()
 

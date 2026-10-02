@@ -546,6 +546,37 @@ class DefaultDagEngineTest {
     }
 
     @Test
+    fun reverifyPendingFor_roomEvent_transitionsPendingToVerified() = runTest {
+        // Regression (docs/room events.md §9): the reverify hooks cover
+        // RoomEvent uniformly with Text — unchanged behavior, and the room
+        // projector writes no verdicts (no reverify ping-pong).
+        val payload = MessagePayload.RoomEvent(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDeviceId,
+            prevIds = listOf(Uuid.random()),
+            createdAt = clock.now(),
+            eventBytes = RoomEventPayload.MemberAdd(remoteAccount).encode(),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        )
+        messageRepo.insert(
+            payload,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.PENDING
+        )
+
+        val results = dagEngine.reverifyPendingFor(remoteDeviceId)
+
+        val resolved = results.single()
+        assertEquals(payload.messageId, resolved.messageId)
+        assertEquals(VerificationState.PENDING, resolved.fromState)
+        assertEquals(VerificationState.VERIFIED, resolved.toState)
+        assertEquals(VerificationState.VERIFIED, messageRepo.findById(payload.messageId)!!.verificationState)
+    }
+
+    @Test
     fun reverifyAllPending_noPending_returnsEmpty() = runTest {
         assertTrue(dagEngine.reverifyAllPending().isEmpty())
     }

@@ -10,7 +10,11 @@ import org.yapyap.orchestrator.dag.RoomId
  * without changing this signature.
  */
 interface RoomService {
-    /** Rooms the local account belongs to (GLOBAL excluded), ordered by last activity. */
+    /**
+     * Rooms the local account belongs to (GLOBAL excluded). Projection order —
+     * message-derived ordering (e.g. by last activity) is composed by the GUI
+     * from `MessagingService.roomPreview`, which owns all message reads.
+     */
     val rooms: StateFlow<List<RoomSummary>>
 
     /** Chat-header detail, or null for unknown rooms. */

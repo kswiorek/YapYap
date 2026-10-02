@@ -17,6 +17,7 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageCursor
+import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -59,7 +60,13 @@ private class RecordingRoomRepository : RoomRepository {
     val members = mutableMapOf<Pair<RoomId, AccountId>, MemberCell>()
 
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
-        members.keys.filter { it.first == roomId }.map { it.second }
+        // Mirror the ACTIVE-only access read.
+        members.filter { (key, cell) -> key.first == roomId && cell.status == RoomMemberStatus.ACTIVE }
+            .map { it.key.second }
+
+    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
+        members.filter { (key, _) -> key.first == roomId }
+            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = error("not used")
 

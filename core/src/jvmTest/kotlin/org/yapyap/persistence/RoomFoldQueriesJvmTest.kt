@@ -7,6 +7,7 @@ import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.DefaultRoomRepository
+import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
@@ -182,6 +183,53 @@ class RoomFoldQueriesJvmTest {
         assertNull(
             db.roomQueries.selectAllMembersForRoom(room).executeAsList()
                 .firstOrNull { it.account_id == AccountId("never-synced") },
+        )
+    }
+
+    @Test
+    fun membersOfRoom_returns_active_only() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        val rooms = DefaultRoomRepository(db)
+        val room = RoomId(Uuid.random())
+        rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "active-only")
+        val removed = AccountId("removed-account")
+        DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
+            removed, null, false, IdentityStatus.ACTIVE, "removed",
+        )
+        rooms.addMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+        rooms.addMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
+
+        // Access read: REMOVED rows never grant access (docs/room events.md §5).
+        assertEquals(listOf(FixtureAccountId), rooms.membersOfRoom(room))
+    }
+
+    @Test
+    fun memberStatusesOfRoom_returns_all_rows_with_status() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+        val rooms = DefaultRoomRepository(db)
+        val room = RoomId(Uuid.random())
+        rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "statuses")
+        val removed = AccountId("removed-account")
+        DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
+            removed, null, false, IdentityStatus.ACTIVE, "removed",
+        )
+        rooms.addMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+        rooms.addMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
+
+        // GUI/badge read: every committed row, with the status the render
+        // policy reads (docs/room events.md §3) — including REMOVED rows.
+        val rows = rooms.memberStatusesOfRoom(room).associateBy { it.accountId }
+        assertEquals(
+            RoomMemberRecord(FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE),
+            rows[FixtureAccountId],
+        )
+        assertEquals(
+            RoomMemberRecord(removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED),
+            rows[removed],
         )
     }
 }

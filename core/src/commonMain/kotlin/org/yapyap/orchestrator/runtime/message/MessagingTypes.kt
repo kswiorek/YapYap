@@ -36,10 +36,26 @@ sealed interface MessageDisplayItem {
     ) : MessageDisplayItem
 }
 
+/**
+ * "Something new in this room" signal. Carries no content: the GUI re-pulls
+ * [org.yapyap.orchestrator.runtime.message.MessagingService.roomPreview] on it,
+ * so messages the render policy hides never leak through a notification path.
+ */
 data class IncomingMessageEvent(
     val roomId: RoomId,
     val senderAccountId: AccountId,
-    val messagePreview: String,   // first ~80 chars of text
+    val timestamp: Instant,
+)
+
+/**
+ * Latest *visible* message of a room (docs/room events.md §3): the newest
+ * non-`REJECTED` `Text` message whose author passes the render policy. Null
+ * when the room holds no visible message (empty, pre-fold, or all-hidden).
+ */
+data class RoomPreview(
+    val senderAccountId: AccountId,
+    /** First ~80 chars of text. */
+    val preview: String,
     val timestamp: Instant,
 )
 

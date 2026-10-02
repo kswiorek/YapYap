@@ -24,8 +24,17 @@ CREATE TABLE room_members (
     FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 );
 
+-- Access read: ACTIVE members only (sync gate, fan-out, sync candidates).
+-- The GUI/badge side reads all rows via selectMemberStatusesForRoom.
 selectAllMembersForRoom:
-SELECT account_id, role FROM room_members WHERE room_id = ?;
+SELECT account_id, role FROM room_members WHERE room_id = ? AND status = 'ACTIVE';
+
+-- GUI/badge read: every row the fold ever committed (ACTIVE and REMOVED), with
+-- the status that drives the render policy (docs/room events.md §3). A missing
+-- row means never-a-member (hidden by default); deferred rows are simply absent
+-- until the account's identity lands and the re-fold commits them.
+selectMemberStatusesForRoom:
+SELECT account_id, role, status FROM room_members WHERE room_id = ?;
 
 selectRoomById:
 SELECT * FROM rooms WHERE room_id = ?;
