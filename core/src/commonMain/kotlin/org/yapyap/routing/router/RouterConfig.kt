@@ -28,7 +28,10 @@ data class RouterConfig(
     val syncMaxMessages: Int = 20,
     /**
      * Max requester frontier IDs honored per sync response (responder-side bound).
-     * TODO(sync-limits): decide the policy for oversized knownIds (truncate vs refuse).
+     * Policy: truncate, never refuse (docs/room events.md §6) — the bound is a
+     * DoS guard against forged requests, not a paging mechanism (appends
+     * reference the whole frontier, so the covering antichain stays tiny).
+     * Truncation is merely wasteful, never incorrect: see SyncPayloadProvider.
      */
     val syncMaxKnownIds: Int = 64,
     /** Backoff when a pending sync has no candidate device that looks reachable. */

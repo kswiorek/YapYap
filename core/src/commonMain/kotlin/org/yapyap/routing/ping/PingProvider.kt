@@ -5,11 +5,12 @@ import kotlinx.coroutines.flow.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload.Ping
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
@@ -17,10 +18,11 @@ import kotlin.uuid.Uuid
 internal class PingProvider(
     private val ctx: RoutingContext,
     private val config: StateFlow<RouterConfig>,
-    private val pingPayloadFlow: MutableSharedFlow<List<Pair<RoomId, List<Uuid>>>>,
+    private val pingPayloadFlow: MutableSharedFlow<PingFrontiers>,
     private val frontierSnapshotProvider: FrontierSnapshotProvider,
     private val systemSender: SystemSender,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
+    private val pendingSyncs: PendingSyncRepository,
 ) {
     private var pingLoopJob: Job? = null
 
@@ -83,10 +85,24 @@ internal class PingProvider(
      * and a reply carry the sender's latest frontiers, which is what triggers frontier sync). Only a fresh
      * probe ([Ping.isReply] == false) is answered — a reply is never re-echoed, so even a delayed or
      * duplicated ping cannot start an echo loop.
+     *
+     * The peer id never leaves the routing layer: [pingPayloads] carries the
+     * sender's account (null when the device is unknown), and the one
+     * device-granular pending-sync op — re-opening this device on the pinged
+     * rooms' inert rows (its ping contradicts its own gate-NACK, docs/room
+     * events.md §6) — runs here against the repository directly.
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
-        pingPayloadFlow.emit(ping.roomFrontiers)
+        val senderAccount = ctx.identityResolver.getAccountIdForDevice(peerId)
+        pingPayloadFlow.emit(PingFrontiers(senderAccount, ping.roomFrontiers))
         peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
+        for ((roomId, _) in ping.roomFrontiers) {
+            pendingSyncs.reopenAttemptedPeerForRoom(
+                deviceId = peerId,
+                roomId = roomId,
+                localDeviceId = ctx.localDeviceId,
+            )
+        }
 
         if (!ping.isReply) {
             // A new probe from [peerId]: echo it back so they can correlate.

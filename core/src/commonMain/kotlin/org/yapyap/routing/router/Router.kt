@@ -8,7 +8,6 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
-import kotlin.uuid.Uuid
 
 interface Router {
     val incomingMessages: Flow<MessagePayload>
@@ -19,7 +18,12 @@ interface Router {
      */
     val typingIndicators: Flow<TypingIndicatorEvent>
 
-    val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>>
+    /**
+     * Hot stream of inbound pings, resolved to the sender's account (null when
+     * the device is unknown). One element per received ping — probes and
+     * replies alike, since both carry the sender's latest frontiers.
+     */
+    val pingPayloads: Flow<PingFrontiers>
 
     /**
      * Hot stream of authenticated bootstrap-family packets (one flow per packet type — payload

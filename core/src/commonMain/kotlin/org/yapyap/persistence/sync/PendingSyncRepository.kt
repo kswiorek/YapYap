@@ -60,6 +60,31 @@ interface PendingSyncRepository {
     suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant)
     suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId)
 
+    /**
+     * Appends [accountIds] to [syncId]'s candidates (insert-if-absent). The
+     * universal accumulation hook: any authenticated account that hands us
+     * room content or asserts room membership (ping sender, message author) is
+     * a candidate for the rows it touches — append-only, never replace, so one
+     * trigger's candidates never evict another's.
+     */
+    suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>)
+
+    /**
+     * Appends [accountIds] to every pending sync row in [roomId]
+     * (insert-if-absent). The membership-refresh path: after a fold commit the
+     * room's current ACTIVE members become candidates of all its live rows.
+     */
+    suspend fun appendCandidateAccountsForRoom(roomId: RoomId, accountIds: List<AccountId>)
+
+    /**
+     * Removes [deviceId] from [roomId]'s *inert* rows' attempted sets — rows with
+     * no eligible device left. A ping about the room from this device contradicts
+     * its own gate-NACK (docs/room events.md §6), so the NACK is treated as
+     * stale. Mid-round rotation is untouched: the gate only fires when no
+     * candidate device remains un-attempted.
+     */
+    suspend fun reopenAttemptedPeerForRoom(deviceId: PeerId, roomId: RoomId, localDeviceId: PeerId)
+
     // Finds the sync targeting [targetMessageId] in the given [roomId].
     suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow?
 }
@@ -155,6 +180,32 @@ class DefaultPendingSyncRepository(
     override suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId) {
         withContext(dbDispatcher) {
             queries.insertAttemptedPeer(syncId, deviceId)
+        }
+    }
+
+    override suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>) {
+        withContext(dbDispatcher) {
+            accountIds.forEach { accountId ->
+                queries.insertPendingSyncCandidateAccount(syncId, accountId)
+            }
+        }
+    }
+
+    override suspend fun appendCandidateAccountsForRoom(roomId: RoomId, accountIds: List<AccountId>) {
+        withContext(dbDispatcher) {
+            accountIds.forEach { accountId ->
+                queries.appendCandidateAccountsForRoom(accountId = accountId, roomId = roomId)
+            }
+        }
+    }
+
+    override suspend fun reopenAttemptedPeerForRoom(deviceId: PeerId, roomId: RoomId, localDeviceId: PeerId) {
+        withContext(dbDispatcher) {
+            queries.reopenAttemptedPeerForRoom(
+                deviceId = deviceId,
+                roomId = roomId,
+                localDeviceId = localDeviceId,
+            )
         }
     }
 

@@ -207,7 +207,7 @@ private class RecordingProjectorRouter : Router {
     val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
-    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = emptyFlow()
+    override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = emptyFlow()
     override suspend fun start() = Unit
     override suspend fun stop() = Unit

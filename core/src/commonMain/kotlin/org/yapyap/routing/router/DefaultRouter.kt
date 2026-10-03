@@ -41,7 +41,6 @@ import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
-import kotlin.uuid.Uuid
 
 class DefaultRouter(
     val torTransport: TorTransport,
@@ -95,7 +94,7 @@ class DefaultRouter(
     private val bootstrapPacketFlow = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
 
     private val pingPayloadFlow =
-        MutableSharedFlow<List<Pair<RoomId, List<Uuid>>>>(extraBufferCapacity = 64, replay = 4)
+        MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 64, replay = 4)
     private val outboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
@@ -141,6 +140,7 @@ class DefaultRouter(
         frontierSnapshotProvider = frontierSnapshotProvider,
         systemSender = systemSender,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
+        pendingSyncs = syncRepository,
     )
 
     private val syncHandler = SyncHandler(
@@ -204,7 +204,7 @@ class DefaultRouter(
 
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
 
-    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = pingPayloadFlow.asSharedFlow()
+    override val pingPayloads: Flow<PingFrontiers> = pingPayloadFlow.asSharedFlow()
 
     override suspend fun start() {
         check(!started) { "Router is already started" }

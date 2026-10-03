@@ -9,7 +9,10 @@ designs were rejected. Written so implementation can resume without re-deriving 
 
 The sprint-4 landing this builds on: the responder-side sync gate (`DefaultSyncPayloadProvider`: serve only rooms in
 `roomsOfPeer(requester)`, generic NACK on
-denial) is implemented and tested; everything else here is not yet implemented.
+denial) is implemented and tested; everything else here is not yet implemented except §6 (ping threading with the
+universal accumulation rule, the author candidate, the
+inert-gated re-open hook, the membership refresh, and the retry backoff — all
+landed with tests; see §6 for the as-built deltas from the original plan).
 
 Related: [`guide.md`](guide.md), [`e2ee.md`](e2ee.md), [`db schema.mmd`](db%20schema.mmd),
 [`Synchronization diagram.mmd`](Synchronization%20diagram.mmd).
@@ -403,13 +406,110 @@ Fix:
    account dedup naturally. Known-room pings keep current behavior (sender is a member per
    our own projection, already a candidate).
 4. **No responder-side exemption.** The gate reads the projection: a responder that has
-   folded our `MemberAdd` serves us; fold-lag → generic NACK → requester retry covers it (same convergence as the
-   onboarding fold-lag case). Relay deposits and direct pushes are
+   folded our `MemberAdd` serves us; fold-lag → generic NACK → convergence via
+   the as-built mechanisms (§6 "As built"): the NACKed row keeps the responder
+   as a candidate (append-only), the responder's next ping about the room
+   re-opens it (inert-gated re-open), and an offline responder was never
+   attempt-marked so its return accelerates the row straight into a re-ask (same convergence as the onboarding fold-lag
+   case). Relay deposits and direct pushes are
    unaffected — discovery is push (creator sends `RoomCreated` + `MemberAdd` to the invitee),
    then normal frontier sync takes over.
 5. Unrelated but adjacent TODO while touching this area: prune unsolvable pending-sync rows (`SyncRetryProcessor`
    `TODO`), which candidate accumulation makes more attractive to keep
    bounded.
+
+### As built (sprint 4) — deltas from the plan above
+
+The plan's core landed, plus four extensions and two decided TODOs. The unifying
+rule that replaced items 2–3 above:
+
+> **A pending sync row's candidates = members-at-mint ∪ accumulated evidence ∪
+> refreshed members**, where evidence is any authenticated account that handed
+> us room content or asserted room membership. All accumulation is append-only
+> (`INSERT OR IGNORE`), never replace — one trigger's candidates never evict
+> another's.
+
+- **Universal ping-sender accumulation (replaces item 3's known/unknown
+  split).** The ping sender is *always* a candidate for the rows its signal
+  re-triggers — known rooms included. Item 3's "already a candidate" assumption
+  is false exactly when it matters: at the start of an existing-room invite
+  chase, our fold knows only the genesis member list, while the sender's
+  membership event is part of the very history we're chasing. The ping is the
+  certificate "my projection has you in this room" (the frontier filter), so
+  the sender is always safe to ask; in the common case the append is a no-op.
+- **Message-author candidates.** `processBecameOrphan` appends the orphan's
+  `senderAccountId` to the minted rows (and to the room's existing rows, same
+  universal rule). The author appended on their chainable frontier, so they
+  hold the full ancestry — the one identity guaranteed to hold what the rows
+  chase. Verdict-blind, like the rest of serving: a forger as candidate costs
+  one NACK and nothing more. This and the ping accumulation jointly dissolve
+  the invite-chase deadlock (existing room, later-added admin as adder, all
+  genesis-list members lagging): the adder is both author and ping sender of
+  everything the invitee first sees, so the rows are askable from the start.
+- **Forwarder-as-candidate — deferred.** The `MessageEnvelope` sender (author on direct path, responder on sync path —
+  never a relay) was analyzed
+  and dropped: on direct/relay paths it *is* the author; in steady-state
+  known-room sync the responder is already a member-candidate; in chase cases
+  ping accumulation re-lands it within one ping interval, with author
+  candidates content-perfect in the interim. Its unique coverage is a
+  ≤ one-interval window — observe first. Revisit trigger: continuation rows
+  idling on author NACK rounds during unknown-room history chases. If it lands,
+  the shape is known and additive (resolve at the handler, `InboundMessage`
+  through the pipeline, `forwarderAccountId` on the result — a third evidence
+  source, nothing else moves).
+- **Ping-contradiction re-open (the fold-lag recovery).** A ping about room R
+  from device D is D's assertion that its projection has us in R —
+  contradicting D's own gate-NACK — so the NACK is treated as stale: D is
+  removed from R's *inert* rows' attempted sets (rows with no eligible device
+  left). Gated on inertness deliberately: routine pings (every ~5 min, all
+  shared rooms, probes and replies alike) would otherwise clear attempted
+  mid-round and collapse rotation, letting the tier-preferred device hog every
+  request while other candidates are never asked. The re-open is the
+  evidence-gated version of the deferred blind re-ask: the ping is the proof a
+  NACK is stale, and the backoff cap bounds the proof-triggered rate. No
+  acceleration on re-open (the backoff schedule stays the rate governor; the
+  existing accelerate-on-online composes with it naturally).
+- **Membership refresh + boot sweep.** `SyncCoordinator.refreshCandidatesFor`
+  re-appends the room's current ACTIVE members (minus local) to all its live
+  rows — wired to the room projector's `stateChanges` (any change type; the
+  boot `RoomCommitted` self-heals restarts) and to the global projector's
+  `IdentityStateChange` for `RoomId.GLOBAL` only, plus an explicit boot sweep
+  over `allChatRoomIds() + GLOBAL` (the global boot baseline is silent, so the
+  sweep is the only cover for accounts that arrived while offline). Deferred
+  member rows landing on GLOBAL-commit surface as `MemberAdded` through the
+  room projector, so they ride the same path. Removals never prune candidates:
+  the responder gate checks the *requester's* membership, not its own, so a
+  removed member still serves.
+- **Layering principle (binding).** Every device-granular pending-sync
+  lifecycle op lives at the point where the authenticated device id arrives,
+  all in the routing layer: mark-attempted on NACK, accelerate-on-online,
+  re-open-on-ping. The orchestrator is account-level end-to-end — no device id
+  crosses into it. Identity resolution (`getAccountIdForDevice`) happens in the
+  handlers, following the `TypingIndicator` precedent.
+- **Prune TODO — decided: backoff, never age-prune.** An all-NACK row wakes on
+  `computeBackoff` (exponential, 1h cap — one cheap query per interval) and is
+  pruned only structurally (stale target). Age-based pruning would not cause a
+  rediscovery loop (there is no timer-based rediscovery — only new traffic
+  referencing the id re-mints rows) but silent chase-loss: the orphan and its
+  holds stay, nothing ever asks for them again. The blind re-ask is subsumed
+  by the re-open hook above.
+- **Sync-limits TODO — decided: truncate, never refuse.** The target is always
+  collected first (BFS root), partial batches converge via the hold-minted
+  rows (each delivered message reveals its own gaps), and re-sent known
+  messages dedup on ingest — so truncation is merely wasteful, never
+  incorrect. Refuse was rejected: the requester cannot know which frontier
+  subset lies on the target's descent path (that is exactly the unknown), and a
+  refusal NACK would wrongly mark a peer attempted that may hold the messages.
+  The bound is a DoS guard (appends reference the whole frontier, so the
+  covering antichain stays tiny), not a paging mechanism.
+
+Residuals (accepted): the boot-sweep race (the sweep may read the member set
+before a still-running boot fold commits offline-arrived rows — self-heals on
+the next change; an airtight version would need a boot-completion signal, not
+worth the surface); fold-lag NACKs from members whose fold lags ours (narrow
+post-add window, self-heals via the mechanisms above — §6.4's "retry covers
+it" now names them: universal accumulation, accelerate-on-return for
+never-marked devices, re-open-on-ping for NACKed ones).
 
 ## 7. The unsolicited-messages check — dropped
 
@@ -475,9 +575,15 @@ comment. No extraction in prep — global first, `fold/graph/` stays deferred:
    function in `RoomServiceTypes.kt`, applied, never re-derived. `MessagingService`
    exposes all non-`REJECTED` messages untouched; delivery targeting (fan-out,
    typing, sync candidates) reads ACTIVE-only.
-6. **Ping threading** (§6): flow type change `(accountId, roomId, tips)` through
+6. **Ping threading** (§6 as built): flow type change `(senderAccount, roomFrontiers)` through
    `Router.pingPayloads` / `PingProvider` / `DefaultOrchestrator` collector /
-   `SyncCoordinator.requestFrontierSync`; `addCandidateAccounts` on `PendingSyncRepository`.
+   `SyncCoordinator.requestFrontierSync` (nullable sender; onboarding passes
+   none); unknown-room candidates + skip-and-log for unresolvable senders;
+   universal ping-sender accumulation; message-author candidates;
+   `addCandidateAccounts` / `appendCandidateAccountsForRoom` /
+   `reopenAttemptedPeerForRoom` on `PendingSyncRepository` (the last with the
+   inertness gate); `refreshCandidatesFor` + projector collectors + boot sweep;
+   exponential backoff on the null-device path (the prune TODO, decided).
 7. **Append path**: `MessageDraft.RoomCreated` (engine derives `roomId` from the minted
    genesis `messageId`), `MemberAdd`/`MemberRemove`/`AddAdmin`/`RemoveAdmin` appends via the
    room-event projector's publish path (mirroring `DefaultGlobalEventProjector.publish`);
@@ -540,6 +646,14 @@ discipline) plus room-specific cases:
 - ping with unknown room → sync row created with the pinger's account as candidate; second
   ping from a different account about the same room → candidate appended, deduped;
   unresolvable account → no row, retried on next ping;
+  known-room ping sender appended to re-triggered rows (universal accumulation);
+  orphan's author appended to minted rows; refresh appends later-added members
+  while preserving ping-sender/author candidates (append-only negative test:
+  unknown-room row keeps ping-sender candidates after the genesis lands);
+  restart case → boot sweep refreshes without any `MemberAdded` event; GLOBAL
+  row + `AccountAdded` → refreshed; ping from a NACKed device re-opens it on
+  inert rows only (mid-round ping re-opens nothing — rotation preserved;
+  re-open is room- and device-scoped); all-NACK row backs off exponentially (30s, 60s, …, 1h cap);
 - onboarding unaffected: GLOBAL exempt from the room fold; sponsor fold-lag → NACK → retry
   converges (regression from the sprint-4 analysis).
 
@@ -571,8 +685,10 @@ discipline) plus room-specific cases:
 - E2EE sender keys (sprint 5) consume the same fold-derived member list — sequence the fold
   before 5b key rotation work.
 - Provenance bit (§7) and unsolicited-traffic rate limiting — post-PoC.
-- Prune unsolvable pending-sync rows (`SyncRetryProcessor` TODO) — more attractive once
-  candidate accumulation lands.
+- Prune unsolvable pending-sync rows (`SyncRetryProcessor` TODO) — **decided in
+  sprint 4, see §6 "As built"**: backoff, never age-prune; the blind re-ask is
+  subsumed by the ping-contradiction re-open. Candidate accumulation (now
+  universal) and the membership refresh keep rows live instead.
 - Old-node decode behavior for `ROOM_EVENT` (NACK `DECODE_FAILED`, not stored) — fine
   pre-fleet; revisit if any deployment exists before the codec ships.
 

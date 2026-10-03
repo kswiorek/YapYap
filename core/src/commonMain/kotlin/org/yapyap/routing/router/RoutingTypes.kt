@@ -61,6 +61,26 @@ data class TypingIndicatorEvent(
 )
 
 /**
+ * One inbound ping, resolved to the sender's account.
+ *
+ * The sender account is the authenticated pinger's account
+ * (`getAccountIdForDevice`), or null when the device is unknown. Null senders
+ * still drive frontier sync for known rooms (membership candidates suffice);
+ * only the unknown-room candidate path needs the sender (docs/room events.md
+ * §6), so a null sender there skips row creation and a later ping re-triggers
+ * once identity lands.
+ *
+ * The probing device id itself never leaves the routing layer: the only
+ * device-granular pending-sync op (re-opening an attempted device on a ping
+ * about the room) runs in `PingProvider` against the repository directly.
+ * Everything crossing into the orchestrator is account-level.
+ */
+data class PingFrontiers(
+    val senderAccount: AccountId?,
+    val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
+)
+
+/**
  * An authenticated bootstrap-family packet received over the wire. The envelope has already passed
  * its kind-specific authentication ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap] —
  * the AEAD intro gate or the account-sig recovery request check); the payload kind selects the

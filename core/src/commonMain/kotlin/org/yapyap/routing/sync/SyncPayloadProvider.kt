@@ -39,8 +39,15 @@ class DefaultSyncPayloadProvider(
         // Page size is purely the responder's policy; the requester's retry loop
         // re-requests until every target arrives, so no per-request limit is needed.
         val limit = routerConfig.value.syncMaxMessages
-        // The requester may send its whole frontier; bound how much of it we honor.
-        // TODO(sync-limits): decide the policy for oversized knownIds (truncate vs refuse).
+        // The requester may send its whole frontier; bound how much of it we
+        // honor. Policy: truncate, never refuse (docs/room events.md §6).
+        // Truncation is merely wasteful, never incorrect: the target is always
+        // collected first (BFS root), partial batches converge via the
+        // hold-minted rows (each delivered message reveals its own gaps), and
+        // re-sent known messages dedup on ingest. Refusal would force the
+        // requester to guess a subset it cannot know (the target's ancestry is
+        // exactly the unknown) plus an extra round trip — and a refusal NACK
+        // would wrongly mark a peer attempted that may hold the messages.
         val knownIds = syncRequest.knownIds.take(routerConfig.value.syncMaxKnownIds).toSet()
 
         // Walk down from the requested targets over parent edges, stopping at the
@@ -103,6 +110,6 @@ class DefaultSyncPayloadProvider(
                 .sortedWith(compareBy({ it.createdAt }, { it.messageId }))
                 .forEach { ordered += it }
         }
-        return ordered.take(limit)
+        return ordered
     }
 }

@@ -7,6 +7,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
@@ -289,5 +290,190 @@ class DefaultSyncCoordinatorTest {
 
         assertTrue(pendingRepo.all().isEmpty())
         coordinator.stop()
+    }
+
+    // ------------------------------------------------------------------
+    // Ping threading: sender candidates (docs/room events.md §6)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun requestFrontierSync_unknownRoom_withSender_createsRowWithSenderAsCandidate() = runTest {
+        val coordinator = buildCoordinator()
+        val unknownRoom = RoomId(Uuid.random())
+        val tip = Uuid.random()
+
+        coordinator.requestFrontierSync(unknownRoom, listOf(tip), senderAccount = remoteAccount)
+
+        val sync = pendingRepo.all().single()
+        assertEquals(tip, sync.targetMessageId)
+        assertEquals(listOf(remoteAccount), sync.candidateAccounts)
+    }
+
+    @Test
+    fun requestFrontierSync_unknownRoom_nullSender_skipsRow() = runTest {
+        // Unknown room + unresolvable sender: a row could never be sent, so
+        // minting it would only grow unbounded state. A later ping re-triggers
+        // once identity lands.
+        val coordinator = buildCoordinator()
+        val unknownRoom = RoomId(Uuid.random())
+
+        coordinator.requestFrontierSync(unknownRoom, listOf(Uuid.random()), senderAccount = null)
+
+        assertTrue(pendingRepo.all().isEmpty())
+    }
+
+    @Test
+    fun requestFrontierSync_knownRoom_withSender_unionsMembersAndSender() = runTest {
+        val coordinator = buildCoordinator()
+        val pingerAccount = AccountId("pinger-account")
+
+        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()), senderAccount = pingerAccount)
+
+        val sync = pendingRepo.all().single()
+        assertEquals(setOf(remoteAccount, pingerAccount), sync.candidateAccounts.toSet())
+    }
+
+    @Test
+    fun requestFrontierSync_existingRow_appendsSenderAndDedupes() = runTest {
+        // Universal accumulation: the ping sender is always a candidate for
+        // the rows its signal re-triggers — insert-if-absent, so repeat pings
+        // and multi-device senders of one account dedup naturally.
+        val coordinator = buildCoordinator()
+        val tip = Uuid.random()
+        val pingerAccount = AccountId("pinger-account")
+        coordinator.requestFrontierSync(roomId, listOf(tip), senderAccount = pingerAccount)
+
+        coordinator.requestFrontierSync(roomId, listOf(tip), senderAccount = pingerAccount)
+        coordinator.requestFrontierSync(roomId, listOf(tip))
+
+        val rows = pendingRepo.all()
+        assertEquals(1, rows.size)
+        assertEquals(setOf(remoteAccount, pingerAccount), rows.single().candidateAccounts.toSet())
+    }
+
+    @Test
+    fun requestFrontierSync_knownRoom_placeholderRowWhenAllRemoved() = runTest {
+        // Known room, no ACTIVE members, no sender: still mint the row as a
+        // placeholder — the membership refresh revives it if candidacy
+        // returns, and nothing else would ever chase this gap.
+        val coordinator = buildCoordinator()
+        roomRepo.removeMember(roomId, remoteAccount)
+
+        coordinator.requestFrontierSync(roomId, listOf(Uuid.random()), senderAccount = null)
+
+        val sync = pendingRepo.all().single()
+        assertTrue(sync.candidateAccounts.isEmpty())
+    }
+
+    // ------------------------------------------------------------------
+    // Message path: author candidates (docs/room events.md §6)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun becameOrphan_authorAppendedToCandidates() = runTest {
+        // The orphan's author appended on their chainable frontier, so they
+        // hold the full ancestry — the one identity guaranteed to hold what
+        // the rows chase.
+        val coordinator = buildCoordinator()
+        val authorAccount = AccountId("author-account")
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+        val missing = Uuid.random()
+
+        pipeline.emit(
+            IngestResult.BecameOrphan(
+                payload = textMsg(roomId, prevIds = listOf(missing), sender = authorAccount),
+                closedGapMissingPrevIds = emptyList(),
+                missingPrevIds = listOf(missing),
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
+        val sync = pendingRepo.all().single()
+        assertEquals(setOf(remoteAccount, authorAccount), sync.candidateAccounts.toSet())
+        coordinator.stop()
+    }
+
+    @Test
+    fun becameOrphan_existingRow_appendsAuthor() = runTest {
+        val coordinator = buildCoordinator()
+        val authorAccount = AccountId("author-account")
+        val missing = Uuid.random()
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = roomId,
+            targetMessageId = missing,
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+        )
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+
+        pipeline.emit(
+            IngestResult.BecameOrphan(
+                payload = textMsg(roomId, prevIds = listOf(missing), sender = authorAccount),
+                closedGapMissingPrevIds = emptyList(),
+                missingPrevIds = listOf(missing),
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, pendingRepo.all().size)
+        assertEquals(setOf(remoteAccount, authorAccount), pendingRepo.all().single().candidateAccounts.toSet())
+        coordinator.stop()
+    }
+
+    // ------------------------------------------------------------------
+    // Membership refresh (docs/room events.md §6)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun refreshCandidatesFor_appendsCurrentMembersAndPreservesOthers() = runTest {
+        val coordinator = buildCoordinator()
+        val tip = Uuid.random()
+        val pingerAccount = AccountId("pinger-account")
+        coordinator.requestFrontierSync(roomId, listOf(tip), senderAccount = pingerAccount)
+        // A new member joins after the row was minted.
+        val newMember = AccountId("new-member")
+        roomRepo.addMember(roomId, newMember, RoomMemberRole.MEMBER)
+
+        coordinator.refreshCandidatesFor(roomId)
+
+        // New member appended; the ping-sender candidate contributed by
+        // another trigger survives (append-only, never replace).
+        assertEquals(
+            setOf(remoteAccount, pingerAccount, newMember),
+            pendingRepo.all().single().candidateAccounts.toSet(),
+        )
+    }
+
+    @Test
+    fun refreshCandidatesFor_unknownRoom_isNoOp() = runTest {
+        val coordinator = buildCoordinator()
+        val unknownRoom = RoomId(Uuid.random())
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = unknownRoom,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+        )
+
+        coordinator.refreshCandidatesFor(unknownRoom)
+
+        // Ping-sender candidates of unknown-room rows survive the refresh
+        // untouched (nothing to add, nothing removed).
+        assertEquals(listOf(remoteAccount), pendingRepo.all().single().candidateAccounts)
+    }
+
+    @Test
+    fun refreshCandidatesFor_globalRoom_appendsGlobalMembers() = runTest {
+        val coordinator = buildCoordinator()
+        pendingRepo.insertSync(
+            syncId = Uuid.random(), roomId = RoomId.GLOBAL,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = emptyList(), nextAttemptAt = epochSeconds(1_000L),
+        )
+        roomRepo.addMember(RoomId.GLOBAL, remoteAccount, RoomMemberRole.MEMBER)
+
+        coordinator.refreshCandidatesFor(RoomId.GLOBAL)
+
+        assertEquals(listOf(remoteAccount), pendingRepo.all().single().candidateAccounts)
     }
 }

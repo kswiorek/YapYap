@@ -506,6 +506,18 @@ class DefaultOrchestrator(
         )
         roomEventProjector.start(orchestratorScope)
 
+        // Sync-candidate freshness (docs/room events.md §6): rows freeze their
+        // candidates at mint time, so every room-fold commit re-appends the
+        // room's current ACTIVE members to its live rows (insert-if-absent —
+        // ping-sender and author candidates contributed by other triggers
+        // survive). Any change type triggers a full refresh, which also covers
+        // the boot baseline (RoomCommitted with no MemberAdded events).
+        orchestratorScope.launch {
+            roomEventProjector.stateChanges.collect { change ->
+                syncCoordinator.refreshCandidatesFor(change.roomId)
+            }
+        }
+
         // A newly committed device may resolve previously PENDING chat authors (the implemented
         // reverify path, §10); the boot sweep runs once after the first fold.
         orchestratorScope.launch {
@@ -531,6 +543,21 @@ class DefaultOrchestrator(
                         "Fold tombstoned local identity ($change)",
                     )
                 }
+                // GLOBAL-room candidate freshness (the room tier's sibling for the
+                // global room, which the room projector never emits): any identity
+                // change re-appends the current global members to GLOBAL's rows.
+                syncCoordinator.refreshCandidatesFor(RoomId.GLOBAL)
+            }
+        }
+        // Boot sweep for the same freshness: the global projector's boot baseline
+        // is silent (no IdentityStateChanges), so accounts that arrived while we
+        // were offline would never refresh GLOBAL rows — and room boot folds may
+        // emit before the stateChanges collector above subscribes. Idempotent,
+        // so racing a still-running boot fold is harmless (the fold's own
+        // commits re-trigger the collectors above).
+        orchestratorScope.launch {
+            for (roomId in roomRepository.allChatRoomIds() + RoomId.GLOBAL) {
+                syncCoordinator.refreshCandidatesFor(roomId)
             }
         }
         orchestratorScope.launch { dagEngine.reverifyAllPending() }
@@ -568,9 +595,9 @@ class DefaultOrchestrator(
         recoveryResponder.start(orchestratorScope)
 
         orchestratorScope.launch {
-            router.pingPayloads.collect { roomFrontiers ->
-                roomFrontiers.forEach { (roomId, tips) ->
-                    syncCoordinator.requestFrontierSync(roomId, tips)
+            router.pingPayloads.collect { ping ->
+                ping.roomFrontiers.forEach { (roomId, tips) ->
+                    syncCoordinator.requestFrontierSync(roomId, tips, ping.senderAccount)
                 }
             }
         }

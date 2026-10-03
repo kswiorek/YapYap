@@ -8,6 +8,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.RoomId
@@ -70,14 +73,34 @@ class DefaultSyncCoordinator(
     // Ping-triggered frontier sync
     // ------------------------------------------------------------------
 
-    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>) {
+    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>, senderAccount: AccountId?) {
         syncMutex.withLock {
             for (tip in tips) {
                 if (messageRepository.findById(tip) == null) {
-                    insertSyncForTarget(roomId, tip)
+                    insertSyncForTarget(roomId, tip, senderAccount)
                 }
                 // Known tip: chainable (nothing to do), orphan (holds chase parents),
                 // or quarantined (complete holds but non-VERIFIED ancestry; nothing to do).
+            }
+        }
+    }
+
+    /**
+     * Appends the room's current ACTIVE members (minus local) to all of its
+     * pending sync rows' candidates. Idempotent and append-only — safe to run
+     * on every projector state change and at boot.
+     */
+    override suspend fun refreshCandidatesFor(roomId: RoomId) {
+        syncMutex.withLock {
+            val members = candidateAccountsFor(roomId)
+            if (members.isNotEmpty()) {
+                pendingSyncRepository.appendCandidateAccountsForRoom(roomId, members)
+                AppLog.debug(
+                    component = LogComponent.ORCHESTRATOR,
+                    event = LogEvent.SYNC_CANDIDATES_UPDATED,
+                    message = "Refreshed sync candidates from membership",
+                    fields = mapOf("roomId" to roomId, "added" to members.size),
+                )
             }
         }
     }
@@ -90,12 +113,19 @@ class DefaultSyncCoordinator(
      * A message arrived with missing parents. Each missing parent gets its own sync
      * row (insert-if-absent via the unique (room, target) key); orphans sharing a
      * missing parent collapse into one row automatically.
+     *
+     * The orphan's author is appended to the rows' candidates (insert-if-absent):
+     * they appended on their chainable frontier, so they hold the full ancestry
+     * (docs/room events.md §6) — the one identity guaranteed to hold what the
+     * rows chase. Verdict-blind, like the rest of serving: a forger as candidate
+     * costs one NACK and nothing more.
      */
     private suspend fun processBecameOrphan(result: IngestResult.BecameOrphan) {
         syncMutex.withLock {
             val roomId = result.payload.roomId
+            val authorAccount = result.payload.senderAccountId
             for (missing in result.missingPrevIds) {
-                insertSyncForTarget(roomId, missing)
+                insertSyncForTarget(roomId, missing, senderAccount = authorAccount)
             }
         }
     }
@@ -118,9 +148,44 @@ class DefaultSyncCoordinator(
     // Helpers
     // ------------------------------------------------------------------
 
-    private suspend fun insertSyncForTarget(roomId: RoomId, targetMessageId: Uuid) {
-        if (pendingSyncRepository.findSyncByTarget(roomId, targetMessageId) != null) return
-        val candidates = candidateAccountsFor(roomId)
+    /**
+     * [senderAccount] is the account that revealed this target: the ping sender
+     * for frontier tips, the orphan's author for gap parents, null when unknown
+     * (onboarding, unresolvable ping senders).
+     */
+    private suspend fun insertSyncForTarget(
+        roomId: RoomId,
+        targetMessageId: Uuid,
+        senderAccount: AccountId?,
+    ) {
+        val existing = pendingSyncRepository.findSyncByTarget(roomId, targetMessageId)
+        if (existing != null) {
+            // Universal accumulation: the sender is always a candidate for the
+            // rows its signal re-triggers — insert-if-absent, so multi-device
+            // senders of one account and repeat triggers dedup naturally.
+            if (senderAccount != null) {
+                pendingSyncRepository.addCandidateAccounts(existing.syncId, listOf(senderAccount))
+            }
+            return
+        }
+        val members = candidateAccountsFor(roomId)
+        val candidates = (members + listOfNotNull(senderAccount)).distinct()
+        if (candidates.isEmpty() && roomRepository.memberStatusesOfRoom(roomId).isEmpty()) {
+            // Unknown room, unresolvable sender: a row could never be sent
+            // (pickNextDevice over an empty candidate set is always null), so
+            // minting it would only grow unbounded state. Skip and log — a
+            // later ping re-triggers once identity lands (docs/room events.md §6).
+            AppLog.info(
+                component = LogComponent.ORCHESTRATOR,
+                event = LogEvent.SYNC_SKIPPED,
+                message = "Skipped unknown-room sync with no candidates",
+                fields = mapOf("roomId" to roomId, "targetMessageId" to targetMessageId),
+            )
+            return
+        }
+        // Known room with no candidates (all members removed): still mint the
+        // row as a placeholder — the membership refresh revives it if
+        // candidacy returns, and nothing else would ever chase this gap.
         pendingSyncRepository.insertSync(
             syncId = Uuid.random(),
             roomId = roomId,

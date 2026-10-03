@@ -68,7 +68,7 @@ class SyncRetryProcessorTest {
     }
 
     @Test
-    fun runIn_noEligibleDevice_reschedulesWithOfflineBackoff() = runBlocking {
+    fun runIn_noEligibleDevice_backsOffExponentially() = runBlocking {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
@@ -89,7 +89,40 @@ class SyncRetryProcessorTest {
         job.cancel()
         scope.cancel()
 
+        // No sendable candidate: the sync is inert, not dead — the row backs
+        // off exponentially (30s at attempts=0) instead of dying by age.
+        assertEquals(0, stack.tor.sends.size)
+        assertEquals(now + 30L.seconds, repo.nextAttemptAtOf(syncId))
+        assertEquals(1, repo.all().single().attempts)
+    }
+
+    @Test
+    fun runIn_noEligibleDevice_backoffGrowsWithAttempts() = runBlocking {
+        val stack = buildSyncRoutingStack(
+            localDevice = testDeviceIdentity(localDevice),
+            peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+            clock = FakeClock(now),
+        )
+        val repo = FakePendingSyncRepository()
+        val syncId = Uuid.random()
+        repo.insertSync(
+            syncId = syncId, roomId = roomId,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = listOf(remoteAccount), nextAttemptAt = now,
+        )
+        repo.recordAttempt(syncId, now)
+        val processor = buildProcessor(stack, FixedSyncPeerPolicy(nextDevice = null), repo)
+
+        val scope = CoroutineScope(SupervisorJob())
+        val job = processor.runIn(scope)
+        delay(500)
+        job.cancel()
+        scope.cancel()
+
+        // attempts=1 → 30 * 2^1 = 60s; the inert row gets cheaper per round,
+        // capped at an hour by computeBackoff.
         assertEquals(0, stack.tor.sends.size)
         assertEquals(now + 60L.seconds, repo.nextAttemptAtOf(syncId))
+        assertEquals(2, repo.all().single().attempts)
     }
 }

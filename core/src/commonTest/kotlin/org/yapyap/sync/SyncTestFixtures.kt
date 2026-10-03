@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
@@ -55,6 +57,13 @@ class FakeInboundMessagePipeline : InboundMessagePipeline {
  */
 class FakePendingSyncRepository(
     private val frontierOf: suspend (RoomId) -> List<Uuid> = { emptyList() },
+    /**
+     * Candidate-account → device resolution backing the re-open gate below.
+     * Mirrors the real SQL's `devices` join (which additionally filters
+     * `status != 'BANNED'` — the fake has no device status, so test devices
+     * are all ACTIVE by construction).
+     */
+    private val devicesByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
 ) : PendingSyncRepository {
     private class Entry(
         var row: PendingSyncRow,
@@ -63,13 +72,17 @@ class FakePendingSyncRepository(
 
     private val entries = mutableMapOf<Uuid, Entry>()
 
+    // Test-only concurrency: multithreaded tests (Dispatchers.Default
+    // background loops racing the test thread) must not CME on iteration.
+    private val mutex = Mutex()
+
     override suspend fun insertSync(
         syncId: Uuid,
         roomId: RoomId,
         targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
         nextAttemptAt: Instant,
-    ) {
+    ) = mutex.withLock {
         entries[syncId] = Entry(
             PendingSyncRow(
                 syncId = syncId,
@@ -84,63 +97,123 @@ class FakePendingSyncRepository(
     }
 
     override suspend fun deleteSync(syncId: Uuid) {
-        entries.remove(syncId)
+        mutex.withLock {
+            entries.remove(syncId)
+        }
     }
 
     override suspend fun deleteSyncsByTarget(roomId: RoomId, targetMessageId: Uuid) {
-        entries.entries.removeAll { (_, entry) ->
-            entry.row.roomId == roomId && entry.row.targetMessageId == targetMessageId
+        mutex.withLock {
+            entries.entries.removeAll { (_, entry) ->
+                entry.row.roomId == roomId && entry.row.targetMessageId == targetMessageId
+            }
         }
     }
 
     override suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest? {
-        val entry = entries[syncId] ?: return null
+        // Snapshot under lock, then build outside it: frontierOf is caller
+        // code and must never run under this mutex (non-reentrant).
+        val (roomId, target) = mutex.withLock {
+            val entry = entries[syncId] ?: return@withLock null
+            entry.row.roomId to entry.row.targetMessageId
+        } ?: return null
         return SystemPayload.SyncRequest(
-            roomId = entry.row.roomId,
+            roomId = roomId,
             syncId = syncId,
-            missingIds = listOf(entry.row.targetMessageId),
-            knownIds = frontierOf(entry.row.roomId),
+            missingIds = listOf(target),
+            knownIds = frontierOf(roomId),
         )
     }
 
-    override suspend fun earliestDueAt(): Instant? =
+    override suspend fun earliestDueAt(): Instant? = mutex.withLock {
         entries.values.minOfOrNull { it.nextAttemptAt }
+    }
 
-    override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> =
+    override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> = mutex.withLock {
         entries.values
             .filter { it.nextAttemptAt <= now }
             .sortedBy { it.nextAttemptAt }
             .take(limit)
             .map { it.row }
+    }
 
     override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {
-        entries[syncId]?.let {
-            it.row = it.row.copy(attempts = it.row.attempts + 1)
-            it.nextAttemptAt = nextAttemptAt
+        mutex.withLock {
+            entries[syncId]?.let {
+                it.row = it.row.copy(attempts = it.row.attempts + 1)
+                it.nextAttemptAt = nextAttemptAt
+            }
         }
     }
 
-    override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> =
+    override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> = mutex.withLock {
         entries[syncId]?.row?.attemptedDevices ?: emptySet()
+    }
 
     override suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant) = Unit
 
     override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant) {
-        entries[syncId]?.let { it.nextAttemptAt = nextAttemptAt }
+        mutex.withLock {
+            entries[syncId]?.let { it.nextAttemptAt = nextAttemptAt }
+        }
     }
 
     override suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId) {
-        entries[syncId]?.let { it.row = it.row.copy(attemptedDevices = it.row.attemptedDevices + deviceId) }
+        mutex.withLock {
+            entries[syncId]?.let { it.row = it.row.copy(attemptedDevices = it.row.attemptedDevices + deviceId) }
+        }
     }
 
+    override suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>) {
+        mutex.withLock {
+            entries[syncId]?.let { entry ->
+                entry.row = entry.row.copy(
+                    candidateAccounts = (entry.row.candidateAccounts + accountIds).distinct()
+                )
+            }
+        }
+    }
+
+    override suspend fun appendCandidateAccountsForRoom(roomId: RoomId, accountIds: List<AccountId>) =
+        mutex.withLock {
+            entries.values
+                .filter { it.row.roomId == roomId }
+                .forEach { entry ->
+                    entry.row = entry.row.copy(
+                        candidateAccounts = (entry.row.candidateAccounts + accountIds).distinct()
+                    )
+                }
+        }
+
+    override suspend fun reopenAttemptedPeerForRoom(deviceId: PeerId, roomId: RoomId, localDeviceId: PeerId) =
+        mutex.withLock {
+            entries.values
+                .filter { it.row.roomId == roomId }
+                .forEach { entry ->
+                    // Inertness gate (mirrors the SQL NOT EXISTS and
+                    // DefaultSyncPeerPolicy's eligibility half): only re-open when
+                    // no candidate device remains un-attempted, preserving
+                    // mid-round rotation.
+                    val unattempted = entry.row.candidateAccounts
+                        .flatMap { devicesByAccount[it].orEmpty() }
+                        .filter { it != localDeviceId }
+                        .distinct() - entry.row.attemptedDevices
+                    if (unattempted.isEmpty()) {
+                        entry.row = entry.row.copy(attemptedDevices = entry.row.attemptedDevices - deviceId)
+                    }
+                }
+        }
+
     override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow? =
-        entries.values.firstOrNull {
-            it.row.roomId == roomId && it.row.targetMessageId == targetMessageId
-        }?.row
+        mutex.withLock {
+            entries.values.firstOrNull {
+                it.row.roomId == roomId && it.row.targetMessageId == targetMessageId
+            }?.row
+        }
 
-    fun all(): List<PendingSyncRow> = entries.values.map { it.row }
+    suspend fun all(): List<PendingSyncRow> = mutex.withLock { entries.values.map { it.row } }
 
-    fun nextAttemptAtOf(syncId: Uuid): Instant? = entries[syncId]?.nextAttemptAt
+    suspend fun nextAttemptAtOf(syncId: Uuid): Instant? = mutex.withLock { entries[syncId]?.nextAttemptAt }
 }
 
 /** Records sync requests and returns a configurable batch of messages. */

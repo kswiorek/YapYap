@@ -88,7 +88,6 @@ internal class SyncRetryProcessor(
         }
     }
 
-    //TODO prune unsolvable rows
     private suspend fun processDueRow(row: PendingSyncRow, now: Instant) {
         val candidateDevices = ctx.identityResolver.getAllPeerDevicesForAccounts(row.candidateAccounts)
             .filter { it != ctx.localDeviceId }
@@ -97,7 +96,14 @@ internal class SyncRetryProcessor(
         val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.attemptedDevices)
 
         if (nextDevice == null) {
-            pendingSyncs.updateAttemptAt(row.syncId, now + ctx.routerConfig.value.syncOfflineRetryDelay)
+            // No sendable candidate (every device NACKed, or none reachable):
+            // the sync is inert, not dead. Rows are pruned only structurally
+            // (stale target — buildSyncRequest null above), never by age: an
+            // all-NACK row is the durable chase for a genuinely lost message,
+            // cheaply retried until someone holds it (docs/room events.md §6).
+            // Exponential backoff (not the flat offline delay) keeps a dead row
+            // at ~one query per interval, capped at an hour.
+            pendingSyncs.recordAttempt(row.syncId, now + computeBackoff(row.attempts).seconds)
             return
         }
 

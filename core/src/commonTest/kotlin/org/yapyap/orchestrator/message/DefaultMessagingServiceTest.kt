@@ -869,7 +869,7 @@ private class RecordingRouter : Router {
 
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
-    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = MutableSharedFlow()
+    override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
 
     val sentTargets = mutableListOf<AccountId>()
 

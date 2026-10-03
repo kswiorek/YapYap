@@ -43,7 +43,7 @@ private class FakeOnboardingRouter(
 ) : Router {
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
-    override val pingPayloads: Flow<List<Pair<RoomId, List<Uuid>>>> = emptyFlow()
+    override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
@@ -71,7 +71,8 @@ private class FakeOnboardingRouter(
 private class NoopSyncCoordinator : SyncCoordinator {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
-    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>) = Unit
+    override suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>, senderAccount: AccountId?) = Unit
+    override suspend fun refreshCandidatesFor(roomId: RoomId) = Unit
 }
 
 private class NoopGlobalEventProjector : GlobalEventProjector {
