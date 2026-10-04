@@ -146,9 +146,6 @@ class RoomFoldTest {
         w.emit(TOwner, RoomEventPayload.AddAdmin(TAdminB))
         val add = w.emit(TAdmin, RoomEventPayload.MemberAdd(TOutsider), prevIds = listOf(g.nodeId))
         val removal = w.emit(TAdminB, RoomEventPayload.MemberRemove(TAdmin, null), prevIds = listOf(g.nodeId))
-        // Sanity: the test only means what it says if the add is really outside the
-        // removal's ancestry — both reference the genesis alone. (`add`/`removal` unused
-        // beyond this: the fold output below is the assertion.)
         assertEquals(listOf(g.nodeId), w.prevOf(add))
         assertEquals(listOf(g.nodeId), w.prevOf(removal))
 
@@ -156,7 +153,7 @@ class RoomFoldTest {
 
         assertNull(memberOf(result, TOutsider), "sealed add must grant no membership")
         assertEquals(
-            FoldRoomMember(TAdmin, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            FoldRoomMember(TAdmin, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, removal),
             memberOf(result, TAdmin),
         )
     }
@@ -172,7 +169,7 @@ class RoomFoldTest {
         w.emit(TAdmin, RoomEventPayload.MemberAdd(TOutsider), prevIds = listOf(g.nodeId))
         val result = w.fold(g)
         // The removal references the full frontier, vouching the add.
-        w.emit(TAdminB, RoomEventPayload.MemberRemove(TAdmin, null))
+        val removal = w.emit(TAdminB, RoomEventPayload.MemberRemove(TAdmin, null))
 
         val vouched = w.fold(g)
         assertEquals(
@@ -180,7 +177,7 @@ class RoomFoldTest {
             memberOf(vouched, TOutsider),
         )
         assertEquals(
-            FoldRoomMember(TAdmin, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            FoldRoomMember(TAdmin, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, removal),
             memberOf(vouched, TAdmin),
         )
         // The removal affects only its target: every other row is identical.
@@ -198,7 +195,7 @@ class RoomFoldTest {
         // Forged counter-demotion, positionally before the honest removal and concurrent
         // with it (neither in the other's ancestry).
         w.emit(TMember, RoomEventPayload.RemoveAdmin(TAdmin), prevIds = listOf(g.nodeId))
-        w.emit(
+        val removal = w.emit(
             TAdmin,
             RoomEventPayload.MemberRemove(TMember, null),
             prevIds = listOf(g.nodeId, grant),
@@ -207,7 +204,7 @@ class RoomFoldTest {
         val result = w.fold(g, onWalk = { _, _ -> walks++ })
 
         assertEquals(
-            FoldRoomMember(TMember, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            FoldRoomMember(TMember, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, removal),
             memberOf(result, TMember),
             "forger stays removed",
         )
@@ -233,7 +230,7 @@ class RoomFoldTest {
         val grantA = w.emit(TOwner, RoomEventPayload.AddAdmin(TAdmin))
         w.emit(TOwner, RoomEventPayload.AddAdmin(TMember))
         w.emit(TMember, RoomEventPayload.RemoveAdmin(TOwner), prevIds = listOf(g.nodeId, grantA))
-        w.emit(
+        val removal = w.emit(
             TAdmin,
             RoomEventPayload.MemberRemove(TMember, null),
             prevIds = listOf(g.nodeId, grantA),
@@ -250,7 +247,7 @@ class RoomFoldTest {
             "owner-targeted forgery causes no collateral",
         )
         assertEquals(
-            FoldRoomMember(TMember, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            FoldRoomMember(TMember, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, removal),
             memberOf(result, TMember),
         )
     }
@@ -259,7 +256,7 @@ class RoomFoldTest {
     fun valid_handover_transfers_owner_atomically() {
         val w = WorldBuilder()
         val g = w.genesis(members = listOf(TAdmin, TMember))
-        w.emit(TOwner, RoomEventPayload.MemberRemove(TOwner, TAdmin))
+        val handover = w.emit(TOwner, RoomEventPayload.MemberRemove(TOwner, TAdmin))
         val result = w.fold(g)
 
         assertEquals(TAdmin, result.output.ownerAccountId)
@@ -268,7 +265,7 @@ class RoomFoldTest {
             memberOf(result, TAdmin),
         )
         assertEquals(
-            FoldRoomMember(TOwner, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            FoldRoomMember(TOwner, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, handover),
             memberOf(result, TOwner),
             "leaver removed; never OWNER on a removed row",
         )

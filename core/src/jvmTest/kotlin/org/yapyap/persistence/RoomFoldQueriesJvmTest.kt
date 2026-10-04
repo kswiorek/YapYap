@@ -152,8 +152,8 @@ class RoomFoldQueriesJvmTest {
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
             gone, null, false, IdentityStatus.ACTIVE, "gone",
         )
-        rooms.addMember(room, FixtureAccountId, RoomMemberRole.MEMBER)
-        rooms.addMember(room, gone, RoomMemberRole.MEMBER)
+        rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER)
+        rooms.upsertMember(room, gone, RoomMemberRole.MEMBER)
 
         rooms.removeRoomMembersNotIn(room, listOf(FixtureAccountId))
         assertEquals(listOf(FixtureAccountId), rooms.membersOfRoom(room))
@@ -174,7 +174,7 @@ class RoomFoldQueriesJvmTest {
         // Negative test (d3): the account_id FK is enforced, so the projector must
         // defer rows for accounts not yet in `accounts` — inserting blind would crash.
         val failure = assertFailsWith<Exception> {
-            rooms.addMember(room, AccountId("never-synced"), RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+            rooms.upsertMember(room, AccountId("never-synced"), RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
         }
         assertTrue(
             failure.message?.contains("FOREIGN", ignoreCase = true) == true,
@@ -198,8 +198,8 @@ class RoomFoldQueriesJvmTest {
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
             removed, null, false, IdentityStatus.ACTIVE, "removed",
         )
-        rooms.addMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
-        rooms.addMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
+        rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+        rooms.upsertMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
 
         // Access read: REMOVED rows never grant access (docs/room events.md §5).
         assertEquals(listOf(FixtureAccountId), rooms.membersOfRoom(room))
@@ -217,8 +217,8 @@ class RoomFoldQueriesJvmTest {
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
             removed, null, false, IdentityStatus.ACTIVE, "removed",
         )
-        rooms.addMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
-        rooms.addMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
+        rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+        rooms.upsertMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
 
         // GUI/badge read: every committed row, with the status the render
         // policy reads (docs/room events.md §3) — including REMOVED rows.

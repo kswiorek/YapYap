@@ -1,4 +1,5 @@
 import kotlin.time.Instant;
+import kotlin.uuid.Uuid;
 import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.orchestrator.dag.RoomId;
 import org.yapyap.persistence.db.RoomMemberRole;
@@ -18,6 +19,10 @@ CREATE TABLE room_members (
     account_id TEXT AS AccountId NOT NULL,
     role TEXT AS RoomMemberRole NOT NULL,
     status TEXT AS RoomMemberStatus NOT NULL,
+    -- Defining MemberRemove node when status is REMOVED (the removal boundary:
+    -- bounded sync serve + ping-contradiction re-push, docs/room events.md §6);
+    -- null on ACTIVE rows and on GLOBAL rows (no room-DAG removal exists there).
+    removal_node_id TEXT AS Uuid,
     joined_timestamp INTEGER AS Instant NOT NULL,
     PRIMARY KEY (room_id, account_id),
     FOREIGN KEY (room_id) REFERENCES rooms(room_id),
@@ -34,7 +39,12 @@ SELECT account_id, role FROM room_members WHERE room_id = ? AND status = 'ACTIVE
 -- row means never-a-member (hidden by default); deferred rows are simply absent
 -- until the account's identity lands and the re-fold commits them.
 selectMemberStatusesForRoom:
-SELECT account_id, role, status FROM room_members WHERE room_id = ?;
+SELECT account_id, role, status, removal_node_id FROM room_members WHERE room_id = ?;
+
+-- The fold-committed row for one account: the REMOVED leg of the sync-gate
+-- trichotomy and the ping-contradiction re-push read this (never-member reads null).
+selectMemberRow:
+SELECT account_id, role, status, removal_node_id FROM room_members WHERE room_id = ? AND account_id = ?;
 
 selectRoomById:
 SELECT * FROM rooms WHERE room_id = ?;
@@ -48,8 +58,8 @@ INSERT OR IGNORE INTO rooms (room_id, space_id, type, name)
 VALUES (:roomId, NULL, :type, :name);
 
 insertRoomMember:
-INSERT OR REPLACE INTO room_members (room_id, account_id, role, status, joined_timestamp)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO room_members (room_id, account_id, role, status, removal_node_id, joined_timestamp)
+VALUES (?, ?, ?, ?, ?, ?);
 
 removeRoomMember:
 UPDATE room_members

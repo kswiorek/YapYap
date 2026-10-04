@@ -228,7 +228,7 @@ internal class DefaultOnboardingProvider(
             identity = intro.device,
             torEndpoint = intro.torEndpoint,
         )
-        roomRepository.addMember(RoomId.GLOBAL, intro.account.accountId, RoomMemberRole.MEMBER)
+        roomRepository.upsertMember(RoomId.GLOBAL, intro.account.accountId, RoomMemberRole.MEMBER)
         syncCoordinator.requestFrontierSync(RoomId.GLOBAL, intro.dagHeadTipIds)
         // SYNCING is terminal until the fold reports our own Add event: the projector's
         // stateChanges collector (see activate) drives COMPLETE + burn via onIdentityStateChange

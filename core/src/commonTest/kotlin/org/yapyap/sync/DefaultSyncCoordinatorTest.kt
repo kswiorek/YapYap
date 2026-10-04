@@ -433,7 +433,7 @@ class DefaultSyncCoordinatorTest {
         coordinator.requestFrontierSync(roomId, listOf(tip), senderAccount = pingerAccount)
         // A new member joins after the row was minted.
         val newMember = AccountId("new-member")
-        roomRepo.addMember(roomId, newMember, RoomMemberRole.MEMBER)
+        roomRepo.upsertMember(roomId, newMember, RoomMemberRole.MEMBER)
 
         coordinator.refreshCandidatesFor(roomId)
 
@@ -470,7 +470,7 @@ class DefaultSyncCoordinatorTest {
             targetMessageId = Uuid.random(),
             candidateAccounts = emptyList(), nextAttemptAt = epochSeconds(1_000L),
         )
-        roomRepo.addMember(RoomId.GLOBAL, remoteAccount, RoomMemberRole.MEMBER)
+        roomRepo.upsertMember(RoomId.GLOBAL, remoteAccount, RoomMemberRole.MEMBER)
 
         coordinator.refreshCandidatesFor(RoomId.GLOBAL)
 

@@ -1,11 +1,9 @@
 package org.yapyap.orchestrator.fold.room
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.AccountId
@@ -13,6 +11,8 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.dag.MessageDraft
+import org.yapyap.orchestrator.dag.RoomCreatedDraft
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.graph.ancestorClosures
@@ -28,6 +28,7 @@ import org.yapyap.persistence.messaging.MessageRow
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
+import org.yapyap.routing.router.Router
 import kotlin.uuid.Uuid
 
 /**
@@ -70,6 +71,23 @@ interface RoomEventProjector {
 
     fun start(scope: CoroutineScope)
     suspend fun stop()
+
+    /**
+     * Local publish path (mirrors `DefaultGlobalEventProjector.publish`): engine
+     * append → synchronous fold + commit → broadcast to the folded ACTIVE
+     * members. Authorization is never checked here — `RoomService` owns the
+     * refusals; the fold ignores invalid events regardless.
+     */
+    suspend fun publishRoomCreated(draft: RoomCreatedDraft): RoomId
+    suspend fun publishMemberAdd(roomId: RoomId, targetAccountId: AccountId)
+    suspend fun publishMemberRemove(
+        roomId: RoomId,
+        targetAccountId: AccountId,
+        successorAccountId: AccountId? = null,
+    )
+
+    suspend fun publishAddAdmin(roomId: RoomId, targetAccountId: AccountId)
+    suspend fun publishRemoveAdmin(roomId: RoomId, targetAccountId: AccountId)
 }
 
 internal class DefaultRoomEventProjector(
@@ -79,6 +97,7 @@ internal class DefaultRoomEventProjector(
     private val messageRepository: MessageRepository,
     private val roomRepository: RoomRepository,
     private val identityKeyRepository: IdentityKeyRepository,
+    private val router: Router,
 ) : RoomEventProjector {
 
     private val _stateChanges = MutableSharedFlow<RoomStateChange>(extraBufferCapacity = 64)
@@ -131,6 +150,127 @@ internal class DefaultRoomEventProjector(
         collectJob?.cancel()
         collectJob = null
         scope = null
+    }
+
+    override suspend fun publishRoomCreated(draft: RoomCreatedDraft): RoomId {
+        val node = dagEngine.createRoom(draft)
+        foldAndCommit(node.roomId, "publish")
+        // The folded ACTIVE set is the genesis member list — the common path
+        // reaches everyone who must discover the room. No courtesy leg needed.
+        broadcast(node.roomId, listOf(node))
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.MESSAGE_APPENDED,
+            message = "Room genesis published",
+            fields = mapOf("roomId" to node.roomId),
+        )
+        return node.roomId
+    }
+
+    override suspend fun publishMemberAdd(roomId: RoomId, targetAccountId: AccountId) {
+        val node = dagEngine.append(roomId, MessageDraft.RoomEvent(RoomEventPayload.MemberAdd(targetAccountId)))
+        foldAndCommit(roomId, "publish")
+        // The target was never in the genesis list and holds nothing of the room:
+        // push the stored genesis head-start alongside the broadcast (dedup-safe
+        // for re-adds), then normal frontier sync takes over the middle history.
+        broadcast(roomId, listOf(node), courtesy = genesisPayloadOf(roomId)?.let { targetAccountId to it })
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.MESSAGE_APPENDED,
+            message = "Room MemberAdd published",
+            fields = mapOf("roomId" to roomId, "target" to targetAccountId),
+        )
+    }
+
+    override suspend fun publishMemberRemove(
+        roomId: RoomId,
+        targetAccountId: AccountId,
+        successorAccountId: AccountId?,
+    ) {
+        val node = dagEngine.append(
+            roomId,
+            MessageDraft.RoomEvent(RoomEventPayload.MemberRemove(targetAccountId, successorAccountId)),
+        )
+        foldAndCommit(roomId, "publish")
+        // The fold just excluded the target from the ACTIVE fan-out — push the
+        // removal node to them directly so their client can flip its own row
+        // instead of going silently stale (docs/room events.md §6).
+        broadcast(roomId, listOf(node), courtesy = targetAccountId to node)
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.MESSAGE_APPENDED,
+            message = "Room MemberRemove published",
+            fields = mapOf("roomId" to roomId, "target" to targetAccountId),
+        )
+    }
+
+    override suspend fun publishAddAdmin(roomId: RoomId, targetAccountId: AccountId) {
+        val node = dagEngine.append(roomId, MessageDraft.RoomEvent(RoomEventPayload.AddAdmin(targetAccountId)))
+        foldAndCommit(roomId, "publish")
+        broadcast(roomId, listOf(node))
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.MESSAGE_APPENDED,
+            message = "Room AddAdmin published",
+            fields = mapOf("roomId" to roomId, "target" to targetAccountId),
+        )
+    }
+
+    override suspend fun publishRemoveAdmin(roomId: RoomId, targetAccountId: AccountId) {
+        val node = dagEngine.append(roomId, MessageDraft.RoomEvent(RoomEventPayload.RemoveAdmin(targetAccountId)))
+        foldAndCommit(roomId, "publish")
+        broadcast(roomId, listOf(node))
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.MESSAGE_APPENDED,
+            message = "Room RemoveAdmin published",
+            fields = mapOf("roomId" to roomId, "target" to targetAccountId),
+        )
+    }
+
+    /**
+     * Common fan-out: [nodes] to every ACTIVE member (the just-committed fold
+     * output — a newly added member is already in it), plus one targeted
+     * courtesy payload for the account that needs a head start. Unconditional
+     * and dedup-safe: a target that already holds the courtesy node no-ops it.
+     */
+    private suspend fun broadcast(
+        roomId: RoomId,
+        nodes: List<MessagePayload>,
+        courtesy: Pair<AccountId, MessagePayload>? = null,
+    ) {
+        val members = roomRepository.membersOfRoom(roomId)
+        coroutineScope {
+            val sends = ArrayList<Deferred<*>>(nodes.size * members.size + 1)
+            for (node in nodes) {
+                for (member in members) {
+                    sends.add(async { router.sendMessage(member, node) })
+                }
+            }
+            if (courtesy != null) {
+                sends.add(async { router.sendMessage(courtesy.first, courtesy.second) })
+            }
+            sends.awaitAll()
+        }
+        AppLog.debug(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+            message = "Room events broadcast to room members",
+            fields = mapOf("roomId" to roomId, "nodeCount" to nodes.size, "memberCount" to members.size),
+        )
+    }
+
+    /** The stored genesis node, for the MemberAdd courtesy leg (null pre-genesis). */
+    private suspend fun genesisPayloadOf(roomId: RoomId): MessagePayload.RoomEvent? {
+        // The self-certifying derivation admits exactly one genesis per room; the
+        // engine rejects forged shapes, so this is a lookup, not a competition.
+        for (row in messageRepository.findFoldableInRoom(roomId)) {
+            val payload = row.payload as? MessagePayload.RoomEvent ?: continue
+            if (payload.prevIds.isNotEmpty()) continue
+            val event = runCatching { payload.decodeEvent() }.getOrNull()
+            if (event is RoomEventPayload.RoomCreated) return payload
+        }
+        return null
     }
 
     private suspend fun mutexFor(roomId: RoomId): Mutex = mapMutex.withLock {
@@ -232,7 +372,18 @@ internal class DefaultRoomEventProjector(
             identityKeyRepository.getAccountRecord(accountId) != null
         }
         for ((accountId, member) in committed) {
-            roomRepository.addMember(roomId, accountId, member.role, member.status)
+            // The removal boundary rides the recompute: non-null exactly on
+            // REMOVED rows (every honored removal has a defining node).
+            if (member.status == RoomMemberStatus.REMOVED) {
+                check(member.removalNodeId != null) {
+                    "fold invariant violated: removed member $accountId in room $roomId without a removal node"
+                }
+            } else {
+                check(member.removalNodeId == null) {
+                    "fold invariant violated: active member $accountId in room $roomId carries a removal node"
+                }
+            }
+            roomRepository.upsertMember(roomId, accountId, member.role, member.status, member.removalNodeId)
         }
         roomRepository.removeRoomMembersNotIn(roomId, committed.keys)
         // Diff the committed projection (deferred rows excluded, so a landing row

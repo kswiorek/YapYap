@@ -547,7 +547,7 @@ internal class DefaultGlobalEventProjector(
         val prev = lastCommit
         if (prev == null && trigger == "boot") {
             for (accountId in output.accounts.keys) {
-                roomRepository.addMember(RoomId.GLOBAL, accountId, RoomMemberRole.MEMBER)
+                roomRepository.upsertMember(RoomId.GLOBAL, accountId, RoomMemberRole.MEMBER)
             }
             lastCommit = output
             AppLog.info(
@@ -569,7 +569,7 @@ internal class DefaultGlobalEventProjector(
             if (before == null) {
                 changes.add(IdentityStateChange.AccountAdded(accountId))
                 if (acc.isAdmin) changes.add(IdentityStateChange.AdminGranted(accountId))
-                roomRepository.addMember(RoomId.GLOBAL, accountId, RoomMemberRole.MEMBER)
+                roomRepository.upsertMember(RoomId.GLOBAL, accountId, RoomMemberRole.MEMBER)
             } else if (!before.isAdmin && acc.isAdmin) {
                 changes.add(IdentityStateChange.AdminGranted(accountId))
             } else if (before.isAdmin && !acc.isAdmin) {

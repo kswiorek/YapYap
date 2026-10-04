@@ -82,6 +82,7 @@ class DatabaseFactory(
                     statusAdapter = EnumColumnAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
+                    removal_node_idAdapter = UuidAdapter(),
                     joined_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 roomsAdapter = Rooms.Adapter(

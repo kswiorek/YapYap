@@ -47,7 +47,7 @@ class PersistenceContractsJvmTest {
 
         // ...and a later idempotent seed must NOT wipe membership.
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
-        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        repo.upsertMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
         repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
         assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
     }
@@ -60,11 +60,11 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
         repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
 
-        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        repo.upsertMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
         assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
 
         // Re-adding the same account is idempotent (INSERT OR REPLACE on the composite PK) — no duplicate rows.
-        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        repo.upsertMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
         assertEquals(listOf(FixtureAccountId), repo.membersOfRoom(RoomId.GLOBAL))
     }
 
@@ -76,7 +76,7 @@ class PersistenceContractsJvmTest {
         seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
         repo.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
 
-        repo.addMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
+        repo.upsertMember(RoomId.GLOBAL, FixtureAccountId, RoomMemberRole.MEMBER)
         assertEquals(listOf(RoomId.GLOBAL), repo.roomsOfPeer(FixtureDevicePeerId))
 
         repo.removeMember(RoomId.GLOBAL, FixtureAccountId)

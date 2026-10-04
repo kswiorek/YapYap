@@ -140,13 +140,18 @@ class FakeRoomRepository(
     private val members: Map<RoomId, List<AccountId>> = emptyMap(),
     private val devicesByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
 ) : RoomRepository {
-    private data class Cell(var role: RoomMemberRole, var status: RoomMemberStatus)
+    private data class Cell(
+        var role: RoomMemberRole,
+        var status: RoomMemberStatus,
+        var removalNodeId: Uuid? = null,
+    )
 
     private val cells: MutableMap<Pair<RoomId, AccountId>, Cell> =
         members.flatMap { (room, accounts) ->
             accounts.map { (room to it) to Cell(RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE) }
         }.toMap().toMutableMap()
     private val roomsFound = mutableSetOf<RoomId>()
+    private val roomCells = mutableMapOf<RoomId, RoomRecord>()
 
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         cells.filter { (key, cell) -> key.first == roomId && cell.status == RoomMemberStatus.ACTIVE }
@@ -154,7 +159,11 @@ class FakeRoomRepository(
 
     override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
         cells.filter { (key, _) -> key.first == roomId }
-            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status) }
+            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status, cell.removalNodeId) }
+
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
+        cells[roomId to accountId]
+            ?.let { RoomMemberRecord(accountId, it.role, it.status, it.removalNodeId) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> {
         // Mirror selectRoomsOfPeer: REMOVED rows never grant sync access.
@@ -174,16 +183,18 @@ class FakeRoomRepository(
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         roomsFound.add(roomId)
+        roomCells.getOrPut(roomId) { RoomRecord(roomId, null, type, name) }
     }
 
-    override suspend fun addMember(
+    override suspend fun upsertMember(
         roomId: RoomId,
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
+        removalNodeId: Uuid?,
     ) {
         // Mirror INSERT OR REPLACE (upsert, no duplicates).
-        cells[roomId to accountId] = Cell(role, status)
+        cells[roomId to accountId] = Cell(role, status, removalNodeId)
     }
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
@@ -194,8 +205,11 @@ class FakeRoomRepository(
     override suspend fun allChatRoomIds(): List<RoomId> =
         (cells.keys.map { it.first } + roomsFound).filter { it != RoomId.GLOBAL }.toSet().toList()
 
+    override suspend fun roomOf(roomId: RoomId): RoomRecord? = roomCells[roomId]
+
     override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) {
         roomsFound.add(roomId)
+        roomCells[roomId] = RoomRecord(roomId, spaceId, type, name)
     }
 
     override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) {
@@ -239,6 +253,7 @@ class FakeCausalHoldRepository(
 class FakeIdentityResolver(
     private val localAccountId: AccountId,
     private val localDeviceId: PeerId,
+    private val accountByDevice: Map<PeerId, AccountId> = emptyMap(),
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
@@ -252,7 +267,8 @@ class FakeIdentityResolver(
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
     override suspend fun getAllPeers(): List<PeerId> = error("not used")
-    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
+    override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
+        accountByDevice[deviceId]
     override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
     override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
     override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")

@@ -73,3 +73,37 @@ enum class CreateRoomRefusal {
     /** A member has no row in the identity tables yet. */
     UNKNOWN_MEMBER,
 }
+
+/** Outcome of the GUI-facing room membership publishes.
+ * Mirrors `org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome`. */
+sealed interface RoomEventOutcome {
+    /** Appended to the room DAG + folded + broadcast; local fold already committed. */
+    data object Published : RoomEventOutcome
+
+    /** Refused before any write — nothing appended, nothing broadcast. */
+    data class Refused(val reason: RoomEventRefusal) : RoomEventOutcome
+}
+
+sealed interface RoomEventRefusal {
+    /** No folded room row locally. */
+    data object RoomNotFound : RoomEventRefusal
+
+    /** Local account lacks admin authority per our own projection (incl. the revocation race). */
+    data object NotAdmin : RoomEventRefusal
+
+    /** The local or target account is not an ACTIVE member of the room. */
+    data object NotMember : RoomEventRefusal
+
+    /** Target has no row in the identity tables yet. */
+    data object UnknownMember : RoomEventRefusal
+
+    /** Malformed owner-handover shapes (§2 fail-closed): successor missing, not a
+     * member, or the leaver; or a successor on a non-owner leave. */
+    data object InvalidSuccessor : RoomEventRefusal
+
+    /** Admin op targeting the owner (irrevocable — the room's repair path). */
+    data object OwnerIrrevocable : RoomEventRefusal
+
+    /** Room frontier unchainable — still syncing. */
+    data object NotReady : RoomEventRefusal
+}

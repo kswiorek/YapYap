@@ -13,6 +13,16 @@ interface DagEngine {
      * @throws DagException.FrontierUnavailable when the chainable frontier is empty.
      */
     suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload
+
+    /**
+     * Sole genesis append path: mints the message id, derives the self-certifying
+     * room id from it (never supplied — derive-for-A-but-construct-with-B is
+     * unrepresentable), ensures the rooms row for the messages FK, signs, and
+     * stores the node VERIFIED + ancestry-complete.
+     *
+     * @throws DagException.RoomAlreadyExists if the derived room already holds messages.
+     */
+    suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent
     suspend fun ingest(payload: MessagePayload): IngestResult?
     suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload>
 

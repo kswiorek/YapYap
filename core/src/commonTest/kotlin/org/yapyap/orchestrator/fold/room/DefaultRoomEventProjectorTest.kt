@@ -18,13 +18,12 @@ import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomMemberRecord
+import org.yapyap.persistence.messaging.RoomRecord
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.Invite
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.RecoveryRequest
-import org.yapyap.protocol.envelopes.RoomEventPayload
+import org.yapyap.protocol.envelopes.*
+import org.yapyap.routing.router.*
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -32,6 +31,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 /**
@@ -50,7 +50,11 @@ private val RDevice = PeerId("rp-device")
 private fun roomCreated(name: String = "room", members: List<AccountId> = emptyList()) =
     RoomEventPayload.RoomCreated(members, name, RoomType.TEXT_CHANNEL, null)
 
-private data class MemberCell(var role: RoomMemberRole, var status: RoomMemberStatus)
+private data class MemberCell(
+    var role: RoomMemberRole,
+    var status: RoomMemberStatus,
+    var removalNodeId: Uuid? = null,
+)
 
 /** Precise in-memory [RoomRepository]: rooms + full member rows for assertions. */
 private class RecordingRoomRepository : RoomRepository {
@@ -66,7 +70,11 @@ private class RecordingRoomRepository : RoomRepository {
 
     override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
         members.filter { (key, _) -> key.first == roomId }
-            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status) }
+            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status, cell.removalNodeId) }
+
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
+        members[roomId to accountId]
+            ?.let { RoomMemberRecord(accountId, it.role, it.status, it.removalNodeId) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = error("not used")
 
@@ -74,13 +82,14 @@ private class RecordingRoomRepository : RoomRepository {
         rooms.getOrPut(roomId) { RoomCell(name, type, null) }
     }
 
-    override suspend fun addMember(
+    override suspend fun upsertMember(
         roomId: RoomId,
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
+        removalNodeId: Uuid?,
     ) {
-        members[roomId to accountId] = MemberCell(role, status)
+        members[roomId to accountId] = MemberCell(role, status, removalNodeId)
     }
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
@@ -89,6 +98,9 @@ private class RecordingRoomRepository : RoomRepository {
 
     override suspend fun allChatRoomIds(): List<RoomId> =
         rooms.keys.filter { it != RoomId.GLOBAL }
+
+    override suspend fun roomOf(roomId: RoomId): RoomRecord? =
+        rooms[roomId]?.let { RoomRecord(roomId, it.spaceId, it.type, it.name) }
 
     override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) {
         val cell = rooms.getOrPut(roomId) { RoomCell(name, type, null) }
@@ -111,6 +123,8 @@ private class FakeDagEngine : DagEngine {
     }
 
     override suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload = error("not used")
+
+    override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = error("not used")
     override suspend fun ingest(payload: MessagePayload): IngestResult? = error("not used")
     override suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload> = error("not used")
     override suspend fun getMessagesInRoom(
@@ -156,6 +170,40 @@ private class FakeGlobalEventProjector : GlobalEventProjector {
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = error("not used")
 }
 
+private class FakeRouter : Router {
+    val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
+    override val incomingMessages: Flow<MessagePayload> = MutableSharedFlow()
+    override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+    override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
+    override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
+
+    override suspend fun start() = Unit
+    override suspend fun stop() = Unit
+    override fun isRunning(): Boolean = true
+    override suspend fun announceOnline() = Unit
+    override suspend fun sendMessage(
+        target: AccountId,
+        payload: MessagePayload,
+        forceTransport: RouterTransport?,
+    ): SendMessageResult {
+        sent.add(target to payload)
+        return SendMessageResult(SendMessageStatus.SUCCESS, peersTotal = 1, peersQueued = 1, failureKind = null)
+    }
+
+    override suspend fun sendTypingIndicator(
+        targets: Collection<AccountId>,
+        roomId: RoomId,
+        interval: Duration,
+    ) = Unit
+
+    override suspend fun sendBootstrap(
+        payload: BootstrapPayload,
+        target: PeerId,
+        targetEndpoint: TorEndpoint?,
+        sharedSecret: ByteArray?,
+    ) = Unit
+}
+
 private class Harness {
     val messageRepo = FakeMessageRepository()
     val roomRepo = RecordingRoomRepository()
@@ -163,6 +211,7 @@ private class Harness {
     val pipeline = FakeInboundMessagePipeline()
     val dagEngine = FakeDagEngine()
     val globalProjector = FakeGlobalEventProjector()
+    val router = FakeRouter()
     val seen = mutableListOf<RoomStateChange>()
     val projector = DefaultRoomEventProjector(
         pipeline = pipeline,
@@ -171,6 +220,7 @@ private class Harness {
         messageRepository = messageRepo,
         roomRepository = roomRepo,
         identityKeyRepository = identityRepo,
+        router = router,
     )
     private var tick = 1000L
 
@@ -355,9 +405,10 @@ class DefaultRoomEventProjectorTest {
         h.triggerIngest(remove)
         runCurrent()
 
-        // Rows retained on removal: the REMOVED row is the badge source.
+        // Rows retained on removal: the REMOVED row is the badge source, and it
+        // carries the defining removal node (the removal boundary).
         assertEquals(
-            MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, remove.messageId),
             h.roomRepo.members[room to RMember],
         )
         assertEquals(1, h.seen.size)
@@ -377,7 +428,7 @@ class DefaultRoomEventProjectorTest {
         h.startIn(backgroundScope)
         runCurrent()
         assertEquals(
-            MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, remove.messageId),
             h.roomRepo.members[room to RMember],
         )
         h.seen.clear()
@@ -419,8 +470,9 @@ class DefaultRoomEventProjectorTest {
         runCurrent()
 
         // Never OWNER on a removed row; the successor is admin + owner atomically.
+        // The leaver's REMOVED row carries the handover node as its boundary.
         assertEquals(
-            MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED),
+            MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, handover.messageId),
             h.roomRepo.members[room to ROwner],
         )
         assertEquals(

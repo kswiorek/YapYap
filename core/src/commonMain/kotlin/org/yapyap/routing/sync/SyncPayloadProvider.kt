@@ -1,9 +1,11 @@
 package org.yapyap.routing.sync
 
 import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
@@ -20,21 +22,39 @@ class DefaultSyncPayloadProvider(
     private val messageRepository: MessageRepository,
     private val routerConfig: StateFlow<RouterConfig>,
     private val roomRepository: RoomRepository,
+    private val identityResolver: IdentityResolver,
 ) : SyncPayloadProvider {
 
     override suspend fun getMessages(syncRequest: SyncRequest, peerId: PeerId): List<MessagePayload> {
         val roomId = syncRequest.roomId
-        // Membership gate: only serve rooms the requester's account belongs to.
+        // Membership gate (docs/room events.md §5, narrowed to the removal boundary):
+        // ACTIVE members are served the room as today; REMOVED members are served
+        // only their member-era history (the ancestor closure of their defining
+        // removal node, removal event included — everything they legitimately
+        // held, nothing after); never-members get the generic NACK.
         // Denial returns empty so the caller emits the generic "no messages" NACK,
         // without revealing whether the room is empty or access was denied.
-        if (roomId !in roomRepository.roomsOfPeer(peerId)) {
+        val serveBound: Set<Uuid>? = if (roomId in roomRepository.roomsOfPeer(peerId)) {
+            null
+        } else {
+            val requester = identityResolver.getAccountIdForDevice(peerId)
+            val row = requester?.let { roomRepository.memberRowOf(roomId, it) }
+            if (row?.status != RoomMemberStatus.REMOVED || row.removalNodeId == null) {
+                AppLog.info(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.SYNC_NO_MESSAGES_FOUND,
+                    message = "No messages to sync for peer",
+                    fields = mapOf("peerId" to peerId, "roomId" to roomId),
+                )
+                return emptyList()
+            }
             AppLog.info(
                 component = LogComponent.ROUTER,
-                event = LogEvent.SYNC_NO_MESSAGES_FOUND,
-                message = "No messages to sync for peer",
+                event = LogEvent.SYNC_BOUNDED_SERVE,
+                message = "Serving removed member their member-era history only",
                 fields = mapOf("peerId" to peerId, "roomId" to roomId),
             )
-            return emptyList()
+            removalBound(row.removalNodeId)
         }
         // Page size is purely the responder's policy; the requester's retry loop
         // re-requests until every target arrives, so no per-request limit is needed.
@@ -65,10 +85,14 @@ class DefaultSyncPayloadProvider(
             if (id in knownIds) continue
             val row = messageRepository.findById(id) ?: continue
             if (row.payload.roomId != roomId) continue
-            collected[id] = row.payload
             for (parentId in row.payload.prevIds) {
                 if (visited.add(parentId)) queue.add(parentId)
             }
+            // Removal boundary: a REMOVED requester never sees post-removal
+            // content — collect only the closure of their removal node. Parents
+            // are still traversed (the boundary root is reached from above it).
+            if (serveBound != null && id !in serveBound) continue
+            collected[id] = row.payload
         }
 
         // Topological order over the parent edges present in the collected set (Kahn's
@@ -111,5 +135,25 @@ class DefaultSyncPayloadProvider(
                 .forEach { ordered += it }
         }
         return ordered
+    }
+
+    /**
+     * The serve bound for a REMOVED requester: the removal node plus its full
+     * ancestor closure (member-era history + the removal event itself). Walked
+     * locally over parent edges — deliberately not the fold/graph helpers, which
+     * live in the orchestrator layer and would invert the dependency.
+     */
+    private suspend fun removalBound(removalNodeId: Uuid): Set<Uuid> {
+        val bound = HashSet<Uuid>()
+        val queue = ArrayDeque<Uuid>()
+        bound.add(removalNodeId)
+        queue.add(removalNodeId)
+        while (queue.isNotEmpty()) {
+            val row = messageRepository.findById(queue.removeFirst()) ?: continue
+            for (parentId in row.payload.prevIds) {
+                if (bound.add(parentId)) queue.add(parentId)
+            }
+        }
+        return bound
     }
 }

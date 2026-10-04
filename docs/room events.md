@@ -318,20 +318,27 @@ room admins.
 
 - `room_members` = projection of the fold output, **with rows retained on removal**: a
   `status` column (`ACTIVE`/`REMOVED`) alongside the role (`OWNER`/`ADMIN`/`MEMBER`) —
-  removal is a status, not a role (§11). Schema change, freely doable (no live DBs). Every *access* reader filters
+  removal is a status, not a role (§11) — plus a `removal_node_id` column (nullable
+  UUID): the defining (last honored) `MemberRemove` node per REMOVED member, the removal
+  boundary for the bounded sync serve and the ping-contradiction re-push (§6 as built).
+  Null on ACTIVE rows and on GLOBAL rows (no room-DAG removal exists there).
+  Schema change, freely doable (no live DBs). Every *access* reader filters
   `ACTIVE` — the sprint-4 sync gate (`roomsOfPeer`), ping frontier
   snapshots, `DefaultMessagingService` fan-out, sync candidate resolution — so
-  `MemberRemove` still cuts sync access for free. The GUI member/flag queries read all
+  `MemberRemove` cuts sync access at the removal boundary: full serve for ACTIVE
+  members, member-era history plus the removal event itself for REMOVED members (the bounded serve, §6 as built),
+  generic NACK for never-members. The GUI member/flag queries read all
   rows (status is the badge/hide distinction, §3). The room fold is the sole writer of
-  chat rows; GLOBAL rows follow the same status semantics (`REMOVED` retained, never
+  chat rows (including the boundary column); GLOBAL rows follow the same status semantics (`REMOVED` retained, never
   deleted) with the global projector as their sole writer. Every access reader (`roomsOfPeer` first among them) filters
   `ACTIVE`, so removal cuts sync access from
   the first `REMOVED` row — including the GLOBAL projector's own tombstone path, whose
   callers' devices may still be ACTIVE.
 - Commit is a merge for the `rooms` row (name/type from genesis; preserve local-only fields if
   any appear) and a recompute for `room_members` (full recompute per commit — role +
-  status from the fold's shadow state; `joined_timestamp` is recomputable or dropped from
-  semantics). The provisional row minted by
+  status + removal node from the fold's shadow state; `joined_timestamp` is recomputable or dropped from
+  semantics; the commit asserts the boundary invariant, non-null exactly on REMOVED chat rows). The provisional row
+  minted by
   ingest-time `ensureRoomExists` (type `RoomType.UNKNOWN`, empty name — a local-only
   provisional marker, never on the wire: the `RoomCreated` codec rejects it, and the GUI
   filters `UNKNOWN` rooms until the genesis commit overwrites it) is merged via a targeted
@@ -453,7 +460,11 @@ rule that replaced items 2–3 above:
   ping accumulation re-lands it within one ping interval, with author
   candidates content-perfect in the interim. Its unique coverage is a
   ≤ one-interval window — observe first. Revisit trigger: continuation rows
-  idling on author NACK rounds during unknown-room history chases. If it lands,
+  idling on author NACK rounds during unknown-room history chases — plus the
+  removed-member gap case below (a stale removed side's orphan-minted rows carry
+  only the removal author as candidate; a long-unreachable author stalls its
+  convergence, and the re-push's forwarder is exactly the missing third evidence
+  source). If it lands,
   the shape is known and additive (resolve at the handler, `InboundMessage`
   through the pipeline, `forwarderAccountId` on the result — a third evidence
   source, nothing else moves).
@@ -510,6 +521,89 @@ worth the surface); fold-lag NACKs from members whose fold lags ours (narrow
 post-add window, self-heals via the mechanisms above — §6.4's "retry covers
 it" now names them: universal accumulation, accelerate-on-return for
 never-marked devices, re-open-on-ping for NACKed ones).
+
+### As built (8.7 + removal convergence) — deltas from §8 item 7
+
+Item 7 landed with one shape change and one scope addition (the removed-member
+dead zone, found while designing the courtesy push).
+
+- **Append path as built.** The prescribed `MessageDraft.RoomCreated` became a
+  dedicated engine method instead — `DagEngine.createRoom(RoomCreatedDraft)`:
+  `append(roomId, draft)` takes a roomId that is meaningless for a genesis, and
+  the `createGenesis` invariant ("the caller never supplies a roomId") argues
+  for the separate method. The engine mints the id, derives, `ensureRoomExists`
+  for the messages FK, stores VERIFIED + ancestry-complete, and refuses a
+  derived room that already holds messages (`RoomAlreadyExists` — defensive
+  second-genesis guard). `MessageDraft.RoomEvent` covers the four admin ops; a
+  smuggled `RoomCreated` is rejected as a programming error. The projector
+  publish mirrors `DefaultGlobalEventProjector.publish` exactly — append →
+  synchronous `foldAndCommit` → broadcast to the folded ACTIVE set (local
+  appends bypass `pipeline.ingestResults`, so the inline fold is load-bearing,
+  same reason as global). The fold's synchronous output is what makes the
+  single-path fan-out work: a just-added member is already ACTIVE in the
+  projection, a just-removed one already excluded. `DefaultRoomService`
+  implements the ops over it (`addMember`/`removeMember`/`grantAdmin`/
+  `revokeAdmin`/`leaveRoom(roomId, successor?)`) with the refusal taxonomy in
+  `RoomServiceTypes.kt`; unknown-member pre-checks double as the projection-
+  deferral guard for fan-out (a deferred row would miss the push). GUI exposure
+  stays last, as planned.
+- **Courtesy pushes (discovery + removal notice).** Two targeted sends outside
+  the common fan-out, both unconditional and dedup-safe: `MemberAdd` pushes the
+  stored genesis node to the target (they were never in the genesis list and
+  hold nothing — a head start, not completeness; the middle history still
+  rides frontier sync); `MemberRemove` pushes the removal node to the target (the fold just excluded them from the
+  ACTIVE fan-out, so without this they
+  would never hear at all). `createRoom` needs no courtesy leg — the common
+  broadcast to the genesis member list covers it.
+- **The removed-member dead zone (found, then closed).** A removed member's
+  device gets no push (out of the fan-out), no ping (members filter it out of
+  advertised frontiers), and no pull (gate NACK) — a stale device diverges
+  silently, including our own devices after a self-leave. The ping frontier
+  filter is recipient-based (`roomsOfPeer(recipient)`), so the stale device
+  keeps *sending* pings about the room to current members even though it never *receives* any — that outbound
+  advertisement is the beacon. Two changes use it:
+- **Shared-room ping filter.** `latestRoomFrontiers` advertises a room iff *both* sides are ACTIVE members
+  (`roomsOfPeer(recipient)` ∩ own rooms).
+  Independently the right semantics for a frontier advertisement; and it makes
+  the re-push below self-extinguishing — a converged device stops advertising
+  the room. GLOBAL unaffected (the local account is ACTIVE there).
+- **Ping-contradiction re-push (the mirror of the re-open hook).** A ping
+  advertising R from a device whose account is REMOVED in R per our fold is
+  D's assertion that its projection still tracks R as a live shared room —
+  contradicting our fold — so the removal node is re-delivered to that device (`RemovalRePusher`, routing layer per the
+  layering principle, device-
+  granular via `OutboundMessenger.sendMessageToPeer`, per- (device, room) 1h
+  backoff, dedup-safe, store-and-forward). The loop converges: re-push →
+  the node orphans at a behind target → sync rows mint with the removal author (an ACTIVE member) as candidate → the
+  bounded serve below fills the gap →
+  the node chains → the target's fold flips its own row → it drops the room
+  from its advertisements → re-pushes stop. Self-leave is symmetric with zero
+  extra machinery (our stale device pings our converged device; the gate
+  serves our own account the closure of our own self-removal). Re-add needs no
+  special case either: status flips ACTIVE, the contradiction stops firing,
+  and the device converges as an ordinary lagging member.
+- **Bounded serve (removal cuts at the boundary, not at the door).** The gate
+  is now a trichotomy: ACTIVE → full serve as today; REMOVED row → the
+  ancestor closure of the requester's latest removal node (member-era history
+  plus the removal event itself — everything they legitimately held, nothing
+  after); no row → generic NACK, unchanged. This is *required*, not optional:
+  the courtesy node orphans at a behind target, and the gap between its
+  frontier and the removal node's parents must be servable or the node sits
+  orphaned forever. No leak (never-member stays NACK; the removal target
+  learning of its own removal reveals nothing to strangers), and §5's "cuts
+  sync access" narrows accordingly. The bound is computed locally over parent
+  edges — the fold/graph helpers stay orchestrator-side, so routing does not
+  grow a cross-layer edge (same reason the boundary id lives in the projection
+  column rather than behind a provider interface, which would also have
+  created a projector↔router construction cycle).
+
+Residuals (accepted): gap-row candidates are author-only — the re-pushing
+member cannot mint the stale side's rows, so a long-unreachable removal author
+stalls convergence (the forwarder-as-candidate revisit trigger above, now
+concrete); true partitions (a device that never again exchanges a ping with
+any room member) stay stale — same class as any partition residual, self-heals
+on first contact; multiple folded members may re-push simultaneously (dedup
+absorbs it, backoff bounds the drip).
 
 ## 7. The unsolicited-messages check — dropped
 
@@ -584,8 +678,13 @@ comment. No extraction in prep — global first, `fold/graph/` stays deferred:
    `reopenAttemptedPeerForRoom` on `PendingSyncRepository` (the last with the
    inertness gate); `refreshCandidatesFor` + projector collectors + boot sweep;
    exponential backoff on the null-device path (the prune TODO, decided).
-7. **Append path**: `MessageDraft.RoomCreated` (engine derives `roomId` from the minted
-   genesis `messageId`), `MemberAdd`/`MemberRemove`/`AddAdmin`/`RemoveAdmin` appends via the
+7. **Append path** — landed; see §6 as built (8.7 + removal convergence). Deltas from
+   the plan as written here: the prescribed `MessageDraft.RoomCreated` became
+   `DagEngine.createRoom(RoomCreatedDraft)` (dedicated engine method — the roomId
+   parameter of `append` is meaningless for a genesis); plus the courtesy pushes,
+   the bounded serve, the re-push hook and the shared-room ping filter, which
+   were found while designing the removal notice. `MemberAdd`/`MemberRemove`/
+   `AddAdmin`/`RemoveAdmin` appends via the
    room-event projector's publish path (mirroring `DefaultGlobalEventProjector.publish`);
    `RoomService` membership ops (`addMember`/`removeMember`/`grantAdmin`/`revokeAdmin`/
    `leaveRoom`), outcomes + refusals in `RoomServiceTypes.kt` mirroring `GlobalEventOutcome`.
@@ -632,9 +731,12 @@ discipline) plus room-specific cases:
 - removed member: post-removal and *backdated-as-pre-removal* messages → `VERIFIED` +
   `REMOVED`-row badge (indistinguishable-by-design, tested as such); never-member author
   → `VERIFIED` + no row → hidden by default (negative test: never rendered as normal);
-- projection: removed members keep `REMOVED` rows (badge source); access readers (`roomsOfPeer`, fan-out) filter
-  `ACTIVE` — `MemberRemove` cuts sync: removed account's
-  sync request → generic NACK, no oracle; re-add → `ACTIVE` again;
+- projection: removed members keep `REMOVED` rows (badge source) carrying the defining
+  removal node (the removal boundary — re-add clears it, a second removal overwrites it);
+  access readers (`roomsOfPeer`, fan-out) filter
+  `ACTIVE` — `MemberRemove` cuts sync at the boundary, not at the door: removed account's
+  sync request → member-era history plus the removal event itself, nothing after (no oracle for never-members — still
+  generic NACK); re-add → `ACTIVE` again;
 - deferred rows: room folded with an unknown-account member → no `room_members` row;
   `AccountAdded` → re-fold → row lands; `roomsOfPeer` never matches an account before its
   devices exist;
@@ -654,6 +756,20 @@ discipline) plus room-specific cases:
   row + `AccountAdded` → refreshed; ping from a NACKed device re-opens it on
   inert rows only (mid-round ping re-opens nothing — rotation preserved;
   re-open is room- and device-scoped); all-NACK row backs off exponentially (30s, 60s, …, 1h cap);
+  ping advertising a room the sender's account was removed from → removal node
+  re-pushed to that device (backoff-bounded, dedup-safe; silent once converged);
+  shared-room ping filter: a converged removed member advertises nothing about the
+  room (no rows minted from its frontiers, no re-push triggered); stale devices
+  converge independently — each device's own pings trigger its own re-push,
+  including our own devices after a self-leave;
+- append path: `createRoom` publishes the genesis (derived id, creator OWNER,
+  broadcast to the genesis list); `MemberAdd` broadcasts plus the genesis courtesy
+  to the target (unconditional — re-add dedups); `MemberRemove` broadcasts plus
+  the removal courtesy to the target; non-admin op → local refusal, and
+  published-and-ignored (stored `VERIFIED`, no shadow effect, no row — negative
+  test); owner handover via `leaveRoom(successor)` end-to-end (atomic OWNER
+  transfer; bad shapes refused); engine: genesis into a room that holds messages
+  refused, `RoomCreated` via `append` rejected as a programming error;
 - onboarding unaffected: GLOBAL exempt from the room fold; sponsor fold-lag → NACK → retry
   converges (regression from the sprint-4 analysis).
 

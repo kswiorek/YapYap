@@ -30,11 +30,17 @@ data class RoomFoldNode(
  */
 internal data class RoomGenesisInfo(val nodeId: Uuid, val ownerAccountId: AccountId)
 
-/** Chain-derived member projection. Removal is a status, never a role. */
+/**
+ * Chain-derived member projection. Removal is a status, never a role.
+ * [removalNodeId] is the defining (last honored) `MemberRemove` node — the
+ * removal boundary for the bounded sync serve and the ping-contradiction
+ * re-push; null while ACTIVE (re-add clears it).
+ */
 internal data class FoldRoomMember(
     val accountId: AccountId,
     val role: RoomMemberRole,
     val status: RoomMemberStatus,
+    val removalNodeId: Uuid? = null,
 )
 
 /**
@@ -227,9 +233,9 @@ internal fun replayRoomFold(
                         continue
                     }
                     members[author] =
-                        FoldRoomMember(author, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED)
+                        FoldRoomMember(author, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, id)
                     mintSeal(author, id)
-                    members[successor] = successorMember.copy(role = RoomMemberRole.OWNER)
+                    members[successor] = successorMember.copy(role = RoomMemberRole.OWNER, removalNodeId = null)
                     owner = successor
                 } else {
                     // The successor field is owner-only: any other `MemberRemove` carrying
@@ -245,7 +251,7 @@ internal fun replayRoomFold(
                     // role — admin-ness is meaningless while removed, and the projection
                     // never shows OWNER on a removed row.
                     members[target] =
-                        FoldRoomMember(target, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED)
+                        FoldRoomMember(target, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, id)
                     mintSeal(target, id)
                 }
             }

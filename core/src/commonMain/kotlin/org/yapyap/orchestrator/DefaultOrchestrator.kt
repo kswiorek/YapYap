@@ -215,7 +215,7 @@ class DefaultOrchestrator(
                 _state.value = OrchestratorState.Starting
                 init()
                 onboardingProvider.cancelOnboarding()
-                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
+                roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 _state.value = OrchestratorState.Running
 
                 // Genesis: append AddAccount (DAG root, prevId == null — admin by definition, §3)
@@ -255,7 +255,7 @@ class DefaultOrchestrator(
                 _state.value = OrchestratorState.Starting
                 init()
                 onboardingProvider.cancelOnboarding()
-                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
+                roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
@@ -297,7 +297,7 @@ class DefaultOrchestrator(
                 _state.value = OrchestratorState.Starting
                 init()
                 onboardingProvider.cancelOnboarding()
-                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
+                roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
@@ -340,7 +340,7 @@ class DefaultOrchestrator(
                 _state.value = OrchestratorState.Starting
                 init()
                 onboardingProvider.cancelOnboarding()
-                roomRepository.addMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
+                roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
@@ -420,9 +420,14 @@ class DefaultOrchestrator(
         // consult rooms + room_members. Seed idempotently.
         roomRepository.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
 
-        val syncPayloadProvider = DefaultSyncPayloadProvider(messageRepo, configStore.routerConfig, roomRepository)
+        val syncPayloadProvider = DefaultSyncPayloadProvider(
+            messageRepo,
+            configStore.routerConfig,
+            roomRepository,
+            identityResolver,
+        )
 
-        val frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepo)
+        val frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepo, localDeviceId)
 
         val peerAvailabilityStore = DefaultPeerAvailabilityStore(database)
 
@@ -450,6 +455,8 @@ class DefaultOrchestrator(
             peerAvailabilityStore = peerAvailabilityStore,
             bootstrapSessionStore = bootstrapSessionStore,
             identityKeyRepository = identityRepo,
+            roomRepository = roomRepository,
+            messageRepository = messageRepo,
         )
 
         router.start()
@@ -503,6 +510,7 @@ class DefaultOrchestrator(
             messageRepository = messageRepo,
             roomRepository = roomRepository,
             identityKeyRepository = identityRepo,
+            router = router,
         )
         roomEventProjector.start(orchestratorScope)
 
@@ -615,6 +623,8 @@ class DefaultOrchestrator(
                 identityKeyRepository = identityRepo,
                 cryptoProvider = cryptoProvider,
                 globalEventProjector = projector,
+                roomEventProjector = roomEventProjector,
+                roomRepository = roomRepository,
                 localDeviceType = bootConfig.localDeviceType,
             )
             orchestratorRuntime.start(orchestratorScope)

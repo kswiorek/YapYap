@@ -4,12 +4,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
+import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -31,7 +35,12 @@ class DefaultSyncPayloadProviderTest {
         mapOf(roomId to listOf(remoteAccount)),
         mapOf(remoteAccount to listOf(remoteDevice)),
     )
-    private val provider = DefaultSyncPayloadProvider(messageRepo, config, roomRepo)
+    private val identityResolver = FakeIdentityResolver(
+        localAccountId = AccountId("gate-local-account"),
+        localDeviceId = PeerId("gate-local-device"),
+        accountByDevice = mapOf(remoteDevice to remoteAccount),
+    )
+    private val provider = DefaultSyncPayloadProvider(messageRepo, config, roomRepo, identityResolver)
 
     private var tick = 0L
 
@@ -183,6 +192,7 @@ class DefaultSyncPayloadProviderTest {
             messageRepo,
             MutableStateFlow(RouterConfig(syncMaxMessages = 2)),
             roomRepo,
+            identityResolver,
         )
         val result = limitedProvider.getMessages(
             syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()),
@@ -207,16 +217,49 @@ class DefaultSyncPayloadProviderTest {
     }
 
     @Test
-    fun removedMember_returnsEmptyList() = runTest {
+    fun removedMember_servedOnlyUpToRemoval() = runTest {
         val m0 = textMsg(prevIds = emptyList())
-        seed(m0)
-        roomRepo.removeMember(roomId, remoteAccount)
-
-        val result = provider.getMessages(
-            syncRequest(missingIds = listOf(m0.messageId), knownIds = emptyList()),
-            remoteDevice
+        val m1 = textMsg(prevIds = listOf(m0.messageId))
+        seed(m0); seed(m1)
+        // Member-era removal node, then post-removal content the requester must never see.
+        val removal = removalMsg(prevIds = listOf(m1.messageId))
+        messageRepo.insert(
+            removal,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.VERIFIED,
+        )
+        val m2 = textMsg(prevIds = listOf(removal.messageId))
+        seed(m2)
+        roomRepo.upsertMember(
+            roomId,
+            remoteAccount,
+            RoomMemberRole.MEMBER,
+            RoomMemberStatus.REMOVED,
+            removal.messageId,
         )
 
-        assertTrue(result.isEmpty())
+        val result = provider.getMessages(
+            syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()),
+            remoteDevice,
+        )
+
+        // The removal event itself plus member-era history serve; post-removal content does not.
+        assertEquals(
+            setOf(m0.messageId, m1.messageId, removal.messageId),
+            result.map { it.messageId }.toSet(),
+        )
     }
+
+    private fun removalMsg(prevIds: List<Uuid>): MessagePayload.RoomEvent =
+        MessagePayload.RoomEvent(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = remoteAccount,
+            authorDeviceId = remoteDevice,
+            authorSignature = byteArrayOf(1),
+            prevIds = prevIds,
+            createdAt = epochSeconds(tick++),
+            eventBytes = RoomEventPayload.MemberRemove(remoteAccount, null).encode(),
+        )
 }

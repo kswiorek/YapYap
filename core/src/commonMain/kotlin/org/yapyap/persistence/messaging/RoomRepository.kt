@@ -14,12 +14,27 @@ import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
+import kotlin.uuid.Uuid
 
 /** One committed `room_members` row: the fold's member-at-some-point record. */
 data class RoomMemberRecord(
     val accountId: AccountId,
     val role: RoomMemberRole,
     val status: RoomMemberStatus,
+    /**
+     * Defining `MemberRemove` node when [status] is REMOVED (the removal boundary:
+     * bounded sync serve + ping-contradiction re-push). Null on ACTIVE rows and on
+     * GLOBAL rows (no room-DAG removal exists there).
+     */
+    val removalNodeId: Uuid? = null,
+)
+
+/** One `rooms` row: genesis-merged display state (provisional UNKNOWN until the fold commits). */
+data class RoomRecord(
+    val roomId: RoomId,
+    val spaceId: String?,
+    val type: RoomType,
+    val name: String,
 )
 
 interface RoomRepository {
@@ -38,14 +53,29 @@ interface RoomRepository {
      */
     suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord>
 
+    /**
+     * The fold-committed row for [accountId] in [roomId], or null (never-member at
+     * fold position, or not yet folded). The REMOVED leg of the sync-gate
+     * trichotomy and the ping-contradiction re-push read this.
+     */
+    suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord?
+
     /** Rooms [peerId]'s account belongs to (drives which rooms we exchange frontiers about). */
     suspend fun roomsOfPeer(peerId: PeerId): List<RoomId>
     suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String)
-    suspend fun addMember(
+
+    /**
+     * The fold recompute's row writer (docs/room events.md §5): upserts one
+     * fold-output member row — ACTIVE or REMOVED alike (rows are retained on
+     * removal). [removalNodeId] is the defining `MemberRemove` node, non-null
+     * exactly on chat REMOVED rows; GLOBAL rows always pass null.
+     */
+    suspend fun upsertMember(
         roomId: RoomId,
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus = RoomMemberStatus.ACTIVE,
+        removalNodeId: Uuid? = null,
     )
 
     /**
@@ -57,6 +87,9 @@ interface RoomRepository {
 
     /** Chat room ids (GLOBAL excluded) — the room projector's boot + GLOBAL-commit sweep. */
     suspend fun allChatRoomIds(): List<RoomId>
+
+    /** The `rooms` row, or null when the room is unknown locally. */
+    suspend fun roomOf(roomId: RoomId): RoomRecord?
 
     /**
      * Genesis merge for the `rooms` row (docs/room events.md §5): targeted update of
@@ -99,7 +132,14 @@ class DefaultRoomRepository(
         withContext(dbDispatcher) {
             database.roomQueries.selectMemberStatusesForRoom(roomId)
                 .executeAsList()
-                .map { RoomMemberRecord(it.account_id, it.role, it.status) }
+                .map { RoomMemberRecord(it.account_id, it.role, it.status, it.removal_node_id) }
+        }
+
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
+        withContext(dbDispatcher) {
+            database.roomQueries.selectMemberRow(roomId, accountId)
+                .executeAsOneOrNull()
+                ?.let { RoomMemberRecord(it.account_id, it.role, it.status, it.removal_node_id) }
         }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> =
@@ -123,22 +163,24 @@ class DefaultRoomRepository(
         }
     }
 
-    override suspend fun addMember(
+    override suspend fun upsertMember(
         roomId: RoomId,
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
+        removalNodeId: Uuid?,
     ) {
         withContext(dbDispatcher) {
-            database.roomQueries.insertRoomMember(roomId, accountId, role, status, Clock.System.now())
+            database.roomQueries.insertRoomMember(roomId, accountId, role, status, removalNodeId, Clock.System.now())
             AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.ROOM_MEMBERS_QUERIED,
-                message = "Added room member",
+                message = "Upserted room member",
                 fields = mapOf(
                     "roomId" to roomId,
                     "accountId" to accountId,
                     "role" to role,
+                    "status" to status,
                 ),
             )
         }
@@ -162,6 +204,13 @@ class DefaultRoomRepository(
     override suspend fun allChatRoomIds(): List<RoomId> =
         withContext(dbDispatcher) {
             database.roomQueries.selectAllChatRoomIds(RoomId.GLOBAL).executeAsList()
+        }
+
+    override suspend fun roomOf(roomId: RoomId): RoomRecord? =
+        withContext(dbDispatcher) {
+            database.roomQueries.selectRoomById(roomId)
+                .executeAsOneOrNull()
+                ?.let { RoomRecord(it.room_id, it.space_id, it.type, it.name) }
         }
 
     override suspend fun mergeRoomFromGenesis(

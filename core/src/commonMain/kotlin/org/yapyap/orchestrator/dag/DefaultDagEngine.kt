@@ -114,6 +114,22 @@ class DefaultDagEngine(
                 createdAt = createdAt,
                 eventBytes = draft.event.encode(),
             )
+
+            is MessageDraft.RoomEvent -> {
+                // Genesis has its own path (the roomId is derived, not supplied).
+                require(draft.event !is RoomEventPayload.RoomCreated) {
+                    "RoomCreated must be appended via createRoom, never append"
+                }
+                MessagePayload.RoomEvent(
+                    messageId = messageId,
+                    roomId = roomId,
+                    senderAccountId = senderAccountId,
+                    authorDeviceId = authorDeviceId,
+                    prevIds = prevIds,
+                    createdAt = createdAt,
+                    eventBytes = draft.event.encode(),
+                )
+            }
         }
 
         // Get the bytes to sign (without the signature field)
@@ -147,6 +163,65 @@ class DefaultDagEngine(
             )
         }
 
+        payload
+    }
+
+    override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = mutex.withLock {
+        val senderAccountId = identityResolver.getLocalAccountId()
+        val authorDeviceId = identityResolver.getLocalDeviceId()
+        val createdAt = clock.now()
+        val messageId = Uuid.random()
+        // Deterministic member order for canonical encoding.
+        val event = RoomEventPayload.RoomCreated(
+            initialMemberIds = draft.memberAccountIds.sortedBy { it.id },
+            roomName = draft.roomName,
+            roomType = draft.roomType,
+            spaceId = draft.spaceId,
+        )
+        val unsignedPayload = MessagePayload.RoomEvent.createGenesis(
+            crypto = cryptoProvider,
+            genesisMessageId = messageId,
+            senderAccountId = senderAccountId,
+            authorDeviceId = authorDeviceId,
+            createdAt = createdAt,
+            event = event,
+        )
+        val roomId = unsignedPayload.roomId
+        if (messageRepository.hasMessages(roomId)) {
+            AppLog.warn(
+                component = LogComponent.DAG,
+                event = LogEvent.APPEND_REFUSED,
+                message = "Room creation refused — derived room already holds messages (second genesis)",
+                fields = mapOf("roomId" to roomId),
+            )
+            throw DagException.RoomAlreadyExists(roomId)
+        }
+        // The rooms row must exist before the message insert (messages.room_id FK).
+        roomRepository.ensureRoomExists(roomId, draft.roomType, draft.roomName)
+        val payload = unsignedPayload.withSignature(
+            signatureProvider.sign(unsignedPayload.encodeForAuthorSigning()),
+        )
+        val inserted = messageRepository.insert(
+            payload,
+            isOrphaned = false,
+            ancestryComplete = true,
+            VerificationState.VERIFIED,
+        )
+        if (!inserted) {
+            AppLog.warn(
+                component = LogComponent.DAG,
+                event = LogEvent.MESSAGE_INSERT_CONFLICT,
+                message = "Room genesis insert ignored — duplicate message_id",
+                fields = mapOf("messageId" to messageId, "roomId" to roomId),
+            )
+        } else {
+            AppLog.debug(
+                component = LogComponent.DAG,
+                event = LogEvent.MESSAGE_APPENDED,
+                message = "Room genesis appended",
+                fields = mapOf("messageId" to messageId, "roomId" to roomId),
+            )
+        }
         payload
     }
 

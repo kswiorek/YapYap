@@ -675,20 +675,26 @@ private class FakeRoomRepository(
         }
     }
 
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
+        statuses[roomId to accountId]?.let { RoomMemberRecord(accountId, RoomMemberRole.MEMBER, it) }
+
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = members.keys.toList()
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = Unit
 
-    override suspend fun addMember(
+    override suspend fun upsertMember(
         roomId: RoomId,
         accountId: AccountId,
         role: RoomMemberRole,
         status: RoomMemberStatus,
+        removalNodeId: Uuid?,
     ) = Unit
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = Unit
 
     override suspend fun allChatRoomIds(): List<RoomId> = members.keys.toList()
+
+    override suspend fun roomOf(roomId: RoomId): RoomRecord? = null
 
     override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) = Unit
 

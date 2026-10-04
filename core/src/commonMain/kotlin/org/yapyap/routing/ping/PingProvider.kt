@@ -23,6 +23,7 @@ internal class PingProvider(
     private val systemSender: SystemSender,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
     private val pendingSyncs: PendingSyncRepository,
+    private val removalRePusher: RemovalRePusher,
 ) {
     private var pingLoopJob: Job? = null
 
@@ -87,10 +88,13 @@ internal class PingProvider(
      * duplicated ping cannot start an echo loop.
      *
      * The peer id never leaves the routing layer: [pingPayloads] carries the
-     * sender's account (null when the device is unknown), and the one
-     * device-granular pending-sync op — re-opening this device on the pinged
-     * rooms' inert rows (its ping contradicts its own gate-NACK, docs/room
-     * events.md §6) — runs here against the repository directly.
+     * sender's account (null when the device is unknown), and the two
+     * device-granular pending-sync ops run here against the repositories
+     * directly — re-opening this device on the pinged rooms' inert rows (its
+     * ping contradicts its own gate-NACK, docs/room events.md §6), and
+     * re-pushing a removal node when the ping advertises a room our fold says
+     * the sender was removed from (its projection still tracks the room, so it
+     * never saw the removal).
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
         val senderAccount = ctx.identityResolver.getAccountIdForDevice(peerId)
@@ -102,6 +106,9 @@ internal class PingProvider(
                 roomId = roomId,
                 localDeviceId = ctx.localDeviceId,
             )
+            if (senderAccount != null) {
+                removalRePusher.rePushRemoval(peerId, roomId, senderAccount)
+            }
         }
 
         if (!ping.isReply) {
