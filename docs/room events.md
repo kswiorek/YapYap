@@ -339,9 +339,10 @@ room admins.
   status + removal node from the fold's shadow state; `joined_timestamp` is recomputable or dropped from
   semantics; the commit asserts the boundary invariant, non-null exactly on REMOVED chat rows). The provisional row
   minted by
-  ingest-time `ensureRoomExists` (type `RoomType.UNKNOWN`, empty name — a local-only
-  provisional marker, never on the wire: the `RoomCreated` codec rejects it, and the GUI
-  filters `UNKNOWN` rooms until the genesis commit overwrites it) is merged via a targeted
+   ingest-time `ensureRoomExists` (type `RoomType.UNKNOWN`, empty name — a local-only
+   provisional marker, never on the wire: the `RoomCreated` codec rejects the type, and
+   `RoomService` filters `UNKNOWN` rooms from the GUI-facing room list until the
+   genesis commit overwrites it) is merged via a targeted
   update — not `INSERT OR REPLACE`, which would clobber local-only columns. `space_id` is
   genesis-declared: a non-null `RoomCreated.spaceId` writes the column (deferred until the
   space row exists, like unknown-account member rows); a null one preserves any local value.

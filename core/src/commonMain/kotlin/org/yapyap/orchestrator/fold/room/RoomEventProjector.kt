@@ -115,11 +115,11 @@ internal class DefaultRoomEventProjector(
 
     override fun start(scope: CoroutineScope) {
         this.scope = scope
+        if (collectJob?.isActive == true) return
         // Boot fold: sweep all chat rooms (idempotent full re-fold per room).
         scope.launch {
             for (roomId in roomRepository.allChatRoomIds()) foldAndCommit(roomId, "boot")
         }
-        if (collectJob?.isActive == true) return
         collectJob = scope.launch {
             launch {
                 // Room insert (orphan creation included) and gap closure: the closing
@@ -388,7 +388,7 @@ internal class DefaultRoomEventProjector(
         roomRepository.removeRoomMembersNotIn(roomId, committed.keys)
         // Diff the committed projection (deferred rows excluded, so a landing row
         // always reads as new) against the last commit.
-        val prev = lastCommits[roomId]?.members
+        val prev = mapMutex.withLock { lastCommits[roomId]?.members }
         val changes = ArrayList<RoomStateChange>()
         if (prev == null) {
             // Baseline: silent except the room itself (the GUI filters UNKNOWN rooms
@@ -423,7 +423,7 @@ internal class DefaultRoomEventProjector(
                 }
             }
         }
-        lastCommits[roomId] = output.copy(members = committed)
+        mapMutex.withLock { lastCommits[roomId] = output.copy(members = committed) }
         for (change in changes) _stateChanges.emit(change)
         AppLog.info(
             component = LogComponent.ORCHESTRATOR,

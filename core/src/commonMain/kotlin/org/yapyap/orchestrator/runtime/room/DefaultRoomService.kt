@@ -36,8 +36,8 @@ internal class DefaultRoomService(
     private val identityResolver: IdentityResolver,
 ) : RoomService {
 
-    private val _rooms = MutableStateFlow<List<RoomSummary>>(emptyList())
-    override val rooms: StateFlow<List<RoomSummary>> = _rooms.asStateFlow()
+    private val _rooms = MutableStateFlow<List<RoomDetails>>(emptyList())
+    override val rooms: StateFlow<List<RoomDetails>> = _rooms.asStateFlow()
 
     private var collectJob: Job? = null
 
@@ -56,16 +56,17 @@ internal class DefaultRoomService(
 
     private suspend fun refreshRooms() {
         _rooms.value = roomRepository.allChatRoomIds().mapNotNull { roomId ->
-            val record = roomRepository.roomOf(roomId) ?: return@mapNotNull null
-            RoomSummary(roomId, record.name, record.type, roomRepository.membersOfRoom(roomId))
+            detailsOf(roomId)?.takeIf { it.type != RoomType.UNKNOWN }
         }
     }
 
-    override suspend fun room(roomId: RoomId): RoomDetails? {
+    override suspend fun room(roomId: RoomId): RoomDetails? = detailsOf(roomId)
+
+    private suspend fun detailsOf(roomId: RoomId): RoomDetails? {
         val record = roomRepository.roomOf(roomId) ?: return null
         val members = roomRepository.memberStatusesOfRoom(roomId)
             .map { RoomMemberView(it.accountId, it.role, it.status) }
-        return RoomDetails(roomId, record.name, members)
+        return RoomDetails(roomId, record.name, record.type, members)
     }
 
     override suspend fun createRoom(name: String?, members: Set<AccountId>): CreateRoomResult {
@@ -77,13 +78,16 @@ internal class DefaultRoomService(
                 return CreateRoomResult.Refused(CreateRoomRefusal.UNKNOWN_MEMBER)
             }
         }
-        val roomName = name?.takeIf { it.isNotBlank() } ?: fallbackRoomName(full - local)
+        val roomName = name?.trim().orEmpty()
         val roomId = projector.publishRoomCreated(RoomCreatedDraft(full, roomName, RoomType.TEXT_CHANNEL))
         refreshRooms()
         return CreateRoomResult.Created(roomId)
     }
 
     override suspend fun addMember(roomId: RoomId, target: AccountId): RoomEventOutcome {
+        if (roomRepository.roomOf(roomId) == null) {
+            return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
+        }
         checkAdmin(roomId)?.let { return it }
         if (identityKeyRepository.getAccountRecord(target) == null) {
             return RoomEventOutcome.Refused(RoomEventRefusal.UnknownMember)
@@ -91,8 +95,7 @@ internal class DefaultRoomService(
         return publish { projector.publishMemberAdd(roomId, target) }
     }
 
-    override suspend fun removeMember(roomId: RoomId, target: AccountId): RoomEventOutcome {
-        checkAdmin(roomId)?.let { return it }
+    private suspend fun verifyAccount(roomId: RoomId, target: AccountId): RoomEventOutcome? {
         val targetRow = roomRepository.memberRowOf(roomId, target)
         if (targetRow?.status != RoomMemberStatus.ACTIVE) {
             return RoomEventOutcome.Refused(RoomEventRefusal.NotMember)
@@ -100,30 +103,33 @@ internal class DefaultRoomService(
         if (targetRow.role == RoomMemberRole.OWNER) {
             return RoomEventOutcome.Refused(RoomEventRefusal.OwnerIrrevocable)
         }
+        return null
+    }
+
+    override suspend fun removeMember(roomId: RoomId, target: AccountId): RoomEventOutcome {
+        if (roomRepository.roomOf(roomId) == null) {
+            return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
+        }
+        checkAdmin(roomId)?.let { return it }
+        verifyAccount(roomId, target)?.let { return it }
         return publish { projector.publishMemberRemove(roomId, target) }
     }
 
     override suspend fun grantAdmin(roomId: RoomId, target: AccountId): RoomEventOutcome {
+        if (roomRepository.roomOf(roomId) == null) {
+            return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
+        }
         checkAdmin(roomId)?.let { return it }
-        val targetRow = roomRepository.memberRowOf(roomId, target)
-        if (targetRow?.status != RoomMemberStatus.ACTIVE) {
-            return RoomEventOutcome.Refused(RoomEventRefusal.NotMember)
-        }
-        if (targetRow.role == RoomMemberRole.OWNER) {
-            return RoomEventOutcome.Refused(RoomEventRefusal.OwnerIrrevocable)
-        }
+        verifyAccount(roomId, target)?.let { return it }
         return publish { projector.publishAddAdmin(roomId, target) }
     }
 
     override suspend fun revokeAdmin(roomId: RoomId, target: AccountId): RoomEventOutcome {
+        if (roomRepository.roomOf(roomId) == null) {
+            return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
+        }
         checkAdmin(roomId)?.let { return it }
-        val targetRow = roomRepository.memberRowOf(roomId, target)
-        if (targetRow?.status != RoomMemberStatus.ACTIVE) {
-            return RoomEventOutcome.Refused(RoomEventRefusal.NotMember)
-        }
-        if (targetRow.role == RoomMemberRole.OWNER) {
-            return RoomEventOutcome.Refused(RoomEventRefusal.OwnerIrrevocable)
-        }
+        verifyAccount(roomId, target)?.let { return it }
         return publish { projector.publishRemoveAdmin(roomId, target) }
     }
 
@@ -159,9 +165,6 @@ internal class DefaultRoomService(
 
     /** Admin-gated pre-check: room known, local ACTIVE, local admin-or-owner. */
     private suspend fun checkAdmin(roomId: RoomId): RoomEventOutcome? {
-        if (roomRepository.roomOf(roomId) == null) {
-            return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
-        }
         val local = localActiveRow(roomId)
             ?: return RoomEventOutcome.Refused(RoomEventRefusal.NotMember)
         if (local.role != RoomMemberRole.ADMIN && local.role != RoomMemberRole.OWNER) {
@@ -189,14 +192,5 @@ internal class DefaultRoomService(
             )
             RoomEventOutcome.Refused(RoomEventRefusal.NotReady)
         }
-    }
-
-    /** Genesis names must be non-blank on the wire; the GUI synthesizes display
-     * titles for user-named rooms, so this fallback only fills the codec slot. */
-    private suspend fun fallbackRoomName(others: Set<AccountId>): String {
-        val names = others.mapNotNull { identityKeyRepository.getAccountRecord(it)?.displayName }
-            .filter { it.isNotBlank() }
-            .sorted()
-        return names.joinToString().takeIf { it.isNotBlank() } ?: "Untitled room"
     }
 }

@@ -26,7 +26,6 @@ import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
-import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.routing.router.Router
 import kotlin.time.Clock
@@ -90,7 +89,7 @@ internal class DefaultOrchestratorRuntime(
             dagEngine = dagEngine,
             router = router,
             pipeline = pipeline,
-            roomRepository = DefaultRoomRepository(database),
+            roomRepository = roomRepository,
             identityResolver = identityResolver,
             clock = Clock.System,
             messageLimits = messageLimits,

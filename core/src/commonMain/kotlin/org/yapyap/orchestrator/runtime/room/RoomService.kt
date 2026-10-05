@@ -12,11 +12,12 @@ import org.yapyap.orchestrator.dag.RoomId
  */
 interface RoomService {
     /**
-     * Rooms the local account belongs to (GLOBAL excluded). Projection order —
+     * Rooms the local account belongs to (GLOBAL excluded; provisional UNKNOWN
+     * rooms excluded until their genesis folds). Projection order —
      * message-derived ordering (e.g. by last activity) is composed by the GUI
      * from `MessagingService.roomPreview`, which owns all message reads.
      */
-    val rooms: StateFlow<List<RoomSummary>>
+    val rooms: StateFlow<List<RoomDetails>>
 
     /** Chat-header detail, or null for unknown rooms. */
     suspend fun room(roomId: RoomId): RoomDetails?
@@ -26,7 +27,9 @@ interface RoomService {
      * genesis (the creator authors it and becomes OWNER by definition; the
      * member list seeds the room) and broadcasts it to the folded member set —
      * discovery is push, then frontier sync takes over. The creator is always
-     * included in the genesis list. Refusals are values; infra failures throw.
+     * included in the genesis list. A null or blank [name] creates an unnamed
+     * room (empty name — the GUI renders participant names). Refusals are values;
+     * infra failures throw.
      */
     suspend fun createRoom(name: String?, members: Set<AccountId>): CreateRoomResult
 

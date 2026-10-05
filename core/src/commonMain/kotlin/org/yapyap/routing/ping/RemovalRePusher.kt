@@ -1,5 +1,7 @@
 package org.yapyap.routing.ping
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -30,6 +32,7 @@ internal class RemovalRePusher(
     private val clock: Clock = Clock.System,
 ) {
     private val lastPushAt = HashMap<Pair<PeerId, RoomId>, Long>()
+    private val backoffMutex = Mutex()
 
     /**
      * Re-delivers the room's removal node for [senderAccount] to [deviceId].
@@ -41,13 +44,13 @@ internal class RemovalRePusher(
         val nodeId = row.removalNodeId ?: return false
         val now = clock.now().epochSeconds
         val key = deviceId to roomId
-        if (lastPushAt[key]?.let { now - it < REPUSH_BACKOFF_SECONDS } == true) return false
+        if (backoffMutex.withLock { lastPushAt[key] }?.let { now - it < REPUSH_BACKOFF_SECONDS } == true) return false
         val node = messageRepository.findById(nodeId)?.payload ?: return false
         // Store-and-forward carries this past the target's offline window
         // (relay deposits); beyond relay retention the next ping re-triggers.
         val outcome = outboundMessenger.sendMessageToPeer(deviceId, node, forceTransport = null)
         if (outcome !is PeerSendOutcome.Queued) return false
-        lastPushAt[key] = now
+        backoffMutex.withLock { lastPushAt[key] = now }
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.PING_HANDLED,

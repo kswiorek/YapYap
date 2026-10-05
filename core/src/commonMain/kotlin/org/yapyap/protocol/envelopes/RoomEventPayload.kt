@@ -28,6 +28,8 @@ sealed interface RoomEventPayload {
      * Genesis content of a chat room. Only a node with `prevIds == []` may carry this;
      * only a node whose `roomId` matches the genesis derivation may land it (both
      * enforced at ingest, not here). The genesis author becomes owner by definition.
+     * An empty [roomName] means the room is unnamed (the GUI renders participant
+     * names instead); it travels verbatim and is never invented by the backend.
      *
      * Member-list targets are ungated in the fold; rows for still-unknown accounts
      * are deferred at projection time.
@@ -46,7 +48,6 @@ sealed interface RoomEventPayload {
         override val kind: RoomEventKind = RoomEventKind.ROOM_CREATED
 
         init {
-            require(roomName.isNotBlank()) { "roomName must not be blank" }
             require(roomType != RoomType.GLOBAL_CONTROL) { "chat rooms must not use GLOBAL_CONTROL" }
             require(roomType != RoomType.UNKNOWN) { "room type UNKNOWN is local-only" }
         }

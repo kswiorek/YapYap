@@ -34,7 +34,6 @@ data class RoomCreatedDraft(
     val spaceId: Uuid? = null,
 ) {
     init {
-        require(roomName.isNotBlank()) { "roomName must not be blank" }
         require(roomType != RoomType.GLOBAL_CONTROL) { "chat rooms must not use GLOBAL_CONTROL" }
         require(roomType != RoomType.UNKNOWN) { "room type UNKNOWN is local-only" }
     }
