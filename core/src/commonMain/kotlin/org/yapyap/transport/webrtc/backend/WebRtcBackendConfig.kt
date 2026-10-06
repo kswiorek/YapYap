@@ -24,7 +24,8 @@ data class WebRtcBackendConfig(
     val orderedDataChannel: Boolean = true,
     val maxRetransmits: Int? = null,
     val maxPacketLifeTimeMs: Int? = null,
-    val maxPayloadBytes: Int = 1024 * 1024 * 1,
+    /** Max single data-channel message; the SCTP stack delivers up to ~256 KiB (250 KiB measured). */
+    val maxPayloadBytes: Int = 250 * 1024,
     val channelOpenTimeout: Duration = 30.seconds,
     val drainChannelTimeout: Duration = 5.seconds,
 ) {

@@ -12,9 +12,6 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.persistence.key.BootstrapSessionStore
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
-import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -124,8 +121,6 @@ class DefaultRouterLiveIntegrationTest {
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
-                bootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
-                identityKeyRepository = InMemoryIdentityKeyRepository(),
             )
         val bobRouter =
             DefaultRouter(
@@ -142,8 +137,6 @@ class DefaultRouterLiveIntegrationTest {
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
-                bootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
-                identityKeyRepository = InMemoryIdentityKeyRepository(),
             )
 
         try {

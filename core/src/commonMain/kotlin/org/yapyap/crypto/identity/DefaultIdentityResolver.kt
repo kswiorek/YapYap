@@ -172,6 +172,9 @@ class DefaultIdentityResolver(
         return publicKeyRepository.getDeviceStatus(deviceId)?: throw CryptoException.MissingDeviceRecord(deviceId.id)
     }
 
+    override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
+        publicKeyRepository.getAccountStatus(accountId)
+
     override suspend fun isLocalAccountAdmin(): Boolean =
         publicKeyRepository.isLocalAccountAdmin()
 

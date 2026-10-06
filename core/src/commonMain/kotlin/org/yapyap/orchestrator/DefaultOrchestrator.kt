@@ -453,8 +453,6 @@ class DefaultOrchestrator(
             transportLimits = configStore.transportLimits,
             frontierSnapshotProvider = frontierSnapshotProvider,
             peerAvailabilityStore = peerAvailabilityStore,
-            bootstrapSessionStore = bootstrapSessionStore,
-            identityKeyRepository = identityRepo,
         )
 
         router.start()

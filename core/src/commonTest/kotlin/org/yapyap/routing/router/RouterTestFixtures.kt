@@ -18,7 +18,8 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.key.*
+import org.yapyap.persistence.key.BootstrapKeySource
+import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
@@ -138,6 +139,8 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
 
     override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
         BootstrapPayload.decode(envelope.payload)
+
+    override suspend fun isBootstrapSessionActive(): Boolean = false
 }
 
 /**
@@ -203,6 +206,9 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
 
     override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
         delegate.openBootstrap(envelope)
+
+    override suspend fun isBootstrapSessionActive(): Boolean =
+        delegate.isBootstrapSessionActive()
 }
 
 internal class FakeSyncPayloadProvider : SyncPayloadProvider {
@@ -400,6 +406,7 @@ internal class FakeIdentityResolverForRouter(
     private val peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
     private val torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
+    val accountStatuses: MutableMap<AccountId, IdentityStatus> = mutableMapOf(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = localDevice
@@ -408,6 +415,9 @@ internal class FakeIdentityResolverForRouter(
         error("FakeIdentityResolverForRouter: account record not stubbed")
 
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+
+    override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
+        accountStatuses[accountId]
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("FakeIdentityResolverForRouter: admin flag not stubbed")
@@ -580,6 +590,7 @@ internal class E2eeIdentityResolverForRouter(
     private val torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
     private val crypto: CryptoProvider = DefaultCryptoProvider(),
+    private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
@@ -588,6 +599,9 @@ internal class E2eeIdentityResolverForRouter(
         error("E2eeIdentityResolverForRouter: account record not stubbed")
 
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+
+    override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
+        accountStatuses[accountId]
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("E2eeIdentityResolverForRouter: admin flag not stubbed")
@@ -720,8 +734,6 @@ internal fun e2eeRouterUnderTest(
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
-    sessionStore: BootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
-    identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -737,8 +749,6 @@ internal fun e2eeRouterUnderTest(
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
-        bootstrapSessionStore = sessionStore,
-        identityKeyRepository = identityKeyRepository,
     )
 
 internal fun outboxProcessorUnderTest(
@@ -779,8 +789,6 @@ internal fun defaultRouterUnderTest(
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
-    sessionStore: BootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
-    identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -796,6 +804,4 @@ internal fun defaultRouterUnderTest(
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
-        bootstrapSessionStore = sessionStore,
-        identityKeyRepository = identityKeyRepository,
     )

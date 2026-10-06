@@ -11,8 +11,6 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.availability.PeerAvailabilityStore
-import org.yapyap.persistence.key.BootstrapSessionStore
-import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
@@ -58,8 +56,6 @@ class DefaultRouter(
     val syncPayloadProvider: SyncPayloadProvider,
     val frontierSnapshotProvider: FrontierSnapshotProvider,
     val peerAvailabilityStore: PeerAvailabilityStore,
-    val bootstrapSessionStore: BootstrapSessionStore,
-    val identityKeyRepository: IdentityKeyRepository,
 ) : Router {
 
 
@@ -172,8 +168,6 @@ class DefaultRouter(
             PacketType.BOOTSTRAP to BootstrapInboundHandler(
                 routingContext,
                 bootstrapPacketFlow,
-                sessionStore = bootstrapSessionStore,
-                identityKeyRepository = identityKeyRepository,
             ),
         ),
         outboxProcessor = outboxProcessor,

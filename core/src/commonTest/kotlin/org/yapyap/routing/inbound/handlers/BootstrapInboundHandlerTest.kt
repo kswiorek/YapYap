@@ -13,9 +13,6 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.BootstrapKeySource
-import org.yapyap.persistence.key.BootstrapSessionStore
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
-import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.PlaintextMessageProtection
@@ -152,14 +149,10 @@ class BootstrapInboundHandlerTest {
     private fun handlerUnderTest(
         ctx: RoutingContext,
         packets: MutableSharedFlow<BootstrapPacketEvent>,
-        sessionStore: BootstrapSessionStore,
-        identityRepo: InMemoryIdentityKeyRepository,
     ): BootstrapInboundHandler =
         BootstrapInboundHandler(
             ctx = ctx,
             bootstrapPackets = packets,
-            sessionStore = sessionStore,
-            identityKeyRepository = identityRepo,
         )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -179,11 +172,9 @@ class BootstrapInboundHandlerTest {
         val ctx = routingContext(secret)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        // The newcomer holds an active session (its own onboarding wait) — intros must NOT be
-        // declined by the own-session responder check.
-        val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        sessionStore.setActiveSecret(secret, now + 5.minutes)
-        val handler = handlerUnderTest(ctx, packets, sessionStore, InMemoryIdentityKeyRepository())
+        // The newcomer holds an active session (its own onboarding wait, armed through the
+        // protection service) — intros must NOT be declined by the own-session responder check.
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleIntro(sponsorDevice)
         val result = handler.handle(
@@ -206,12 +197,15 @@ class BootstrapInboundHandlerTest {
         val ctx = routingContext(secret)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        val handler =
-            handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), InMemoryIdentityKeyRepository())
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleIntro(sponsorDevice)
         val result = handler.handle(
-            binaryEnvelope(protectedEnvelope(payload, sponsorDevice, otherDevice, secret), sponsorDevice, otherDevice),
+            binaryEnvelope(
+                protectedEnvelope(payload, sponsorDevice, otherDevice, secret),
+                sponsorDevice,
+                otherDevice
+            ),
         )
 
         assertEquals(PacketNackReason.WRONG_TARGET, (result as InboundHandleResult.Rejected).reason)
@@ -223,8 +217,7 @@ class BootstrapInboundHandlerTest {
     fun handle_badBootstrapEnvelope_rejectedDecodeFailed() = runTest {
         val ctx = routingContext(ByteArray(32) { 5 })
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
-        val handler =
-            handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), InMemoryIdentityKeyRepository())
+        val handler = handlerUnderTest(ctx, packets)
 
         val env = BinaryEnvelope(
             packetId = Uuid.random(),
@@ -247,8 +240,7 @@ class BootstrapInboundHandlerTest {
         val ctx = routingContext(activeSecret = null)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        val handler =
-            handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), InMemoryIdentityKeyRepository())
+        val handler = handlerUnderTest(ctx, packets)
 
         // The intro was protected with a secret the handler does not hold.
         val payload = sampleIntro(sponsorDevice)
@@ -269,8 +261,7 @@ class BootstrapInboundHandlerTest {
     fun handle_introWrongSecret_rejectedProtectionFailed() = runTest {
         val ctx = routingContext(ByteArray(32) { 1 })
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
-        val handler =
-            handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), InMemoryIdentityKeyRepository())
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleIntro(sponsorDevice)
         val result = handler.handle(
@@ -289,8 +280,7 @@ class BootstrapInboundHandlerTest {
         val secret = ByteArray(32) { 5 }
         val ctx = routingContext(secret)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
-        val handler =
-            handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), InMemoryIdentityKeyRepository())
+        val handler = handlerUnderTest(ctx, packets)
 
         // Envelope header claims otherDevice; the authenticated payload attests sponsorDevice.
         val payload = sampleIntro(sponsorDevice)
@@ -310,16 +300,11 @@ class BootstrapInboundHandlerTest {
         val ctx = routingContext(activeSecret = null)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        val identityRepo = InMemoryIdentityKeyRepository()
-        val handler = handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), identityRepo)
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
-        identityRepo.insertPeerAccount(
-            payload.account,
-            admin = false,
-            status = IdentityStatus.ACTIVE,
-            displayName = "Recovering"
-        )
+        (ctx.identityResolver as FakeIdentityResolverForRouter)
+            .accountStatuses[payload.account.accountId] = IdentityStatus.ACTIVE
         val result = handler.handle(
             binaryEnvelope(
                 protectedEnvelope(payload, otherDevice, newcomerDevice, secret = null),
@@ -336,22 +321,16 @@ class BootstrapInboundHandlerTest {
 
     @Test
     fun handle_recoveryRequest_ownSessionActive_declined_noEmit() = runTest {
-        val ctx = routingContext(activeSecret = null)
+        // This node is itself mid-onboarding — the onboarding session armed through the
+        // protection service doubles as the responder-side decline signal.
+        val ctx = routingContext(activeSecret = ByteArray(32) { 9 })
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        // This node is itself mid-onboarding — a poor sync seed, so it declines.
-        val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        sessionStore.setActiveSecret(ByteArray(32) { 9 }, now + 5.minutes)
-        val identityRepo = InMemoryIdentityKeyRepository()
-        val handler = handlerUnderTest(ctx, packets, sessionStore, identityRepo)
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
-        identityRepo.insertPeerAccount(
-            payload.account,
-            admin = false,
-            status = IdentityStatus.ACTIVE,
-            displayName = "Recovering"
-        )
+        (ctx.identityResolver as FakeIdentityResolverForRouter)
+            .accountStatuses[payload.account.accountId] = IdentityStatus.ACTIVE
         val result = handler.handle(
             binaryEnvelope(
                 protectedEnvelope(payload, otherDevice, newcomerDevice, secret = null),
@@ -370,16 +349,11 @@ class BootstrapInboundHandlerTest {
         val ctx = routingContext(activeSecret = null)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        val identityRepo = InMemoryIdentityKeyRepository()
-        val handler = handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), identityRepo)
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
-        identityRepo.insertPeerAccount(
-            payload.account,
-            admin = false,
-            status = IdentityStatus.BANNED,
-            displayName = "Recovering"
-        )
+        (ctx.identityResolver as FakeIdentityResolverForRouter)
+            .accountStatuses[payload.account.accountId] = IdentityStatus.BANNED
         val result = handler.handle(
             binaryEnvelope(
                 protectedEnvelope(payload, otherDevice, newcomerDevice, secret = null),
@@ -398,10 +372,9 @@ class BootstrapInboundHandlerTest {
         val ctx = routingContext(activeSecret = null)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
         val received = subscribe(packets)
-        // No account row seeded: absence asserts nothing (fold may not have seen it), so defer —
+        // No account status stubbed: absence asserts nothing (fold may not have seen it), so defer —
         // the sender's retry re-runs the check instead of being swallowed.
-        val handler =
-            handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), InMemoryIdentityKeyRepository())
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
         val result = handler.handle(
@@ -421,16 +394,11 @@ class BootstrapInboundHandlerTest {
     fun handle_recoveryRequest_badSignature_rejectedProtectionFailed() = runTest {
         val ctx = routingContext(activeSecret = null)
         val packets = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
-        val identityRepo = InMemoryIdentityKeyRepository()
-        val handler = handlerUnderTest(ctx, packets, BootstrapSessionStore(InMemoryKeyStore()), identityRepo)
+        val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice).copy(accountSignature = ByteArray(64) { 1 })
-        identityRepo.insertPeerAccount(
-            payload.account,
-            admin = false,
-            status = IdentityStatus.ACTIVE,
-            displayName = "Recovering"
-        )
+        (ctx.identityResolver as FakeIdentityResolverForRouter)
+            .accountStatuses[payload.account.accountId] = IdentityStatus.ACTIVE
         val result = handler.handle(
             binaryEnvelope(
                 protectedEnvelope(payload, otherDevice, newcomerDevice, secret = null),

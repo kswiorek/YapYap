@@ -28,6 +28,7 @@ import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
@@ -148,8 +149,11 @@ class KmpTorBackend(
         val localSource = publishedLocalEndpoint ?: error("Tor backend must be started before send")
         val localSocksPort = requireNotNull(socksPort) { "Tor socks port is not ready" }
         val selector = requireNotNull(selectorManager) { "Tor selector manager is not initialized" }
-        require(payload.size <= configSnapshot.maxPayloadBytes) {
-            "Payload length ${payload.size} exceeds configured max ${configSnapshot.maxPayloadBytes}"
+        if (payload.size > configSnapshot.maxPayloadBytes) {
+            throw TransportException.PayloadTooLarge(
+                sizeBytes = payload.size,
+                limitBytes = configSnapshot.maxPayloadBytes,
+            )
         }
 
         val deadline = TimeSource.Monotonic.markNow() + configSnapshot.socksRetryTimeout
@@ -241,27 +245,46 @@ class KmpTorBackend(
             // read (docs/ban diagram.mmd steps 8–9). Absence from the banned set (including
             // unknown onions) must NOT close — absence asserts nothing.
             scope?.launch {
-                try {
-                    val input = client.openReadChannel()
-                    val frame = runCatching { readTransportFrame(input) }.getOrElse { error ->
-                        AppLog.warn(
-                            component = LogComponent.TOR_BACKEND,
-                            event = LogEvent.ENVELOPE_DECODE_FAILED,
-                            message = "Failed to read inbound Tor transport frame",
-                        )
-                        AppLog.error(
-                            component = LogComponent.TOR_BACKEND,
-                            event = LogEvent.ENVELOPE_DECODE_FAILED,
-                            message = "Inbound Tor transport frame parse error",
-                            throwable = error,
-                        )
-                        throw TransportException.TorException.TransportFrameError(error.message ?: "Unknown error")
-                    }
-                    inboundFlow.emit(frame)
-                } finally {
-                    client.safeClose()
-                }
+                handleInboundConnection(client)
             }
+        }
+    }
+
+    /**
+     * Reads one transport frame from an accepted connection and emits it. Genuine parse
+     * failures surface as [TransportException.TorException.TransportFrameError].
+     * Cancellation is rethrown untouched — both cancellation hierarchies (the
+     * `kotlin.coroutines` one and the kotlinx one carrying [JobCancellationException] from
+     * structured-concurrency teardown). Wrapping either — e.g. when in-flight reads are
+     * cancelled at backend shutdown — would turn an orderly stop into a spurious child
+     * failure and an uncaught exception.
+     */
+    internal suspend fun handleInboundConnection(client: Socket) {
+        try {
+            val input = client.openReadChannel()
+            val frame = try {
+                readTransportFrame(input)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (error: Exception) {
+                AppLog.warn(
+                    component = LogComponent.TOR_BACKEND,
+                    event = LogEvent.ENVELOPE_DECODE_FAILED,
+                    message = "Failed to read inbound Tor transport frame",
+                )
+                AppLog.error(
+                    component = LogComponent.TOR_BACKEND,
+                    event = LogEvent.ENVELOPE_DECODE_FAILED,
+                    message = "Inbound Tor transport frame parse error",
+                    throwable = error,
+                )
+                throw TransportException.TorException.TransportFrameError(error.message ?: "Unknown error")
+            }
+            inboundFlow.emit(frame)
+        } finally {
+            client.safeClose()
         }
     }
 
@@ -315,9 +338,6 @@ class KmpTorBackend(
     ) {
         val sourceHost = source.onionAddress.encodeToByteArray()
         require(sourceHost.size <= 255) { "Source onion host is too long" }
-        require(payload.size <= config.value.maxPayloadBytes) {
-            "Payload length ${payload.size} exceeds configured max ${config.value.maxPayloadBytes}"
-        }
 
         output.writeInt(FRAME_MAGIC)
         output.writeByte(sourceHost.size.toByte())

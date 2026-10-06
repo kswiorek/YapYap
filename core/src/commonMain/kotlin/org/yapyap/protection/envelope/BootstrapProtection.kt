@@ -65,6 +65,9 @@ class BootstrapProtection(
         is Invite -> error("The INVITE is an out-of-band QR/CLI payload and never travels in a bootstrap envelope")
     }
 
+    /** True when this node holds an active onboarding session (the AEAD intro gate is armed). */
+    suspend fun hasActiveSession(): Boolean = keySource.introKey() != null
+
     /** Opens a bootstrap envelope by its protection scheme; returns the authenticated payload. */
     suspend fun open(envelope: BootstrapEnvelope): BootstrapPayload = when (envelope.scheme) {
         BootstrapSecurityScheme.SECRET_AEAD -> openIntro(envelope)

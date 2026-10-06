@@ -41,6 +41,9 @@ internal class TestIdentityResolver(
 
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
 
+    override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
+        error("not used in crypto session tests")
+
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("not used in crypto session tests")
 

@@ -12,6 +12,9 @@ interface IdentityResolver {
 
     suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus
 
+    /** Chain-derived account status, or null when absent (absence asserts nothing — treat as "not yet known", never "removed"). */
+    suspend fun getAccountStatus(accountId: AccountId): IdentityStatus?
+
     suspend fun isLocalAccountAdmin(): Boolean
 
     suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray

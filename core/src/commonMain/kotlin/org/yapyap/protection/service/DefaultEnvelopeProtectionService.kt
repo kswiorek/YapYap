@@ -53,4 +53,7 @@ class DefaultEnvelopeProtectionService(
 
     override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
         bootstrapProtection.open(envelope)
+
+    override suspend fun isBootstrapSessionActive(): Boolean =
+        bootstrapProtection.hasActiveSession()
 }

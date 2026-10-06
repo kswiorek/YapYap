@@ -198,6 +198,7 @@ internal class FakeIdentityResolverForProtection(
 
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+    override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used")
     override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {

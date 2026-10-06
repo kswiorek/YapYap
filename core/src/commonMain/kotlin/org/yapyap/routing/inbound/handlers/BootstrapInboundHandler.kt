@@ -5,8 +5,6 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.key.BootstrapSessionStore
-import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
@@ -24,7 +22,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * [InboundHandleResult.Success].
  *
  * Policy refusals answer pre-emit with an honest NACK (no orchestrator callback — both are
- * persistence lookups): RECOVERY_REQUEST while this node is itself onboarding → DECLINED
+ * reads through the routing context): RECOVERY_REQUEST while this node is itself onboarding → DECLINED
  * (its projection is untrustworthy); account present-but-not-ACTIVE → DECLINED (banned must
  * not re-enter); account absent → [InboundHandleResult.Deferred] (absence asserts nothing —
  * the Add event may sit in a gap — and deferring clears dedup so the retry re-runs the check).
@@ -34,10 +32,7 @@ import kotlin.coroutines.cancellation.CancellationException
 internal class BootstrapInboundHandler(
     private val ctx: RoutingContext,
     private val bootstrapPackets: MutableSharedFlow<BootstrapPacketEvent>,
-    private val sessionStore: BootstrapSessionStore,
-    private val identityKeyRepository: IdentityKeyRepository,
 ) : InboundEnvelopeHandler {
-    //TODO: cleanup layering smell - access status through resolver and avoid sessionStore for just one read.
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val received = ctx.clock.now()
         val bootstrapEnvelope = runCatching { BootstrapEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -115,7 +110,10 @@ internal class BootstrapInboundHandler(
 
     /** Responder-side policy; null means emit, otherwise answer with the disposition. */
     private suspend fun checkRecoveryPolicy(request: RecoveryRequest): InboundHandleResult? {
-        if (sessionStore.session() != null) {
+        // Same read the AEAD intro gate uses (the armed onboarding session doubles as the
+        // "this node is itself onboarding" signal); recovery requests skip that gate
+        // (ACCOUNT_SIGNED), so the check runs here instead.
+        if (ctx.envelopeProtectionService.isBootstrapSessionActive()) {
             AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_HANDLE_FAILED,
@@ -124,7 +122,7 @@ internal class BootstrapInboundHandler(
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
-        return when (val status = identityKeyRepository.getAccountStatus(request.account.accountId)) {
+        return when (val status = ctx.identityResolver.getAccountStatus(request.account.accountId)) {
             null -> {
                 // Unknown — the fold may not have seen the Add event yet. Defer (clears dedup)
                 // so the sender's retry re-runs this check instead of being swallowed.

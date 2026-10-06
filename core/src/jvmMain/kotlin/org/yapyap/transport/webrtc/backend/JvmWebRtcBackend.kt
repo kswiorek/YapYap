@@ -12,6 +12,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
+import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.types.*
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -144,8 +145,12 @@ class JvmWebRtcBackend(
         val session = sessions[dataFrame.target] ?: error("Unknown session for target: ${dataFrame.target}")
         require(session.remotePeer == dataFrame.target) { "Session target mismatch for target ${dataFrame.target}" }
 
-        require(dataFrame.payload.size <= config.value.maxPayloadBytes) {
-            "Payload length ${dataFrame.payload.size} exceeds configured max ${config.value.maxPayloadBytes}"
+        val maxPayloadBytes = config.value.maxPayloadBytes
+        if (dataFrame.payload.size > maxPayloadBytes) {
+            throw TransportException.PayloadTooLarge(
+                sizeBytes = dataFrame.payload.size,
+                limitBytes = maxPayloadBytes,
+            )
         }
 
         val channel = session.channelFor(dataFrame.dataType)

@@ -57,6 +57,13 @@ interface EnvelopeProtectionService {
     suspend fun openBootstrap(
         envelope: BootstrapEnvelope,
     ): BootstrapPayload
+
+    /**
+     * True when this node holds an active bootstrap onboarding session (the AEAD intro gate
+     * is armed). Sibling of [openBootstrap], which surfaces the same state by throwing
+     * `ProtectionException.BootstrapSessionInactive` for INTRO envelopes.
+     */
+    suspend fun isBootstrapSessionActive(): Boolean
 }
 
 data class EnvelopeProtectContext(
