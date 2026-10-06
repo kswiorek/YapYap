@@ -20,8 +20,6 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.FakeMessageRepository
-import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
@@ -128,8 +126,6 @@ class DefaultRouterLiveIntegrationTest {
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
                 bootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
                 identityKeyRepository = InMemoryIdentityKeyRepository(),
-                roomRepository = FakeRoomRepository(),
-                messageRepository = FakeMessageRepository(),
             )
         val bobRouter =
             DefaultRouter(
@@ -148,8 +144,6 @@ class DefaultRouterLiveIntegrationTest {
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
                 bootstrapSessionStore = BootstrapSessionStore(InMemoryKeyStore()),
                 identityKeyRepository = InMemoryIdentityKeyRepository(),
-                roomRepository = FakeRoomRepository(),
-                messageRepository = FakeMessageRepository(),
             )
 
         try {

@@ -36,6 +36,12 @@ data class RouterConfig(
     val syncMaxKnownIds: Int = 64,
     /** Backoff when a pending sync has no candidate device that looks reachable. */
     val syncOfflineRetryDelay: Duration = 60.seconds,
+    /**
+     * Backoff between removal-node re-pushes to the same device
+     * (ping-contradiction recovery, docs/room events.md §6): the ping is the
+     * proof, the backoff is the rate governor.
+     */
+    val removalRePushBackoff: Duration = 1.hours,
 
     val pingInterval: Duration = 5.minutes,
     /**
@@ -81,6 +87,7 @@ data class RouterConfig(
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
         require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelaySeconds must be > 0" }
+        require(removalRePushBackoff > Duration.ZERO) { "removalRePushBackoff must be > 0" }
         require(pingInterval > Duration.ZERO) { "pingInterval must be > 0" }
         require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }
         require(reliabilityHalfLife > Duration.ZERO) { "reliabilityHalfLife must be > 0" }

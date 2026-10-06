@@ -86,9 +86,10 @@ class DefaultSyncCoordinator(
     }
 
     /**
-     * Appends the room's current ACTIVE members (minus local) to all of its
-     * pending sync rows' candidates. Idempotent and append-only — safe to run
-     * on every projector state change and at boot.
+     * Appends the room's current ACTIVE members (own devices included — they
+     * are valid sync candidates) to all of its pending sync rows' candidates.
+     * Idempotent and append-only — safe to run on every projector state change
+     * and at boot.
      */
     override suspend fun refreshCandidatesFor(roomId: RoomId) {
         syncMutex.withLock {

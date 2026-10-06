@@ -37,7 +37,7 @@ internal class BootstrapInboundHandler(
     private val sessionStore: BootstrapSessionStore,
     private val identityKeyRepository: IdentityKeyRepository,
 ) : InboundEnvelopeHandler {
-
+    //TODO: cleanup layering smell - access status through resolver and avoid sessionStore for just one read.
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val received = ctx.clock.now()
         val bootstrapEnvelope = runCatching { BootstrapEnvelope.decode(env.payload) }.getOrNull() ?: run {

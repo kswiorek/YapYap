@@ -1,10 +1,12 @@
 package org.yapyap.routing.sync
 
 import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
@@ -16,6 +18,15 @@ import kotlin.uuid.Uuid
 
 interface SyncPayloadProvider {
     suspend fun getMessages(syncRequest: SyncRequest, peerId: PeerId): List<MessagePayload>
+
+    /**
+     * Removal-contradiction lookup (docs/room events.md §6): the removal node
+     * for ([roomId], [accountId]) when the fold says the account was removed
+     * from the room and the node is still held; null otherwise (no row, not
+     * removed, no node id, node evicted). Callers cannot distinguish the null
+     * reasons — all mean "nothing to re-push".
+     */
+    suspend fun removalNodeFor(roomId: RoomId, accountId: AccountId): MessagePayload?
 }
 
 class DefaultSyncPayloadProvider(
@@ -135,6 +146,16 @@ class DefaultSyncPayloadProvider(
                 .forEach { ordered += it }
         }
         return ordered
+    }
+
+    override suspend fun removalNodeFor(roomId: RoomId, accountId: AccountId): MessagePayload? {
+        // Same removal boundary as the serve gate above: only a REMOVED row
+        // with a defining node qualifies (the fold never sets a removal node
+        // id on ACTIVE rows, but the explicit status check matches the gate).
+        val row = roomRepository.memberRowOf(roomId, accountId) ?: return null
+        if (row.status != RoomMemberStatus.REMOVED) return null
+        val nodeId = row.removalNodeId ?: return null
+        return messageRepository.findById(nodeId)?.payload
     }
 
     /**

@@ -82,7 +82,7 @@ class DefaultSyncCoordinatorTest {
         assertEquals(2, rows.size)
         assertEquals(setOf(tip1, tip2), rows.map { it.targetMessageId }.toSet())
         for (sync in rows) {
-            assertEquals(listOf(remoteAccount), sync.candidateAccounts)
+            assertEquals(listOf(localAccount, remoteAccount), sync.candidateAccounts)
             assertEquals(epochSeconds(1_000L + 60L), pendingRepo.nextAttemptAtOf(sync.syncId))
         }
     }
@@ -137,14 +137,15 @@ class DefaultSyncCoordinatorTest {
     }
 
     @Test
-    fun requestFrontierSync_multipleMembers_allNonLocalAreCandidates() = runTest {
+    fun requestFrontierSync_multipleMembers_allMembersAreCandidates() = runTest {
+        // Own devices are valid sync candidates: the local account stays in.
         val thirdAccount = AccountId("third-account")
         val coordinator = buildCoordinator(roomMembers = listOf(localAccount, remoteAccount, thirdAccount))
 
         coordinator.requestFrontierSync(roomId, listOf(Uuid.random()))
 
         val sync = pendingRepo.all().single()
-        assertEquals(listOf(remoteAccount, thirdAccount), sync.candidateAccounts)
+        assertEquals(listOf(localAccount, remoteAccount, thirdAccount), sync.candidateAccounts)
     }
 
     @Test
@@ -157,7 +158,8 @@ class DefaultSyncCoordinatorTest {
         coordinator.requestFrontierSync(roomId, listOf(Uuid.random()))
 
         val sync = pendingRepo.all().single()
-        assertTrue(sync.candidateAccounts.isEmpty())
+        // Only the still-ACTIVE local account remains a candidate.
+        assertEquals(listOf(localAccount), sync.candidateAccounts)
         // The row itself is retained (badge source) — only candidacy is cut.
         val statuses = roomRepo.memberStatusesOfRoom(roomId).associate { it.accountId to it.status }
         assertEquals(RoomMemberStatus.REMOVED, statuses[remoteAccount])
@@ -330,7 +332,7 @@ class DefaultSyncCoordinatorTest {
         coordinator.requestFrontierSync(roomId, listOf(Uuid.random()), senderAccount = pingerAccount)
 
         val sync = pendingRepo.all().single()
-        assertEquals(setOf(remoteAccount, pingerAccount), sync.candidateAccounts.toSet())
+        assertEquals(setOf(localAccount, remoteAccount, pingerAccount), sync.candidateAccounts.toSet())
     }
 
     @Test
@@ -348,7 +350,7 @@ class DefaultSyncCoordinatorTest {
 
         val rows = pendingRepo.all()
         assertEquals(1, rows.size)
-        assertEquals(setOf(remoteAccount, pingerAccount), rows.single().candidateAccounts.toSet())
+        assertEquals(setOf(localAccount, remoteAccount, pingerAccount), rows.single().candidateAccounts.toSet())
     }
 
     @Test
@@ -358,6 +360,7 @@ class DefaultSyncCoordinatorTest {
         // returns, and nothing else would ever chase this gap.
         val coordinator = buildCoordinator()
         roomRepo.removeMember(roomId, remoteAccount)
+        roomRepo.removeMember(roomId, localAccount)
 
         coordinator.requestFrontierSync(roomId, listOf(Uuid.random()), senderAccount = null)
 
@@ -390,7 +393,7 @@ class DefaultSyncCoordinatorTest {
         testScheduler.advanceUntilIdle()
 
         val sync = pendingRepo.all().single()
-        assertEquals(setOf(remoteAccount, authorAccount), sync.candidateAccounts.toSet())
+        assertEquals(setOf(localAccount, remoteAccount, authorAccount), sync.candidateAccounts.toSet())
         coordinator.stop()
     }
 
@@ -440,7 +443,7 @@ class DefaultSyncCoordinatorTest {
         // New member appended; the ping-sender candidate contributed by
         // another trigger survives (append-only, never replace).
         assertEquals(
-            setOf(remoteAccount, pingerAccount, newMember),
+            setOf(localAccount, remoteAccount, pingerAccount, newMember),
             pendingRepo.all().single().candidateAccounts.toSet(),
         )
     }

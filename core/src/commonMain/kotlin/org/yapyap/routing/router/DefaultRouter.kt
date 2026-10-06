@@ -13,8 +13,6 @@ import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.availability.PeerAvailabilityStore
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
@@ -30,11 +28,11 @@ import org.yapyap.routing.inbound.handlers.*
 import org.yapyap.routing.outbound.*
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
-import org.yapyap.routing.ping.RemovalRePusher
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.SessionOrTorPolicy
+import org.yapyap.routing.sync.RemovalRePusher
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -62,8 +60,6 @@ class DefaultRouter(
     val peerAvailabilityStore: PeerAvailabilityStore,
     val bootstrapSessionStore: BootstrapSessionStore,
     val identityKeyRepository: IdentityKeyRepository,
-    val roomRepository: RoomRepository,
-    val messageRepository: MessageRepository,
 ) : Router {
 
 
@@ -147,9 +143,9 @@ class DefaultRouter(
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         pendingSyncs = syncRepository,
         removalRePusher = RemovalRePusher(
-            roomRepository = roomRepository,
-            messageRepository = messageRepository,
+            syncPayloadProvider = syncPayloadProvider,
             outboundMessenger = outboundMessenger,
+            routerConfig = routerConfig,
             clock = clock,
         ),
     )

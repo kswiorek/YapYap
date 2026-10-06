@@ -219,6 +219,7 @@ class FakePendingSyncRepository(
 /** Records sync requests and returns a configurable batch of messages. */
 class RecordingSyncPayloadProvider(
     var messages: List<MessagePayload> = emptyList(),
+    var removalNode: MessagePayload? = null,
 ) : SyncPayloadProvider {
     val requests = mutableListOf<SystemPayload.SyncRequest>()
     val peerIds = mutableListOf<PeerId>()
@@ -231,6 +232,8 @@ class RecordingSyncPayloadProvider(
         peerIds.add(peerId)
         return messages
     }
+
+    override suspend fun removalNodeFor(roomId: RoomId, accountId: AccountId): MessagePayload? = removalNode
 }
 
 /** [SyncPeerPolicy] that always returns a fixed device (or null when not set). */

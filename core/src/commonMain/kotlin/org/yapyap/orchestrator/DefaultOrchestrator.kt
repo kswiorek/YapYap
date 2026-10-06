@@ -455,8 +455,6 @@ class DefaultOrchestrator(
             peerAvailabilityStore = peerAvailabilityStore,
             bootstrapSessionStore = bootstrapSessionStore,
             identityKeyRepository = identityRepo,
-            roomRepository = roomRepository,
-            messageRepository = messageRepo,
         )
 
         router.start()

@@ -43,8 +43,6 @@ import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.FakeMessageRepository
-import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.transport.TorTransport
@@ -215,6 +213,9 @@ internal class FakeSyncPayloadProvider : SyncPayloadProvider {
         error("not used in router transport tests")
     }
 
+    override suspend fun removalNodeFor(roomId: RoomId, accountId: AccountId): MessagePayload? {
+        error("not used in router transport tests")
+    }
 }
 
 internal class InMemoryPendingSyncRepository(
@@ -738,8 +739,6 @@ internal fun e2eeRouterUnderTest(
         peerAvailabilityStore = FakePeerAvailabilityStore(),
         bootstrapSessionStore = sessionStore,
         identityKeyRepository = identityKeyRepository,
-        roomRepository = FakeRoomRepository(),
-        messageRepository = FakeMessageRepository(),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -799,6 +798,4 @@ internal fun defaultRouterUnderTest(
         peerAvailabilityStore = FakePeerAvailabilityStore(),
         bootstrapSessionStore = sessionStore,
         identityKeyRepository = identityKeyRepository,
-        roomRepository = FakeRoomRepository(),
-        messageRepository = FakeMessageRepository(),
     )

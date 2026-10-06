@@ -13,6 +13,7 @@ import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.sync.RemovalRePusher
 import kotlin.uuid.Uuid
 
 internal class PingProvider(

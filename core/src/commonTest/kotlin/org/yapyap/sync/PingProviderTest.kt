@@ -10,13 +10,11 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
-import org.yapyap.routing.ping.RemovalRePusher
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.sync.RemovalRePusher
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.FakeMessageRepository
-import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -58,12 +56,12 @@ class PingProviderTest {
             FakePeerAvailabilityStore(),
         ),
         pendingSyncs = pendingRepo,
-        // Empty member store: memberRowOf reads null, so the re-push is a
-        // no-op in these tests (covered separately in the test pass).
+        // Null removal node: the re-push is a no-op in these tests
+        // (covered separately in the test pass).
         removalRePusher = RemovalRePusher(
-            FakeRoomRepository(),
-            FakeMessageRepository(),
-            stack.outboundMessenger,
+            syncPayloadProvider = RecordingSyncPayloadProvider(),
+            outboundMessenger = stack.outboundMessenger,
+            routerConfig = MutableStateFlow(RouterConfig()),
         ),
     )
 

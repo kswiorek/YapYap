@@ -19,6 +19,7 @@ import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -249,6 +250,45 @@ class DefaultSyncPayloadProviderTest {
             setOf(m0.messageId, m1.messageId, removal.messageId),
             result.map { it.messageId }.toSet(),
         )
+    }
+
+    @Test
+    fun removalNodeFor_returnsNodeForRemovedMember() = runTest {
+        val m0 = textMsg(prevIds = emptyList())
+        seed(m0)
+        val removal = removalMsg(prevIds = listOf(m0.messageId))
+        messageRepo.insert(
+            removal,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.VERIFIED,
+        )
+        roomRepo.upsertMember(
+            roomId,
+            remoteAccount,
+            RoomMemberRole.MEMBER,
+            RoomMemberStatus.REMOVED,
+            removal.messageId,
+        )
+
+        assertEquals(removal.messageId, provider.removalNodeFor(roomId, remoteAccount)?.messageId)
+    }
+
+    @Test
+    fun removalNodeFor_nullWhenNothingToRePush() = runTest {
+        // ACTIVE row: nothing to re-push.
+        assertNull(provider.removalNodeFor(roomId, remoteAccount))
+        // Stranger (no row): nothing to re-push.
+        assertNull(provider.removalNodeFor(roomId, AccountId("stranger")))
+        // REMOVED row whose node was evicted: nothing to re-push.
+        roomRepo.upsertMember(
+            roomId,
+            remoteAccount,
+            RoomMemberRole.MEMBER,
+            RoomMemberStatus.REMOVED,
+            Uuid.random(),
+        )
+        assertNull(provider.removalNodeFor(roomId, remoteAccount))
     }
 
     private fun removalMsg(prevIds: List<Uuid>): MessagePayload.RoomEvent =
