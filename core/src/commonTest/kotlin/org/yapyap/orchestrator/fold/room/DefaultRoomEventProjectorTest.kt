@@ -127,6 +127,7 @@ private class FakeDagEngine : DagEngine {
     override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = error("not used")
     override suspend fun ingest(payload: MessagePayload): IngestResult? = error("not used")
     override suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload> = error("not used")
+    override suspend fun getMessage(messageId: Uuid): MessagePayload? = error("not used")
     override suspend fun getMessagesInRoom(
         roomId: RoomId,
         limit: Int,

@@ -188,13 +188,15 @@ class DefaultDagEngine(
         )
         val roomId = unsignedPayload.roomId
         if (messageRepository.hasMessages(roomId)) {
-            AppLog.warn(
+            val error = DagException.RoomAlreadyExists(roomId)
+            AppLog.error(
                 component = LogComponent.DAG,
                 event = LogEvent.APPEND_REFUSED,
                 message = "Room creation refused — derived room already holds messages (second genesis)",
                 fields = mapOf("roomId" to roomId),
+                throwable = error,
             )
-            throw DagException.RoomAlreadyExists(roomId)
+            throw error
         }
         // The rooms row must exist before the message insert (messages.room_id FK).
         roomRepository.ensureRoomExists(roomId, draft.roomType, draft.roomName)
@@ -415,6 +417,10 @@ class DefaultDagEngine(
 
     override suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload> {
         return messageRepository.findAllInRoom(roomId).map { it.payload }
+    }
+
+    override suspend fun getMessage(messageId: Uuid): MessagePayload? {
+        return messageRepository.findById(messageId)?.payload
     }
 
     override suspend fun getMessagesInRoom(

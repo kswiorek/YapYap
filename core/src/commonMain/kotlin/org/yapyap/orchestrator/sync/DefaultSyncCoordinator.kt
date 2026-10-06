@@ -92,7 +92,7 @@ class DefaultSyncCoordinator(
      */
     override suspend fun refreshCandidatesFor(roomId: RoomId) {
         syncMutex.withLock {
-            val members = candidateAccountsFor(roomId)
+            val members = roomRepository.membersOfRoom(roomId)
             if (members.isNotEmpty()) {
                 pendingSyncRepository.appendCandidateAccountsForRoom(roomId, members)
                 AppLog.debug(
@@ -168,7 +168,7 @@ class DefaultSyncCoordinator(
             }
             return
         }
-        val members = candidateAccountsFor(roomId)
+        val members = roomRepository.membersOfRoom(roomId)
         val candidates = (members + listOfNotNull(senderAccount)).distinct()
         if (candidates.isEmpty() && roomRepository.memberStatusesOfRoom(roomId).isEmpty()) {
             // Unknown room, unresolvable sender: a row could never be sent
@@ -193,10 +193,5 @@ class DefaultSyncCoordinator(
             candidateAccounts = candidates,
             nextAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod,
         )
-    }
-
-    private suspend fun candidateAccountsFor(roomId: RoomId): List<AccountId> {
-        return roomRepository.membersOfRoom(roomId)
-            .filter { it != identityResolver.getLocalAccountId() }
     }
 }

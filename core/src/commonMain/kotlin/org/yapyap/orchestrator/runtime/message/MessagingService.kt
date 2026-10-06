@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.routing.router.SendMessageResult
+import kotlin.uuid.Uuid
 
 interface MessagingService {
 
@@ -24,6 +25,9 @@ interface MessagingService {
     /** Outbound: append to local DAG, fan out to room members via router. */
     suspend fun sendTextMessage(roomId: RoomId, text: String): SendMessageResult
 
+    /** Lookup of a single message by id, mapped to its GUI display item (null when unknown or not displayable). */
+    suspend fun getMessage(messageId: Uuid): MessageDisplayItem?
+
     /**
      * Open a room for viewing. Returns a paginated window.
      * Caller must call [RoomMessageWindow.close] when navigating away.
@@ -33,10 +37,12 @@ interface MessagingService {
     /**
      * Latest visible message of [roomId] for the room list (docs/room events.md
      * §3): walks newest→oldest over one page and returns the first non-`REJECTED`
-     * `Text` message whose author passes the render policy. Null when no visible
-     * message exists (empty room, pre-fold room, deferred authors, all-hidden).
-     * The GUI re-pulls this on [incomingMessageEvents]; the event itself carries
-     * no content, so hidden messages never leak through the preview path.
+     * displayable message whose author passes the render policy. Null when no
+     * visible message exists (empty room, pre-fold room, deferred authors,
+     * all-hidden). The returned item is unformatted — the GUI decides how to
+     * render it. The GUI re-pulls this on [incomingMessageEvents]; the event
+     * itself carries no content, so hidden messages never leak through the
+     * preview path.
      */
     suspend fun roomPreview(roomId: RoomId, scanLimit: Int = 100): RoomPreview?
 

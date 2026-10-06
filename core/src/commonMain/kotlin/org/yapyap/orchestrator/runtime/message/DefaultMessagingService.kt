@@ -21,7 +21,6 @@ import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
 import kotlin.concurrent.Volatile
-import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 internal class DefaultMessagingService(
@@ -30,7 +29,6 @@ internal class DefaultMessagingService(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val identityResolver: IdentityResolver,
-    private val clock: Clock,
     private val messageLimits: StateFlow<MessageLimits>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
 ) : MessagingService {
@@ -78,12 +76,13 @@ internal class DefaultMessagingService(
         serviceScope = scope
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
-                if (result.payload is MessagePayload.GlobalEvent) return@collect
-                if (result.payload is MessagePayload.RoomEvent) return@collect
                 // A REJECTED message is never shown: skip both the window insert and any notification.
                 if (result.verificationState == VerificationState.REJECTED) return@collect
-                notifyWindowsNewItem(result)
-                emitIncomingEventIfNeeded(result.payload)
+                // Single displayability gate: payloads with no display item
+                // (control-plane events) stop here.
+                val item = result.payload.toDisplayItem() ?: return@collect
+                notifyWindowsNewItem(result, item)
+                emitIncomingEventIfNeeded(result.payload, item)
             }
         }
         verificationStateSubscriptionJob = scope.launch {
@@ -257,7 +256,9 @@ internal class DefaultMessagingService(
 
         val members = roomRepository.membersOfRoom(roomId)
 
-        notifyWindowsNewItem(IngestResult.Inserted(payload))
+        // A Text draft always appends as a displayable Text payload.
+        val item = checkNotNull(payload.toDisplayItem()) { "Text draft appended as non-displayable payload" }
+        notifyWindowsNewItem(IngestResult.Inserted(payload), item)
 
         if (members.isEmpty()) {
             AppLog.debug(
@@ -299,6 +300,11 @@ internal class DefaultMessagingService(
         return aggregateRoomSendResults(results)
     }
 
+    override suspend fun getMessage(messageId: Uuid): MessageDisplayItem? {
+        val payload = dagEngine.getMessage(messageId) ?: return null
+        return payload.toDisplayItem()
+    }
+
     override suspend fun openRoom(roomId: RoomId, initialPageSize: Int): RoomMessageWindow {
         windowsMapMutex.withLock {
             check(openWindows[roomId] == null) {
@@ -311,11 +317,10 @@ internal class DefaultMessagingService(
         }
     }
 
-    private suspend fun notifyWindowsNewItem(result: IngestResult) {
+    private suspend fun notifyWindowsNewItem(result: IngestResult, item: MessageDisplayItem) {
         val payload = result.payload
         val roomId = payload.roomId
         val window = windowsMapMutex.withLock { openWindows[roomId] } ?: return
-        val displayItem = payload.toDisplayItem() ?: return
         val orphanGap: MessageDisplayItem.Gap? = (result as? IngestResult.BecameOrphan)?.let {
             MessageDisplayItem.Gap(
                 messageId = payload.messageId,
@@ -324,7 +329,7 @@ internal class DefaultMessagingService(
                 missingPrevIds = it.missingPrevIds,
             )
         }
-        window.onNewItem(displayItem, result.closedGapMissingPrevIds, orphanGap)
+        window.onNewItem(item, result.closedGapMissingPrevIds, orphanGap)
     }
 
     /**
@@ -336,25 +341,23 @@ internal class DefaultMessagingService(
         window.onItemRejected(change.messageId)
     }
 
-    private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload) {
-        when (payload) {
-            is MessagePayload.Text -> {
-                val localAccountId = identityResolver.getLocalAccountId()
-                if (payload.senderAccountId == localAccountId) return
-
-                // Signal only — no content. The GUI re-pulls roomPreview on this,
-                // so messages the render policy hides never leak via notification.
-                incomingMessageEventFlow.emit(
-                    IncomingMessageEvent(
-                        roomId = payload.roomId,
-                        senderAccountId = payload.senderAccountId,
-                        timestamp = clock.now(),
-                    )
-                )
-            }
-
-            else -> {}//TODO Handle other message types
-        }
+    /**
+     * Displayability was already decided by the caller via [toDisplayItem]; only
+     * the notification policy applies here: no self-notify, no hidden authors.
+     * The emitted item is policy-vetted and unformatted.
+     */
+    private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload, item: MessageDisplayItem) {
+        val localAccountId = identityResolver.getLocalAccountId()
+        if (payload.senderAccountId == localAccountId) return
+        val accStatus = roomRepository.memberRowOf(payload.roomId, payload.senderAccountId)?.status
+        if (messageDisplayPolicy(accStatus) == MessageDisplayPolicy.HIDDEN_NON_MEMBER) return
+        incomingMessageEventFlow.emit(
+            IncomingMessageEvent(
+                roomId = payload.roomId,
+                senderAccountId = payload.senderAccountId,
+                item = item,
+            )
+        )
     }
 
     override suspend fun roomPreview(roomId: RoomId, scanLimit: Int): RoomPreview? {
@@ -363,19 +366,17 @@ internal class DefaultMessagingService(
         val statuses = roomRepository.memberStatusesOfRoom(roomId)
             .associate { it.accountId to it.status }
         for (msg in dagEngine.getMessagesInRoom(roomId, scanLimit)) {
-            if (msg !is MessagePayload.Text) continue
+            val item = msg.toDisplayItem() ?: continue
             if (messageDisplayPolicy(statuses[msg.senderAccountId]) == MessageDisplayPolicy.HIDDEN_NON_MEMBER) continue
             return RoomPreview(
+                messageId = msg.messageId,
                 senderAccountId = msg.senderAccountId,
-                preview = msg.text.toPreview(),
                 timestamp = msg.createdAt,
+                item = item,
             )
         }
         return null
     }
-
-    private fun String.toPreview(): String =
-        if (length > 79) take(79) + "\u2026" else this
 
     private fun aggregateRoomSendResults(results: List<SendMessageResult>): SendMessageResult {
         val totalPeers = results.sumOf { it.peersTotal }
@@ -406,6 +407,12 @@ internal class DefaultMessagingService(
         )
     }
 
+    /**
+     * Single displayability decision point: maps a payload to its GUI display
+     * item, or null when the payload is not chat-transcript content
+     * (control-plane events). Exhaustive on purpose — a new payload type must
+     * be handled here explicitly.
+     */
     private fun MessagePayload.toDisplayItem(): MessageDisplayItem? = when (this) {
         is MessagePayload.Text -> MessageDisplayItem.Text(
             messageId = messageId,
@@ -414,7 +421,8 @@ internal class DefaultMessagingService(
             text = text,
         )
 
-        else -> null
+        is MessagePayload.GlobalEvent,
+        is MessagePayload.RoomEvent -> null
     }
 
     private inner class DefaultRoomMessageWindow(
@@ -547,13 +555,11 @@ internal class DefaultMessagingService(
             }
         }
 
-        /** Remove a displayed (Text/File) item whose message became REJECTED. */
+        /** Remove a displayed item whose message became REJECTED. The orphan gap shares the message id, so it is removed as well. */
         suspend fun onItemRejected(messageId: Uuid) {
             if (closed) return
             windowMutex.withLock {
-                _displayItems.value = _displayItems.value.filterNot { item ->
-                    (item is MessageDisplayItem.Text || item is MessageDisplayItem.File) && item.messageId == messageId
-                }
+                _displayItems.value = _displayItems.value.filterNot { it.messageId == messageId }
             }
         }
 
@@ -572,16 +578,8 @@ internal class DefaultMessagingService(
         ): List<MessageDisplayItem> {
             val items = mutableListOf<MessageDisplayItem>()
             for (msg in messages) {
-                if (msg !is MessagePayload.Text) continue
-
-                items.add(
-                    MessageDisplayItem.Text(
-                        messageId = msg.messageId,
-                        accountId = msg.senderAccountId,
-                        timestamp = msg.createdAt,
-                        text = msg.text,
-                    )
-                )
+                val item = msg.toDisplayItem() ?: continue
+                items.add(item)
 
                 val orphanedGap = gapsByOrphanId[msg.messageId]
                 if (orphanedGap != null) {

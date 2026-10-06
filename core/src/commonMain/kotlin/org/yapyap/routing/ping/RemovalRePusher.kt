@@ -39,17 +39,17 @@ internal class RemovalRePusher(
      * Returns false when suppressed (no contradiction, node missing, backoff) —
      * the next ping re-triggers.
      */
-    suspend fun rePushRemoval(deviceId: PeerId, roomId: RoomId, senderAccount: AccountId): Boolean {
-        val row = roomRepository.memberRowOf(roomId, senderAccount) ?: return false
-        val nodeId = row.removalNodeId ?: return false
+    suspend fun rePushRemoval(deviceId: PeerId, roomId: RoomId, senderAccount: AccountId) {
+        val row = roomRepository.memberRowOf(roomId, senderAccount) ?: return
+        val nodeId = row.removalNodeId ?: return
         val now = clock.now().epochSeconds
         val key = deviceId to roomId
-        if (backoffMutex.withLock { lastPushAt[key] }?.let { now - it < REPUSH_BACKOFF_SECONDS } == true) return false
-        val node = messageRepository.findById(nodeId)?.payload ?: return false
+        if (backoffMutex.withLock { lastPushAt[key] }?.let { now - it < REPUSH_BACKOFF_SECONDS } == true) return
+        val node = messageRepository.findById(nodeId)?.payload ?: return
         // Store-and-forward carries this past the target's offline window
         // (relay deposits); beyond relay retention the next ping re-triggers.
         val outcome = outboundMessenger.sendMessageToPeer(deviceId, node, forceTransport = null)
-        if (outcome !is PeerSendOutcome.Queued) return false
+        if (outcome !is PeerSendOutcome.Queued) return
         backoffMutex.withLock { lastPushAt[key] = now }
         AppLog.debug(
             component = LogComponent.ROUTER,
@@ -57,7 +57,7 @@ internal class RemovalRePusher(
             message = "Re-pushed removal node to stale device",
             fields = mapOf("deviceId" to deviceId, "roomId" to roomId, "removalNode" to nodeId),
         )
-        return true
+        return
     }
 
     companion object {

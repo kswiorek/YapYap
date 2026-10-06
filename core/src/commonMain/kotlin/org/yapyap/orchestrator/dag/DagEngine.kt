@@ -26,6 +26,8 @@ interface DagEngine {
     suspend fun ingest(payload: MessagePayload): IngestResult?
     suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload>
 
+    suspend fun getMessage(messageId: Uuid): MessagePayload?
+
     /**
      * Hot stream of stored messages whose verification state changed (never a "new message" signal).
      * Consumers use it e.g. to drop a message from the GUI when it becomes REJECTED.

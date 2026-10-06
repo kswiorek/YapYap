@@ -37,26 +37,34 @@ sealed interface MessageDisplayItem {
 }
 
 /**
- * "Something new in this room" signal. Carries no content: the GUI re-pulls
- * [org.yapyap.orchestrator.runtime.message.MessagingService.roomPreview] on it,
- * so messages the render policy hides never leak through a notification path.
+ * "Something new in this room" signal carrying the policy-vetted
+ * [MessageDisplayItem], unformatted — presentation (truncation, "sent a file"
+ * labels) is the GUI's call. The emit path applies the render policy, so
+ * messages from hidden authors (and non-displayable payloads) never ride
+ * this event; [org.yapyap.orchestrator.runtime.message.MessagingService.roomPreview]
+ * remains the source of truth for initial population and re-pulls (e.g.
+ * after a REJECTED drop).
  */
 data class IncomingMessageEvent(
     val roomId: RoomId,
     val senderAccountId: AccountId,
-    val timestamp: Instant,
+    val item: MessageDisplayItem,
 )
 
 /**
  * Latest *visible* message of a room (docs/room events.md §3): the newest
- * non-`REJECTED` `Text` message whose author passes the render policy. Null
- * when the room holds no visible message (empty, pre-fold, or all-hidden).
+ * non-`REJECTED` message that maps to a [MessageDisplayItem] and whose author
+ * passes the render policy. Null when the room holds no visible message
+ * (empty, pre-fold, or all-hidden).
+ *
+ * The item is carried unformatted: truncation, "sent a file" labels and any
+ * other presentation decisions are GUI concerns.
  */
 data class RoomPreview(
+    val messageId: Uuid,
     val senderAccountId: AccountId,
-    /** First ~80 chars of text. */
-    val preview: String,
     val timestamp: Instant,
+    val item: MessageDisplayItem,
 )
 
 /**

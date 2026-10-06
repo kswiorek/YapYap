@@ -102,7 +102,6 @@ class DefaultMessagingServiceTest {
         pipeline = pipeline,
         roomRepository = roomMembershipRepo,
         identityResolver = identityResolver,
-        clock = clock,
         messageLimits = MutableStateFlow(messageLimits),
         orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
     )
@@ -399,7 +398,10 @@ class DefaultMessagingServiceTest {
         assertEquals(1, received.size)
         assertEquals(roomId, received[0].roomId)
         assertEquals(remoteAccount, received[0].senderAccountId)
-        assertEquals(clock.now(), received[0].timestamp)
+        val item = received[0].item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("hi from remote", item.text)
+        assertEquals(msg1Uuid, item.messageId)
 
         // From self → no event.
         received.clear()
@@ -415,6 +417,44 @@ class DefaultMessagingServiceTest {
         )
         router.emitIncoming(selfIncoming)
         advanceUntilIdle()
+        assertTrue(received.isEmpty())
+
+        collectorJob.cancel()
+    }
+
+    @Test
+    fun incomingMessage_hiddenAuthor_emitsNoEvent() = runTest(UnconfinedTestDispatcher()) {
+        // Negative test (d3): a stranger-injection message is stored but the
+        // author has no member row, so the emit-side policy filter must
+        // suppress the notification — the event carries content, so the
+        // filter (not contentlessness) is the enforcement.
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val service = newService(this, pipeline)
+        startStack(this, pipeline, service)
+
+        val received = mutableListOf<IncomingMessageEvent>()
+        val collectorJob = backgroundScope.launch { service.incomingMessageEvents.collect { received.add(it) } }
+        advanceUntilIdle()
+
+        val base = dagEngine.append(roomId, MessageDraft.Text("base"))
+        val stranger = AccountId("msg-stranger")
+        router.emitIncoming(
+            MessagePayload.Text(
+                messageId = Uuid.random(),
+                roomId = roomId,
+                senderAccountId = stranger,
+                prevIds = listOf(base.messageId),
+                createdAt = clock.now(),
+                text = "stranger smuggles",
+                authorDeviceId = PeerId("test-device"),
+                authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            )
+        )
+        advanceUntilIdle()
+
+        // Stored (it went through the whole path) but never notified.
+        assertTrue(messageRepo.byId.values.any { it.payload.senderAccountId == stranger })
+        assertTrue(messageRepo.byId.values.none { it.verificationState == VerificationState.REJECTED })
         assertTrue(received.isEmpty())
 
         collectorJob.cancel()
@@ -445,7 +485,8 @@ class DefaultMessagingServiceTest {
 
         // Window stays empty (GlobalEvent filtered out).
         assertEquals(0, window.displayItems.value.size)
-        // Event is not emitted (Text-only branch, else branch is a no-op).
+        // No event: control-plane payloads have no display item, so the
+        // collector's displayability gate stops them before the emit path.
         assertEquals(0, received.size)
 
         collectorJob.cancel()
@@ -554,7 +595,9 @@ class DefaultMessagingServiceTest {
 
         assertNotNull(preview)
         assertEquals(remoteAccount, preview.senderAccountId)
-        assertEquals("new", preview.preview)
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("new", item.text)
         assertEquals(epochSeconds(2L), preview.timestamp)
     }
 
@@ -571,7 +614,9 @@ class DefaultMessagingServiceTest {
 
         assertNotNull(preview)
         assertEquals(remoteAccount, preview.senderAccountId)
-        assertEquals("member says hi", preview.preview)
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("member says hi", item.text)
     }
 
     @Test
@@ -585,7 +630,9 @@ class DefaultMessagingServiceTest {
         val preview = service.roomPreview(roomId)
 
         assertNotNull(preview)
-        assertEquals("before i left", preview.preview)
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("before i left", item.text)
     }
 
     @Test
@@ -599,7 +646,9 @@ class DefaultMessagingServiceTest {
         val preview = service.roomPreview(roomId)
 
         assertNotNull(preview)
-        assertEquals("pending identity", preview.preview)
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("pending identity", item.text)
     }
 
     @Test
@@ -611,17 +660,18 @@ class DefaultMessagingServiceTest {
     }
 
     @Test
-    fun roomPreview_truncatesLongText() = runTest(UnconfinedTestDispatcher()) {
-        seedText(remoteAccount, "x".repeat(120), tick = 1L)
+    fun roomPreview_passesFullTextToGui() = runTest(UnconfinedTestDispatcher()) {
+        // Truncation is a GUI concern: the service hands over the full text.
+        val long = "x".repeat(120)
+        seedText(remoteAccount, long, tick = 1L)
         val service = newService(this)
 
         val preview = service.roomPreview(roomId)
 
         assertNotNull(preview)
-        // Preview is padded with ellipsis when text exceeds 80 chars.
-        assertEquals(80, preview.preview.length)
-        // Last char is the ellipsis codepoint.
-        assertEquals("\u2026", preview.preview.takeLast(1))
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals(long, item.text)
     }
 
     @Test
@@ -638,7 +688,9 @@ class DefaultMessagingServiceTest {
 
         val preview = service.roomPreview(roomId)
         assertNotNull(preview)
-        assertEquals("i was here all along", preview.preview)
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("i was here all along", item.text)
     }
 
     @Test
@@ -675,8 +727,16 @@ private class FakeRoomRepository(
         }
     }
 
-    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
-        statuses[roomId to accountId]?.let { RoomMemberRecord(accountId, RoomMemberRole.MEMBER, it) }
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? {
+        // Mirror production: a committed member row exists for listed members
+        // (absent status overrides read as ACTIVE); strangers have no row.
+        if (accountId !in members[roomId].orEmpty() && (roomId to accountId) !in statuses) return null
+        return RoomMemberRecord(
+            accountId,
+            RoomMemberRole.MEMBER,
+            statuses[roomId to accountId] ?: RoomMemberStatus.ACTIVE
+        )
+    }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = members.keys.toList()
 

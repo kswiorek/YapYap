@@ -28,7 +28,6 @@ import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.routing.router.Router
-import kotlin.time.Clock
 
 interface OrchestratorRuntime {
     val messaging: MessagingService
@@ -91,7 +90,6 @@ internal class DefaultOrchestratorRuntime(
             pipeline = pipeline,
             roomRepository = roomRepository,
             identityResolver = identityResolver,
-            clock = Clock.System,
             messageLimits = messageLimits,
             orchestratorConfig = configStore.orchestratorConfig,
         )
