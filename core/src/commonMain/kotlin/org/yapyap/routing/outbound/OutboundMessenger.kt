@@ -96,7 +96,7 @@ internal class OutboundMessenger(
                 else -> SendFailureKind.MIXED
             }
         }
-        //TODO: more complete statistics for the gui
+        //TODO: [Finishing touches] more complete statistics for the gui
         return SendMessageResult(
             status = status,
             peersTotal = deviceCount + relaysDeposited,
@@ -172,7 +172,7 @@ internal class OutboundMessenger(
                 "nextRetryAt" to nextRetryAt,
             ),
         )
-        //TODO: remove direct path
+        //TODO: [Sprint 4] remove direct path
         try {
             dispatcher.dispatch(binaryEnvelope, plan.transport)
         } catch (e: CancellationException) {

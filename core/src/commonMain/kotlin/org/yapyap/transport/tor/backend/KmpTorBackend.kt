@@ -238,12 +238,6 @@ class KmpTorBackend(
     private suspend fun acceptInboundConnections(listener: ServerSocket) {
         while (scope?.isActive == true) {
             val client = runCatching { listener.accept() }.getOrElse { break }
-
-            // TODO(sprint-4d firewall): socket-level decentralized firewall — check the
-            // connecting onion against the BANNED device set (committed by the global events
-            // fold) and instantly close the connection at accept time, before any frame is
-            // read (docs/ban diagram.mmd steps 8–9). Absence from the banned set (including
-            // unknown onions) must NOT close — absence asserts nothing.
             scope?.launch {
                 handleInboundConnection(client)
             }

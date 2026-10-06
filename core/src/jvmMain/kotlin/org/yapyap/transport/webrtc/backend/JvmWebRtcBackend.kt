@@ -40,7 +40,7 @@ class JvmWebRtcBackend(
     private val sessions = ConcurrentHashMap<PeerId, Session>()
     private var scope: CoroutineScope? = null
 
-    //TODO: renegotiate without removing session
+    //TODO: [Finishing touches] renegotiate without removing session
     override suspend fun start(localDevice: PeerId) {
         check(this.localDevice == null) { "WebRTC backend is already started" }
         this.localDevice = localDevice

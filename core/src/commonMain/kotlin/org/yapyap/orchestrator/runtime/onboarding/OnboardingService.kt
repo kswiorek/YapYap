@@ -11,9 +11,6 @@ import org.yapyap.protocol.envelopes.Invite
  * [org.yapyap.orchestrator.onboarding.OnboardingProvider], which runs on every node including headless
  * relays; this service exposes the newcomer's progress to the GUI ([newcomerState]) and drives the
  * interactive sponsor flow (scanning a newcomer's QR identity payload out-of-band).
- *
- * This is scaffolding for the sprint-4 onboarding handshake — the persistence and sync wiring is
- * still open and implemented with TODO bodies (see the global-events design doc, §8).
  */
 interface OnboardingService {
     /** Newcomer-side onboarding progress, delegated from the [OnboardingProvider]. */

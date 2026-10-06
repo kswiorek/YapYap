@@ -151,7 +151,7 @@ class DefaultOrchestrator(
                 watcher.changes().collect { configStore.onUserSettingsFileChanged() }
             }
 
-            // TODO(sprint 7): fetch NetworkPolicy from clearnet API and call
+            // TODO: [Sprint 7] fetch NetworkPolicy from clearnet API and call
             //   configStore.applyNetwork(fetched) before backends read the derived config.
 
 
@@ -334,7 +334,7 @@ class DefaultOrchestrator(
             }
 
             is SetupIntent.AddDeviceToExistingAccount -> {
-                //TODO: if device is headless and belongs to an account, exclude from message fanount but not global room?
+                //TODO: [Finishing Touches] if device is headless and belongs to an account, exclude from message fanount but not global room?
                 val account = identityProvisioning.createPlaceholderAccountIdentity()
                 val device = identityProvisioning.createNewDeviceIdentity()
                 _state.value = OrchestratorState.Starting
@@ -401,7 +401,7 @@ class DefaultOrchestrator(
                 cryptoSessionManager,
                 cryptoProvider,
             ),
-            fileProtection = PlaintextFileProtection(cryptoProvider), //TODO file protection
+            fileProtection = PlaintextFileProtection(cryptoProvider), //TODO: [Sprint 5] file protection
             messageProtection = SignedAndEncryptedMessageProtection(
                 signatureProvider,
                 cryptoSessionManager,

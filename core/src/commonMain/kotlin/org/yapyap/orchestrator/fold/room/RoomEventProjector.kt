@@ -367,7 +367,7 @@ internal class DefaultRoomEventProjector(
         // Projection deferral (§5): the `room_members.account_id` FK stays — rows for
         // accounts not yet in `accounts` wait for a later fold. Devices imply the
         // account row, so deferred rows are unobservable in the interim.
-        // TODO: bulk account-existence check once rooms outgrow the 10–20-user profile.
+        // TODO: [Finishing touches] bulk account-existence check once rooms outgrow the 10–20-user profile.
         val committed = output.members.filterKeys { accountId ->
             identityKeyRepository.getAccountRecord(accountId) != null
         }

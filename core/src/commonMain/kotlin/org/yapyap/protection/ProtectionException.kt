@@ -69,7 +69,7 @@ sealed class ProtectionException(
     class SessionNotReady(cause: CryptoSessionException) :
         ProtectionException(
             message = "Session not ready",
-            disposition = ProtectionDisposition.RETRYABLE, //TODO: consider changing to DEFER
+            disposition = ProtectionDisposition.RETRYABLE, //TODO: [Sprint 4] consider changing to DEFER
             reason = ProtectionReason.SESSION,
             cause = cause,
         )

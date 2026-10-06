@@ -146,7 +146,7 @@ data class MessageEnvelope(
  * Shared header fields are common to every room DAG (chat and global control).
  * Delivery lifecycle and orphan flags are local DB concerns and are not on the wire.
  *
- * TODO: Attachment / file-offer message payload types (link to FileEnvelope transfers).
+ * TODO: [Sprint 5] Attachment / file-offer message payload types (link to FileEnvelope transfers).
  */
 sealed interface MessagePayload {
     val messageId: Uuid

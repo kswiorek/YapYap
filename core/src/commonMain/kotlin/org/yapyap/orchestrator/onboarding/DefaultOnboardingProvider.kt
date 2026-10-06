@@ -161,10 +161,6 @@ internal class DefaultOnboardingProvider(
      * Anchored once the projector's commit clears our device row's provisional bit — i.e. the
      * fold carries our own Add event. Until the projector exists every local row stays
      * provisional, so this reads false (same as the old hardcoded stub).
-     *
-     * TODO(global events projector): clear `devices.provisional` on commit (plus the
-     * placeholder fix-up: correct the device's account_id to the chain account and drop the
-     * placeholder account row).
      */
     private suspend fun isLocalDeviceAnchoredInGlobalChain(): Boolean {
         val localDeviceId = identityKeyRepository.getLocalDeviceRecord()?.deviceId ?: return false

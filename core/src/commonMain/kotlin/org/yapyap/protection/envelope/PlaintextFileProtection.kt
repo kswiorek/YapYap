@@ -11,7 +11,7 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.*
 import kotlin.uuid.Uuid
 
-// TODO Sprint 5: Replace with real encrypted file protection (SignedAndEncryptedFileProtection).
+// TODO: [Sprint 5] Replace with real encrypted file protection (SignedAndEncryptedFileProtection).
 //  This is a plaintext passthrough placeholder so the orchestrator can compile and boot.
 //  Sprint 5 tasks: FileEnvelope lifecycle, chunk scheduler, E2EE for file payloads.
 class PlaintextFileProtection(
@@ -82,7 +82,7 @@ class PlaintextFileProtection(
     }
 
     override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk {
-        // TODO Sprint 5: Decrypt chunk payload using per-chunk keys or sender key.
+        // TODO: [Sprint 5] Decrypt chunk payload using per-chunk keys or sender key.
         return FileChunk(
             fileName = "",
             chunkIndex = chunk.chunkIndex,

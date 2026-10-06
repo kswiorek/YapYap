@@ -37,7 +37,7 @@ internal class InboundEnvelopeProcessor(
             null
         }
         if (knownEndpoint == null) {
-            // TODO(sprint 4 hardening): endpoint-claim policy for unauthenticated unknown devices —
+            // TODO: [Sprint 4] endpoint-claim policy for unauthenticated unknown devices —
             // today we neither create nor overwrite a mapping from an unverified claim. Known devices
             // keep the existing self-healing overwrite below (Tor onion rotation).
             AppLog.debug(
@@ -72,7 +72,7 @@ internal class InboundEnvelopeProcessor(
         provenSourceEndpoint: TorEndpoint? = null,
     ) {
 
-        // TODO: decide what to do with unknown devices
+        // TODO: [Sprint 4] decide what to do with unknown devices
         try {
             val status = ctx.identityResolver.getDeviceStatus(inbound.source)
             if (status == IdentityStatus.BANNED){
