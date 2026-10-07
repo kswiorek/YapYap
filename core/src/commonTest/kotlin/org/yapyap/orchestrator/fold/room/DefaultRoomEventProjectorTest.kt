@@ -14,14 +14,16 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.persistence.db.*
+import org.yapyap.persistence.db.IdentityStatus
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomMemberStatus
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.persistence.messaging.RoomRecord
 import org.yapyap.persistence.messaging.RoomRepository
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
 import org.yapyap.sync.FakeInboundMessagePipeline
@@ -185,7 +187,6 @@ private class FakeRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult {
         sent.add(target to payload)
         return SendMessageResult(SendMessageStatus.SUCCESS, peersTotal = 1, peersQueued = 1, failureKind = null)

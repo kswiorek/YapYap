@@ -4,9 +4,9 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.*
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import kotlin.time.Clock

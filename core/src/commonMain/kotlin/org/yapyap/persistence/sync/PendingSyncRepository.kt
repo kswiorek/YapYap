@@ -3,11 +3,11 @@ package org.yapyap.persistence.sync
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.Pending_syncs
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid

@@ -1,19 +1,14 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.*
-import org.yapyap.persistence.db.DeviceType
-import org.yapyap.protocol.ByteReader
-import org.yapyap.protocol.ByteWriter
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload.Companion.decode
+import org.yapyap.protocol.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
  * Out-of-band bootstrap transport envelope: the authenticated control message that delivers
  * the sponsor's identity (account + device keys, onion, DAG head) to a newcomer before any DB rows
- * exist. Nested inside a [BinaryEnvelope] with [org.yapyap.protocol.packet.PacketType.BOOTSTRAP] so
+ * exist. Nested inside a [BinaryEnvelope] with [org.yapyap.protocol.PacketType.BOOTSTRAP] so
  * dedup, expiry, and target-check come from the existing inbound machinery.
  *
  * [scheme] is the *protection* scheme in plaintext so the inbound handler can open the envelope
@@ -58,7 +53,7 @@ data class BootstrapEnvelope(
     private fun writeHeader(writer: ByteWriter) {
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeByte(scheme.wireValue.toInt())
+        writer.writeByte(scheme.wireValue)
         writer.writeUuid(bootstrapEnvelopeId)
         writer.writePeerId(source)
         writer.writePeerId(target)
@@ -501,11 +496,11 @@ private fun ByteWriter.writeBootstrapPayloadPrefix(
     deviceType: DeviceType,
     torEndpoint: TorEndpoint,
 ) {
-    writeByte(kind.wireValue.toInt())
+    writeByte(kind.wireValue)
     writeByte(version)
     writeNullableAccountIdentity(account)
     writeDeviceIdentity(device)
-    writeByte(deviceType.ordinal.toByte().toInt())
+    writeByte(deviceType.wireValue)
     writeString(torEndpoint.onionAddress)
     writeInt(torEndpoint.port)
 }
@@ -519,9 +514,7 @@ private fun ByteReader.readBootstrapPayloadPrefix(): BootstrapPayloadPrefix {
     require(version == PAYLOAD_VERSION.toInt()) { "Unsupported bootstrap payload version: $version" }
     val account = readNullableAccountIdentity()
     val device = readDeviceIdentity()
-    val deviceTypeOrdinal = readUnsignedByte()
-    val deviceType = DeviceType.entries.getOrNull(deviceTypeOrdinal)
-        ?: error("Unsupported device type wire value: $deviceTypeOrdinal")
+    val deviceType = DeviceType.fromWireValue(readByte())
     val onionAddress = readString()
     val port = readInt()
     return BootstrapPayloadPrefix(version, account, device, deviceType, TorEndpoint(onionAddress, port))

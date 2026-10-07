@@ -10,7 +10,6 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.BootstrapKeySource
 import org.yapyap.protection.PassthroughFileProtection
@@ -19,10 +18,11 @@ import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -252,7 +252,7 @@ class BootstrapInboundHandlerTest {
             ),
         )
 
-        assertEquals(PacketNackReason.PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
+        assertEquals(PacketNackReason.PERMANENT_PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
         advanceUntilIdle()
         assertEquals(0, received.size)
     }
@@ -272,7 +272,7 @@ class BootstrapInboundHandlerTest {
             ),
         )
 
-        assertEquals(PacketNackReason.PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
+        assertEquals(PacketNackReason.PERMANENT_PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
     }
 
     @Test
@@ -292,7 +292,7 @@ class BootstrapInboundHandlerTest {
             ),
         )
 
-        assertEquals(PacketNackReason.PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
+        assertEquals(PacketNackReason.PERMANENT_PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
     }
 
     @Test
@@ -407,6 +407,6 @@ class BootstrapInboundHandlerTest {
             ),
         )
 
-        assertEquals(PacketNackReason.PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
+        assertEquals(PacketNackReason.PERMANENT_PROTECTION_FAILED, (result as InboundHandleResult.Rejected).reason)
     }
 }

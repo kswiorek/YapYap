@@ -3,7 +3,7 @@ package org.yapyap.orchestrator.fold.room
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
-import org.yapyap.persistence.db.RoomType
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.random.Random
 import kotlin.test.Test

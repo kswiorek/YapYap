@@ -10,17 +10,13 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.primitives.EncryptionKeyPair
 import org.yapyap.crypto.primitives.SigningKeyPair
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcSignalKind
@@ -78,7 +74,7 @@ internal fun samplePacketAckPayload(
 internal fun samplePacketNackPayload(
     packetId: Uuid = Uuid.random(),
     packetType: PacketType = PacketType.MESSAGE,
-    reason: PacketNackReason = PacketNackReason.PROTECTION_FAILED,
+    reason: PacketNackReason = PacketNackReason.PERMANENT_PROTECTION_FAILED,
     reasonText: String? = "bad sig",
 ): SystemPayload.PacketNack =
     SystemPayload.PacketNack(

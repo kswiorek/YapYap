@@ -20,14 +20,18 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
-import org.yapyap.persistence.db.*
+import org.yapyap.persistence.db.IdentityStatus
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomMemberStatus
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -948,7 +952,6 @@ private class RecordingRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult {
         sentTargets.add(target)
         return SendMessageResult(

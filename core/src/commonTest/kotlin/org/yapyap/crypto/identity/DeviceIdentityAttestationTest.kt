@@ -3,9 +3,9 @@ package org.yapyap.crypto.identity
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.testfixtures.FakeClock

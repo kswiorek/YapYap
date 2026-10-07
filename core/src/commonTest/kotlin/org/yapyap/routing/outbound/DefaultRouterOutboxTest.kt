@@ -8,6 +8,7 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.protection.sampleTextPayload
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
@@ -15,7 +16,6 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -40,19 +40,23 @@ class DefaultRouterOutboxTest {
         PeerId("outboxremotepeerbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
     @Test
-    fun sendMessage_enqueuesOutboxEntry() = runBlocking {
+    fun sendMessage_enqueuesDueNowAndLoopDispatches() = runBlocking {
         val tor = RecordingTorTransport()
         val outbox = TrackingPacketOutbox()
         val account = AccountId("outbox-send-account")
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload())
+        // Single dispatch path: the row is due immediately and the loop dispatches it.
+        withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
         router.stop()
 
         assertEquals(1, outbox.enqueued.size)
         val packetId = outbox.enqueued.single().packetId
         assertTrue(outbox.contains(packetId))
+        assertEquals(packetId, tor.sendsExcludingHeartbeat().single().second.packetId)
+        // Dispatched by the loop: the next attempt is one retry delay out.
         assertEquals(epochSeconds(10_000L) + RouterConfig().torRetryDelay, outbox.getNextRetryAt(packetId))
     }
 
@@ -65,7 +69,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account, remoteTor = remoteTor)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload())
         val packetId = outbox.enqueued.single().packetId
 
         tor.tryEmitIncoming(inboundTorAck(packetId, remoteTor))
@@ -86,7 +90,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account, remoteTor = remoteTor)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload())
         val packetId = outbox.enqueued.single().packetId
 
         tor.tryEmitIncoming(

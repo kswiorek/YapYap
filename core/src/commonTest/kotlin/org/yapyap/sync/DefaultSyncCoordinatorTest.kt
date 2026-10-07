@@ -5,12 +5,12 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.*
 import kotlin.test.Test

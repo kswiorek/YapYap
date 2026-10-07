@@ -1,12 +1,7 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.DeviceType
-import org.yapyap.persistence.db.MessagePayloadType
-import org.yapyap.protocol.ByteReader
-import org.yapyap.protocol.ByteWriter
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 
 /**
  * Typed global control event carried inside [MessagePayload.GlobalEvent.eventBytes].
@@ -52,7 +47,7 @@ sealed interface GlobalEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64 + displayName.length)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(accountId.id)
             writer.writeByteArray(accountSigningPublicKey)
             writer.writeString(displayName)
@@ -141,14 +136,14 @@ sealed interface GlobalEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(128 + torEndpoint.onionAddress.length)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(accountId.id)
             writer.writePeerId(deviceId)
             writer.writeByteArray(signingPublicKey)
             writer.writeByteArray(encryptionPublicKey)
             writer.writeString(torEndpoint.onionAddress)
             writer.writeInt(torEndpoint.port)
-            writer.writeByte(deviceType.ordinal)
+            writer.writeByte(deviceType.wireValue)
             writer.writeNullableByteArray(keySignature)
             return writer.toByteArray()
         }
@@ -191,9 +186,7 @@ sealed interface GlobalEventPayload {
                 val encryptionPublicKey = reader.readByteArray()
                 val onionAddress = reader.readString()
                 val port = reader.readInt()
-                val deviceTypeOrdinal = reader.readUnsignedByte()
-                val deviceType = DeviceType.entries.getOrNull(deviceTypeOrdinal)
-                    ?: error("Unsupported device type wire value: $deviceTypeOrdinal")
+                val deviceType = DeviceType.fromWireValue(reader.readByte())
                 val keySignature = reader.readNullableByteArray()
                 reader.requireFullyRead()
                 return AddDevice(
@@ -218,7 +211,7 @@ sealed interface GlobalEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             return writer.toByteArray()
         }
@@ -242,7 +235,7 @@ sealed interface GlobalEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             return writer.toByteArray()
         }
@@ -271,7 +264,7 @@ sealed interface GlobalEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             return writer.toByteArray()
         }
@@ -299,7 +292,7 @@ sealed interface GlobalEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(1 + 66)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writePeerId(targetDeviceId)
             return writer.toByteArray()
         }
@@ -376,7 +369,7 @@ fun accountSignedDeviceBindingBytes(
     writer.writeByteArray(encryptionPublicKey)
     writer.writeString(torEndpoint.onionAddress)
     writer.writeInt(torEndpoint.port)
-    writer.writeByte(deviceType.ordinal)
+    writer.writeByte(deviceType.wireValue)
     return writer.toByteArray()
 }
 

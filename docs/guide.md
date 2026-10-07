@@ -70,3 +70,39 @@
   - SPK rotation and handshake edge cases during key rollover.
   - Epoch lifecycle management (`SUPERSEDED` sessions, handshake-until-acked).
   - Simultaneous-init policy and remaining P0/P1 items documented in [`e2ee.md`](e2ee.md).
+
+### Delivery model & retry/NACK contract (Sprint 4)
+
+Effectively-once delivery rests on the pull path, not the push path: every sent message is
+appended to the local DAG first, ping frontiers advertise DAG tips, and peers pull what they
+miss via sync requests. The outbox push (dispatch + ACK/NACK retry) is a latency
+optimization — a deferred or expired push is a latency problem, never a loss.
+
+Protection verdicts (`ProtectionDisposition` in `ProtectionException.kt`) are two-valued:
+
+- `PERMANENT` — these bytes are dead (bad signature, replay, violation, corrupt).
+- `DEFER` — prerequisites missing (session/identity not ready). There is no "retryable"
+  protection verdict: retry policy is a transport concern owned by the outbox.
+
+Inbound/outbound disposition contract:
+
+- `DEFER` is silent by design: no ACK, no NACK, dedup row cleared (`inboundResultForProtectionFailure`), so the sender's
+  resend is reprocessed fresh once
+  the prerequisite lands. A NACK here would either replay a stale verdict for later
+  duplicates or falsely ACK the packet via the duplicate-replay path.
+- `ACK` means processed — never sent before successful decrypt-and-handle.
+- The sender owns a message until it decrypts on the receiver: there is no inbound hold
+  queue; the sender's outbox retry is the only recovery path for undecryptable packets.
+- A received NACK's meaning is a pure function of its reason (`nackActionFor` in the
+  routing layer is the single enforcement point): terminal reasons (`PERMANENT_PROTECTION_FAILED`, `DECODE_FAILED`,
+  `UNSUPPORTED_TYPE`, `EXPIRED`,
+  `DECLINED`) delete the outbox row; `WRONG_TARGET` keeps it (endpoint reconciliation
+  self-heals; the fast-attempt budget self-limits cadence). An unrecognized reason byte
+  never deletes — never act destructively on confusion with a newer peer.
+- Outbound `DEFER` (session not ready at protect time) returns `SendFailureKind.DEFERRED`:
+  the message stays in the local DAG and delivery falls back to the pull path. Deliberately
+  no separate staging table: epoch-1 encrypt self-bootstraps, so the remaining defer
+  windows are round-trip-scale races the pull path covers.
+- Sync rows die when their target arrives in any state (`Inserted` or `BecameOrphan`):
+  an arrived orphan's fetch is satisfied and its missing parents get fresh rows. This keeps
+  out-of-order delivery (normal for store-and-forward) from leaking sync rows.

@@ -6,13 +6,13 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
-import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 

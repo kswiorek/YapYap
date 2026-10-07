@@ -4,12 +4,12 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyType
 import org.yapyap.protection.*
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope

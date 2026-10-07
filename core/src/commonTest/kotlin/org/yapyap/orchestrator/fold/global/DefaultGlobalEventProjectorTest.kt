@@ -15,12 +15,12 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
@@ -217,7 +217,6 @@ private class RecordingProjectorRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult {
         sent.add(target to payload)
         return SendMessageResult(SendMessageStatus.SUCCESS, 0, 0, null)

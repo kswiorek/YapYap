@@ -3,11 +3,11 @@ package org.yapyap.orchestrator.onboarding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.router.Router

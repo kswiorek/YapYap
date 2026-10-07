@@ -3,9 +3,9 @@ package org.yapyap.transport.webrtc
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend

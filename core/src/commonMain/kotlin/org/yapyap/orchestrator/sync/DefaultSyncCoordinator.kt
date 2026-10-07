@@ -13,11 +13,11 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
+import org.yapyap.protocol.RoomId
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -125,6 +125,13 @@ class DefaultSyncCoordinator(
         syncMutex.withLock {
             val roomId = result.payload.roomId
             val authorAccount = result.payload.senderAccountId
+            // The orphan itself arrived: any sync fetching these bytes is satisfied, even
+            // though its parents are still missing (they get their own rows below).
+            // Without this, a sync target that arrives before its parents (out-of-order
+            // delivery — normal for store-and-forward) keeps its row forever: later
+            // Inserteds target other IDs, gap closure re-emits nothing for it, and
+            // duplicate re-ingests return null.
+            pendingSyncRepository.deleteSyncsByTarget(roomId, result.payload.messageId)
             for (missing in result.missingPrevIds) {
                 insertSyncForTarget(roomId, missing, senderAccount = authorAccount)
             }

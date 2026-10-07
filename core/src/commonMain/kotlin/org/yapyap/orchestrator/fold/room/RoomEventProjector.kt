@@ -13,7 +13,6 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.RoomCreatedDraft
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
@@ -21,11 +20,12 @@ import org.yapyap.orchestrator.fold.graph.childAdjacency
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
-import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.MessageRow
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.Router

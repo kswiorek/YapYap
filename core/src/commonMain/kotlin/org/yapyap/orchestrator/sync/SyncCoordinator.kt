@@ -2,7 +2,7 @@ package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.CoroutineScope
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.protocol.RoomId
 import kotlin.uuid.Uuid
 
 interface SyncCoordinator {

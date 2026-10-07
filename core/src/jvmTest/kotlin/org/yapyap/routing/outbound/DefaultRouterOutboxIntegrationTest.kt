@@ -2,22 +2,22 @@ package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.packet.DefaultPacketOutbox
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.packet.PacketType
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.DefaultRouter
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.defaultRouterUnderTest
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -56,7 +56,9 @@ class DefaultRouterOutboxIntegrationTest {
         val router = routerWithRealOutbox(tor, outbox)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+        router.sendMessage(account, sampleTextPayload())
+        // Single dispatch path: the row is due immediately and the loop dispatches it.
+        withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
 
         val now = epochSeconds(10_000L)
         assertTrue(outbox.listDue(now).isEmpty())

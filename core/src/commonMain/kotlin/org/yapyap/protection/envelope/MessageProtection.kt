@@ -164,7 +164,7 @@ class SignedAndEncryptedMessageProtection(
                 message = "Failed to encrypt message",
                 throwable = e,
             )
-            throw ProtectionException.mapEncryptDecryptFailure(e)
+            throw ProtectionException.mapEncryptFailure(e)
         }
 
         val unsigned = MessageEnvelope(

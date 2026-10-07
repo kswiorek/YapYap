@@ -1,11 +1,6 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.protocol.ByteReader
-import org.yapyap.protocol.ByteWriter
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.packet.PacketType
+import org.yapyap.protocol.*
 import kotlin.math.roundToInt
 import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
@@ -37,7 +32,7 @@ data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         writer.writePeerId(target)
         writer.writeLong(createdAt.epochSeconds)
         writer.writeByteArray(nonce)
-        writer.writeByte(securityScheme.wireValue.toInt())
+        writer.writeByte(securityScheme.wireValue)
         writer.writeNullableByteArray(signature)
         writer.writeByteArray(payload)
         return writer.toByteArray()
@@ -115,9 +110,9 @@ sealed interface SystemPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 1)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeUuid(packetId)
-            writer.writeByte(packetType.wireValue.toInt())
+            writer.writeByte(packetType.wireValue)
             return writer.toByteArray()
         }
 
@@ -141,17 +136,22 @@ sealed interface SystemPayload {
     data class PacketNack(
         val packetId: Uuid,
         val packetType: PacketType,
-        val reason: PacketNackReason,
+        /**
+         * Null when the reason byte came from a newer peer and is unrecognized here.
+         * Encoding requires a non-null reason — we only ever send reasons we produced.
+         */
+        val reason: PacketNackReason?,
         val reasonText: String?,
     ) : SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.PACKET_NACK
 
         override fun encode(): ByteArray {
+            val reasonValue = requireNotNull(reason) { "PacketNack with an unrecognized reason cannot be encoded" }
             val writer = ByteWriter(21 + (reasonText?.length ?: 0))
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeUuid(packetId)
-            writer.writeByte(packetType.wireValue.toInt())
-            writer.writeByte(reason.wireValue.toInt())
+            writer.writeByte(packetType.wireValue)
+            writer.writeByte(reasonValue.wireValue)
             writer.writeNullableString(reasonText)
             return writer.toByteArray()
         }
@@ -199,7 +199,7 @@ sealed interface SystemPayload {
         override fun encode(): ByteArray {
             val writer =
                 ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + (missingIds.size + knownIds.size) * Uuid.SIZE_BYTES)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeUuid(roomId.value)
             writer.writeUuid(syncId)
             writer.writeInt(missingIds.size)
@@ -237,7 +237,7 @@ sealed interface SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_NACK
         override fun encode(): ByteArray {
             val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 2 + reason.length)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeUuid(syncId)
             writer.writeString(reason)
             return writer.toByteArray()
@@ -274,7 +274,7 @@ sealed interface SystemPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 4)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeUuid(roomId.value)
             writer.writeInt(intervalMillis)
             return writer.toByteArray()
@@ -326,7 +326,7 @@ sealed interface SystemPayload {
         override fun encode(): ByteArray {
             val writer =
                 ByteWriter(16 + Uuid.SIZE_BYTES + 2 + roomFrontiers.sumOf { Uuid.SIZE_BYTES + 4 + it.second.size * Uuid.SIZE_BYTES })
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeUuid(pingId)
             writer.writeByte(if (isReply) 1 else 0)
             writer.writeByte(selfReportedAvailability.coerceIn(0.0, 1.0).times(255.0).roundToInt().coerceIn(0, 255))
@@ -368,7 +368,7 @@ sealed interface SystemPayload {
         override val kind: SystemEnvelopeKind = SystemEnvelopeKind.LOG_OFF
         override fun encode(): ByteArray {
             val writer = ByteWriter(1)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             return writer.toByteArray()
         }
 
@@ -414,24 +414,58 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
     }
 }
 
+/**
+ * Terminal or healable verdicts for a rejected packet. Each value's KDoc states the
+ * sender-side outbox action; [org.yapyap.routing.policy.nackActionFor] is the single
+ * enforcement point.
+ *
+ * DEFER dispositions never appear here — they are silent by design (see
+ * [org.yapyap.routing.inbound.inboundResultForProtectionFailure]) and rely on the
+ * sender's own resend cadence.
+ */
 enum class PacketNackReason(val wireValue: Byte) {
-    WRONG_TARGET(1),
-    PROTECTION_FAILED(2),
-    EXPIRED(3),
-    UNSUPPORTED_TYPE(4),
-    DECODE_FAILED(5),
+    // --- Sender action: REMOVE the outbox row. The verdict is final for these bytes. ---
+
+    /**
+     * The receiver's protection layer rejected the packet permanently (bad signature,
+     * replay, session violation, decryption-auth failure). Sender: remove.
+     */
+    PERMANENT_PROTECTION_FAILED(1),
+
+    /** Payload structurally undecodable for the claimed type. Sender: remove. */
+    DECODE_FAILED(2),
+
+    /**
+     * Packet type unknown to this receiver (version skew). Sender: remove — the peer
+     * pulls the message via sync after updating.
+     */
+    UNSUPPORTED_TYPE(3),
+
+    /** Envelope expired before processing. Sender: remove. */
+    EXPIRED(4),
 
     /**
      * The receiver understood the packet but refuses it on policy grounds (e.g. a recovery
-     * responder that is itself mid-onboarding, or a request for a non-ACTIVE account). Unlike
-     * transient failures the sender must NOT keep retrying the same target — it stops the
-     * outbox schedule for the packet.
+     * responder that is itself mid-onboarding, or a request for a non-ACTIVE account).
+     * Sender: remove — same target will not change its mind.
      */
-    DECLINED(6);
+    DECLINED(5),
+
+    // --- Sender action: KEEP the outbox row. The context may heal; the fast-attempt
+    //     budget self-limits the resend cadence. ---
+
+    /**
+     * Envelope reached a device other than its target (stale endpoint mapping, relay
+     * misdelivery). Endpoint reconciliation self-heals the mapping. Sender: keep.
+     */
+    WRONG_TARGET(6);
 
     companion object {
-        fun fromWireValue(value: Byte): PacketNackReason =
+        /**
+         * Null = reason byte from a newer peer. The sender must never act destructively
+         * on confusion — see [org.yapyap.routing.policy.nackActionFor].
+         */
+        fun fromWireValue(value: Byte): PacketNackReason? =
             entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported packet nack reason wire value: $value")
     }
 }

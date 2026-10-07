@@ -9,17 +9,17 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.availability.PeerAvailabilityStore
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.*
@@ -119,8 +119,6 @@ class DefaultRouter(
 
     private val outboundMessenger = OutboundMessenger(
         ctx = routingContext,
-        dispatcher = envelopeDispatcher,
-        transportPolicy = transportPolicy,
         outboxProcessor = outboxProcessor,
         sessionOpener = proactiveSessionOpener,
         relaySelectionPolicy = relaySelectionPolicy,
@@ -343,10 +341,9 @@ class DefaultRouter(
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult {
         check(started) { "Router must be started before sending messages" }
-        return outboundMessenger.sendMessage(target, payload, forceTransport)
+        return outboundMessenger.sendMessage(target, payload)
     }
 
     override suspend fun sendTypingIndicator(

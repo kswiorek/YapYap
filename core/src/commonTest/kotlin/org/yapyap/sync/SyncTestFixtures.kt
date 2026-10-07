@@ -13,11 +13,11 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
@@ -292,7 +292,8 @@ internal fun buildSyncRoutingStack(
     val proactiveSessionOpener = ProactiveSessionOpener(ctx, availabilityRegistry)
     val relaySelectionPolicy = DefaultRelaySelectionPolicy(ctx, availabilityRegistry, MutableStateFlow(RouterConfig()))
     val outboundMessenger = OutboundMessenger(
-        ctx, dispatcher, policy, outboxProcessor,
+        ctx,
+        outboxProcessor = outboxProcessor,
         sessionOpener = proactiveSessionOpener,
         relaySelectionPolicy = relaySelectionPolicy,
     )

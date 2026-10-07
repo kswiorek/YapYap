@@ -11,7 +11,7 @@ import kotlin.time.Duration.Companion.seconds
 data class RouterConfig(
     val binaryEnvelopeLifetime: Duration = 2.days,
     val ackLifetime: Duration = 1.hours,
-    val messageMaxRetries: Int = 3,
+    val fastRetryBudget: Int = 3,
     val torRetryDelay: Duration = 60.seconds,
     val webRtcRetryDelay: Duration = 10.seconds,
     val standbyRetryDelay: Duration = 1.hours,
@@ -73,20 +73,20 @@ data class RouterConfig(
     val minRelayScore: Double = 0.1,
 ) {
     init {
-        require(binaryEnvelopeLifetime > Duration.ZERO) { "messageLifetimeSeconds must be > 0" }
-        require(messageMaxRetries > 0) { "messageMaxRetries must be > 0" }
-        require(torRetryDelay > Duration.ZERO) { "torRetryDelaySeconds must be > 0" }
-        require(webRtcRetryDelay > Duration.ZERO) { "webRtcRetryDelaySeconds must be > 0" }
-        require(standbyRetryDelay > Duration.ZERO) { "standbyRetryDelaySeconds must be > 0" }
-        require(retryLoopMaxIdlePoll > Duration.ZERO) { "outboxMaxIdlePollSeconds must be > 0" }
-        require(ackLifetime > Duration.ZERO) { "ackLifetimeSeconds must be > 0" }
+        require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
+        require(fastRetryBudget > 0) { "fastRetryBudget must be > 0" }
+        require(torRetryDelay > Duration.ZERO) { "torRetryDelay must be > 0" }
+        require(webRtcRetryDelay > Duration.ZERO) { "webRtcRetryDelay must be > 0" }
+        require(standbyRetryDelay > Duration.ZERO) { "standbyRetryDelay must be > 0" }
+        require(retryLoopMaxIdlePoll > Duration.ZERO) { "retryLoopMaxIdlePoll must be > 0" }
+        require(ackLifetime > Duration.ZERO) { "ackLifetime must be > 0" }
         require(outboxMaxSizeBytes > 0) { "outboxMaxSizeBytes must be > 0" }
-        require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshnessSeconds must be > 0" }
-        require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelaySeconds must be > 0" }
-        require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeoutSeconds must be > 0" }
+        require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshness must be > 0" }
+        require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelay must be > 0" }
+        require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
-        require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelaySeconds must be > 0" }
+        require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelay must be > 0" }
         require(removalRePushBackoff > Duration.ZERO) { "removalRePushBackoff must be > 0" }
         require(pingInterval > Duration.ZERO) { "pingInterval must be > 0" }
         require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }
@@ -98,7 +98,7 @@ data class RouterConfig(
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }
     }
 
-    fun getRetryDelaySeconds(transport: RouterTransport): Duration = when (transport) {
+    fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelay
         RouterTransport.TOR -> torRetryDelay
     }

@@ -1,7 +1,7 @@
 import kotlin.uuid.Uuid;
 import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
-import org.yapyap.orchestrator.dag.RoomId;
+import org.yapyap.protocol.RoomId;
 import org.yapyap.protocol.PeerId;
 
 -- One row per missing message: the sync targets exactly one message ID (a gap

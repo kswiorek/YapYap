@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.runtime.identity
 
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 

@@ -3,8 +3,8 @@ package org.yapyap.sync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.SyncRetryProcessor

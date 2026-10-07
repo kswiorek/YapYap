@@ -1,9 +1,9 @@
 package org.yapyap.transport.webrtc
 
 import kotlinx.coroutines.runBlocking
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcDataType

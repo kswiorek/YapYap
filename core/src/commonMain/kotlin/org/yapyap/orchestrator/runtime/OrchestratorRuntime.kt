@@ -23,10 +23,10 @@ import org.yapyap.orchestrator.runtime.room.DefaultRoomService
 import org.yapyap.orchestrator.runtime.room.RoomService
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.config.ConfigStore
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.DeviceType
 import org.yapyap.routing.router.Router
 
 interface OrchestratorRuntime {

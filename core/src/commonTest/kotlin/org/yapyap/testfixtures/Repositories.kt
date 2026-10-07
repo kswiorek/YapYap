@@ -3,10 +3,14 @@ package org.yapyap.testfixtures
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.persistence.db.*
+import org.yapyap.persistence.db.IdentityStatus
+import org.yapyap.persistence.db.RoomMemberRole
+import org.yapyap.persistence.db.RoomMemberStatus
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Instant

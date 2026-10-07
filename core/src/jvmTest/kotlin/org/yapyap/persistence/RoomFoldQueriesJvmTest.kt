@@ -2,12 +2,14 @@ package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.DefaultIdentityKeyRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.persistence.messaging.RoomMemberRecord
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*

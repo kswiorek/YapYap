@@ -1,9 +1,9 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid
@@ -200,6 +200,23 @@ class SystemEnvelopeCodecTest {
     fun systemEnvelopeKind_enum_wireValuesDistinct() {
         val wires = SystemEnvelopeKind.entries.map { it.wireValue }.toSet()
         assertEquals(SystemEnvelopeKind.entries.size, wires.size)
+    }
+
+    @Test
+    fun systemPayload_packetNack_decode_unknownReasonByte_yieldsNullReason() {
+        val encoded = SystemPayload.PacketNack(
+            packetId = samplePacketId,
+            packetType = PacketType.MESSAGE,
+            reason = PacketNackReason.EXPIRED,
+            reasonText = null,
+        ).encode().copyOf()
+        // layout: kind(1) + packetId(16) + packetType(1) + reason(1) + nullableString
+        encoded[18] = 127
+        val decoded = SystemPayload.PacketNack.decode(encoded)
+        assertEquals(samplePacketId, decoded.packetId)
+        assertEquals(PacketType.MESSAGE, decoded.packetType)
+        assertNull(decoded.reason)
+        assertNull(decoded.reasonText)
     }
 
     @Test

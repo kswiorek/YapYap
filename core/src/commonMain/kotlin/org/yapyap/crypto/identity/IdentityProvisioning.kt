@@ -1,7 +1,7 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.TorEndpoint
 
 interface IdentityProvisioning {

@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.persistence.db.DeviceType
+import org.yapyap.protocol.DeviceType
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig

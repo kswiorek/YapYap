@@ -7,11 +7,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration.Companion.milliseconds

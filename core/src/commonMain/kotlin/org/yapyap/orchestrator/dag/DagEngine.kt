@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.dag
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.uuid.Uuid
 

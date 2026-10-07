@@ -108,6 +108,16 @@ class ByteWriter(initialCapacity: Int) {
         buffer[size++] = value.toByte()
     }
 
+    /**
+     * Byte-valued overload so wire enum values pass through without `.toInt()` noise
+     * at every call site ([writeByte] with an `Int` stays for computed values —
+     * shifts, masks, markers).
+     */
+    fun writeByte(value: Byte) {
+        ensureCapacity(1)
+        buffer[size++] = value
+    }
+
     fun writeBytes(value: ByteArray) {
         ensureCapacity(value.size)
         value.copyInto(buffer, destinationOffset = size)

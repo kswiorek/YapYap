@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider

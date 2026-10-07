@@ -11,8 +11,8 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.sync.FakePeerAvailabilityStore
@@ -156,7 +156,7 @@ class DefaultRouterLiveIntegrationTest {
                                 bobRouter.incomingMessages.first()
                             }
                         delay(300L.milliseconds)
-                        aliceRouter.sendMessage(bobAccount, outbound, RouterTransport.TOR)
+                        aliceRouter.sendMessage(bobAccount, outbound)
                         waitMsg.await()
                     }
                 }

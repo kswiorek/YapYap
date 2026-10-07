@@ -1,10 +1,10 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.MessagePayloadType
-import org.yapyap.persistence.db.RoomType
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.MessagePayloadType
+import org.yapyap.protocol.RoomType
 import kotlin.uuid.Uuid
 
 /**
@@ -54,11 +54,11 @@ sealed interface RoomEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64 + roomName.length + initialMemberIds.size * 40)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeInt(initialMemberIds.size)
             initialMemberIds.forEach { writer.writeString(it.id) }
             writer.writeString(roomName)
-            writer.writeByte(roomType.wireValue.toInt())
+            writer.writeByte(roomType.wireValue)
             writer.writeNullableUuid(spaceId)
             return writer.toByteArray()
         }
@@ -85,7 +85,7 @@ sealed interface RoomEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             return writer.toByteArray()
         }
@@ -117,7 +117,7 @@ sealed interface RoomEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(96)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             writer.writeNullableString(successorAccountId?.id)
             return writer.toByteArray()
@@ -143,7 +143,7 @@ sealed interface RoomEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             return writer.toByteArray()
         }
@@ -167,7 +167,7 @@ sealed interface RoomEventPayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
             return writer.toByteArray()
         }

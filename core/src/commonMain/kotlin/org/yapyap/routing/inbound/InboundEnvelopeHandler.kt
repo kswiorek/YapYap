@@ -37,14 +37,17 @@ internal fun logInboundProtectionFailure(
 
 internal fun inboundResultForProtectionFailure(ex: ProtectionException): InboundHandleResult =
     when (ex.disposition) {
-        ProtectionDisposition.DEFER -> InboundHandleResult.Deferred()
         ProtectionDisposition.PERMANENT -> InboundHandleResult.Rejected(
             if (ex is ProtectionException.InvalidEnvelope) {
                 PacketNackReason.DECODE_FAILED
             } else {
-                PacketNackReason.PROTECTION_FAILED
+                PacketNackReason.PERMANENT_PROTECTION_FAILED
             },
         )
 
-        ProtectionDisposition.RETRYABLE -> InboundHandleResult.Rejected(PacketNackReason.PROTECTION_FAILED)
+        // Silent by design: no NACK is sent and dedup is cleared (InboundEnvelopeProcessor)
+        // so the sender's resend is reprocessed fresh once the prerequisite lands. A NACK here
+        // would be replayed verbatim for later duplicates (sendDispositionForDuplicate) and
+        // strand the packet behind a stale verdict.
+        ProtectionDisposition.DEFER -> InboundHandleResult.Deferred()
     }

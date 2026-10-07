@@ -10,12 +10,12 @@ import kotlin.test.assertIs
 class ProtectionExceptionTest {
 
     @Test
-    fun mapCryptoSessionException_handshakeMismatchIsRetryable() {
+    fun mapCryptoSessionException_handshakeMismatchIsDeferredGap() {
         val mapped = ProtectionException.mapCryptoSessionException(
             CryptoSessionException.HandshakeMismatch("sessionEpoch mismatch"),
         )
         assertIs<ProtectionException.SessionNotReady>(mapped)
-        assertEquals(ProtectionDisposition.RETRYABLE, mapped.disposition)
+        assertEquals(ProtectionDisposition.DEFER, mapped.disposition)
     }
 
     @Test
@@ -46,12 +46,12 @@ class ProtectionExceptionTest {
     }
 
     @Test
-    fun mapCryptoSessionException_noSessionIsRetryable() {
+    fun mapCryptoSessionException_noSessionIsDeferred() {
         val mapped = ProtectionException.mapCryptoSessionException(
             CryptoSessionException.NoSession(PeerId("peer-a"), sessionEpoch = 1),
         )
         assertIs<ProtectionException.SessionNotReady>(mapped)
-        assertEquals(ProtectionDisposition.RETRYABLE, mapped.disposition)
+        assertEquals(ProtectionDisposition.DEFER, mapped.disposition)
     }
 
     @Test
@@ -61,5 +61,26 @@ class ProtectionExceptionTest {
         )
         assertIs<ProtectionException.IdentityNotReady>(mapped)
         assertEquals(ProtectionDisposition.DEFER, mapped.disposition)
+    }
+
+    @Test
+    fun mapEncryptFailure_unknownErrorIsDeferredNotPermanent() {
+        // Encrypt-side unknown failures are environmental until proven otherwise:
+        // the message is kept (DEFER), never dropped as permanently dead.
+        val mapped = ProtectionException.mapEncryptFailure(
+            IllegalStateException("db unavailable"),
+        )
+        assertIs<ProtectionException.EncryptNotReady>(mapped)
+        assertEquals(ProtectionDisposition.DEFER, mapped.disposition)
+    }
+
+    @Test
+    fun mapEncryptDecryptFailure_unknownErrorIsPermanent() {
+        // Decrypt-side default is unchanged: unknown input is treated as bad input.
+        val mapped = ProtectionException.mapEncryptDecryptFailure(
+            IllegalStateException("garbage"),
+        )
+        assertIs<ProtectionException.AuthenticationFailed>(mapped)
+        assertEquals(ProtectionDisposition.PERMANENT, mapped.disposition)
     }
 }

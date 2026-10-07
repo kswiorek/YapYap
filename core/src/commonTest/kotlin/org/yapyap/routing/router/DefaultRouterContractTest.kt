@@ -2,17 +2,14 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.packet.PacketDeduplicator
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -24,6 +21,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class DefaultRouterContractTest {
@@ -89,7 +87,7 @@ class DefaultRouterContractTest {
         router.start()
 
         val payload = sampleTextPayload()
-        val result = router.sendMessage(targetAccount, payload, RouterTransport.TOR)
+        val result = router.sendMessage(targetAccount, payload)
 
         assertEquals(SendMessageStatus.FAILURE, result.status)
         assertEquals(SendFailureKind.NO_PEERS, result.failureKind)
@@ -109,7 +107,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(identity = identity)
 
         assertFailsWith<IllegalStateException> {
-            router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+            router.sendMessage(account, sampleTextPayload())
         }
         Unit
     }
@@ -140,11 +138,13 @@ class DefaultRouterContractTest {
             )
 
         router.start()
-        val result = router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+        val result = router.sendMessage(account, sampleTextPayload())
 
         assertEquals(SendMessageStatus.SUCCESS, result.status)
         assertEquals(2, result.peersTotal)
         assertEquals(2, result.peersQueued)
+        // Dispatch is async via the outbox loop (single dispatch path).
+        withTimeout(10.seconds) { tor.awaitMessageSendCount(2) }
         assertEquals(2, tor.sendsExcludingHeartbeat().size)
         assertTrue(
             tracking.maxConcurrentProtects >= 2,
@@ -154,7 +154,7 @@ class DefaultRouterContractTest {
     }
 
     @Test
-    fun sendMessage_tor_forcesTorSendWithExpectedEndpoint() = runBlocking {
+    fun sendMessage_tor_resolvesTorSendWithExpectedEndpoint() = runBlocking {
         val tor = RecordingTorTransport()
         val account = AccountId("acc-with-peer")
         val peerTor = TorEndpoint("peer.onion", 443)
@@ -168,12 +168,14 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(tor = tor, identity = identity)
         router.start()
 
-        val result = router.sendMessage(account, sampleTextPayload(), RouterTransport.TOR)
+        val result = router.sendMessage(account, sampleTextPayload())
 
         assertEquals(SendMessageStatus.SUCCESS, result.status)
         assertEquals(1, result.peersQueued)
         assertEquals(1, result.peersTotal)
         assertEquals(null, result.failureKind)
+        // Dispatch is async via the outbox loop (single dispatch path).
+        withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
         assertEquals(1, tor.sendsExcludingHeartbeat().size)
         assertEquals(peerTor, tor.sendsExcludingHeartbeat()[0].first)
         assertEquals(PacketType.MESSAGE, tor.sendsExcludingHeartbeat()[0].second.packetType)

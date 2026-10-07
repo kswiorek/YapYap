@@ -2,12 +2,7 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.orchestrator.dag.RoomId
-import org.yapyap.persistence.db.MessagePayloadType
-import org.yapyap.protocol.ByteReader
-import org.yapyap.protocol.ByteWriter
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -37,7 +32,7 @@ data class MessageEnvelope(
         writer.writePeerId(target)
         writer.writeLong(createdAt.epochSeconds)
         writer.writeByteArray(nonce)
-        writer.writeByte(securityScheme.wireValue.toInt())
+        writer.writeByte(securityScheme.wireValue)
         writer.writeNullableByteArray(signature)
         writer.writeByteArray(payload)
         return writer.toByteArray()
@@ -573,7 +568,7 @@ private fun readPayloadHeaderVersion(reader: ByteReader) {
 
 private fun MessagePayload.writeCommonHeader(writer: ByteWriter) {
     writer.writeByte(PAYLOAD_HEADER_VERSION.toInt())
-    writer.writeByte(payloadType.wireValue.toInt())
+    writer.writeByte(payloadType.wireValue)
     writer.writeUuid(messageId)
     writer.writeUuid(roomId.value)
     writer.writeString(senderAccountId.id)

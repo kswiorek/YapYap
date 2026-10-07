@@ -9,11 +9,11 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
@@ -197,6 +197,9 @@ class SyncIntegrationTest {
             pipeline.start(scope)
             coordinator.start(scope)
             retryProcessor.runIn(scope)
+            // The remote responder routes through the outbox; its dispatch loop must run
+            // (production always runs it via router.start()).
+            remoteStack.outboxProcessor.runIn(scope)
 
             // Ingest the orphan: pipeline emits BecameOrphan -> coordinator creates a pending sync.
             router.emitIncoming(m2)
@@ -208,7 +211,7 @@ class SyncIntegrationTest {
             // The retry processor sends a SyncRequest to the remote device.
             localStack.tor.awaitSendCount(1)
             val sent = localStack.tor.sends.single().second
-            assertEquals(org.yapyap.protocol.packet.PacketType.SYSTEM, sent.packetType)
+            assertEquals(org.yapyap.protocol.PacketType.SYSTEM, sent.packetType)
             val syncRequest =
                 SystemEnvelope.decode(sent.payload).decodePayload() as SystemPayload.SyncRequest
             assertEquals(roomId, syncRequest.roomId)
@@ -309,6 +312,9 @@ class SyncIntegrationTest {
             pipeline.start(scope)
             coordinator.start(scope)
             retryProcessor.runIn(scope)
+            // The remote responder routes through the outbox; its dispatch loop must run
+            // (production always runs it via router.start()).
+            remoteStack.outboxProcessor.runIn(scope)
 
             // Ping triggers a frontier sync request for the unknown tip m4.
             coordinator.requestFrontierSync(roomId, listOf(m4.messageId))
@@ -368,7 +374,6 @@ private class RecordingRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult {
         sent.add(payload)
         return SendMessageResult(

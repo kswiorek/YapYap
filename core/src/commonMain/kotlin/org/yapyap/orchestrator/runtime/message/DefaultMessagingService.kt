@@ -18,6 +18,7 @@ import org.yapyap.orchestrator.runtime.room.messageDisplayPolicy
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.*
 import kotlin.concurrent.Volatile

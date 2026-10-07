@@ -12,6 +12,8 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
+import org.yapyap.routing.policy.NackAction
+import org.yapyap.routing.policy.nackActionFor
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
@@ -79,73 +81,37 @@ internal class SystemInboundHandler(
                 )
             }
 
-            is SystemPayload.PacketNack -> {
-                when (payload.reason) {
-                    PacketNackReason.EXPIRED -> {
-                        AppLog.info(
-                            component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
-                            message = "Stopped retrying expired packet after NACK",
-                            fields = mapOf(
-                                "packetId" to payload.packetId,
-                                "packetType" to payload.packetType,
-                                "reason" to payload.reason,
-                                "source" to systemEnvelope.source,
-                            ),
-                        )
-                        InboundHandleResult.Success(
-                            sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
-                        )
-                    }
+            is SystemPayload.PacketNack -> when (nackActionFor(payload.reason)) {
+                NackAction.REMOVE -> {
+                    AppLog.info(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.OUTBOX_NACK_RECEIVED,
+                        message = "Terminal NACK for outbox packet; stopped retrying",
+                        fields = mapOf(
+                            "packetId" to payload.packetId,
+                            "packetType" to payload.packetType,
+                            "reason" to payload.reason,
+                            "source" to systemEnvelope.source,
+                        ),
+                    )
+                    InboundHandleResult.Success(
+                        sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                    )
+                }
 
-                    PacketNackReason.PROTECTION_FAILED -> {
-                        AppLog.warn(
-                            component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
-                            message = "Received NACK for outbox packet due to protection failure; will retry",
-                            fields = mapOf(
-                                "packetId" to payload.packetId,
-                                "packetType" to payload.packetType,
-                                "reason" to payload.reason,
-                                "source" to systemEnvelope.source,
-                            ),
-                        )
-                        InboundHandleResult.Success()
-                    }
-
-                    PacketNackReason.DECLINED -> {
-                        AppLog.info(
-                            component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
-                            message = "Peer declined outbox packet on policy grounds; stopped retrying",
-                            fields = mapOf(
-                                "packetId" to payload.packetId,
-                                "packetType" to payload.packetType,
-                                "reason" to payload.reason,
-                                "source" to systemEnvelope.source,
-                            ),
-                        )
-                        InboundHandleResult.Success(
-                            sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
-                        )
-                    }
-
-                    else -> {
-                        AppLog.debug(
-                            component = LogComponent.ROUTER,
-                            event = LogEvent.OUTBOX_NACK_RECEIVED,
-                            message = "Received NACK for outbox packet; keeping retry schedule",
-                            fields = mapOf(
-                                "packetId" to payload.packetId,
-                                "packetType" to payload.packetType,
-                                "reason" to payload.reason,
-                                "source" to systemEnvelope.source,
-                            ),
-                        )
-                        InboundHandleResult.Success()
-                    }
-                    // WRONG_TARGET, UNSUPPORTED_TYPE, DECODE_FAILED (and any future reason) land
-                    // in `else` above: transient or peer-side, so the retry schedule is kept.
+                NackAction.KEEP -> {
+                    AppLog.info(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.OUTBOX_NACK_RECEIVED,
+                        message = "Healable NACK for outbox packet; keeping retry schedule",
+                        fields = mapOf(
+                            "packetId" to payload.packetId,
+                            "packetType" to payload.packetType,
+                            "reason" to payload.reason,
+                            "source" to systemEnvelope.source,
+                        ),
+                    )
+                    InboundHandleResult.Success()
                 }
             }
 

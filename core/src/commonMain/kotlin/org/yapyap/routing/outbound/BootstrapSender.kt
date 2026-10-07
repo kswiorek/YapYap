@@ -1,12 +1,12 @@
 package org.yapyap.routing.outbound
 
 import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.router.RoutingContext
 import kotlin.uuid.Uuid
 

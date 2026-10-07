@@ -2,7 +2,7 @@ package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 

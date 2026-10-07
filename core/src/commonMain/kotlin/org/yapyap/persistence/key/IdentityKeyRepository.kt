@@ -1,8 +1,8 @@
 package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.*
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.db.IdentityStatus
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 

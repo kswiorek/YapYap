@@ -2,12 +2,12 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.identity.*
-import org.yapyap.persistence.db.DeviceType
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.Intro
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test

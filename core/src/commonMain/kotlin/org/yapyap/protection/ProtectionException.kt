@@ -4,13 +4,14 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.CryptoSessionException
 
 enum class ProtectionDisposition {
-    /** Transient — the same logical message may succeed later. */
-    RETRYABLE,
-
     /** Corrupt, authenticated-as-bad, or replay — resending the same bytes will not help. */
     PERMANENT,
 
-    /** Session not ready for this message yet — wait for prerequisites. */
+    /**
+     * Prerequisites missing (session/identity not ready, unknown account) — the packet is
+     * neither ACKed nor NACKed; dedup is cleared so a later resend is reprocessed fresh
+     * once the prerequisite lands. See inboundResultForProtectionFailure.
+     */
     DEFER,
 }
 
@@ -69,7 +70,7 @@ sealed class ProtectionException(
     class SessionNotReady(cause: CryptoSessionException) :
         ProtectionException(
             message = "Session not ready",
-            disposition = ProtectionDisposition.RETRYABLE, //TODO: [Sprint 4] consider changing to DEFER
+            disposition = ProtectionDisposition.DEFER,
             reason = ProtectionReason.SESSION,
             cause = cause,
         )
@@ -87,6 +88,19 @@ sealed class ProtectionException(
             message = "Session violation",
             disposition = ProtectionDisposition.PERMANENT,
             reason = ProtectionReason.SESSION_VIOLATION,
+            cause = cause,
+        )
+
+    /**
+     * Encrypt failed for a reason that is not a known crypto condition (DB, IO, locks).
+     * DEFER — the failure is environmental until proven otherwise; the staged message is
+     * kept for re-protection rather than dropped as permanently dead.
+     */
+    class EncryptNotReady(cause: Exception) :
+        ProtectionException(
+            message = "Message encryption not possible right now",
+            disposition = ProtectionDisposition.DEFER,
+            reason = ProtectionReason.SESSION,
             cause = cause,
         )
 
@@ -125,6 +139,19 @@ sealed class ProtectionException(
                 is CryptoSessionException -> mapCryptoSessionException(error)
                 is CryptoException -> IdentityNotReady(error)
                 else -> AuthenticationFailed(AuthenticationReason.DECRYPT_AUTH_FAILED, error)
+            }
+
+        /**
+         * Encrypt-side mapping: unknown failures are environmental (DB, IO) until proven
+         * otherwise — keep the message (DEFER) rather than dropping it as permanently dead.
+         * The decrypt side keeps [mapEncryptDecryptFailure]'s PERMANENT default (bad input).
+         */
+        fun mapEncryptFailure(error: Exception): ProtectionException =
+            when (error) {
+                is ProtectionException -> error
+                is CryptoSessionException -> mapCryptoSessionException(error)
+                is CryptoException -> IdentityNotReady(error)
+                else -> EncryptNotReady(error)
             }
 
         fun map(error: Exception): ProtectionException =

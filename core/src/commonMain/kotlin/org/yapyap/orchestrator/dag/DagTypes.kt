@@ -1,12 +1,12 @@
 package org.yapyap.orchestrator.dag
 
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.db.VerificationState
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
-import kotlin.jvm.JvmInline
 import kotlin.uuid.Uuid
 
 sealed interface MessageDraft {
@@ -74,14 +74,6 @@ sealed interface IngestResult {
         val missingPrevIds: List<Uuid>,
         override val verificationState: VerificationState = VerificationState.VERIFIED,
     ) : IngestResult
-}
-
-@JvmInline
-value class RoomId(val value: Uuid) {
-    companion object {
-        /** The single global control room shared by every device. */
-        val GLOBAL = RoomId(Uuid.NIL)
-    }
 }
 
 /**

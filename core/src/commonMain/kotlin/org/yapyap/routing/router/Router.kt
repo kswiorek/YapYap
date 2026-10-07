@@ -2,8 +2,8 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -48,10 +48,13 @@ interface Router {
      */
     suspend fun announceOnline()
 
+    /**
+     * Sends [payload] to every device of [target]. Transport selection is owned by the
+     * outbox retry loop, per attempt — there is no per-send override.
+     */
     suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport? = null,
     ): SendMessageResult
 
     /**

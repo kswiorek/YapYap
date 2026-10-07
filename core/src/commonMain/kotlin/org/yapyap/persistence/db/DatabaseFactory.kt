@@ -11,9 +11,9 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.*
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 

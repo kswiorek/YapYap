@@ -7,8 +7,8 @@ import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.router.PeerSendOutcome
 import org.yapyap.routing.router.RouterConfig
@@ -48,7 +48,7 @@ internal class RemovalRePusher(
         // Store-and-forward carries this past the target's offline window
         // (relay deposits); beyond relay retention the next ping re-triggers.
         val node = syncPayloadProvider.removalNodeFor(roomId, senderAccount) ?: return
-        val outcome = outboundMessenger.sendMessageToPeer(deviceId, node, forceTransport = null)
+        val outcome = outboundMessenger.sendMessageToPeer(deviceId, node)
         if (outcome !is PeerSendOutcome.Queued) return
         backoffMutex.withLock { lastPushAt[key] = now }
         AppLog.debug(

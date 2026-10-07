@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.first
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
@@ -39,10 +39,11 @@ class DefaultRouterE2eeIntegrationTest {
                 val waitInbound = async { it.bobRouter.incomingMessages.first() }
                 delay(200.milliseconds)
 
-                val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound, RouterTransport.TOR)
+                val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound)
                 assertEquals(SendMessageStatus.SUCCESS, sendResult.status)
                 assertEquals(1, sendResult.peersQueued)
 
+                withTimeout(10.seconds) { it.aliceTor.awaitMessageSendCount(1) }
                 val (_, binaryEnvelope) = it.aliceTor.sendsExcludingHeartbeat().single()
                 assertEncryptedWireEnvelope(binaryEnvelope, outbound)
 
@@ -65,8 +66,9 @@ class DefaultRouterE2eeIntegrationTest {
         fixture.use {
             it.aliceRouter.start()
 
-            val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound, RouterTransport.TOR)
+            val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound)
             assertEquals(SendMessageStatus.SUCCESS, sendResult.status)
+            withTimeout(10.seconds) { it.aliceTor.awaitMessageSendCount(1) }
             assertEquals(1, it.aliceTor.sendsExcludingHeartbeat().size)
 
             val binaryEnvelope = it.aliceTor.sendsExcludingHeartbeat().single().second

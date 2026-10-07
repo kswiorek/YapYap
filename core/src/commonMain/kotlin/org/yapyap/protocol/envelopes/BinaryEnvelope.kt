@@ -2,8 +2,8 @@ package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.packet.PacketType
 import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -26,7 +26,7 @@ data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
         val writer = ByteWriter(ENCODED_HEADER_BYTES + payload.size)
         writer.writeBytes(MAGIC)
         writer.writeByte(VERSION.toInt())
-        writer.writeByte(packetType.wireValue.toInt())
+        writer.writeByte(packetType.wireValue)
         writer.writeByte(if (dispositionRequested) 1 else 0)
         writer.writeLong(createdAt.epochSeconds)
         writer.writeLong(expiresAt.epochSeconds)

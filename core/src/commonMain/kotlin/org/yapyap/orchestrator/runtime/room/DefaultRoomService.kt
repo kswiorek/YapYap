@@ -13,14 +13,14 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.dag.RoomCreatedDraft
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
-import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 
 /**
  * GUI-facing room management over the room-event projector's publish path.

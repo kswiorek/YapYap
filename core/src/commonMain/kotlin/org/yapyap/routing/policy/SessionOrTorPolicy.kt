@@ -26,8 +26,8 @@ class SessionOrTorPolicy(
 
         var retryDelay = configSnapshot.standbyRetryDelay
 
-        if (retries <= configSnapshot.messageMaxRetries) {
-            retryDelay = configSnapshot.getRetryDelaySeconds(transport)
+        if (retries <= configSnapshot.fastRetryBudget) {
+            retryDelay = configSnapshot.getRetryDelay(transport)
         }
 
         return ResolvedOutbound(transport, retryDelay)

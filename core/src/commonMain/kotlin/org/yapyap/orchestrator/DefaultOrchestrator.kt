@@ -26,7 +26,6 @@ import org.yapyap.orchestrator.boot.BootDiagnosis
 import org.yapyap.orchestrator.boot.LocalStoreReset
 import org.yapyap.orchestrator.boot.ResetReason
 import org.yapyap.orchestrator.dag.DefaultDagEngine
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.fold.room.DefaultRoomEventProjector
@@ -45,7 +44,6 @@ import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomType
 import org.yapyap.persistence.key.*
 import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
@@ -56,6 +54,8 @@ import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.persistence.sync.DefaultPendingSyncRepository
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes

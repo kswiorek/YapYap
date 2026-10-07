@@ -10,7 +10,6 @@ import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
@@ -18,6 +17,7 @@ import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterConfig

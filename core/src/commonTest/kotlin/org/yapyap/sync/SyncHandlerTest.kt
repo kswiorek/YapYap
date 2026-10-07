@@ -1,9 +1,10 @@
 package org.yapyap.sync
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.sync.SyncHandler
@@ -11,6 +12,7 @@ import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 class SyncHandlerTest {
@@ -50,12 +52,20 @@ class SyncHandlerTest {
         val handler =
             SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
 
-        handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
+        // Responses route through the outbox; the dispatch loop must run
+        // (production always runs it via router.start()).
+        val loopJob = stack.outboxProcessor.runIn(this)
+        try {
+            handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
 
-        assertEquals(1, payloadProvider.requests.size)
-        assertEquals(2, stack.outbox.enqueued.size)
-        assertEquals(2, stack.tor.sends.size)
-        assertTrue(stack.outbox.enqueued.all { it.target == remoteDevice })
+            withTimeout(10.seconds) { stack.tor.awaitMessageSendCount(2) }
+            assertEquals(1, payloadProvider.requests.size)
+            assertEquals(2, stack.outbox.enqueued.size)
+            assertEquals(2, stack.tor.sends.size)
+            assertTrue(stack.outbox.enqueued.all { it.target == remoteDevice })
+        } finally {
+            loopJob.cancel()
+        }
     }
 
     @Test

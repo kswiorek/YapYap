@@ -9,12 +9,12 @@ import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.Intro
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport

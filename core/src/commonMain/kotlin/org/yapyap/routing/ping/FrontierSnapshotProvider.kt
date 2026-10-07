@@ -1,9 +1,9 @@
 package org.yapyap.routing.ping
 
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import kotlin.uuid.Uuid
 
 interface FrontierSnapshotProvider {

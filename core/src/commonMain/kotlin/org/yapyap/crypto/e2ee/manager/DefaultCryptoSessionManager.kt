@@ -81,9 +81,9 @@ class DefaultCryptoSessionManager(
         var outerHandshake: X3dhWireInfo? = null
 
         if (loaded == null) {
-            require(epoch == 1) {
-                "epoch-2 session must exist before encrypt for peer=$remoteDeviceId"
-            }
+            // Live session-state condition (epoch-2 rows exist but none is active-canonical),
+            // not a programming error — typed so it maps to SessionNotReady (DEFER), never PERMANENT.
+            if (epoch != 1) throw CryptoSessionException.HandshakeRequired(remoteDeviceId)
             val generation = nextSessionGeneration(remoteDeviceId, epoch, SessionRole.INITIATOR)
             if (generation > 1) {
                 sessionStore.markEpochSuperseded(

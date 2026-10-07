@@ -1,7 +1,7 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals

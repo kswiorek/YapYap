@@ -270,7 +270,7 @@ class CryptoWireCodec(
         writer.writeByteArray(idBytes, CryptoWireLimits.MAX_STRING_ID_BYTES)
         writer.writeInt(wire.sessionEpoch)
         writer.writeInt(wire.sessionGeneration)
-        writer.writeByte(wire.mode.wireValue.toInt())
+        writer.writeByte(wire.mode.wireValue)
         if (opkIdBytes == null) {
             writer.writeByte(0)
         } else {

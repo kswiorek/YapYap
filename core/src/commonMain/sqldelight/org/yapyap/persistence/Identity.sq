@@ -2,7 +2,7 @@ import kotlin.Boolean;
 import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
 import org.yapyap.persistence.db.IdentityStatus;
-import org.yapyap.persistence.db.DeviceType;
+import org.yapyap.protocol.DeviceType;
 import org.yapyap.persistence.db.OpkStatus;
 import org.yapyap.protocol.PeerId;
 

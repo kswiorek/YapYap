@@ -2,7 +2,7 @@ package org.yapyap.orchestrator.runtime.room
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.orchestrator.dag.RoomId
+import org.yapyap.protocol.RoomId
 
 /**
  * GUI-facing chat management: room list, room headers, room creation, and room

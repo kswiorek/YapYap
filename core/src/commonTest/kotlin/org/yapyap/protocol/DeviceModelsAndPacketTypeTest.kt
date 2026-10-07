@@ -1,8 +1,5 @@
-package org.yapyap.protocol.packet
+package org.yapyap.protocol
 
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TorEndpoint
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

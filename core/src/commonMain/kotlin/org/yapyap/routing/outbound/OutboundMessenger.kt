@@ -3,7 +3,6 @@ package org.yapyap.routing.outbound
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -11,24 +10,19 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.packet.PacketType
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.*
-import org.yapyap.transport.TransportException
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
 internal class OutboundMessenger(
     private val ctx: RoutingContext,
-    private val dispatcher: EnvelopeDispatcher,
-    private val transportPolicy: OutboundPolicy,
     private val outboxProcessor: OutboxProcessor,
     private val sessionOpener: ProactiveSessionOpener,
     private val relaySelectionPolicy: RelaySelectionPolicy,
@@ -36,7 +30,6 @@ internal class OutboundMessenger(
     suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult {
         val peers = ctx.identityResolver.getAllPeerDevicesForAccount(target)
             .filter { it != ctx.localDeviceId }   // skip originating device only
@@ -61,7 +54,6 @@ internal class OutboundMessenger(
                     sendMessageToPeer(
                         target = peer,
                         payload = payload,
-                        forceTransport = forceTransport,
                     )
                 }
             }.awaitAll()
@@ -73,7 +65,7 @@ internal class OutboundMessenger(
         val deviceCount = outcomes.size
         val queuedDevices = outcomes.count { it is PeerSendOutcome.Queued }
         val relaysDeposited = outcomes.sumOf { (it as? PeerSendOutcome.Queued)?.relaysDeposited ?: 0 }
-        val notReady = outcomes.count { it is PeerSendOutcome.NotReady }
+        val deferred = outcomes.count { it is PeerSendOutcome.Deferred }
         val permanent = outcomes.count { it is PeerSendOutcome.PermanentFailure }
 
         val status = when (queuedDevices) {
@@ -85,14 +77,14 @@ internal class OutboundMessenger(
         val failureKind = when (status) {
             SendMessageStatus.SUCCESS -> null
             SendMessageStatus.FAILURE -> when {
-                notReady == deviceCount -> SendFailureKind.NOT_READY
+                deferred == deviceCount -> SendFailureKind.DEFERRED
                 permanent == deviceCount -> SendFailureKind.PERMANENT
                 else -> SendFailureKind.MIXED
             }
 
             SendMessageStatus.PARTIAL -> when {
                 permanent > 0 -> SendFailureKind.MIXED
-                notReady > 0 -> SendFailureKind.NOT_READY
+                deferred > 0 -> SendFailureKind.DEFERRED
                 else -> SendFailureKind.MIXED
             }
         }
@@ -108,9 +100,12 @@ internal class OutboundMessenger(
     internal suspend fun sendMessageToPeer(
         target: PeerId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
         supplementRelays: Boolean = true,
     ): PeerSendOutcome {
+        // Pre-warm the transport even when protection below fails: a deferred message still
+        // benefits from a WebRTC session that is opening while its crypto session lands.
+        sessionOpener.ensureSession(target)
+
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
@@ -138,15 +133,6 @@ internal class OutboundMessenger(
             target = target,
             payload = messageEnvelope.encode(),
         )
-        sessionOpener.ensureSession(target)
-
-        val plan = transportPolicy.resolve(
-            target = target,
-            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
-            retries = 0,
-            forced = forceTransport,
-        )
-        val nextRetryAt = ctx.clock.now() + plan.retryDelay
 
         if (binaryEnvelope.encode().size.toLong() > ctx.transportLimits.value.maxRoutableBytes) {
             AppLog.warn(
@@ -160,6 +146,10 @@ internal class OutboundMessenger(
             return PeerSendOutcome.PermanentFailure
         }
 
+        // Single dispatch path: enqueue due immediately; the RetryLoop owns dispatch and
+        // attempt recording. (The old direct-dispatch path and its finally-recordSendAttempt
+        // are gone — transport selection happens in the outbox loop, per attempt.)
+        val nextRetryAt = ctx.clock.now()
         outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
         AppLog.debug(
             component = LogComponent.ROUTER,
@@ -168,46 +158,9 @@ internal class OutboundMessenger(
             fields = mapOf(
                 "packetId" to binaryEnvelope.packetId,
                 "target" to target,
-                "transport" to plan.transport,
                 "nextRetryAt" to nextRetryAt,
             ),
         )
-        //TODO: [Sprint 4] remove direct path
-        try {
-            dispatcher.dispatch(binaryEnvelope, plan.transport)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: TransportException) {
-            AppLog.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
-                message = "Envelope dispatch failed: TransportException",
-                fields = mapOf(
-                    "packetId" to binaryEnvelope.packetId,
-                    "target" to target,
-                    "transport" to plan.transport,
-                    "error" to e.toString(),
-                ),
-            )
-        } catch (e: CryptoException) {
-            AppLog.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_DISPATCH_FAILED,
-                message = "Envelope dispatch failed: CryptoException",
-                fields = mapOf(
-                    "packetId" to binaryEnvelope.packetId,
-                    "target" to target,
-                    "transport" to plan.transport,
-                    "error" to e.toString(),
-                ),
-            )
-        } finally {
-            outboxProcessor.recordSendAttempt(
-                packetId = binaryEnvelope.packetId,
-                nextRetryAt = nextRetryAt,
-                at = ctx.clock.now(),
-            )
-        }
 
         // Supplement the direct attempt with store-and-forward relay deposits when the target has no
         // live WebRTC session. Relays hold a copy and forward it once the recipient surfaces.
@@ -261,16 +214,17 @@ internal class OutboundMessenger(
                 PeerSendOutcome.PermanentFailure
             }
 
-            ProtectionDisposition.RETRYABLE,
-            ProtectionDisposition.DEFER,
-                -> {
+            // No staging: the payload stays in the local DAG and delivery falls back
+            // to the pull path (ping frontiers + sync). The DEFERRED failure kind tells
+            // the caller (and later the GUI) the message is pending, not dead.
+            ProtectionDisposition.DEFER -> {
                 AppLog.warn(
                     component = LogComponent.ROUTER,
                     event = LogEvent.ENVELOPE_PROTECTION_FAILED,
-                    message = "Message protection failed",
+                    message = "Message protection deferred; delivery falls back to sync pull",
                     fields = fields + ("error" to exception.message),
                 )
-                PeerSendOutcome.NotReady
+                PeerSendOutcome.Deferred
             }
         }
     }

@@ -30,7 +30,7 @@ data class FileEnvelope(
         writer.writePeerId(target)
         writer.writeLong(createdAt.epochSeconds)
         writer.writeByteArray(nonce)
-        writer.writeByte(securityScheme.wireValue.toInt())
+        writer.writeByte(securityScheme.wireValue)
         writer.writeNullableByteArray(signature)
         writer.writeByteArray(payload)
         return writer.toByteArray()
@@ -146,7 +146,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(128 + objectHash.size)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeNullableString(fileNameHint)
             writer.writeNullableString(mimeType)
             writer.writeLong(totalBytes)
@@ -224,7 +224,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(64 + chunkCiphertext.size)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeInt(chunkIndex)
             writer.writeInt(chunkCount)
             writer.writeByteArray(chunkCiphertext)
@@ -283,7 +283,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + (missingChunkIndices.size * 4))
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeInt(highestContiguousChunk)
             writer.writeInt(missingChunkIndices.size)
             missingChunkIndices.forEach { writer.writeInt(it) }
@@ -341,7 +341,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + objectHash.size)
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeByteArray(objectHash)
             return writer.toByteArray()
         }
@@ -387,7 +387,7 @@ sealed interface FilePayload {
 
         override fun encode(): ByteArray {
             val writer = ByteWriter(32 + (reasonText?.length ?: 0))
-            writer.writeByte(kind.wireValue.toInt())
+            writer.writeByte(kind.wireValue)
             writer.writeByte(reasonCode.toInt())
             writer.writeNullableString(reasonText)
             return writer.toByteArray()
@@ -471,8 +471,8 @@ data class FileControlPayload(
     }
 
     fun encode(writer: ByteWriter) {
-        writer.writeByte(transferClass.wireValue.toInt())
-        writer.writeByte(preferredTransport.wireValue.toInt())
+        writer.writeByte(transferClass.wireValue)
+        writer.writeByte(preferredTransport.wireValue)
         writer.writeByte(if (supportsResume) 1 else 0)
         writer.writeInt(maxInFlightChunks)
     }

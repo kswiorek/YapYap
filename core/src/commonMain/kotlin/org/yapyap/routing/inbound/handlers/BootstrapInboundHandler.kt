@@ -16,7 +16,7 @@ import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Handles bootstrap-family packets ([org.yapyap.protocol.packet.PacketType.BOOTSTRAP]):
+ * Handles bootstrap-family packets ([org.yapyap.protocol.PacketType.BOOTSTRAP]):
  * authenticate by kind (INTRO via the AEAD gate, RECOVERY_REQUEST via the account-key
  * signature), then forward to [bootstrapPackets]; the inbound processor ACKs on
  * [InboundHandleResult.Success].
@@ -85,7 +85,7 @@ internal class BootstrapInboundHandler(
                     "attestedDeviceId" to payload.device.deviceId,
                 ),
             )
-            return InboundHandleResult.Rejected(PacketNackReason.PROTECTION_FAILED)
+            return InboundHandleResult.Rejected(PacketNackReason.PERMANENT_PROTECTION_FAILED)
         }
 
         when (payload) {

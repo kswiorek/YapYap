@@ -2,9 +2,9 @@ package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.packet.PacketType
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.testfixtures.FakeClock

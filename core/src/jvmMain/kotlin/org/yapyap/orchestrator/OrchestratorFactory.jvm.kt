@@ -6,7 +6,7 @@ import org.yapyap.config.JvmConfigFileWatcher
 import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.logging.JvmAppLogger
 import org.yapyap.persistence.JvmEncryptedDriverFactory
-import org.yapyap.persistence.db.DeviceType
+import org.yapyap.protocol.DeviceType
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 

@@ -5,10 +5,10 @@ import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -34,7 +34,7 @@ enum class SendMessageStatus {
 
 enum class SendFailureKind {
     NO_PEERS,
-    NOT_READY,
+    DEFERRED,
     PERMANENT,
     TOO_LARGE,
     HISTORY_INCOMPLETE,
@@ -115,7 +115,14 @@ internal sealed interface InboundHandleResult {
 internal sealed interface PeerSendOutcome {
     /** Direct delivery queued; [relaysDeposited] is how many extra relay copies were enqueued. */
     data class Queued(val relaysDeposited: Int = 0) : PeerSendOutcome
-    data object NotReady : PeerSendOutcome
+
+    /**
+     * Protection deferred (session/identity prerequisites) — the payload is staged in
+     * pending_sends and leaves automatically once the crypto session is ready.
+     * GUI-facing: render as pending, not failed.
+     */
+    data object Deferred : PeerSendOutcome
+
     data object PermanentFailure : PeerSendOutcome
 }
 

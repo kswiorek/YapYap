@@ -11,17 +11,17 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.orchestrator.dag.RoomId
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.persistence.db.DeviceType
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
@@ -51,7 +51,6 @@ private class FakeOnboardingRouter(
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-        forceTransport: RouterTransport?,
     ): SendMessageResult = error("not used")
 
     override suspend fun sendTypingIndicator(
