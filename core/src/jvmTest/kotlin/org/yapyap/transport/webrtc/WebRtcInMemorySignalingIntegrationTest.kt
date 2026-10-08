@@ -12,10 +12,7 @@ import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -69,10 +66,10 @@ class WebRtcInMemorySignalingIntegrationTest {
                         alice.openSession(peerB)
 
                         alice.sessionStates.first {
-                            it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
+                            it[peerB]?.phase == WebRtcSessionPhase.CONNECTED
                         }
                         bob.sessionStates.first {
-                            it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
+                            it[peerA]?.phase == WebRtcSessionPhase.CONNECTED
                         }
 
                         val t0 = epochSeconds(1_800_000_000L)
@@ -150,10 +147,10 @@ class WebRtcInMemorySignalingIntegrationTest {
                         alice.openSession(peerB)
 
                         alice.sessionStates.first {
-                            it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
+                            it[peerB]?.phase == WebRtcSessionPhase.CONNECTED
                         }
                         bob.sessionStates.first {
-                            it.peerId == peerA && it.phase == WebRtcSessionPhase.CONNECTED
+                            it[peerA]?.phase == WebRtcSessionPhase.CONNECTED
                         }
 
                         repeat(3) {
@@ -235,7 +232,7 @@ class WebRtcInMemorySignalingIntegrationTest {
 
             alice.openSession(peerB)
             alice.sessionStates.first {
-                it.peerId == peerB && it.phase == WebRtcSessionPhase.CONNECTED
+                it[peerB]?.phase == WebRtcSessionPhase.CONNECTED
             }
 
             val out = BinaryEnvelope(
@@ -264,7 +261,81 @@ class WebRtcInMemorySignalingIntegrationTest {
     }
 
     /**
-     * Offer-side may report CONNECTED before the outbound data channel is open for send.
+     * The previously-silent transition: when one side tears its session down, the remote
+     * side must observe a terminal state instead of sticking at CONNECTED forever. The
+     * local close is orderly (deterministic CLOSED); the remote side gets no signal at
+     * all, so whatever it observes arrives purely through channel/connection observers —
+     * accept either terminal phase, since native stacks may report CLOSED or FAILED first.
+     */
+    @Test
+    fun remoteClose_surfacesTerminalState() = runBlocking {
+        val peerA = PeerId("a".repeat(64))
+        val peerB = PeerId("b".repeat(64))
+
+        val config = MutableStateFlow(WebRtcBackendConfig())
+
+        val backendA = JvmWebRtcBackend(config)
+        val backendB = JvmWebRtcBackend(config)
+        val alice = DefaultWebRtcTransport(backendA)
+        val bob = DefaultWebRtcTransport(backendB)
+
+        val relayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val relayJobs = mutableListOf<Job>()
+        try {
+            alice.start(peerA)
+            bob.start(peerB)
+
+            relayJobs += relayScope.launch {
+                alice.outgoingBootstrapSignals.collect { sig ->
+                    bob.handleBootstrapSignal(sig)
+                }
+            }
+            relayJobs += relayScope.launch {
+                bob.outgoingBootstrapSignals.collect { sig ->
+                    alice.handleBootstrapSignal(sig)
+                }
+            }
+
+            alice.openSession(peerB)
+            withTimeout(30L.seconds) {
+                alice.sessionStates.first {
+                    it[peerB]?.phase == WebRtcSessionPhase.CONNECTED
+                }
+                bob.sessionStates.first {
+                    it[peerA]?.phase == WebRtcSessionPhase.CONNECTED
+                }
+            }
+
+            alice.closeSession(peerB)
+
+            val (aliceState, bobState) = withTimeout(60L.seconds) {
+                val aliceClosed = alice.sessionStates.first {
+                    it[peerB]?.phase == WebRtcSessionPhase.CLOSED
+                }
+                val bobTerminal = bob.sessionStates.first {
+                    val phase = it[peerA]?.phase
+                    phase == WebRtcSessionPhase.CLOSED || phase == WebRtcSessionPhase.FAILED
+                }
+                aliceClosed to bobTerminal
+            }
+            assertEquals(WebRtcSessionPhase.CLOSED, aliceState[peerB]?.phase)
+            val bobPhase = bobState[peerA]?.phase
+            assertTrue(
+                bobPhase == WebRtcSessionPhase.CLOSED || bobPhase == WebRtcSessionPhase.FAILED,
+                "expected bob to observe a terminal state, got $bobPhase",
+            )
+        } finally {
+            relayJobs.forEach { it.cancel() }
+            relayScope.cancel()
+            runCatching { alice.stop() }
+            runCatching { bob.stop() }
+        }
+    }
+
+    /**
+     * CONNECTED now means the envelope channel is open for send (the transport only
+     * reports it on channel OPEN), so the first send normally succeeds immediately.
+     * The retry loop is retained as a safety net against residual native races.
      */
     private suspend fun sendEnvelopeWhenChannelReady(
         transport: DefaultWebRtcTransport,

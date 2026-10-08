@@ -19,7 +19,7 @@ class DefaultWebRtcTransport(
 
     private val incomingEnvelopeFlow = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
-    private val sessionStateFlow = MutableStateFlow<WebRtcSessionState?>(null)
+    private val sessionStateMap = MutableStateFlow<Map<PeerId, WebRtcSessionState>>(emptyMap())
     private val incomingCallInviteFlow =
         MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
     private val callStateFlow = MutableStateFlow<WebRtcAvSessionState?>(null)
@@ -27,7 +27,7 @@ class DefaultWebRtcTransport(
 
     override val incomingEnvelopes: Flow<WebRtcIncomingEnvelope> = incomingEnvelopeFlow.asSharedFlow()
     override val incomingAvFrames: Flow<WebRtcDataFrame> = incomingAvFrameFlow.asSharedFlow()
-    override val sessionStates: Flow<WebRtcSessionState> = sessionStateFlow.filterNotNull()
+    override val sessionStates: StateFlow<Map<PeerId, WebRtcSessionState>> = sessionStateMap.asStateFlow()
     override val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest> = incomingCallInviteFlow.asSharedFlow()
     override val callStates: Flow<WebRtcAvSessionState> = callStateFlow.filterNotNull()
     override val outgoingBootstrapSignals: Flow<WebRtcSignal> = outgoingBootstrapSignalFlow.asSharedFlow()
@@ -43,6 +43,16 @@ class DefaultWebRtcTransport(
     private var backendDataJob: Job? = null
     private var backendSessionEventsJob: Job? = null
     private var backendAvChannelEventsJob: Job? = null
+
+    /**
+     * Single writer of per-peer session state: every backend transition lands here, so
+     * one peer's update can never clobber another's and the stored state is always the
+     * latest transition for that peer. Terminal states (CLOSED/REJECTED/FAILED) are kept
+     * — the map holds last-known state, not just live sessions.
+     */
+    private fun updateSessionState(state: WebRtcSessionState) {
+        sessionStateMap.update { it + (state.peerId to state) }
+    }
 
     override suspend fun start(deviceId: PeerId) {
         check(!started) { "WebRTC transport is already started" }
@@ -70,11 +80,12 @@ class DefaultWebRtcTransport(
             backend.sessionEvents.collect { event ->
                 when (event) {
                     is WebRtcSessionEvent.Connecting -> {
-                        sessionStateFlow.value =
+                        updateSessionState(
                             WebRtcSessionState(
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.NEGOTIATING,
                             )
+                        )
                         AppLog.debug(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_STATE_CHANGED,
@@ -84,11 +95,12 @@ class DefaultWebRtcTransport(
                     }
 
                     is WebRtcSessionEvent.Connected -> {
-                        sessionStateFlow.value =
+                        updateSessionState(
                             WebRtcSessionState(
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.CONNECTED,
                             )
+                        )
                         AppLog.info(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_STATE_CHANGED,
@@ -98,11 +110,12 @@ class DefaultWebRtcTransport(
                     }
 
                     is WebRtcSessionEvent.Closed -> {
-                        sessionStateFlow.value =
+                        updateSessionState(
                             WebRtcSessionState(
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.CLOSED,
                             )
+                        )
                         AppLog.info(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_STATE_CHANGED,
@@ -111,13 +124,30 @@ class DefaultWebRtcTransport(
                         )
                     }
 
+                    is WebRtcSessionEvent.Rejected -> {
+                        updateSessionState(
+                            WebRtcSessionState(
+                                peerId = event.peer,
+                                phase = WebRtcSessionPhase.REJECTED,
+                                reason = event.reason,
+                            )
+                        )
+                        AppLog.info(
+                            component = LogComponent.WEBRTC_TRANSPORT,
+                            event = LogEvent.SESSION_STATE_CHANGED,
+                            message = "WebRTC session rejected",
+                            fields = mapOf("peer" to event.peer, "reason" to event.reason),
+                        )
+                    }
+
                     is WebRtcSessionEvent.Failed -> {
-                        sessionStateFlow.value =
+                        updateSessionState(
                             WebRtcSessionState(
                                 peerId = event.peer,
                                 phase = WebRtcSessionPhase.FAILED,
                                 reason = event.reason,
                             )
+                        )
                         AppLog.warn(
                             component = LogComponent.WEBRTC_TRANSPORT,
                             event = LogEvent.SESSION_FAILED,
@@ -194,6 +224,7 @@ class DefaultWebRtcTransport(
 
         pendingIncomingCallByPeer.clear()
         avOptionsByPeer.clear()
+        sessionStateMap.value = emptyMap()
 
         scope?.cancel()
         scope = null
@@ -303,13 +334,11 @@ class DefaultWebRtcTransport(
             throw TransportException.WebRtcException.WrongTargetException(signal.target)
         }
         backend.handleRemoteSignal(signal)
+        // State ownership lives in the backend: inbound OFFER surfaces as Connecting and
+        // inbound REJECT as Rejected via sessionEvents, so no state is written here — the
+        // signals are only observed for logging.
         when (signal.kind) {
             WebRtcSignalKind.OFFER -> {
-                sessionStateFlow.value =
-                    WebRtcSessionState(
-                        peerId = signal.source,
-                        phase = WebRtcSessionPhase.NEGOTIATING,
-                    )
                 AppLog.debug(
                     component = LogComponent.WEBRTC_TRANSPORT,
                     event = LogEvent.SIGNAL_INBOUND_HANDLED,
@@ -319,13 +348,12 @@ class DefaultWebRtcTransport(
             }
 
             WebRtcSignalKind.REJECT -> {
-                val reason = signal.payload.decodeToString()
-                sessionStateFlow.value =
-                    WebRtcSessionState(
-                        peerId = signal.source,
-                        phase = WebRtcSessionPhase.REJECTED,
-                        reason = reason,
-                    )
+                AppLog.debug(
+                    component = LogComponent.WEBRTC_TRANSPORT,
+                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    message = "Handled inbound REJECT signal",
+                    fields = mapOf("source" to signal.source),
+                )
             }
 
             else -> {

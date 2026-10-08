@@ -101,7 +101,10 @@ class DefaultRouterLiveIntegrationTest {
         val bobIdentity =
             FakeIdentityResolverForRouter(
                 localDevice = localDevice(bobPeer),
-                peersByAccount = emptyMap(),
+                // Bob must know Alice's device: the Sprint 4 unknown-device policy drops
+                // non-BOOTSTRAP packets from devices with no row, so without this entry
+                // her MESSAGE would be silently skipped and the test would time out.
+                peersByAccount = mapOf(AccountId("alice-acct") to listOf(alicePeer)),
                 torByPeer = bobTorMap,
             )
 

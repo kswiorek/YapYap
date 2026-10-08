@@ -36,7 +36,6 @@ import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
-import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -192,7 +191,6 @@ class DefaultRouter(
     private var torIncomingJob: Job? = null
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
-    private var webRtcSessionJob: Job? = null
     private var onlinePeerJob: Job? = null
     private var outboxRetryJob: Job? = null
     private var syncRetryJob: Job? = null
@@ -263,14 +261,11 @@ class DefaultRouter(
             }
         }
 
-        webRtcSessionJob = scope.launch {
-            webRtcTransport.sessionStates.collect { state ->
-                if (state.phase == WebRtcSessionPhase.CONNECTED) {
-                    outboxProcessor.onPeerOnline(state.peerId)
-                }
-            }
-        }
-
+        // No session-connected outbox acceleration here by design: a session can only
+        // establish after authenticated signal traffic, which already fired the
+        // peer-availability transition (see WebRtcTransport.sessionStates). The residual
+        // value of such a trigger is bounded by one outbox retry delay on already-failed
+        // sends, so it was removed rather than kept as semantic noise.
         onlinePeerJob = scope.launch {
             peerAvailabilityRegistry.onlineEvents.collect { state ->
                 outboxProcessor.onPeerOnline(state)
@@ -308,7 +303,6 @@ class DefaultRouter(
             torIncomingJob,
             webRtcIncomingEnvelopeJob,
             webRtcOutgoingJob,
-            webRtcSessionJob,
             outboxRetryJob,
             syncRetryJob,
         ).forEach { it.cancelAndJoin() }
@@ -316,7 +310,6 @@ class DefaultRouter(
         torIncomingJob = null
         webRtcIncomingEnvelopeJob = null
         webRtcOutgoingJob = null
-        webRtcSessionJob = null
         outboxRetryJob = null
         syncRetryJob = null
         scope.cancel()

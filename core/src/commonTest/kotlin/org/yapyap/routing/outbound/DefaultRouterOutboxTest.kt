@@ -22,8 +22,6 @@ import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
-import org.yapyap.transport.webrtc.types.WebRtcSessionState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -191,43 +189,6 @@ class DefaultRouterOutboxTest {
         assertEquals(1, outbox.recordAttemptCalls.size)
         assertEquals(packetId, outbox.recordAttemptCalls.single().first)
         assertEquals(1L, outbox.getAttempts(packetId))
-    }
-
-    @Test
-    fun webrtcConnected_acceleratesOutboxForPeer() = runBlocking {
-        val tor = RecordingTorTransport()
-        val webRtc = RecordingWebRtcTransport()
-        val outbox = TrackingPacketOutbox()
-        val packetId = Uuid.random()
-        val now = 10_000L
-
-        outbox.enqueue(
-            envelope = outboxMessageEnvelope(packetId, source = localPeer, target = remotePeer, now = now),
-            nextRetryAt = epochSeconds(now + 120),
-        )
-
-        val router = routerForOutboxTests(
-            tor = tor,
-            webRtc = webRtc,
-            outbox = outbox,
-            account = AccountId("outbox-webrtc-account"),
-        )
-        router.start()
-
-        webRtc.openSession(remotePeer)
-
-        webRtc.tryEmitSessionState(
-            WebRtcSessionState(
-                peerId = remotePeer,
-                phase = WebRtcSessionPhase.CONNECTED,
-            ),
-        )
-        delay(400.milliseconds)
-        router.stop()
-
-        assertEquals(epochSeconds(now) + router.routerConfig.value.webRtcRetryDelay, outbox.getNextRetryAt(packetId))
-        assertEquals(1, outbox.setDueForTargetCalls.size)
-        assertEquals(remotePeer, outbox.setDueForTargetCalls.single().first)
     }
 
     private fun routerForOutboxTests(

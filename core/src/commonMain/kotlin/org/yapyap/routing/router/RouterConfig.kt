@@ -24,6 +24,14 @@ data class RouterConfig(
     val proactiveSessionRetryDelay: Duration = 30.seconds,
     /** Default budget for [ProactiveSessionOpener.awaitSession] (best-effort REQUIRED mode). */
     val sessionAwaitTimeout: Duration = 45.seconds,
+    /**
+     * Cadence at which [ProactiveSessionOpener.awaitSession] re-issues the idempotent
+     * open while waiting. The wait itself is event-driven; this is only the safety net
+     * for silently lost signaling (no event ever arrives) and the rate limit for
+     * re-opening after terminal states. Signaling round-trips take seconds, so this is
+     * deliberately coarser than the old poll quantum.
+     */
+    val sessionAwaitReopenDelay: Duration = 5.seconds,
     /** Max messages returned per sync response (responder-side page size). */
     val syncMaxMessages: Int = 20,
     /**
@@ -84,6 +92,7 @@ data class RouterConfig(
         require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshness must be > 0" }
         require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelay must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }
+        require(sessionAwaitReopenDelay > Duration.ZERO) { "sessionAwaitReopenDelay must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
         require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelay must be > 0" }

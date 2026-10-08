@@ -1,15 +1,17 @@
 package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.internal.SynchronizedObject
 import kotlinx.coroutines.internal.synchronized
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -99,20 +101,27 @@ internal class ProactiveSessionOpener(
     /**
      * REQUIRED: best effort to establish a usable session to [peerId] within [timeoutSeconds].
      * Ignores the freshness gate and the backoff window — the caller explicitly needs the
-     * session. Polls session usability and re-issues idempotent opens; the poll-based wait
-     * deliberately avoids subscribing to [sessionStates] so stale/replayed session events
-     * from earlier negotiations cannot short-circuit the loop.
+     * session. Event-driven: waits on the peer's session states and re-issues the
+     * idempotent open on a slow cadence as a safety net for silently lost signaling
+     * (no event ever arrives) and as the rate limit after terminal states.
+     *
+     * The wait predicate pairs the stored state with ground truth: a replayed CONNECTED
+     * is accepted only while the envelope channel is actually usable. In production the
+     * two agree by construction (see the `sessionStates` contract), so the check is a
+     * formality — but structurally a stale entry can delay this loop by at most one
+     * reopen interval, never produce a false [SessionOutcome.Connected].
      *
      * @return [SessionOutcome.Connected] as soon as the envelope channel is usable,
      *   [SessionOutcome.Timeout] once the budget is exhausted.
      */
     suspend fun awaitSession(peerId: PeerId, timeout: Duration): SessionOutcome {
-        //TODO: [Sprint 4] event driven
+        if (ctx.webRtcTransport.hasSession(peerId)) return SessionOutcome.Connected
+
+        val reopenInterval = ctx.routerConfig.value.sessionAwaitReopenDelay
         val deadline = ctx.clock.now() + timeout
-        val pollMillis = SESSION_AWAIT_POLL_MILLIS
         while (true) {
-            if (ctx.webRtcTransport.hasSession(peerId)) return SessionOutcome.Connected
             if (ctx.clock.now() >= deadline) return SessionOutcome.Timeout
+
             try {
                 ctx.webRtcTransport.openSession(peerId)
             } catch (e: CancellationException) {
@@ -125,11 +134,13 @@ internal class ProactiveSessionOpener(
                     fields = mapOf("peerId" to peerId, "error" to e.toString()),
                 )
             }
-            delay(pollMillis)
-        }
-    }
 
-    private companion object {
-        const val SESSION_AWAIT_POLL_MILLIS = 1_000L
+            val wait = minOf(reopenInterval, (deadline - ctx.clock.now()).coerceAtLeast(Duration.ZERO))
+            val connected = withTimeoutOrNull(wait) {
+                ctx.webRtcTransport.sessionStatesOf(peerId)
+                    .first { it.phase == WebRtcSessionPhase.CONNECTED && ctx.webRtcTransport.hasSession(peerId) }
+            }
+            if (connected != null) return SessionOutcome.Connected
+        }
     }
 }

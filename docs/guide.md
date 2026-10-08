@@ -49,6 +49,12 @@
   - Live Tor + WebRTC integration test implemented.
   - AV contracts/types are implemented end-to-end at transport API level (session request/accept/reject/state/control
     flow), with backend media-track handling still not complete.
+  - Session state contract: `sessionStates` is a per-peer last-known-state map where `CONNECTED` holds iff
+    the envelope data channel is open (same predicate as `hasSession`); the backend is the single writer of
+    state, so subscribers may treat replayed states as ground truth. `ProactiveSessionOpener.awaitSession`
+    is event-driven on this stream (with a slow re-open safety net for silently lost signaling), and no
+    session-connected outbox acceleration is wired — session establishment implies prior signal traffic,
+    which already fired the peer-availability transition.
 - Test note: some live/native WebRTC tests can be flaky with thread attach warnings from webrtc-java.
 
 ### Crypto + identity + persistence status

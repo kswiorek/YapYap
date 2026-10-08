@@ -25,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -345,9 +346,48 @@ class SyncIntegrationTest {
             assertTrue(returned.any { it.messageId == m4.messageId })
 
             returned.forEach { router.emitIncoming(it) }
-            withTimeout(10.seconds) { awaitPendingSyncEmpty() }
+            // Await the stable end state, not a single observation: responses can arrive
+            // out of order (tip first), in which case the fulfilled row is deleted and a
+            // new gap row is briefly created before the ancestry lands. The state must
+            // hold for several consecutive checks — any single read can race a concurrent
+            // transition, but a sustained observation cannot outlive the three ingested
+            // responses that are the only row writers here. The timeout backstop still
+            // fails loudly if convergence genuinely never happens.
+            // Generous budget: under parallel-suite load the shared dispatchers are slow.
+            val history = mutableListOf<String>()
+            withTimeout(30.seconds) {
+                var stablePasses = 0
+                while (stablePasses < 10) {
+                    val pending = pendingRepo.all().map {
+                        when (it.targetMessageId) {
+                            m2.messageId -> "m2"
+                            m3.messageId -> "m3"
+                            m4.messageId -> "m4"
+                            else -> "?" + it.targetMessageId.toString().takeLast(4)
+                        }
+                    }
+                    val size = localMessageRepo.byId.size
+                    val hold = localCausalHold.findByRoom(roomId).size
+                    val sig = "pending=$pending size=$size hold=$hold"
+                    if (history.lastOrNull() != sig) history += sig
+                    if (pending.isEmpty() && size == 5 && hold == 0) {
+                        stablePasses++
+                    } else {
+                        stablePasses = 0
+                    }
+                    delay(25.milliseconds)
+                }
+            }
 
-            assertTrue(pendingRepo.all().isEmpty(), "pending sync should be deleted after range filled")
+            val leftover = pendingRepo.all()
+            val holdOpen = localCausalHold.findByRoom(roomId)
+            val stored = localMessageRepo.byId.size
+            assertTrue(
+                leftover.isEmpty(),
+                "pending sync should be deleted after range filled\n" +
+                        "leftover=$leftover holdOpen=$holdOpen stored=$stored\n" +
+                        "history=\n" + history.joinToString("\n"),
+            )
             assertTrue(localCausalHold.findByRoom(roomId).isEmpty())
             assertEquals(5, localMessageRepo.byId.size)
         } finally {

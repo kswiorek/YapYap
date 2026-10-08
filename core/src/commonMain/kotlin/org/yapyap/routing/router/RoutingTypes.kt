@@ -33,6 +33,7 @@ enum class SendMessageStatus {
 }
 
 enum class SendFailureKind {
+    //TODO: [Sprint 4] Cleanup - split Router vs Gui-exposed types
     NO_PEERS,
     DEFERRED,
     PERMANENT,

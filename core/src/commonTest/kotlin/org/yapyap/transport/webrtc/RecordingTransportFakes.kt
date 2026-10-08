@@ -1,7 +1,6 @@
 package org.yapyap.transport.webrtc
 
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
@@ -16,7 +15,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
     private val incomingAvFramesMutable =
         MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
     private val outgoingBootstrapSignalsMutable = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
-    private val sessionStatesMutable = MutableSharedFlow<WebRtcSessionState>(extraBufferCapacity = 64)
+    private val sessionStatesMutable = MutableStateFlow<Map<PeerId, WebRtcSessionState>>(emptyMap())
     private val incomingCallInvitesMutable =
         MutableSharedFlow<WebRtcIncomingAvSessionRequest>(extraBufferCapacity = 64)
     private val callStatesMutable = MutableSharedFlow<WebRtcAvSessionState>(extraBufferCapacity = 64)
@@ -24,7 +23,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
     override val incomingEnvelopes = incomingEnvelopesMutable.asSharedFlow()
     override val incomingAvFrames = incomingAvFramesMutable.asSharedFlow()
     override val outgoingBootstrapSignals = outgoingBootstrapSignalsMutable.asSharedFlow()
-    override val sessionStates = sessionStatesMutable.asSharedFlow()
+    override val sessionStates: StateFlow<Map<PeerId, WebRtcSessionState>> = sessionStatesMutable.asStateFlow()
     override val incomingCallInvites = incomingCallInvitesMutable.asSharedFlow()
     override val callStates = callStatesMutable.asSharedFlow()
 
@@ -54,11 +53,15 @@ class RecordingWebRtcTransport : WebRtcTransport {
     }
 
     override suspend fun openSession(target: PeerId) {
-        simulateEnvelopeChannelOpen(peer = target)
         openSessionCalls.add(target)
     }
 
-    /** Simulates the envelope data channel reaching OPEN for [peer]; hasSession(peer) becomes true. */
+    /**
+     * Simulates the envelope data channel reaching OPEN for [peer]; hasSession(peer)
+     * becomes true. Deliberately separate from [openSession]: like the real backend,
+     * opening a session never synchronously opens the channel — usability arrives
+     * later (and is what the CONNECTED state reports).
+     */
     fun simulateEnvelopeChannelOpen(peer: PeerId) {
         openChannelPeers.add(peer)
     }
@@ -108,7 +111,10 @@ class RecordingWebRtcTransport : WebRtcTransport {
 
     fun tryEmitIncomingEnvelope(e: WebRtcIncomingEnvelope): Boolean = incomingEnvelopesMutable.tryEmit(e)
 
-    fun tryEmitSessionState(state: WebRtcSessionState): Boolean = sessionStatesMutable.tryEmit(state)
+    /** Records the last-known session state for [state]'s peer, mirroring the real transport. */
+    fun setSessionState(state: WebRtcSessionState) {
+        sessionStatesMutable.update { it + (state.peerId to state) }
+    }
 }
 
 /** Recording lower-level WebRTC backend. */
@@ -181,4 +187,6 @@ class RecordingWebRtcBackend : WebRtcBackend {
     }
 
     fun tryEmitOutgoingSignal(s: WebRtcSignal): Boolean = outgoingSignalsMutable.tryEmit(s)
+
+    fun tryEmitSessionEvent(e: WebRtcSessionEvent): Boolean = sessionEventsMutable.tryEmit(e)
 }

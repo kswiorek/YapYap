@@ -1,6 +1,9 @@
 package org.yapyap.transport.webrtc.transport
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.types.*
@@ -14,8 +17,29 @@ interface WebRtcTransport {
     // Signaling plane (bootstrap only: OFFER/ANSWER/ICE/REJECT/CANCEL)
     val outgoingBootstrapSignals: Flow<WebRtcSignal>
 
-    // Session lifecycle (peer connection)
-    val sessionStates: Flow<WebRtcSessionState>
+    // Session lifecycle (peer connection), keyed by remote peer. Absence means no
+    // session was ever negotiated with that peer (or the transport was stopped).
+    //
+    // The stored state is the last-known backend transition for that peer and obeys the
+    // WebRtcSessionState contract: CONNECTED if and only if hasSession(peer) is true.
+    // A new subscriber replays the current per-peer states, and replayed values are
+    // ground truth — a stored CONNECTED can never go stale relative to the channel.
+    //
+    // Deliberately no session-connected side effects are wired in the router (no outbox
+    // acceleration on CONNECTED): session establishment implies prior authenticated
+    // signal traffic, which already fired the peer-availability transition
+    // (InboundEnvelopeProcessor -> PeerAvailabilityRegistry.markReachable). The residual
+    // value of such a trigger is bounded by one outbox retry delay on already-failed
+    // sends, so it was removed rather than kept as semantic noise.
+    val sessionStates: StateFlow<Map<PeerId, WebRtcSessionState>>
+
+    /**
+     * Current-state-then-updates for one peer: replays the stored state on collection
+     * (when present) and follows its transitions. Race-free way to await usability —
+     * a CONNECTED that lands before subscription is delivered immediately.
+     */
+    fun sessionStatesOf(peerId: PeerId): Flow<WebRtcSessionState> =
+        sessionStates.map { it[peerId] }.filterNotNull()
 
     // Call lifecycle (user-facing)
     val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest>

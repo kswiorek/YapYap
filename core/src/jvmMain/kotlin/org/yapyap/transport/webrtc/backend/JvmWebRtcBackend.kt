@@ -117,9 +117,13 @@ class JvmWebRtcBackend(
             WebRtcSignalKind.OFFER -> handleRemoteOffer(local, signal)
             WebRtcSignalKind.ANSWER -> handleRemoteAnswer(signal)
             WebRtcSignalKind.ICE -> handleRemoteIce(signal)
-            WebRtcSignalKind.REJECT,
-            WebRtcSignalKind.CANCEL,
-                -> teardownRemote(signal.source, "Remote ${signal.kind.name.lowercase()}")
+            WebRtcSignalKind.REJECT -> {
+                val reason = signal.payload.decodeToString().ifEmpty { "Remote reject" }
+                teardownRemote(signal.source, reason, rejected = true)
+            }
+
+            WebRtcSignalKind.CANCEL ->
+                teardownRemote(signal.source, "Remote ${signal.kind.name.lowercase()}")
         }
     }
 
@@ -358,11 +362,15 @@ class JvmWebRtcBackend(
         }
     }
 
-    private suspend fun teardownRemote(remote: PeerId, reason: String) {
+    private suspend fun teardownRemote(remote: PeerId, reason: String, rejected: Boolean = false) {
         val session = sessions.remove(remote) ?: return
         session.signalMutex.withLock {
             session.dispose()
-            emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
+            if (rejected) {
+                emitSessionEvent(WebRtcSessionEvent.Rejected(session.remotePeer, reason))
+            } else {
+                emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
+            }
         }
         AppLog.info(
             component = LogComponent.WEBRTC_BACKEND,
@@ -478,8 +486,11 @@ class JvmWebRtcBackend(
                         RTCPeerConnectionState.CONNECTING ->
                             emitSessionEvent(WebRtcSessionEvent.Connecting(targetId))
 
-                        RTCPeerConnectionState.CONNECTED ->
-                            emitSessionEvent(WebRtcSessionEvent.Connected(targetId))
+                        // Deliberately no Connected here: peer-connection CONNECTED precedes
+                        // the envelope data channel opening, and Connected means the channel
+                        // can carry data (see WebRtcSessionState). Usability is signaled by
+                        // the channel observer below, which is the single Connected source.
+                        RTCPeerConnectionState.CONNECTED -> Unit
 
                         RTCPeerConnectionState.FAILED ->
                             emitSessionEvent(
@@ -547,6 +558,12 @@ class JvmWebRtcBackend(
                                 emitSessionEvent(WebRtcSessionEvent.Connected(session.remotePeer))
                             } else if (state == RTCDataChannelState.CLOSED) {
                                 session.envelopeChannelOpen = CompletableDeferred()
+                                // The envelope channel is the session's usability predicate
+                                // (hasSession reads this same state), so an abrupt close must
+                                // surface as a transition rather than go silent and leave a
+                                // stale CONNECTED behind. Explicit teardowns unregister this
+                                // observer before closing, so they cannot double-emit.
+                                emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
                             }
                         }
 

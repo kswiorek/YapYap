@@ -20,6 +20,8 @@ class DefaultSyncPeerPolicyTest {
     fun prefersWebRtcSessionOverOnlinePeer() = runTest {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
         stack.webRtc.openSession(peerA)
+        // Opening is not usability: the policy prefers a usable channel.
+        stack.webRtc.simulateEnvelopeChannelOpen(peerA)
         val registry = PeerAvailabilityRegistry(
             stack.ctx.clock,
             MutableStateFlow(RouterConfig()),
