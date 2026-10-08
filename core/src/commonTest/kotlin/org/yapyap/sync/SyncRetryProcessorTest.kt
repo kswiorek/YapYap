@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -46,6 +47,7 @@ class SyncRetryProcessorTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+            torByPeer = mutableMapOf(remoteDevice to TorEndpoint("retry-remote.onion", 80)),
             clock = FakeClock(now),
         )
         val repo = FakePendingSyncRepository()

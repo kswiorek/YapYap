@@ -106,7 +106,18 @@ internal sealed interface InboundSideEffect {
 internal sealed interface InboundHandleResult {
     val sideEffects: List<InboundSideEffect>
 
-    data class Success(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
+    /**
+     * @param sourceAuthenticated true only when the handler verified the claimed source's
+     *   authenticity while producing this result (signature / AEAD / account-sig open
+     *   succeeded). The inbound processor heals the source's Tor endpoint mapping solely
+     *   on authenticated results — never on arrival alone. Fail-closed: a handler that
+     *   returns Success without authenticating the source (relay transit, stubs) must
+     *   leave this false.
+     */
+    data class Success(
+        override val sideEffects: List<InboundSideEffect> = emptyList(),
+        val sourceAuthenticated: Boolean = false,
+    ) : InboundHandleResult
     data class Deferred(override val sideEffects: List<InboundSideEffect> = emptyList()) : InboundHandleResult
     data class Rejected(
         val reason: PacketNackReason,

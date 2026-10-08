@@ -18,6 +18,7 @@ import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
@@ -266,11 +267,12 @@ internal class SyncRoutingStack(
 internal fun buildSyncRoutingStack(
     localDevice: DeviceIdentityRecord,
     peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
+    torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     clock: FakeClock = FakeClock(epochSeconds(10_000L)),
 ): SyncRoutingStack {
     val tor = RecordingTorTransport()
     val webRtc = RecordingWebRtcTransport()
-    val identity = FakeIdentityResolverForRouter(localDevice, peersByAccount)
+    val identity = FakeIdentityResolverForRouter(localDevice, peersByAccount, torByPeer)
     val ctx = RoutingContext(
         identityResolver = identity,
         packetDeduplicator = InMemoryPacketDeduplicator(),

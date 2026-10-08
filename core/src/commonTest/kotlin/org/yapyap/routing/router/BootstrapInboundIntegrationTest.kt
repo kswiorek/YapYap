@@ -21,6 +21,7 @@ import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -89,6 +90,10 @@ class BootstrapInboundIntegrationTest {
 
             val event = withTimeout(15.seconds) { firstEvent.await() }
             assertEquals(sponsor.device.deviceId, event.payload.device.deviceId)
+            // Endpoint-claim policy: the unknown sponsor's transport onion must not
+            // create a mapping — the newcomer learns the sponsor's endpoint from the
+            // AEAD-bound intro payload instead.
+            assertTrue(stack.identity.torUpdates.none { it.first == sponsor.device.deviceId })
         } finally {
             router.stop()
         }

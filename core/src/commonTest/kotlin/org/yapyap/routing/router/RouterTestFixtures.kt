@@ -443,7 +443,7 @@ internal class FakeIdentityResolverForRouter(
         throw CryptoException.MissingDeviceRecord(deviceId.id)
 
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
-        torByPeer[deviceId] ?: TorEndpoint(onionAddress = "missing.onion", port = 80)
+        torByPeer[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
@@ -637,7 +637,7 @@ internal class E2eeIdentityResolverForRouter(
         peers[deviceId]?.device ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
-        torByPeer[deviceId] ?: TorEndpoint(onionAddress = "missing.onion", port = 80)
+        torByPeer[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()

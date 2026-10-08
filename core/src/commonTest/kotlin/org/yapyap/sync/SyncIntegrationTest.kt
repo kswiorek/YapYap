@@ -157,11 +157,13 @@ class SyncIntegrationTest {
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
                 peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+                torByPeer = mutableMapOf(remoteDevice to TorEndpoint("it-remote.onion", 80)),
                 clock = FakeClock(epochSeconds(now)),
             )
             val remoteStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(remoteDevice),
                 peersByAccount = mapOf(localAccount to listOf(localDevice)),
+                torByPeer = mutableMapOf(localDevice to TorEndpoint("it-local.onion", 80)),
                 clock = FakeClock(epochSeconds(now)),
             )
             val retryProcessor = SyncRetryProcessor(
@@ -272,11 +274,13 @@ class SyncIntegrationTest {
             val localStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(localDevice),
                 peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+                torByPeer = mutableMapOf(remoteDevice to TorEndpoint("it-remote.onion", 80)),
                 clock = FakeClock(epochSeconds(now)),
             )
             val remoteStack = buildSyncRoutingStack(
                 localDevice = testDeviceIdentity(remoteDevice),
                 peersByAccount = mapOf(localAccount to listOf(localDevice)),
+                torByPeer = mutableMapOf(localDevice to TorEndpoint("it-local.onion", 80)),
                 clock = FakeClock(epochSeconds(now)),
             )
             val retryProcessor = SyncRetryProcessor(

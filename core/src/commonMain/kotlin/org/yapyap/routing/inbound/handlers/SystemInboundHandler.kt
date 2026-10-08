@@ -78,6 +78,7 @@ internal class SystemInboundHandler(
                 )
                 InboundHandleResult.Success(
                     sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                    sourceAuthenticated = true,
                 )
             }
 
@@ -111,7 +112,7 @@ internal class SystemInboundHandler(
                             "source" to systemEnvelope.source,
                         ),
                     )
-                    InboundHandleResult.Success()
+                    InboundHandleResult.Success(sourceAuthenticated = true)
                 }
             }
 
@@ -128,6 +129,7 @@ internal class SystemInboundHandler(
                 )
                 InboundHandleResult.Success(
                     sideEffects = listOf(InboundSideEffect.SyncRequested(systemEnvelope.source, payload)),
+                    sourceAuthenticated = true,
                 )
             }
 
@@ -144,6 +146,7 @@ internal class SystemInboundHandler(
                 )
                 InboundHandleResult.Success(
                     sideEffects = listOf(InboundSideEffect.MarkPeerAttempted(systemEnvelope.source, payload.syncId)),
+                    sourceAuthenticated = true,
                 )
             }
 
@@ -169,7 +172,7 @@ internal class SystemInboundHandler(
                         )
                     )
                 }
-                InboundHandleResult.Success()
+                InboundHandleResult.Success(sourceAuthenticated = true)
             }
 
             is SystemPayload.Ping -> {
@@ -182,7 +185,10 @@ internal class SystemInboundHandler(
                         "roomPayloadCount" to payload.roomFrontiers.size,
                     ),
                 )
-                InboundHandleResult.Success(listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)))
+                InboundHandleResult.Success(
+                    listOf(InboundSideEffect.PeerHeartbeat(systemEnvelope.source, payload)),
+                    sourceAuthenticated = true,
+                )
             }
 
             is SystemPayload.LogOff -> {
@@ -195,7 +201,10 @@ internal class SystemInboundHandler(
                     )
                 )
 
-                InboundHandleResult.Success(listOf(InboundSideEffect.PeerOffline(systemEnvelope.source)))
+                InboundHandleResult.Success(
+                    listOf(InboundSideEffect.PeerOffline(systemEnvelope.source)),
+                    sourceAuthenticated = true,
+                )
             }
 
             else -> {

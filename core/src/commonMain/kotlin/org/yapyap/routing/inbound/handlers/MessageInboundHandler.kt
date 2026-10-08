@@ -60,6 +60,10 @@ internal class MessageInboundHandler(
 
             return InboundHandleResult.Success(
                 sideEffects = listOf(InboundSideEffect.EnqueueForRelay(binaryEnvelope)),
+                // Deliberately unauthenticated: the inner payload is E2EE to its target,
+                // so this relay transit proves nothing about the claimed source. The
+                // processor must not heal endpoint mappings (or availability) from it.
+                sourceAuthenticated = false,
             )
         }
 
@@ -77,6 +81,6 @@ internal class MessageInboundHandler(
             return inboundResultForProtectionFailure(e)
         }
         incomingMessages.emit(payload)
-        return InboundHandleResult.Success()
+        return InboundHandleResult.Success(sourceAuthenticated = true)
     }
 }

@@ -5,6 +5,7 @@ import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.sync.SyncHandler
@@ -47,6 +48,7 @@ class SyncHandlerTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+            torByPeer = mutableMapOf(remoteDevice to TorEndpoint("handler-remote.onion", 80)),
         )
         val payloadProvider = RecordingSyncPayloadProvider(messages = listOf(textMsg(), textMsg()))
         val handler =
@@ -73,6 +75,7 @@ class SyncHandlerTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+            torByPeer = mutableMapOf(remoteDevice to TorEndpoint("handler-remote.onion", 80)),
         )
         val payloadProvider = RecordingSyncPayloadProvider(messages = emptyList())
         val handler =

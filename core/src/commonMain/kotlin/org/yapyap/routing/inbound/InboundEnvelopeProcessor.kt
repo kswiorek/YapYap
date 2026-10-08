@@ -6,6 +6,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -27,31 +28,10 @@ internal class InboundEnvelopeProcessor(
     private val pingProvider: PingProvider,
 ) {
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
-        // resolveTorEndpointForDevice throws for devices with no row. That must not kill the inbound:
-        // a pre-bootstrap sponsor (unknown source) is exactly who we want to route bootstrap packets
-        // from. Unknown sources get no endpoint mapping here (their claimed device id is
-        // unauthenticated at this layer).
-        val knownEndpoint = try {
-            ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)
-        } catch (_: CryptoException) {
-            null
-        }
-        if (knownEndpoint == null) {
-            // TODO: [Sprint 4] endpoint-claim policy for unauthenticated unknown devices —
-            // today we neither create nor overwrite a mapping from an unverified claim. Known devices
-            // keep the existing self-healing overwrite below (Tor onion rotation).
-            AppLog.debug(
-                component = LogComponent.ROUTER,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
-                message = "Tor inbound from unknown device; skipped endpoint reconciliation",
-                fields = mapOf("sourceDeviceId" to inbound.envelope.source),
-            )
-        } else if (inbound.source != knownEndpoint) {
-            ctx.identityResolver.updatePeerTorEndpoint(
-                deviceId = inbound.envelope.source,
-                torEndpoint = inbound.source,
-            )
-        }
+        // No endpoint reconciliation here: the claimed source is unauthenticated at this
+        // layer, so the stored mapping is healed only after the packet authenticates
+        // (see reconcileSourceEndpoint). Unknown sources need no mapping — their
+        // endpoints arrive via authenticated channels (see endpoint-claim policy there).
         handle(inbound.envelope, RouterTransport.TOR, provenSourceEndpoint = inbound.source)
     }
 
@@ -61,10 +41,11 @@ internal class InboundEnvelopeProcessor(
 
     /**
      * @param provenSourceEndpoint transport-proven source endpoint (Tor only): the onion the
-     *   packet actually arrived from, as opposed to anything claimed inside the payload. Passed
-     *   through to ACK/NACKs so dispositions back to sources with no local devices row
-     *   (bootstrap newcomer / recovering device) are deliverable without a DB lookup. For known
-     *   peers it equals the reconciled row above, so preferring it is equivalent-or-fresher.
+     *   packet actually arrived from, as opposed to anything claimed inside the payload. Used
+     *   for dispositions back to sources with no local devices row (bootstrap newcomer /
+     *   recovering device) without a DB lookup, and — once the packet authenticates — to
+     *   heal the source's stored mapping (Tor onion rotation). It is preferred over the
+     *   stored row because it is the freshest transport evidence available.
      */
     suspend fun handle(
         inbound: BinaryEnvelope,
@@ -204,6 +185,13 @@ internal class InboundEnvelopeProcessor(
 
         applySideEffects(handleResult.sideEffects)
 
+        if (handleResult is InboundHandleResult.Success
+            && handleResult.sourceAuthenticated
+            && provenSourceEndpoint != null
+        ) {
+            reconcileSourceEndpoint(inbound.source, provenSourceEndpoint)
+        }
+
         when (handleResult) {
             is InboundHandleResult.Success ->
                 if (inbound.dispositionRequested) {
@@ -241,6 +229,54 @@ internal class InboundEnvelopeProcessor(
                         endpointOverride = provenSourceEndpoint,
                     )
                 }
+        }
+    }
+
+    /**
+     * Endpoint reconciliation [Sprint 4]: heals the source's stored Tor mapping (onion
+     * rotation) from the transport-proven arrival onion — but only after the packet
+     * authenticated ([InboundHandleResult.Success.sourceAuthenticated]). Rewriting on
+     * arrival alone would let anyone who knows a peer's device id redirect its mapping
+     * with a single spoofed packet (the packet itself would then fail authentication,
+     * but the mapping would already be poisoned).
+     *
+     * Endpoint-claim policy [Sprint 4, decided]: mappings are never created from
+     * unverified claims, so unknown devices gain no mapping here. Every flow needing
+     * an unknown device's endpoint carries it through an authenticated channel
+     * instead: the invite QR (out-of-band, user-scanned), the signed bootstrap
+     * payload (`Intro`/`RecoveryRequest.torEndpoint`), or the transport-proven
+     * disposition override for the immediate exchange.
+     */
+    private suspend fun reconcileSourceEndpoint(source: PeerId, provenEndpoint: TorEndpoint) {
+        val knownEndpoint = try {
+            ctx.identityResolver.resolveTorEndpointForDevice(source)
+        } catch (_: CryptoException) {
+            null
+        }
+        if (knownEndpoint == null) {
+            AppLog.debug(
+                component = LogComponent.ROUTER,
+                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
+                message = "Tor inbound from unknown device; skipped endpoint reconciliation",
+                fields = mapOf("sourceDeviceId" to source),
+            )
+            return
+        }
+        if (provenEndpoint != knownEndpoint) {
+            AppLog.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.PEER_ENDPOINT_HEALED,
+                message = "Healed peer Tor endpoint from authenticated inbound",
+                fields = mapOf(
+                    "sourceDeviceId" to source,
+                    "previousEndpoint" to knownEndpoint,
+                    "provenEndpoint" to provenEndpoint,
+                ),
+            )
+            ctx.identityResolver.updatePeerTorEndpoint(
+                deviceId = source,
+                torEndpoint = provenEndpoint,
+            )
         }
     }
 

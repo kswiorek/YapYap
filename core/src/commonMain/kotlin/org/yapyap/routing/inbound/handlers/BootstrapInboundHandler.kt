@@ -105,7 +105,7 @@ internal class BootstrapInboundHandler(
         }
 
         bootstrapPackets.emit(BootstrapPacketEvent(payload, receivedAt = received))
-        return InboundHandleResult.Success()
+        return InboundHandleResult.Success(sourceAuthenticated = true)
     }
 
     /** Responder-side policy; null means emit, otherwise answer with the disposition. */
