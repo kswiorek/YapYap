@@ -39,9 +39,9 @@ sealed interface MessageDisplayItem {
 /**
  * "Something new in this room" signal carrying the policy-vetted
  * [MessageDisplayItem], unformatted — presentation (truncation, "sent a file"
- * labels) is the GUI's call. The emit path applies the render policy, so
- * messages from hidden authors (and non-displayable payloads) never ride
- * this event; [org.yapyap.orchestrator.runtime.message.MessagingService.roomPreview]
+ * labels) is the GUI's call. The emit path is gated on the renderable check
+ * (docs/room events.md §3, enforced in SQL), so hidden messages and
+ * non-displayable payloads never ride this event; [org.yapyap.orchestrator.runtime.message.MessagingService.roomPreview]
  * remains the source of truth for initial population and re-pulls (e.g.
  * after a REJECTED drop).
  */
@@ -52,9 +52,9 @@ data class IncomingMessageEvent(
 )
 
 /**
- * Latest *visible* message of a room (docs/room events.md §3): the newest
- * non-`REJECTED` message that maps to a [MessageDisplayItem] and whose author
- * passes the render policy. Null when the room holds no visible message
+ * Latest *visible* message of a room (docs/room events.md §3): the newest row
+ * of the renderable page query — non-`REJECTED` and inside the removal boundary —
+ * that maps to a [MessageDisplayItem]. Null when the room holds no visible message
  * (empty, pre-fold, or all-hidden).
  *
  * The item is carried unformatted: truncation, "sent a file" labels and any

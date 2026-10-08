@@ -231,7 +231,7 @@ class DefaultDagEngineTest {
         assertEquals(emptyList(), result.closedGapMissingPrevIds)
         assertTrue(messageRepo.findById(remotePayload.messageId)!!.isOrphaned)
 
-        val gaps = dagEngine.openGaps(roomId)
+        val gaps = causalHoldRepo.findByRoom(roomId)
         assertEquals(1, gaps.size)
         assertEquals(prevUuid, gaps[0].missingPrevId)
         assertEquals(msgUuid, gaps[0].orphanedMessageId)
@@ -253,7 +253,7 @@ class DefaultDagEngineTest {
             text = "waiting for prev",
         )
         assertTrue(dagEngine.ingest(orphan) is IngestResult.BecameOrphan)
-        assertEquals(1, dagEngine.openGaps(roomId).size)
+        assertEquals(1, causalHoldRepo.findByRoom(roomId).size)
         assertTrue(messageRepo.findById(orphan.messageId)!!.isOrphaned)
 
         // 2. Ingest the previously-missing message (prevId = null â†’ not orphaned).
@@ -275,7 +275,7 @@ class DefaultDagEngineTest {
         assertEquals(prevUuid, missingResult.closedGapMissingPrevIds[0])
 
         // Gap closed; orphan no longer flagged.
-        assertEquals(0, dagEngine.openGaps(roomId).size)
+        assertEquals(0, causalHoldRepo.findByRoom(roomId).size)
         assertFalse(messageRepo.findById(orphan.messageId)!!.isOrphaned)
     }
 
@@ -307,7 +307,7 @@ class DefaultDagEngineTest {
         )
         dagEngine.ingest(orphan1)
         dagEngine.ingest(orphan2)
-        assertEquals(2, dagEngine.openGaps(roomId).size)
+        assertEquals(2, causalHoldRepo.findByRoom(roomId).size)
 
         val missing = MessagePayload.Text(
             messageId = prevUuid,
@@ -325,7 +325,7 @@ class DefaultDagEngineTest {
         assertEquals(2, result.closedGapMissingPrevIds.size)
         assertTrue(result.closedGapMissingPrevIds.all { it == prevUuid })
 
-        assertEquals(0, dagEngine.openGaps(roomId).size)
+        assertEquals(0, causalHoldRepo.findByRoom(roomId).size)
         assertFalse(messageRepo.findById(orphan1.messageId)!!.isOrphaned)
         assertFalse(messageRepo.findById(orphan2.messageId)!!.isOrphaned)
     }
@@ -339,7 +339,8 @@ class DefaultDagEngineTest {
         val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
 
         // First page of 2 (newest first).
-        val page1 = dagEngine.getMessagesInRoom(roomId, limit = 2)
+        val page1 = messageRepo.findMessagesInRoomPageDesc(roomId, limit = 2, cursor = null)
+            .map { it.payload }
         assertEquals(2, page1.size)
         assertEquals(m3.messageId, page1[0].messageId)
         assertEquals(m2.messageId, page1[1].messageId)
@@ -349,45 +350,16 @@ class DefaultDagEngineTest {
             createdAt = page1[1].createdAt,
             messageId = page1[1].messageId,
         )
-        val page2 = dagEngine.getMessagesInRoom(roomId, limit = 2, before = cursor)
+        val page2 = messageRepo.findMessagesInRoomPageDesc(roomId, limit = 2, cursor = cursor)
+            .map { it.payload }
         assertEquals(1, page2.size)
         assertEquals(m1.messageId, page2[0].messageId)
     }
 
     @Test
     fun getMessagesInRoom_emptyPagination_returnsEmpty() = runTest {
-        val result = dagEngine.getMessagesInRoom(roomId, limit = 10)
+        val result = messageRepo.findMessagesInRoomPageDesc(roomId, limit = 10, cursor = null)
         assertTrue(result.isEmpty())
-    }
-
-    @Test
-    fun ancestorsOf_walksPrevIdChain() = runTest {
-        val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
-        val m2 = dagEngine.append(roomId, MessageDraft.Text("b"))
-        val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
-
-        val ancestors = dagEngine.ancestorsOf(roomId, m3.messageId, limit = 10)
-
-        assertEquals(2, ancestors.size)
-        assertEquals(m2.messageId, ancestors[0].messageId)
-        assertEquals(m1.messageId, ancestors[1].messageId)
-    }
-
-    @Test
-    fun ancestorsOf_returnsEmptyForRootMessage() = runTest {
-        val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
-        val ancestors = dagEngine.ancestorsOf(roomId, m1.messageId, limit = 10)
-        assertTrue(ancestors.isEmpty())
-    }
-
-    @Test
-    fun ancestorsOf_stopsAtLimit() = runTest {
-        val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
-        dagEngine.append(roomId, MessageDraft.Text("b"))
-        val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
-
-        val ancestors = dagEngine.ancestorsOf(roomId, m3.messageId, limit = 1)
-        assertEquals(1, ancestors.size)
     }
 
     @Test
@@ -423,15 +395,15 @@ class DefaultDagEngineTest {
         )
         dagEngine.ingest(orphan2)
 
-        val gapsInRoom = dagEngine.openGaps(roomId)
+        val gapsInRoom = causalHoldRepo.findByRoom(roomId)
         assertEquals(1, gapsInRoom.size)
         assertEquals(msg1Uuid, gapsInRoom[0].orphanedMessageId)
 
-        val gapsInOther = dagEngine.openGaps(otherRoom)
+        val gapsInOther = causalHoldRepo.findByRoom(otherRoom)
         assertEquals(1, gapsInOther.size)
         assertEquals(msg2Uuid, gapsInOther[0].orphanedMessageId)
 
-        val allGaps = dagEngine.openGaps()
+        val allGaps = causalHoldRepo.findAll()
         assertEquals(2, allGaps.size)
     }
 

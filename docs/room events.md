@@ -148,23 +148,42 @@ non-genesis messages need no check: a wrong id is just a different room). Ignore
 sealed, unreachable and poisoned events all store `VERIFIED` — authorization is the
 fold's business and never touches the verdict.
 
-Membership is **render-time policy over the projection** — the coarse distinction is
-member-at-some-point vs never-member, not per-message positional replay (superseded, §11):
+Membership is **render-time policy over the projection** — and the boundary is the
+removal node's ancestor closure (the member era: the same boundary as the bounded
+sync serve, §6): what we serve a removed member is what we show of them.
+`ACTIVE` row → renders; `REMOVED` row → renders only inside the closure of the
+row's `removal_node_id`; no row → hidden (the stranger-injection case — no
+provenance at all; content is E2EE-opaque anyway, so the hide is defense-in-depth,
+not a confidentiality boundary); room not folded yet → no rows → hidden until the
+fold's `stateChanges` re-render. The rule is enforced in SQL
+(`selectRenderablePageDesc` / `selectIsRenderable` in `Message.sq` — one recursive
+CTE over `message_parents` joined against `room_members`, shared by the window
+pages, `roomPreview`, and the single-message live-ingest check), so hidden rows
+never leave the DB: no per-message ancestry computation in Kotlin, no stored flags,
+no pagination holes, nothing for the GUI to re-derive. (The earlier badge-only
+design and its `messageDisplayPolicy` function are superseded — §11.)
 
-- A removed member's backdated forgery is indistinguishable from a legitimate pre-removal
-  message by design (the §2 doctrine), so positional precision buys only the
-  provably-post-removal subset — badge-worthy, not worth per-message fold replays or
-  stored snapshots. The GUI reads the DB only: a join of the message author's account
-  against `room_members` — `ACTIVE` row → normal; `REMOVED` row → "from removed member"
-  badge (all their messages, any position); no row → "from non-member", hidden by default (the stranger-injection case —
-  no provenance at all; content is E2EE-opaque anyway, so
-  the flag is defense-in-depth, not a confidentiality boundary); room not folded yet →
-  no rows → hidden until the fold's `stateChanges` re-render. Negative test (done-criteria
-  d3): flagged content is never rendered as normal — the page query's `!= 'REJECTED'`
-  filter includes flagged content, so the hide is render-layer, not SQL.
+- The closure closes the backdated window for display: a backdated forgery chains
+  onto pre-removal tips but is not itself an ancestor of the removal node, so it
+  hides — alongside the provably-post-removal subset (descendants of the removal
+  node). What stays visible of a removed author is exactly the history the room
+  absorbed: anything anyone replied to pre-removal is transitively inside the
+  closure, so there are no dangling replies. The accepted collateral is the
+  concurrent legit window (in-flight or relay-held messages at removal time hide
+  too) — reversible on re-add (the row flips `ACTIVE` and everything renders
+  again), verdict-neutral throughout (stored `VERIFIED`, chainable, served).
+- Orphans from removed authors hide unconditionally: the closure is rooted at a
+  chainable removal node, whose ancestry is complete by construction — only
+  ancestry-complete history is reachable from it, so no explicit orphan predicate
+  is needed, and no orphan can chain *into* the closure (it is frozen at the
+  removal node). ACTIVE-author orphans still render with gap warnings (sprint-2 UX).
 - Sealed-out adds never count → no row ever → hidden (the §4 collateral case intact).
 - Re-add after removal → row back to `ACTIVE` (full recompute per fold commit); the
   projection and the flags can never disagree (same source).
+- Negative test (done-criteria d3): out-of-closure content is never returned by any
+  render path — page, preview, live window insert, notification event — each path
+  its own test (the CTE text is duplicated across the named queries; SQLDelight has
+  no fragments).
 - Chainability: frontier = own-`VERIFIED` ∧ flag everywhere (`Message.sq`
   `selectRoomFrontier`). The flag is verdict-aware: ancestors present AND `VERIFIED`
   (same-room). An authentic message with a `PENDING`/`REJECTED` ancestor is `VERIFIED`
@@ -379,9 +398,14 @@ room admins.
       rooms); flags re-query the projection on fold `stateChanges`. GLOBAL is the mirror:
       the global projector writes verdicts + flags (monotone false→true), the engine never
       writes flags there (ingest inserts provisional false; `refreshAncestryDown` clears
-      `is_orphaned` only). The earlier re-classify machinery (pending-by-room query,
-      `refreshAncestryDown` re-classify, fold-commit re-classify) is deleted from the
-      plan: membership never touches verdicts, so nothing re-classifies.
+       `is_orphaned` only). The earlier re-classify machinery (pending-by-room query,
+       `refreshAncestryDown` re-classify, fold-commit re-classify) is deleted from the
+       plan: membership never touches verdicts, so nothing re-classifies.
+- **Read direction (binding).** The engine is the sole writer of message rows and
+  exposes no reads — all lookups (GUI pages, sync, fold, diagnostics) go through
+  the persistence repositories, each owning its table: `MessageRepository` for
+  messages (including the render-policy queries), `CausalHoldRepository` for
+  gaps, `RoomRepository` for membership.
 
 ## 6. Sync & discovery — ping threading
 
@@ -592,11 +616,14 @@ dead zone, found while designing the courtesy push).
   frontier and the removal node's parents must be servable or the node sits
   orphaned forever. No leak (never-member stays NACK; the removal target
   learning of its own removal reveals nothing to strangers), and §5's "cuts
-  sync access" narrows accordingly. The bound is computed locally over parent
-  edges — the fold/graph helpers stay orchestrator-side, so routing does not
-  grow a cross-layer edge (same reason the boundary id lives in the projection
-  column rather than behind a provider interface, which would also have
-  created a projector↔router construction cycle).
+  sync access" narrows accordingly. The REMOVED branch walks from the removal
+  node itself with `knownIds` pruning — the bound is structural (the walk cannot
+  leave the member-era closure), so no bound set is materialized at all; the
+  ACTIVE branch keeps the missing-targets walk. Shared facts stay in the shared
+  layer: the engine exposes no reads, so routing reads the repositories, never
+  the orchestrator (same reason the boundary id lives in the projection column
+  rather than behind a provider interface, which would also have created a
+  projector↔router construction cycle).
 
 Residuals (accepted): gap-row candidates are author-only — the re-pushing
 member cannot mint the stale side's rows, so a long-unreachable removal author
@@ -661,15 +688,17 @@ comment. No extraction in prep — global first, `fold/graph/` stays deferred:
    accounts, §5); `stateChanges` flow; per-room mutex over `allChatRoomIds()` with re-fold
    triggers (§5); no genesis → skip commit; zero verdict/flag writes; global-ban interaction
    per the §10 decision.
-5. **Flags & GUI wiring**: the message-join against `room_members` (status → badge/hide,
-   §3); membership-reader queries filter `ACTIVE`; negative tests for the hide-policy (done-criteria d3); reverify-hook
-   regression (unchanged behavior). Landed shape: the join is GUI-side via the
-   `RoomService` status read plus a pull-based `MessagingService.roomPreview`
-   (latest *visible* message, `IncomingMessageEvent` slimmed to a content-free
-   signal); the hide/badge rule has one owner — the pure `messageDisplayPolicy`
-   function in `RoomServiceTypes.kt`, applied, never re-derived. `MessagingService`
-   exposes all non-`REJECTED` messages untouched; delivery targeting (fan-out,
-   typing, sync candidates) reads ACTIVE-only.
+5. **Flags & GUI wiring**: the display policy lives in the render queries
+    (`selectRenderablePageDesc` / `selectIsRenderable` in `Message.sq`) — the
+    earlier `messageDisplayPolicy` function is deleted; the window pages,
+    `roomPreview`, and the live ingest check all read renderable rows only, and
+    `RoomService`'s status read serves the member list + removal banner (never
+    message visibility). `MessagingService.sendTextMessage` refuses with
+    `NOT_A_MEMBER` when the local row is `REMOVED` (no row keeps the previous
+    behavior); typing indicators from non-`ACTIVE` senders are ignored inbound
+    (outbound already fans out `ACTIVE`-only); membership-reader queries filter
+    `ACTIVE`; negative tests for the hide-policy (done-criteria d3); reverify-hook
+    regression (unchanged behavior).
 6. **Ping threading** (§6 as built): flow type change `(senderAccount, roomFrontiers)` through
    `Router.pingPayloads` / `PingProvider` / `DefaultOrchestrator` collector /
    `SyncCoordinator.requestFrontierSync` (nullable sender; onboarding passes
@@ -729,9 +758,19 @@ discipline) plus room-specific cases:
   its own room; `refreshAncestryDown` clears orphan flags but never flags in GLOBAL;
   GLOBAL remote ingest lands flag false → fold promotes monotone false→true; reachable
   graft on a `PENDING` root stays `PENDING`, never frontier;
-- removed member: post-removal and *backdated-as-pre-removal* messages → `VERIFIED` +
-  `REMOVED`-row badge (indistinguishable-by-design, tested as such); never-member author
-  → `VERIFIED` + no row → hidden by default (negative test: never rendered as normal);
+- removed member: in-closure messages → `VERIFIED` + renders (member-era history);
+  out-of-closure messages (post-removal, backdated, concurrent, orphan) → `VERIFIED` +
+  stored + chainable + served, but never returned by any render path (page, preview,
+  live window insert, notification event — each path its own negative test);
+  removed-author orphan stays hidden after chaining (the closure is frozen at the
+  removal node) and renders on re-add (row `ACTIVE` again — nothing lost); member
+  replies descending from hidden messages render normally (no collateral);
+  never-member author → `VERIFIED` + no row → hidden by default (negative test:
+  never rendered as normal);
+- local send refusal + typing: REMOVED local row → `sendTextMessage` refuses
+  `NOT_A_MEMBER` before any write (nothing appended, no fan-out); no row keeps
+  the previous behavior; typing indicators from removed or never-member senders
+  are ignored inbound (outbound already fans out `ACTIVE`-only);
 - projection: removed members keep `REMOVED` rows (badge source) carrying the defining
   removal node (the removal boundary — re-add clears it, a second removal overwrites it);
   access readers (`roomsOfPeer`, fan-out) filter
@@ -854,10 +893,13 @@ discipline) plus room-specific cases:
   to justify callback-based abstraction plus a mid-sprint refactor of the landed global
   fold. Revisit at the third room-shaped tier (§10).
 - **Per-message positional membership in the verdict** (`membersAt` at position):
-  superseded by the coarse flags + status column (§3) — positional precision buys only
-  the provably-post-removal subset (backdated forgeries are indistinguishable from legit
-  pre-removal messages by design), at the cost of per-message fold replays or stored
-  snapshots; the GUI reads the DB only.
+  superseded — first by the coarse flags + status column, then by the removal-closure
+  boundary (§3): the boundary is not a per-message fold replay but one recursive CTE
+  over stored edges, evaluated at render time inside the queries. It closes the
+  backdated window for display (backdated forgeries sit outside the closure) at the
+  accepted cost of the concurrent legit window (reversible on re-add,
+  verdict-neutral). What stays rejected is positional precision *in the verdict* —
+  verdicts remain authenticity-only, and membership never touches them.
 - **Separate `OwnerHandover` event kind**: rejected — two events leave a zero- or two-owner
   window between them and an ordering ambiguity when both land; the successor field on the
   owner's self-leave is one atomic, deterministic transition.

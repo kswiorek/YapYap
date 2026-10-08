@@ -20,7 +20,8 @@ CREATE TABLE room_members (
     role TEXT AS RoomMemberRole NOT NULL,
     status TEXT AS RoomMemberStatus NOT NULL,
     -- Defining MemberRemove node when status is REMOVED (the removal boundary:
-    -- bounded sync serve + ping-contradiction re-push, docs/room events.md §6);
+    -- bounded sync serve + ping-contradiction re-push + the removal-boundary
+    -- display policy, docs/room events.md §3/§6);
     -- null on ACTIVE rows and on GLOBAL rows (no room-DAG removal exists there).
     removal_node_id TEXT AS Uuid,
     joined_timestamp INTEGER AS Instant NOT NULL,
@@ -34,8 +35,9 @@ CREATE TABLE room_members (
 selectAllMembersForRoom:
 SELECT account_id, role FROM room_members WHERE room_id = ? AND status = 'ACTIVE';
 
--- GUI/badge read: every row the fold ever committed (ACTIVE and REMOVED), with
--- the status that drives the render policy (docs/room events.md §3). A missing
+-- GUI read: every row the fold ever committed (ACTIVE and REMOVED). The GUI reads
+-- the status for the member list and the removal banner; the render policy itself
+-- lives in the message render queries (docs/room events.md §3). A missing
 -- row means never-a-member (hidden by default); deferred rows are simply absent
 -- until the account's identity lands and the re-fold commits them.
 selectMemberStatusesForRoom:

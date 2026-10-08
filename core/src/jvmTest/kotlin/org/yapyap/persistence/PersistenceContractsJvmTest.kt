@@ -81,7 +81,7 @@ class PersistenceContractsJvmTest {
         assertEquals(emptyList<RoomId>(), repo.roomsOfPeer(FixtureDevicePeerId))
         // Access cut: the access read is ACTIVE-only (docs/room events.md §5).
         assertEquals(emptyList<AccountId>(), repo.membersOfRoom(RoomId.GLOBAL))
-        // Row retained (badge source) with its REMOVED status.
+        // Row retained (removal-boundary source) with its REMOVED status.
         val statuses = repo.memberStatusesOfRoom(RoomId.GLOBAL)
         assertEquals(1, statuses.size)
         assertEquals(FixtureAccountId, statuses[0].accountId)

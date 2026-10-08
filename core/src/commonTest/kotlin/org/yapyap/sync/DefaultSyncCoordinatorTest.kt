@@ -151,7 +151,7 @@ class DefaultSyncCoordinatorTest {
     @Test
     fun requestFrontierSync_removedMember_isNotACandidate() = runTest {
         // Access read: REMOVED rows never resolve sync (docs/room events.md §5).
-        // The row is retained (badge source) — only candidacy is cut.
+        // The row is retained (removal-boundary source) — only candidacy is cut.
         val coordinator = buildCoordinator()
         roomRepo.removeMember(roomId, remoteAccount)
 
@@ -160,7 +160,7 @@ class DefaultSyncCoordinatorTest {
         val sync = pendingRepo.all().single()
         // Only the still-ACTIVE local account remains a candidate.
         assertEquals(listOf(localAccount), sync.candidateAccounts)
-        // The row itself is retained (badge source) — only candidacy is cut.
+        // The row itself is retained (removal-boundary source) — only candidacy is cut.
         val statuses = roomRepo.memberStatusesOfRoom(roomId).associate { it.accountId to it.status }
         assertEquals(RoomMemberStatus.REMOVED, statuses[remoteAccount])
     }

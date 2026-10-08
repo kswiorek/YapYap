@@ -33,7 +33,7 @@ import kotlin.uuid.Uuid
 
 /**
  * Committed fold diff of one chat room. Consumers: the GUI (member list + the §3
- * badge/hide flags, which re-query the projection on these changes), future fan-out.
+ * removal banner, which re-query the projection on these changes), future fan-out.
  */
 sealed interface RoomStateChange {
     val roomId: RoomId

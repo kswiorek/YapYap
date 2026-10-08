@@ -222,8 +222,8 @@ class RoomFoldQueriesJvmTest {
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
         rooms.upsertMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
 
-        // GUI/badge read: every committed row, with the status the render
-        // policy reads (docs/room events.md §3) — including REMOVED rows.
+        // GUI read: every committed row, with the status the GUI reads for the
+        // member list and removal banner (docs/room events.md §3) — including REMOVED rows.
         val rows = rooms.memberStatusesOfRoom(room).associateBy { it.accountId }
         assertEquals(
             RoomMemberRecord(FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE),

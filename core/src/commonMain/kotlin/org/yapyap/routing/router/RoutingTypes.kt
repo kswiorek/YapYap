@@ -38,6 +38,8 @@ enum class SendFailureKind {
     PERMANENT,
     TOO_LARGE,
     HISTORY_INCOMPLETE,
+    /** Local account holds a committed REMOVED row for the room — refused before any write. */
+    NOT_A_MEMBER,
     MIXED,
 }
 

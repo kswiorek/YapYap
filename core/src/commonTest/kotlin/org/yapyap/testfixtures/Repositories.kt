@@ -27,6 +27,9 @@ class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()
     private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
 
+    /** Wired by tests exercising the removal-boundary render queries. */
+    var roomRepository: FakeRoomRepository? = null
+
     override suspend fun insert(
         payload: MessagePayload,
         isOrphaned: Boolean,
@@ -98,6 +101,64 @@ class FakeMessageRepository : MessageRepository {
                 compareByDescending<MessageRow> { it.payload.createdAt }
                     .thenByDescending { it.payload.messageId }
             )
+
+    override suspend fun renderableMessagesInRoom(
+        roomId: RoomId,
+        limit: Int,
+        cursor: MessageCursor?,
+    ): List<MessageRow> {
+        val all = byId.values
+            .filter { row ->
+                row.payload.roomId == roomId &&
+                        row.verificationState != VerificationState.REJECTED &&
+                        isVisible(roomId, row.payload.senderAccountId, row.payload.messageId)
+            }
+            .sortedWith(
+                compareByDescending<MessageRow> { it.payload.createdAt }
+                    .thenByDescending { it.payload.messageId }
+            )
+        val filtered = if (cursor == null) {
+            all
+        } else {
+            all.filter { row ->
+                val rowCreated = row.payload.createdAt
+                val rowId = row.payload.messageId
+                rowCreated < cursor.createdAt ||
+                        (rowCreated == cursor.createdAt && rowId < cursor.messageId)
+            }
+        }
+        return filtered.take(limit)
+    }
+
+    override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean {
+        val row = byId[messageId] ?: return false
+        if (row.payload.roomId != roomId) return false
+        if (row.verificationState == VerificationState.REJECTED) return false
+        return isVisible(roomId, row.payload.senderAccountId, messageId)
+    }
+
+    private suspend fun isVisible(roomId: RoomId, sender: AccountId, messageId: Uuid): Boolean {
+        // Mirror the SQL visibility predicate: an ACTIVE row renders; a REMOVED
+        // row renders only inside its removal node's ancestor closure (the member
+        // era); no row never renders. The closure walks stored parent edges from
+        // the removal node — orphans from removed authors are unreachable from a
+        // chainable root, so no explicit orphan check is needed.
+        val rooms = roomRepository
+            ?: error("FakeMessageRepository.roomRepository must be wired for renderable queries")
+        val member = rooms.memberRowOf(roomId, sender) ?: return false
+        if (member.status == RoomMemberStatus.ACTIVE) return true
+        val removalNode = member.removalNodeId ?: return false
+        val seen = HashSet<Uuid>()
+        val queue = ArrayDeque<Uuid>()
+        seen.add(removalNode)
+        queue.add(removalNode)
+        while (queue.isNotEmpty()) {
+            for (parent in parentIds[queue.removeFirst()].orEmpty()) {
+                if (seen.add(parent)) queue.add(parent)
+            }
+        }
+        return messageId in seen
+    }
 
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
@@ -202,7 +263,7 @@ class FakeRoomRepository(
     }
 
     override suspend fun removeMember(roomId: RoomId, accountId: AccountId) {
-        // Mirror the SQL UPDATE: flip to REMOVED, retain the row (badge source).
+        // Mirror the SQL UPDATE: flip to REMOVED, retain the row (removal-boundary source).
         cells[roomId to accountId]?.status = RoomMemberStatus.REMOVED
     }
 
@@ -224,23 +285,23 @@ class FakeRoomRepository(
 class FakeCausalHoldRepository(
     private val messageRepo: FakeMessageRepository,
 ) : CausalHoldRepository {
-    private val rows = mutableListOf<CausalHoldRow>()
+    private val rows = mutableListOf<Gap>()
 
     override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
-        rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
+        rows.add(Gap(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
+    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
         rows.filter { it.missingPrevId == missingPrevId }
 
-    override suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow> =
+    override suspend fun findByRoom(roomId: RoomId): List<Gap> =
         // Mirror the SQL JOIN: a causal_hold row belongs to the room of its orphaned message.
         rows.filter { row ->
             val orphan = messageRepo.findById(row.orphanedMessageId)
             orphan?.payload?.roomId == roomId
         }
 
-    override suspend fun findAll(): List<CausalHoldRow> = rows.toList()
+    override suspend fun findAll(): List<Gap> = rows.toList()
 
     override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
         rows.count { it.orphanedMessageId == orphanedMessageId }.toLong()

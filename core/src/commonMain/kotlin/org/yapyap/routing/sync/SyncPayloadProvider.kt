@@ -45,7 +45,10 @@ class DefaultSyncPayloadProvider(
         // held, nothing after); never-members get the generic NACK.
         // Denial returns empty so the caller emits the generic "no messages" NACK,
         // without revealing whether the room is empty or access was denied.
-        val serveBound: Set<Uuid>? = if (roomId in roomRepository.roomsOfPeer(peerId)) {
+        // A REMOVED requester is served by walking from the removal node itself:
+        // the walk can never leave the member-era closure, so no bound set is
+        // needed — the boundary is structural, not a filter.
+        val removalRoot: Uuid? = if (roomId in roomRepository.roomsOfPeer(peerId)) {
             null
         } else {
             val requester = identityResolver.getAccountIdForDevice(peerId)
@@ -65,7 +68,7 @@ class DefaultSyncPayloadProvider(
                 message = "Serving removed member their member-era history only",
                 fields = mapOf("peerId" to peerId, "roomId" to roomId),
             )
-            removalBound(row.removalNodeId)
+            row.removalNodeId
         }
         // Page size is purely the responder's policy; the requester's retry loop
         // re-requests until every target arrives, so no per-request limit is needed.
@@ -85,10 +88,15 @@ class DefaultSyncPayloadProvider(
         // requester's known frontier (everything below a known tip is present there).
         // Gaps of our own simply yield nothing — the requester re-chases the
         // still-missing IDs against other candidates.
+        // REMOVED branch: the walk is rooted at the removal node, not at the
+        // requester's missing ids — the removal event itself always serves (a fresh
+        // removed device needs it to flip its own row), and everything collected
+        // is member-era history by construction.
         val collected = LinkedHashMap<Uuid, MessagePayload>()
         val visited = HashSet<Uuid>()
         val queue = ArrayDeque<Uuid>()
-        for (id in syncRequest.missingIds) {
+        val seeds = removalRoot?.let { listOf(it) } ?: syncRequest.missingIds
+        for (id in seeds) {
             if (visited.add(id)) queue.add(id)
         }
         while (queue.isNotEmpty() && collected.size < limit) {
@@ -99,10 +107,6 @@ class DefaultSyncPayloadProvider(
             for (parentId in row.payload.prevIds) {
                 if (visited.add(parentId)) queue.add(parentId)
             }
-            // Removal boundary: a REMOVED requester never sees post-removal
-            // content — collect only the closure of their removal node. Parents
-            // are still traversed (the boundary root is reached from above it).
-            if (serveBound != null && id !in serveBound) continue
             collected[id] = row.payload
         }
 
@@ -156,25 +160,5 @@ class DefaultSyncPayloadProvider(
         if (row.status != RoomMemberStatus.REMOVED) return null
         val nodeId = row.removalNodeId ?: return null
         return messageRepository.findById(nodeId)?.payload
-    }
-
-    /**
-     * The serve bound for a REMOVED requester: the removal node plus its full
-     * ancestor closure (member-era history + the removal event itself). Walked
-     * locally over parent edges — deliberately not the fold/graph helpers, which
-     * live in the orchestrator layer and would invert the dependency.
-     */
-    private suspend fun removalBound(removalNodeId: Uuid): Set<Uuid> {
-        val bound = HashSet<Uuid>()
-        val queue = ArrayDeque<Uuid>()
-        bound.add(removalNodeId)
-        queue.add(removalNodeId)
-        while (queue.isNotEmpty()) {
-            val row = messageRepository.findById(queue.removeFirst()) ?: continue
-            for (parentId in row.payload.prevIds) {
-                if (bound.add(parentId)) queue.add(parentId)
-            }
-        }
-        return bound
     }
 }

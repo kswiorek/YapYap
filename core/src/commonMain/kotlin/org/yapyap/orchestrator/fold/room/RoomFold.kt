@@ -46,7 +46,7 @@ internal data class FoldRoomMember(
 /**
  * Shadow-state sets only (§4) — no verdict map is written (authenticity-only verdicts, §3).
  * The ever-validly-member set is [members.keys] (`REMOVED` rows are retained as the
- * projection's badge source). [ownerAccountId] is null only pre-genesis; the slot is never
+ * projection's removal-boundary source). [ownerAccountId] is null only pre-genesis; the slot is never
  * empty once the genesis has folded.
  */
 internal data class RoomFoldOutput(

@@ -39,11 +39,6 @@ data class RoomCreatedDraft(
     }
 }
 
-data class Gap(
-    val missingPrevId: Uuid,
-    val orphanedMessageId: Uuid,
-)
-
 /**
  * A stored message changed verification state (e.g. PENDING -> VERIFIED/REJECTED after identity
  * arrives). Emitted on [DagEngine.verificationStateChanges] — a message-related signal that is

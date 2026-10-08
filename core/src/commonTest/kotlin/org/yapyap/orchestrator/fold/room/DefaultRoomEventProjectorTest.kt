@@ -19,7 +19,6 @@ import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
-import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.persistence.messaging.RoomRecord
 import org.yapyap.persistence.messaging.RoomRepository
@@ -128,21 +127,9 @@ private class FakeDagEngine : DagEngine {
 
     override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = error("not used")
     override suspend fun ingest(payload: MessagePayload): IngestResult? = error("not used")
-    override suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload> = error("not used")
-    override suspend fun getMessage(messageId: Uuid): MessagePayload? = error("not used")
-    override suspend fun getMessagesInRoom(
-        roomId: RoomId,
-        limit: Int,
-        before: MessageCursor?,
-    ): List<MessagePayload> = error("not used")
 
     override suspend fun reverifyPendingFor(deviceId: PeerId): List<VerificationStateChange> = error("not used")
     override suspend fun reverifyAllPending(): List<VerificationStateChange> = error("not used")
-    override suspend fun ancestorsOf(roomId: RoomId, messageId: Uuid, limit: Int): List<MessagePayload> =
-        error("not used")
-
-    override suspend fun openGaps(roomId: RoomId): List<Gap> = error("not used")
-    override suspend fun openGaps(): List<Gap> = error("not used")
 }
 
 private class FakeGlobalEventProjector : GlobalEventProjector {
@@ -407,8 +394,8 @@ class DefaultRoomEventProjectorTest {
         h.triggerIngest(remove)
         runCurrent()
 
-        // Rows retained on removal: the REMOVED row is the badge source, and it
-        // carries the defining removal node (the removal boundary).
+        // Rows retained on removal: the REMOVED row carries the defining removal
+        // node (the removal boundary for sync serve and display).
         assertEquals(
             MemberCell(RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, remove.messageId),
             h.roomRepo.members[room to RMember],

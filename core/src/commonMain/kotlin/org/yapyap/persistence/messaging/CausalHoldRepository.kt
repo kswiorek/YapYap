@@ -12,7 +12,7 @@ import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-data class CausalHoldRow(
+data class Gap(
     val gapId: Uuid,
     val missingPrevId: Uuid,
     val orphanedMessageId: Uuid,
@@ -23,11 +23,11 @@ interface CausalHoldRepository {
 
     suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant)
 
-    suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow>
+    suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap>
 
-    suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow>
+    suspend fun findByRoom(roomId: RoomId): List<Gap>
 
-    suspend fun findAll(): List<CausalHoldRow>
+    suspend fun findAll(): List<Gap>
 
     /** Open holds against [orphanedMessageId] (non-zero while any parent is still missing). */
     suspend fun countByOrphan(orphanedMessageId: Uuid): Long
@@ -61,7 +61,7 @@ class DefaultCausalHoldRepository(
         }
     }
 
-    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
+    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
         withContext(dbDispatcher) {
             val rows = queries.selectCausalHoldsByMissingPrevId(missingPrevId).executeAsList().map { it.toRow() }
             AppLog.debug(
@@ -76,7 +76,7 @@ class DefaultCausalHoldRepository(
             rows
         }
 
-    override suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow> =
+    override suspend fun findByRoom(roomId: RoomId): List<Gap> =
         withContext(dbDispatcher) {
             val rows = queries.selectCausalHoldsByRoom(roomId).executeAsList().map { it.toRow() }
             AppLog.debug(
@@ -91,7 +91,7 @@ class DefaultCausalHoldRepository(
             rows
         }
 
-    override suspend fun findAll(): List<CausalHoldRow> =
+    override suspend fun findAll(): List<Gap> =
         withContext(dbDispatcher) {
             val rows = queries.selectAllCausalHolds().executeAsList().map { it.toRow() }
             AppLog.debug(
@@ -132,8 +132,8 @@ class DefaultCausalHoldRepository(
         }
     }
 
-    private fun Causal_hold.toRow(): CausalHoldRow =
-        CausalHoldRow(
+    private fun Causal_hold.toRow(): Gap =
+        Gap(
             gapId = this.gap_id,
             missingPrevId = this.missing_prev_id,
             orphanedMessageId = this.orphaned_message_id,

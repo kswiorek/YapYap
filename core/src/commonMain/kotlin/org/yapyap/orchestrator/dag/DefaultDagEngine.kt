@@ -416,64 +416,6 @@ class DefaultDagEngine(
         )
     }
 
-    override suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload> {
-        return messageRepository.findAllInRoom(roomId).map { it.payload }
-    }
-
-    override suspend fun getMessage(messageId: Uuid): MessagePayload? {
-        return messageRepository.findById(messageId)?.payload
-    }
-
-    override suspend fun getMessagesInRoom(
-        roomId: RoomId,
-        limit: Int,
-        before: MessageCursor?,
-    ): List<MessagePayload> {
-        return messageRepository.findMessagesInRoomPageDesc(
-            roomId = roomId,
-            limit = limit,
-            cursor = before,
-        ).map { it.payload }
-    }
-
-    override suspend fun ancestorsOf(roomId: RoomId, messageId: Uuid, limit: Int): List<MessagePayload> {
-        val result = mutableListOf<MessagePayload>()
-        val visited = mutableSetOf(messageId)
-        val queue = ArrayDeque<Uuid>()
-        queue.add(messageId)
-
-        while (queue.isNotEmpty() && result.size < limit) {
-            val current = queue.removeFirst()
-            for (parentId in messageRepository.findParents(current)) {
-                if (!visited.add(parentId)) continue
-                val parent = messageRepository.findById(parentId) ?: continue
-                if (parent.payload.roomId != roomId) continue
-                result.add(parent.payload)
-                queue.add(parentId)
-            }
-        }
-
-        return result
-    }
-
-    override suspend fun openGaps(roomId: RoomId): List<Gap> {
-        return causalHoldRepository.findByRoom(roomId).map { row ->
-            Gap(
-                missingPrevId = row.missingPrevId,
-                orphanedMessageId = row.orphanedMessageId,
-            )
-        }
-    }
-
-    override suspend fun openGaps(): List<Gap> {
-        return causalHoldRepository.findAll().map { row ->
-            Gap(
-                missingPrevId = row.missingPrevId,
-                orphanedMessageId = row.orphanedMessageId,
-            )
-        }
-    }
-
     /**
      * Closes holds for [arrivedMessageId] where orphan.room == arrived.room.
      * Cross-room holds stay open.
@@ -485,8 +427,8 @@ class DefaultDagEngine(
         if (holds.isEmpty()) return emptyList()
         val arrivedRow = messageRepository.findById(arrivedMessageId) ?: return emptyList()
         val arrivedRoom = arrivedRow.payload.roomId
-        val matching = mutableListOf<CausalHoldRow>()
-        val nonMatching = mutableListOf<CausalHoldRow>()
+        val matching = mutableListOf<Gap>()
+        val nonMatching = mutableListOf<Gap>()
         for (hold in holds) {
             val orphan = messageRepository.findById(hold.orphanedMessageId)
             if (orphan != null && orphan.payload.roomId == arrivedRoom) {

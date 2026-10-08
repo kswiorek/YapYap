@@ -29,32 +29,6 @@ data class RoomMemberView(
     val status: RoomMemberStatus,
 )
 
-/**
- * Render-time policy over the `room_members` projection (docs/room events.md §3).
- *
- * Sole owner of the hide/badge rule: the GUI and `MessagingService.roomPreview`
- * apply this function, never re-derive it. Input is the author's fold-committed
- * row status, or null when the fold committed no row for the author (never a
- * member, deferred identity, or a room that has not folded yet).
- */
-enum class MessageDisplayPolicy {
-    /** ACTIVE row: render normally. */
-    NORMAL,
-
-    /** REMOVED row: render with a "from removed member" badge (all messages). */
-    BADGE_REMOVED,
-
-    /** No row: hidden by default (the stranger-injection case). */
-    HIDDEN_NON_MEMBER,
-}
-
-fun messageDisplayPolicy(memberStatus: RoomMemberStatus?): MessageDisplayPolicy =
-    when (memberStatus) {
-        RoomMemberStatus.ACTIVE -> MessageDisplayPolicy.NORMAL
-        RoomMemberStatus.REMOVED -> MessageDisplayPolicy.BADGE_REMOVED
-        null -> MessageDisplayPolicy.HIDDEN_NON_MEMBER
-    }
-
 /** Outcome of the GUI-facing room-creation flow. */
 sealed interface CreateRoomResult {
     data class Created(val roomId: RoomId) : CreateRoomResult

@@ -47,7 +47,8 @@ interface RoomRepository {
 
     /**
      * Every member row the fold committed for [roomId], ACTIVE and REMOVED alike
-     * (GUI/badge read). A missing account means never-a-member at fold position;
+     * (GUI read: member list, removal banner). A missing account means never-a-member
+     * at fold position;
      * rows for accounts whose identity has not landed yet are absent until the
      * re-fold commits them (projection deferral, docs/room events.md §5).
      */

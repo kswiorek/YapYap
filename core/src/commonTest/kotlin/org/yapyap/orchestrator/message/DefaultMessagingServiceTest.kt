@@ -6,10 +6,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.*
 import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.e2ee.testCryptoLimits
 import org.yapyap.crypto.e2ee.testMessageLimits
@@ -72,6 +69,7 @@ class DefaultMessagingServiceTest {
         clock = FakeClock(epochSeconds(1_000_000L))
         router = RecordingRouter()
         roomMembershipRepo = FakeRoomRepository(mutableMapOf(roomId to listOf(localAccount, remoteAccount)))
+        messageRepo.roomRepository = roomMembershipRepo
         dagEngine = DefaultDagEngine(
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
@@ -105,6 +103,8 @@ class DefaultMessagingServiceTest {
         router = router,
         pipeline = pipeline,
         roomRepository = roomMembershipRepo,
+        messageRepository = messageRepo,
+        causalHoldRepository = causalHoldRepo,
         identityResolver = identityResolver,
         messageLimits = MutableStateFlow(messageLimits),
         orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
@@ -125,7 +125,7 @@ class DefaultMessagingServiceTest {
         assertTrue(router.sentTargets.contains(localAccount))
 
         // DAG contains the message.
-        val messages = dagEngine.getMessagesInRoom(roomId)
+        val messages = messageRepo.findAllInRoom(roomId).map { it.payload }
         assertEquals(1, messages.size)
         assertEquals("hello from local", (messages[0] as MessagePayload.Text).text)
         assertEquals(localAccount, messages[0].senderAccountId)
@@ -196,7 +196,7 @@ class DefaultMessagingServiceTest {
         assertEquals(0, result.peersTotal)
         assertEquals(0, result.peersQueued)
         assertEquals(0, router.sentTargets.size)
-        assertEquals(0, dagEngine.getMessagesInRoom(roomId).size)
+        assertEquals(0, messageRepo.findAllInRoom(roomId).size)
     }
 
     @Test
@@ -624,11 +624,12 @@ class DefaultMessagingServiceTest {
     }
 
     @Test
-    fun roomPreview_returnsRemovedMemberMessage() = runTest(UnconfinedTestDispatcher()) {
-        // Anti-trap: REMOVED is a badge, not a hide — the row exists, so the
-        // message stays visible (the GUI badges it via the status read).
-        roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.REMOVED
-        seedText(remoteAccount, "before i left", tick = 1L)
+    fun roomPreview_removedMemberInClosureMessage_renders() = runTest(UnconfinedTestDispatcher()) {
+        // Member-era history renders: the message is an ancestor of the removal
+        // node, so it is inside the removal boundary (no badge anymore — the
+        // boundary is the whole rule).
+        val era = seedLinkedText(remoteAccount, "before i left", tick = 1L, parents = emptyList())
+        seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
         val service = newService(this)
 
         val preview = service.roomPreview(roomId)
@@ -637,6 +638,154 @@ class DefaultMessagingServiceTest {
         val item = preview.item
         assertTrue(item is MessageDisplayItem.Text)
         assertEquals("before i left", item.text)
+    }
+
+    @Test
+    fun roomPreview_removedMemberPostRemovalOnly_returnsNull() = runTest(UnconfinedTestDispatcher()) {
+        // Negative test (d3): the only text from the removed author provably
+        // postdates the removal (descends from the removal node) — hidden, and
+        // the removal event itself has no display item, so nothing renders.
+        val removal = seedRemoval(remoteAccount, parents = emptyList(), tick = 2L)
+        seedLinkedText(remoteAccount, "post removal spam", tick = 3L, parents = listOf(removal.messageId))
+        val service = newService(this)
+
+        assertNull(service.roomPreview(roomId))
+    }
+
+    @Test
+    fun roomPreview_removedMemberBackdatedMessage_hidden() = runTest(UnconfinedTestDispatcher()) {
+        // Negative test (d3): a backdated forgery chains onto pre-removal tips but
+        // is concurrent with the removal — not its ancestor — so it hides and the
+        // preview falls back to the member-era message.
+        val era = seedLinkedText(remoteAccount, "era", tick = 1L, parents = emptyList())
+        seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
+        seedLinkedText(remoteAccount, "backdated forgery", tick = 3L, parents = listOf(era.messageId))
+        val service = newService(this)
+
+        val preview = service.roomPreview(roomId)
+
+        assertNotNull(preview)
+        val item = preview.item
+        assertTrue(item is MessageDisplayItem.Text)
+        assertEquals("era", item.text)
+    }
+
+    @Test
+    fun removedMemberOrphan_hiddenInWindow_stillHiddenAfterChaining_visibleAfterReAdd() =
+        runTest(UnconfinedTestDispatcher()) {
+            val era = seedLinkedText(remoteAccount, "era", tick = 1L, parents = emptyList())
+            seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
+            val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+            val service = newService(this, pipeline)
+            startStack(this, pipeline, service)
+
+            val window = service.openRoom(roomId, initialPageSize = 100)
+            advanceUntilIdle()
+            assertEquals(1, window.displayItems.value.size)
+
+            // Orphan from the removed author with a fabricated missing parent:
+            // hidden from the live window (no text, no gap indicator).
+            val fabricated = Uuid.random()
+            val orphan = MessagePayload.Text(
+                messageId = Uuid.random(),
+                roomId = roomId,
+                senderAccountId = remoteAccount,
+                prevIds = listOf(fabricated),
+                createdAt = epochSeconds(3L),
+                text = "orphaned spam",
+                authorDeviceId = PeerId("test-device"),
+                authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            )
+            router.emitIncoming(orphan)
+            advanceUntilIdle()
+
+            assertEquals(1, window.displayItems.value.size)
+            assertEquals("era", (window.displayItems.value[0] as MessageDisplayItem.Text).text)
+            assertFalse(messageRepo.isRenderable(roomId, orphan.messageId))
+
+            // The missing parent arrives and the orphan chains — still outside the
+            // removal closure (the closure is frozen at the removal node), so still
+            // hidden.
+            val lateParent = MessagePayload.Text(
+                messageId = fabricated,
+                roomId = roomId,
+                senderAccountId = remoteAccount,
+                prevIds = listOf(era.messageId),
+                createdAt = epochSeconds(4L),
+                text = "late parent",
+                authorDeviceId = PeerId("test-device"),
+                authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            )
+            messageRepo.insert(lateParent, isOrphaned = false, ancestryComplete = true, verificationState = VerificationState.VERIFIED)
+            messageRepo.insertParent(lateParent.messageId, era.messageId)
+            assertFalse(messageRepo.isRenderable(roomId, orphan.messageId))
+            assertFalse(messageRepo.isRenderable(roomId, lateParent.messageId))
+
+            // Re-add reveals everything again — nothing was lost.
+            roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.ACTIVE
+            assertTrue(messageRepo.isRenderable(roomId, orphan.messageId))
+            window.close()
+        }
+
+    @Test
+    fun removedMemberReAdded_messagesVisibleAgain() = runTest(UnconfinedTestDispatcher()) {
+        val era = seedLinkedText(remoteAccount, "era", tick = 1L, parents = emptyList())
+        val removal = seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
+        seedLinkedText(remoteAccount, "post removal", tick = 3L, parents = listOf(removal.messageId))
+        val service = newService(this)
+
+        // While removed, the newest visible message is the member-era one.
+        assertEquals("era", ((service.roomPreview(roomId)!!.item) as MessageDisplayItem.Text).text)
+
+        roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.ACTIVE
+
+        assertEquals("post removal", ((service.roomPreview(roomId)!!.item) as MessageDisplayItem.Text).text)
+    }
+
+    /**
+     * Seeds a text message with explicit parent edges (the engine records edges
+     * separately from the row; direct repo inserts must do the same).
+     */
+    private suspend fun seedLinkedText(
+        sender: AccountId,
+        text: String,
+        tick: Long,
+        parents: List<Uuid>,
+    ): MessagePayload.Text {
+        val msg = seedText(sender, text, tick)
+        for (parent in parents) messageRepo.insertParent(msg.messageId, parent)
+        return msg
+    }
+
+    /**
+     * Stores a removal node (a RoomEvent has no display item, like production)
+     * and flips the target's row to REMOVED with the node as the boundary.
+     */
+    private suspend fun seedRemoval(
+        target: AccountId,
+        parents: List<Uuid>,
+        tick: Long,
+    ): MessagePayload.RoomEvent {
+        val removal = MessagePayload.RoomEvent(
+            messageId = Uuid.random(),
+            roomId = roomId,
+            senderAccountId = localAccount,
+            prevIds = parents,
+            createdAt = epochSeconds(tick),
+            eventBytes = RoomEventPayload.MemberRemove(target, null).encode(),
+            authorDeviceId = PeerId("test-device"),
+            authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+        )
+        messageRepo.insert(
+            removal,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.VERIFIED,
+        )
+        for (parent in parents) messageRepo.insertParent(removal.messageId, parent)
+        roomMembershipRepo.statuses[roomId to target] = RoomMemberStatus.REMOVED
+        roomMembershipRepo.removalNodes[roomId to target] = removal.messageId
+        return removal
     }
 
     @Test
@@ -710,6 +859,51 @@ class DefaultMessagingServiceTest {
         // REMOVED rows never receive fan-out: only the local account is targeted.
         assertEquals(listOf(localAccount), router.sentTargets)
     }
+
+    @Test
+    fun sendTextMessage_removedLocalAccount_refused() = runTest(UnconfinedTestDispatcher()) {
+        // A removed local account cannot append to the room — refused before any
+        // write, so the sender's own messages cannot silently vanish either.
+        roomMembershipRepo.statuses[roomId to localAccount] = RoomMemberStatus.REMOVED
+        roomMembershipRepo.removalNodes[roomId to localAccount] = Uuid.random()
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val service = newService(this, pipeline)
+        startStack(this, pipeline, service)
+
+        val result = service.sendTextMessage(roomId, "should not send")
+
+        assertEquals(SendMessageStatus.FAILURE, result.status)
+        assertEquals(SendFailureKind.NOT_A_MEMBER, result.failureKind)
+        assertEquals(0, result.peersTotal)
+        assertEquals(0, result.peersQueued)
+        assertTrue(router.sentTargets.isEmpty())
+        assertTrue(messageRepo.byId.isEmpty())
+    }
+
+    @Test
+    fun typingIndicator_fromRemovedOrStranger_ignored() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val service = newService(this, pipeline)
+        startStack(this, pipeline, service)
+
+        // Sanity: an ACTIVE member's typing registers (then expires via idle-timeout).
+        router.emitTyping(TypingIndicatorEvent(remoteAccount, roomId, 3600.seconds, clock.now()))
+        advanceTimeBy(7201.seconds)
+        assertTrue(service.typingState.value[roomId].isNullOrEmpty())
+
+        // A removed member's typing is ignored — never registers (its idle-timeout
+        // would only fire 2h after receipt, so absence here means ignored, not expired).
+        roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.REMOVED
+        roomMembershipRepo.removalNodes[roomId to remoteAccount] = Uuid.random()
+        router.emitTyping(TypingIndicatorEvent(remoteAccount, roomId, 3600.seconds, clock.now()))
+        advanceTimeBy(1.seconds)
+        assertTrue(service.typingState.value[roomId].isNullOrEmpty())
+
+        // A never-member's typing is ignored too.
+        router.emitTyping(TypingIndicatorEvent(AccountId("msg-stranger"), roomId, 3600.seconds, clock.now()))
+        advanceTimeBy(1.seconds)
+        assertTrue(service.typingState.value[roomId].isNullOrEmpty())
+    }
 }
 
 /* ---------- fakes (pure Kotlin, commonTest-safe) ---------- */
@@ -718,6 +912,8 @@ private class FakeRoomRepository(
     val members: MutableMap<RoomId, List<AccountId>>,
     /** Per-(room, account) status overrides; absent entries read as ACTIVE. */
     val statuses: MutableMap<Pair<RoomId, AccountId>, RoomMemberStatus> = mutableMapOf(),
+    /** Defining removal node per (room, account); read on REMOVED rows. */
+    val removalNodes: MutableMap<Pair<RoomId, AccountId>, Uuid> = mutableMapOf(),
 ) : RoomRepository {
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         // Mirror the ACTIVE-only access read.
@@ -727,7 +923,12 @@ private class FakeRoomRepository(
         val accounts = (members[roomId].orEmpty() + statuses.keys.filter { it.first == roomId }.map { it.second })
             .toSet()
         return accounts.map { account ->
-            RoomMemberRecord(account, RoomMemberRole.MEMBER, statuses[roomId to account] ?: RoomMemberStatus.ACTIVE)
+            RoomMemberRecord(
+                account,
+                RoomMemberRole.MEMBER,
+                statuses[roomId to account] ?: RoomMemberStatus.ACTIVE,
+                removalNodes[roomId to account],
+            )
         }
     }
 
@@ -738,7 +939,8 @@ private class FakeRoomRepository(
         return RoomMemberRecord(
             accountId,
             RoomMemberRole.MEMBER,
-            statuses[roomId to accountId] ?: RoomMemberStatus.ACTIVE
+            statuses[roomId to accountId] ?: RoomMemberStatus.ACTIVE,
+            removalNodes[roomId to accountId],
         )
     }
 
@@ -769,6 +971,9 @@ private class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()
 
     private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
+
+    /** Wired in setup to the room membership fake (the renderable queries join membership). */
+    var roomRepository: FakeRoomRepository? = null
 
     override suspend fun insert(
         payload: MessagePayload,
@@ -842,6 +1047,63 @@ private class FakeMessageRepository : MessageRepository {
                     .thenByDescending { it.payload.messageId }
             )
 
+    override suspend fun renderableMessagesInRoom(
+        roomId: RoomId,
+        limit: Int,
+        cursor: MessageCursor?,
+    ): List<MessageRow> {
+        val all = byId.values
+            .filter { row ->
+                row.payload.roomId == roomId &&
+                        row.verificationState != VerificationState.REJECTED &&
+                        isVisible(roomId, row.payload.senderAccountId, row.payload.messageId)
+            }
+            .sortedWith(
+                compareByDescending<MessageRow> { it.payload.createdAt }
+                    .thenByDescending { it.payload.messageId }
+            )
+        val filtered = if (cursor == null) {
+            all
+        } else {
+            all.filter { row ->
+                val rowCreated = row.payload.createdAt
+                val rowId = row.payload.messageId
+                rowCreated < cursor.createdAt ||
+                        (rowCreated == cursor.createdAt && rowId < cursor.messageId)
+            }
+        }
+        return filtered.take(limit)
+    }
+
+    override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean {
+        val row = byId[messageId] ?: return false
+        if (row.payload.roomId != roomId) return false
+        if (row.verificationState == VerificationState.REJECTED) return false
+        return isVisible(roomId, row.payload.senderAccountId, messageId)
+    }
+
+    private suspend fun isVisible(roomId: RoomId, sender: AccountId, messageId: Uuid): Boolean {
+        // Mirror the SQL visibility predicate: an ACTIVE row renders; a REMOVED
+        // row renders only inside its removal node's ancestor closure (the member
+        // era); no row never renders. The closure walks stored parent edges from
+        // the removal node — orphans from removed authors are unreachable from a
+        // chainable root, so no explicit orphan check is needed.
+        val rooms = roomRepository ?: error("roomRepository must be wired for renderable queries")
+        val member = rooms.memberRowOf(roomId, sender) ?: return false
+        if (member.status == RoomMemberStatus.ACTIVE) return true
+        val removalNode = member.removalNodeId ?: return false
+        val seen = HashSet<Uuid>()
+        val queue = ArrayDeque<Uuid>()
+        seen.add(removalNode)
+        queue.add(removalNode)
+        while (queue.isNotEmpty()) {
+            for (parent in parentIds[queue.removeFirst()].orEmpty()) {
+                if (seen.add(parent)) queue.add(parent)
+            }
+        }
+        return messageId in seen
+    }
+
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
 
@@ -879,22 +1141,22 @@ private class FakeMessageRepository : MessageRepository {
 private class FakeCausalHoldRepository(
     private val messageRepo: FakeMessageRepository,
 ) : CausalHoldRepository {
-    private val rows = mutableListOf<CausalHoldRow>()
+    private val rows = mutableListOf<Gap>()
 
     override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
-        rows.add(CausalHoldRow(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
+        rows.add(Gap(gapId, missingPrevId, orphanedMessageId, detectedTimestamp))
     }
 
-    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<CausalHoldRow> =
+    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
         rows.filter { it.missingPrevId == missingPrevId }
 
-    override suspend fun findByRoom(roomId: RoomId): List<CausalHoldRow> =
+    override suspend fun findByRoom(roomId: RoomId): List<Gap> =
         // Mirror the SQL JOIN: causal_hold belongs to the room of its orphaned message.
         rows.filter { row ->
             messageRepo.findById(row.orphanedMessageId)?.payload?.roomId == roomId
         }
 
-    override suspend fun findAll(): List<CausalHoldRow> = rows.toList()
+    override suspend fun findAll(): List<Gap> = rows.toList()
 
     override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
         rows.count { it.orphanedMessageId == orphanedMessageId }.toLong()
@@ -936,14 +1198,14 @@ private class RecordingRouter : Router {
     private val _incomingMessages = MutableSharedFlow<MessagePayload>(extraBufferCapacity = 64)
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
 
-    override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
+    private val _typingIndicators = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
+    override val typingIndicators: Flow<TypingIndicatorEvent> = _typingIndicators.asSharedFlow()
 
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
 
     val sentTargets = mutableListOf<AccountId>()
-
     override suspend fun start() {}
     override suspend fun stop() {}
     override fun isRunning(): Boolean = true
@@ -973,6 +1235,10 @@ private class RecordingRouter : Router {
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)
+    }
+
+    suspend fun emitTyping(event: TypingIndicatorEvent) {
+        _typingIndicators.emit(event)
     }
 }
 

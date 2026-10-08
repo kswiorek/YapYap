@@ -1,12 +1,18 @@
 package org.yapyap.orchestrator.dag
 
 import kotlinx.coroutines.flow.Flow
-import org.yapyap.persistence.messaging.MessageCursor
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
-import kotlin.uuid.Uuid
 
+/**
+ * Sole writer of message rows (docs/room events.md §3: the engine is the sole
+ * verdict writer — and exposes no reads at all). All message lookups go through
+ * the persistence repositories (`MessageRepository` for messages,
+ * `CausalHoldRepository` for gaps, `RoomRepository` for membership); state
+ * changes surface on [verificationStateChanges], new arrivals on the inbound
+ * pipeline's `ingestResults`.
+ */
 interface DagEngine {
     /**
      * Chains a new message off the room's covering antichain and stores it.
@@ -25,9 +31,6 @@ interface DagEngine {
      */
     suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent
     suspend fun ingest(payload: MessagePayload): IngestResult?
-    suspend fun getMessagesInRoom(roomId: RoomId): List<MessagePayload>
-
-    suspend fun getMessage(messageId: Uuid): MessagePayload?
 
     /**
      * Hot stream of stored messages whose verification state changed (never a "new message" signal).
@@ -48,24 +51,4 @@ interface DagEngine {
      * per message whose state actually changed and emits each to [verificationStateChanges].
      */
     suspend fun reverifyAllPending(): List<VerificationStateChange>
-
-    /**
-     * Paginated room view ordered by display order
-     * `(createdAtEpochSeconds DESC, messageId DESC)` (newest first).
-     *
-     * @param before If non-null, return messages strictly older than this cursor
-     *               (i.e. the next page below the oldest row of the previous page).
-     *               If null, return the latest [limit] messages.
-     * @return Up to [limit] messages in display order (newest→oldest). Callers that need
-     *         oldest→newest rendering should reverse the result.
-     */
-    suspend fun getMessagesInRoom(
-        roomId: RoomId,
-        limit: Int,
-        before: MessageCursor? = null,
-    ): List<MessagePayload>
-
-    suspend fun ancestorsOf(roomId: RoomId, messageId: Uuid, limit: Int): List<MessagePayload>
-    suspend fun openGaps(roomId: RoomId): List<Gap>
-    suspend fun openGaps(): List<Gap>  // optional: all rooms, for sync/boot
 }

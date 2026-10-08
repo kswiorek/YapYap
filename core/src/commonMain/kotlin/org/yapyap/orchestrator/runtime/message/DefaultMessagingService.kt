@@ -13,10 +13,11 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.orchestrator.runtime.room.MessageDisplayPolicy
-import org.yapyap.orchestrator.runtime.room.messageDisplayPolicy
+import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
+import org.yapyap.persistence.messaging.CausalHoldRepository
 import org.yapyap.persistence.messaging.MessageCursor
+import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -29,6 +30,8 @@ internal class DefaultMessagingService(
     private val router: Router,
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
+    private val messageRepository: MessageRepository,
+    private val causalHoldRepository: CausalHoldRepository,
     private val identityResolver: IdentityResolver,
     private val messageLimits: StateFlow<MessageLimits>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
@@ -82,6 +85,9 @@ internal class DefaultMessagingService(
                 // Single displayability gate: payloads with no display item
                 // (control-plane events) stop here.
                 val item = result.payload.toDisplayItem() ?: return@collect
+                // Removal-boundary display policy (docs/room events.md §3), enforced
+                // in SQL: hidden rows never reach the window or the notification event.
+                if (!messageRepository.isRenderable(result.payload.roomId, result.payload.messageId)) return@collect
                 notifyWindowsNewItem(result, item)
                 emitIncomingEventIfNeeded(result.payload, item)
             }
@@ -180,6 +186,11 @@ internal class DefaultMessagingService(
         val scope = serviceScope ?: return
         val localAccountId = identityResolver.getLocalAccountId()
         if (event.senderAccountId == localAccountId) return
+        // Typing from anyone without an ACTIVE row (removed, never-member,
+        // pre-fold) is ignored — the same boundary as the render policy, for an
+        // ephemeral signal. Outbound needs no check: announceTyping fans out via
+        // membersOfRoom, which is ACTIVE-only.
+        if (roomRepository.memberRowOf(event.roomId, event.senderAccountId)?.status != RoomMemberStatus.ACTIVE) return
 
         val key = TypingKey(event.roomId, event.senderAccountId)
         // Idle-timeout at ~2x the announced cadence (tolerates one lost indicator).
@@ -218,6 +229,26 @@ internal class DefaultMessagingService(
         roomId: RoomId,
         text: String,
     ): SendMessageResult {
+        // Removal refusal: a removed local account cannot append to the room — the
+        // GUI banner gates compose, and this refusal is the backend feedback
+        // (docs/room events.md §3). Only a committed REMOVED row refuses: no row
+        // (pre-fold, unknown room) keeps the previous behavior.
+        val localAccountId = identityResolver.getLocalAccountId()
+        if (roomRepository.memberRowOf(roomId, localAccountId)?.status == RoomMemberStatus.REMOVED) {
+            AppLog.warn(
+                component = LogComponent.MESSAGING,
+                event = LogEvent.APPEND_REFUSED,
+                message = "Text message not sent — local account removed from room",
+                fields = mapOf("roomId" to roomId),
+            )
+            return SendMessageResult(
+                status = SendMessageStatus.FAILURE,
+                peersTotal = 0,
+                peersQueued = 0,
+                failureKind = SendFailureKind.NOT_A_MEMBER,
+            )
+        }
+
         val textBytes = text.encodeToByteArray()
         if (textBytes.size > maxTextMessageBytes) {
             AppLog.warn(
@@ -302,7 +333,9 @@ internal class DefaultMessagingService(
     }
 
     override suspend fun getMessage(messageId: Uuid): MessageDisplayItem? {
-        val payload = dagEngine.getMessage(messageId) ?: return null
+        // Single-message fetch for a GUI-held id (the GUI only holds ids it
+        // rendered, so no render-policy filtering here by design).
+        val payload = messageRepository.findById(messageId)?.payload ?: return null
         return payload.toDisplayItem()
     }
 
@@ -343,15 +376,13 @@ internal class DefaultMessagingService(
     }
 
     /**
-     * Displayability was already decided by the caller via [toDisplayItem]; only
-     * the notification policy applies here: no self-notify, no hidden authors.
+     * Renderability was already decided by the caller via the renderable check
+     * in the ingest collector; only the notification policy applies here: no self-notify.
      * The emitted item is policy-vetted and unformatted.
      */
     private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload, item: MessageDisplayItem) {
         val localAccountId = identityResolver.getLocalAccountId()
         if (payload.senderAccountId == localAccountId) return
-        val accStatus = roomRepository.memberRowOf(payload.roomId, payload.senderAccountId)?.status
-        if (messageDisplayPolicy(accStatus) == MessageDisplayPolicy.HIDDEN_NON_MEMBER) return
         incomingMessageEventFlow.emit(
             IncomingMessageEvent(
                 roomId = payload.roomId,
@@ -362,13 +393,13 @@ internal class DefaultMessagingService(
     }
 
     override suspend fun roomPreview(roomId: RoomId, scanLimit: Int): RoomPreview? {
-        // Statuses snapshot: the policy reads the fold-committed rows, so a
-        // re-fold (deferred row landed, re-add) converges the result on re-pull.
-        val statuses = roomRepository.memberStatusesOfRoom(roomId)
-            .associate { it.accountId to it.status }
-        for (msg in dagEngine.getMessagesInRoom(roomId, scanLimit)) {
+        // Renderable-first page (docs/room events.md §3): the query skips
+        // REJECTED-verdict and hidden-author rows alike, so the first displayable
+        // row is the latest visible message. A re-fold converges the result on
+        // re-pull — no re-evaluation is needed here.
+        for (row in messageRepository.renderableMessagesInRoom(roomId, scanLimit)) {
+            val msg = row.payload
             val item = msg.toDisplayItem() ?: continue
-            if (messageDisplayPolicy(statuses[msg.senderAccountId]) == MessageDisplayPolicy.HIDDEN_NON_MEMBER) continue
             return RoomPreview(
                 messageId = msg.messageId,
                 senderAccountId = msg.senderAccountId,
@@ -460,12 +491,14 @@ internal class DefaultMessagingService(
 
         private suspend fun loadInitial() {
             // DagEngine returns newest -> oldest; display is oldest -> newest.
-            val page = dagEngine.getMessagesInRoom(roomId, initialPageSize)
+            // The page is renderable-first (docs/room events.md §3): hidden rows
+            // never leave the DB, so the cursor always sits on a rendered row.
+            val page = messageRepository.renderableMessagesInRoom(roomId, initialPageSize).map { it.payload }
             if (page.isEmpty()) {
                 _hasMoreOlder.value = false
                 return
             }
-            val gapsByOrphanId = dagEngine.openGaps(roomId)
+            val gapsByOrphanId = causalHoldRepository.findByRoom(roomId)
                 .groupBy(keySelector = { it.orphanedMessageId }, valueTransform = { it.missingPrevId })
             windowMutex.withLock {
                 val oldest = page.last()
@@ -482,13 +515,14 @@ internal class DefaultMessagingService(
             if (closed) return 0
             val cursor = windowMutex.withLock { oldestCursor } ?: return 0
 
-            val page = dagEngine.getMessagesInRoom(roomId, pageSize, before = cursor)
+            val page = messageRepository.renderableMessagesInRoom(roomId, pageSize, cursor = cursor)
+                .map { it.payload }
             if (page.isEmpty()) {
                 _hasMoreOlder.value = false
                 return 0
             }
 
-            val gapsByOrphanId = dagEngine.openGaps(roomId)
+            val gapsByOrphanId = causalHoldRepository.findByRoom(roomId)
                 .groupBy(keySelector = { it.orphanedMessageId }, valueTransform = { it.missingPrevId })
             return windowMutex.withLock {
                 val oldest = page.last()

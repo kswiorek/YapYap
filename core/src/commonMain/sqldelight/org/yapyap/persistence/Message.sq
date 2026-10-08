@@ -64,6 +64,68 @@ WHERE room_id = :roomId
 ORDER BY created_at_epoch_seconds DESC, message_id DESC
 LIMIT :limit;
 
+-- Renderable room page (docs/room events.md §3): the removal-boundary display
+-- policy, enforced in SQL — hidden rows never leave the DB. ACTIVE authors render;
+-- REMOVED authors render only inside their removal node's ancestor closure (the
+-- member era — the same boundary as the bounded sync serve); never-members (no
+-- row) never render. Orphans from removed authors never render either: the closure
+-- is rooted at a chainable removal node, so only ancestry-complete history is
+-- reachable from it. Orphans from ACTIVE authors still render (sprint-2 gap UX).
+-- The cursor always sits on a returned (renderable) row, so pagination is hole-free.
+-- KEEP IN SYNC with selectIsRenderable (same CTE + visibility predicate;
+-- SQLDelight has no query fragments).
+selectRenderablePageDesc:
+WITH RECURSIVE
+removed(account, node) AS (
+    SELECT account_id, removal_node_id FROM room_members
+    WHERE room_id = :roomId AND status = 'REMOVED' AND removal_node_id IS NOT NULL
+),
+era(account, node) AS (
+    SELECT account, node FROM removed
+    UNION
+    SELECT era.account, mp.parent_id
+    FROM message_parents mp JOIN era ON mp.message_id = era.node
+)
+SELECT m.* FROM messages m
+WHERE m.room_id = :roomId
+  AND m.verification_state != 'REJECTED'
+  AND ((:cursorCreated IS NULL AND :cursorMessageId IS NULL) OR
+       (m.created_at_epoch_seconds, m.message_id) <
+       (:cursorCreated, :cursorMessageId))
+  AND (m.sender_account_id IN (SELECT account_id FROM room_members
+                               WHERE room_id = :roomId AND status = 'ACTIVE')
+       OR EXISTS (SELECT 1 FROM era
+                  WHERE era.account = m.sender_account_id AND era.node = m.message_id))
+ORDER BY m.created_at_epoch_seconds DESC, m.message_id DESC
+LIMIT :limit;
+
+-- Single-message render check for the live ingest path (window inserts and the
+-- incoming-message event never go through a page query). Same CTE + visibility
+-- predicate as selectRenderablePageDesc — KEEP IN SYNC.
+-- A missing row (unknown id, wrong room) reads as not renderable (fail closed).
+selectIsRenderable:
+WITH RECURSIVE
+removed(account, node) AS (
+    SELECT account_id, removal_node_id FROM room_members
+    WHERE room_id = :roomId AND status = 'REMOVED' AND removal_node_id IS NOT NULL
+),
+era(account, node) AS (
+    SELECT account, node FROM removed
+    UNION
+    SELECT era.account, mp.parent_id
+    FROM message_parents mp JOIN era ON mp.message_id = era.node
+)
+SELECT EXISTS(
+    SELECT 1 FROM messages m
+    WHERE m.room_id = :roomId
+      AND m.message_id = :messageId
+      AND m.verification_state != 'REJECTED'
+      AND (m.sender_account_id IN (SELECT account_id FROM room_members
+                                   WHERE room_id = :roomId AND status = 'ACTIVE')
+           OR EXISTS (SELECT 1 FROM era
+                      WHERE era.account = m.sender_account_id AND era.node = m.message_id))
+);
+
 -- ---- message CRUD ----
 
 insertMessage:

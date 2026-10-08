@@ -236,7 +236,7 @@ class SyncIntegrationTest {
 
             // Gap closed, sync deleted.
             assertTrue(pendingRepo.all().isEmpty(), "pending sync should be deleted after gap closure")
-            assertTrue(dagEngine.openGaps(roomId).isEmpty(), "no open gaps should remain")
+            assertTrue(localCausalHold.findByRoom(roomId).isEmpty(), "no open gaps should remain")
             assertEquals(3, localMessageRepo.byId.size)
         } finally {
             coordinator.stop()
@@ -344,7 +344,7 @@ class SyncIntegrationTest {
             withTimeout(10.seconds) { awaitPendingSyncEmpty() }
 
             assertTrue(pendingRepo.all().isEmpty(), "pending sync should be deleted after range filled")
-            assertTrue(dagEngine.openGaps(roomId).isEmpty())
+            assertTrue(localCausalHold.findByRoom(roomId).isEmpty())
             assertEquals(5, localMessageRepo.byId.size)
         } finally {
             coordinator.stop()

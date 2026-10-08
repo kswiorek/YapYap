@@ -70,6 +70,26 @@ interface MessageRepository {
         cursor: MessageCursor?
     ): List<MessageRow>
 
+    /**
+     * Renderable room page (docs/room events.md §3): the removal-boundary display
+     * policy, enforced in SQL — `findMessagesInRoomPageDesc` filtered to rows the
+     * GUI may show (ACTIVE authors; REMOVED authors only inside their removal
+     * node's ancestor closure). Hidden rows never leave the DB, so window pages
+     * and previews built on this have no holes and the GUI applies no policy.
+     */
+    suspend fun renderableMessagesInRoom(
+        roomId: RoomId,
+        limit: Int,
+        cursor: MessageCursor? = null,
+    ): List<MessageRow>
+
+    /**
+     * Single-message render check for paths that never go through a page query
+     * (live window inserts, the incoming-message event). Same predicate as
+     * [renderableMessagesInRoom] — a missing row reads as not renderable.
+     */
+    suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean
+
     suspend fun findAllInRoom(roomId: RoomId): List<MessageRow>
 
     /**
@@ -242,6 +262,36 @@ class DefaultMessageRepository(
                 ),
             )
             rows
+        }
+
+    override suspend fun renderableMessagesInRoom(
+        roomId: RoomId,
+        limit: Int,
+        cursor: MessageCursor?,
+    ): List<MessageRow> =
+        withContext(dbDispatcher) {
+            val rows = queries.selectRenderablePageDesc(
+                roomId = roomId,
+                cursorCreated = cursor?.createdAt,
+                cursorMessageId = cursor?.messageId,
+                limit = limit.toLong(),
+            ).executeAsList().map { it.toRow() }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.MESSAGE_ROOM_QUERIED,
+                message = "Fetched renderable message page from room",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "limit" to limit,
+                    "resultCount" to rows.size,
+                ),
+            )
+            rows
+        }
+
+    override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean =
+        withContext(dbDispatcher) {
+            queries.selectIsRenderable(roomId, messageId).executeAsOne()
         }
 
     override suspend fun hasMessages(roomId: RoomId): Boolean =
