@@ -407,6 +407,7 @@ internal class FakeIdentityResolverForRouter(
     private val torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
     val accountStatuses: MutableMap<AccountId, IdentityStatus> = mutableMapOf(),
+    private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = localDevice
@@ -414,7 +415,14 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("FakeIdentityResolverForRouter: account record not stubbed")
 
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus =
+        getDeviceStatusOrNull(deviceId) ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
+
+    override suspend fun getDeviceStatusOrNull(deviceId: PeerId): IdentityStatus? =
+        deviceStatuses[deviceId] ?: if (isKnownDevice(deviceId)) IdentityStatus.ACTIVE else null
+
+    private fun isKnownDevice(deviceId: PeerId): Boolean =
+        deviceId == localDevice.deviceId || peersByAccount.values.any { deviceId in it }
 
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         accountStatuses[accountId]
@@ -591,6 +599,7 @@ internal class E2eeIdentityResolverForRouter(
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
     private val crypto: CryptoProvider = DefaultCryptoProvider(),
     private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
+    private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
@@ -598,7 +607,12 @@ internal class E2eeIdentityResolverForRouter(
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
         error("E2eeIdentityResolverForRouter: account record not stubbed")
 
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus =
+        getDeviceStatusOrNull(deviceId) ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
+
+    override suspend fun getDeviceStatusOrNull(deviceId: PeerId): IdentityStatus? =
+        deviceStatuses[deviceId]
+            ?: if (deviceId == local.device.deviceId || deviceId in peers) IdentityStatus.ACTIVE else null
 
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         accountStatuses[accountId]

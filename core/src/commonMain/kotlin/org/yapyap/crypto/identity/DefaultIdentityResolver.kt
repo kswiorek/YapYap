@@ -172,6 +172,9 @@ class DefaultIdentityResolver(
         return publicKeyRepository.getDeviceStatus(deviceId)?: throw CryptoException.MissingDeviceRecord(deviceId.id)
     }
 
+    override suspend fun getDeviceStatusOrNull(deviceId: PeerId): IdentityStatus? =
+        publicKeyRepository.getDeviceStatus(deviceId)
+
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         publicKeyRepository.getAccountStatus(accountId)
 

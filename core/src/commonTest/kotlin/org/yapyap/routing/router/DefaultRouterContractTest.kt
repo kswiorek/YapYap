@@ -373,6 +373,9 @@ class DefaultRouterContractTest {
         val identity =
             FakeIdentityResolverForRouter(
                 localDevice = localDevice(),
+                // remotePeer must be a known device: MESSAGE packets from unknown
+                // sources are dropped by the inbound unknown-device policy.
+                peersByAccount = mapOf(AccountId("inbound-test-account") to listOf(remotePeer)),
                 torByPeer = torMap,
             )
         return defaultRouterUnderTest(

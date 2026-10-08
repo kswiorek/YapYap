@@ -1,5 +1,6 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.PeerId
@@ -11,6 +12,20 @@ interface IdentityResolver {
     suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord
 
     suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus
+
+    /**
+     * Device status, or null when the device has no row. Absence asserts nothing —
+     * treat null as "unknown device", never as banned or removed. Prefer this over
+     * [getDeviceStatus] wherever a missing row is an expected case rather than an
+     * error (inbound policy, fan-out filtering).
+     */
+    suspend fun getDeviceStatusOrNull(deviceId: PeerId): IdentityStatus? {
+        return try {
+            getDeviceStatus(deviceId)
+        } catch (_: CryptoException) {
+            null
+        }
+    }
 
     /** Chain-derived account status, or null when absent (absence asserts nothing — treat as "not yet known", never "removed"). */
     suspend fun getAccountStatus(accountId: AccountId): IdentityStatus?
@@ -60,7 +75,7 @@ interface IdentityResolver {
     suspend fun getAllActivePeers(): List<PeerId> {
         return getAllPeers().filter {
             try {
-                getDeviceStatus(it) != IdentityStatus.BANNED
+                getDeviceStatusOrNull(it) != IdentityStatus.BANNED
             } catch (_: Exception) {
                 true
             }

@@ -33,7 +33,7 @@ internal class InboundEnvelopeProcessor(
         // unauthenticated at this layer).
         val knownEndpoint = try {
             ctx.identityResolver.resolveTorEndpointForDevice(inbound.envelope.source)
-        } catch (e: CryptoException) {
+        } catch (_: CryptoException) {
             null
         }
         if (knownEndpoint == null) {
@@ -72,31 +72,45 @@ internal class InboundEnvelopeProcessor(
         provenSourceEndpoint: TorEndpoint? = null,
     ) {
 
-        // TODO: [Sprint 4] decide what to do with unknown devices
-        try {
-            val status = ctx.identityResolver.getDeviceStatus(inbound.source)
-            if (status == IdentityStatus.BANNED){
-                AppLog.warn(
-                    component = LogComponent.ROUTER,
-                    event = LogEvent.BANNED_DEVICE_PACKET,
-                    message = "Inbound from banned device; skipped processing",
-                    fields = mapOf("sourceDeviceId" to inbound.source),
-                )
-                return
-            }
-        }
-        catch (e: CryptoException) {
+        // Unknown-device policy [Sprint 4]: a source with no devices row is untrusted by
+        // default — its packets are dropped silently (no ACK/NACK: answering would confirm
+        // this onion serves that device id to an unauthenticated stranger). The single
+        // exception is BOOTSTRAP: INTRO/RECOVERY_REQUEST carry their own out-of-band
+        // authentication (preshared-secret AEAD / account-key signature, enforced inside
+        // BootstrapInboundHandler), and onboarding/recovery cannot work any other way —
+        // the newcomer/recovering device has no row yet by construction. BANNED always
+        // wins, even for BOOTSTRAP (re-entry attempts are answered DECLINED by the
+        // handler's own account-status policy).
+        val deviceStatus = ctx.identityResolver.getDeviceStatusOrNull(inbound.source)
+        if (deviceStatus == IdentityStatus.BANNED) {
             AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.BANNED_DEVICE_PACKET,
+                message = "Inbound from banned device; skipped processing",
+                fields = mapOf("sourceDeviceId" to inbound.source),
+            )
+            return
+        }
+        val knownDevice = deviceStatus != null
+        if (!knownDevice && inbound.packetType != PacketType.BOOTSTRAP) {
+            AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
                 message = "Inbound from unknown device; skipped processing",
-                fields = mapOf("sourceDeviceId" to inbound.source),
+                fields = mapOf(
+                    "sourceDeviceId" to inbound.source,
+                    "packetType" to inbound.packetType,
+                ),
             )
             return
         }
 
         val receivedAt = ctx.clock.now()
-        peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
+        // Unknown sources must not enter availability math: a newcomer/recovering device
+        // is not a mesh peer yet, and scanner noise must not pollute swarm selection.
+        if (knownDevice) {
+            peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
+        }
 
         if (!ctx.packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
