@@ -2,8 +2,7 @@ package org.yapyap.transport.webrtc.transport
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.types.*
@@ -39,7 +38,7 @@ interface WebRtcTransport {
      * a CONNECTED that lands before subscription is delivered immediately.
      */
     fun sessionStatesOf(peerId: PeerId): Flow<WebRtcSessionState> =
-        sessionStates.map { it[peerId] }.filterNotNull()
+        sessionStates.mapNotNull { it[peerId] }
 
     // Call lifecycle (user-facing)
     val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest>

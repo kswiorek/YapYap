@@ -10,7 +10,6 @@ sealed class TransportException(message: String) : Exception(message) {
 
     sealed class WebRtcException(message: String) : TransportException(message) {
         class WrongTargetException(peerId: PeerId) : WebRtcException("Wrong target peerId: $peerId")
-        class SessionNotFound(sessionId: String) : WebRtcException("Session not found: $sessionId")
         class DecodeError(message: String) : WebRtcException(message)
     }
 

@@ -1,8 +1,12 @@
 package org.yapyap.protection.envelope
 
+import org.yapyap.crypto.signature.SignatureProvider
+import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.FieldSensitivity
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.coroutines.cancellation.CancellationException
 
 abstract class BaseProtection<I, E> {
@@ -54,6 +58,29 @@ abstract class BaseProtection<I, E> {
     protected abstract fun observabilityPolicy(): Map<String, FieldSensitivity>
 
     protected abstract fun envelopeLabel(): String
+
+    protected suspend fun requireValidSignature(
+        expectedScheme: SignalSecurityScheme,
+        actualScheme: SignalSecurityScheme,
+        signature: ByteArray?,
+        source: PeerId,
+        signingBytes: ByteArray,
+        signatureProvider: SignatureProvider,
+    ) {
+        require(actualScheme == expectedScheme) {
+            "Expected $expectedScheme security scheme but got $actualScheme"
+        }
+        val present = signature
+            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
+        val valid = signatureProvider.verify(
+            deviceId = source,
+            message = signingBytes,
+            signature = present,
+        )
+        if (!valid) {
+            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
+        }
+    }
 
     protected fun assertObservabilityContract(
         observableHeaderValues: Map<String, Any?>,

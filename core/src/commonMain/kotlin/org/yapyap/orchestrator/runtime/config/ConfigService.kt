@@ -13,7 +13,7 @@ interface ConfigService {
     val settings: StateFlow<List<Setting>>
 
     /**
-     * Update a user setting by id. Pass [null] to clear the override and
+     * Update a user setting by id. Pass `null` to clear the override and
      * restore the default. Non-user-editable ids and invalid values are rejected.
      */
     suspend fun update(id: String, value: ConfigValue?): UpdateResult

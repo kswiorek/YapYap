@@ -5,7 +5,6 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
@@ -92,20 +91,14 @@ class SignedSystemProtection(
     }
 
     override suspend fun doOpen(envelope: SystemEnvelope): SystemPayload {
-        require(envelope.securityScheme == SignalSecurityScheme.SIGNED) {
-            "Expected SIGNED security scheme but got ${envelope.securityScheme}"
-        }
-        val signature = envelope.signature
-            ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
-        val signatureValid = signatureProvider.verify(
-            deviceId = envelope.source,
-            message = envelope.encodeForSigning(),
-            signature = signature,
+        requireValidSignature(
+            expectedScheme = SignalSecurityScheme.SIGNED,
+            actualScheme = envelope.securityScheme,
+            signature = envelope.signature,
+            source = envelope.source,
+            signingBytes = envelope.encodeForSigning(),
+            signatureProvider = signatureProvider,
         )
-
-        if (!signatureValid) {
-            throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
-        }
 
         val systemPayload = try {
             SystemPayload.decode(envelope.payload)

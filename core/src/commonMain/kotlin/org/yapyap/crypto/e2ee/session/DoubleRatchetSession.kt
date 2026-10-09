@@ -78,7 +78,7 @@ class DoubleRatchetSession private constructor(
         val recvChainKey = state.recvChainKey ?: error("receive chain is not initialized")
         val (nextChainKey, messageKey) = kdfChainKey(recvChainKey)
         state.recvChainKey = nextChainKey
-        state.recvMessageNumber = state.recvMessageNumber + 1
+        state.recvMessageNumber += 1
         return crypto.decryptAead(messageKey, frame.body, frame.headerAssociatedData())
     }
 

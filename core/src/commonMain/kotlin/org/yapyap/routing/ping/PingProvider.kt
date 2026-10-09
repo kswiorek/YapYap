@@ -33,7 +33,7 @@ internal class PingProvider(
             config.map { it.pingInterval }
                 .distinctUntilChanged()
                 .collectLatest { interval ->
-                    while (isActive) {
+                    while (currentCoroutineContext().isActive) {
                         delay(interval)
                         // Best-effort: a transient send failure to one peer must not kill the
                         // heartbeat loop permanently.
@@ -88,7 +88,7 @@ internal class PingProvider(
      * probe ([Ping.isReply] == false) is answered — a reply is never re-echoed, so even a delayed or
      * duplicated ping cannot start an echo loop.
      *
-     * The peer id never leaves the routing layer: [pingPayloads] carries the
+     * The peer id never leaves the routing layer: `pingPayloadFlow` carries the
      * sender's account (null when the device is unknown), and the two
      * device-granular pending-sync ops run here against the repositories
      * directly — re-opening this device on the pinged rooms' inert rows (its

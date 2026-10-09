@@ -2,7 +2,6 @@ package org.yapyap.crypto.identity
 
 import org.yapyap.crypto.CryptoException
 import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * Versioned recovery-code codec: display name + account signing private key.
@@ -11,7 +10,6 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  *
  * Admin status is intentionally omitted — mesh/roster is authoritative.
  */
-@OptIn(ExperimentalEncodingApi::class)
 object AccountRecoveryKeyCodec {
     private const val PREFIX = "YYR1"
     private val b64 = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)

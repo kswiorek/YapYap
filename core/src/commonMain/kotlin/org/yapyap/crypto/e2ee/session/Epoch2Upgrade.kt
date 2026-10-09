@@ -25,10 +25,7 @@ internal class Epoch2Upgrade(
 ) {
 
     fun isEpoch2OpkBootstrapFailure(frame: SessionWireFrame, error: Exception): Boolean {
-        if (frame.sessionEpoch != 2) {
-            return false
-        }
-        return when (error) {
+        return frame.sessionEpoch == 2 && when (error) {
             is CryptoSessionException.HandshakeRequired,
             is CryptoSessionException.HandshakeMismatch,
             is CryptoSessionException.MissingOfferedOpk,

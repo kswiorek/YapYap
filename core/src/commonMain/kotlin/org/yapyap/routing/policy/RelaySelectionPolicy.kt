@@ -7,7 +7,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 
 /**
- * Picks the relay (store-and-forward) peers a message for [targetDevice] should be deposited with,
+ * Picks the relay (store-and-forward) peers a message for `targetDevice` should be deposited with,
  * to be held until the recipient surfaces. Used when there is no direct WebRTC session.
  */
 interface RelaySelectionPolicy {
@@ -46,7 +46,7 @@ internal class DefaultRelaySelectionPolicy(
 
 /**
  * Pure greedy selection: take the highest-scoring peers until the chance that at least one is online
- * (`1 - product of (1 - score)`) reaches [relayTargetProbability] or [maxRelays] peers are taken.
+ * (`1 - product of (1 - score)`) reaches `targetProbability` or [maxRelays] peers are taken.
  * Peers at or below [minScore] (score 0 = opted out of relaying, so it can never help) stop the pick.
  */
 internal fun selectRelaysByScores(

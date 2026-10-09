@@ -14,9 +14,9 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 
 /**
- * Fans a typing indicator out to the devices of [targets] (room members).
+ * Fans a typing indicator out to the devices of `targets` (room members).
  *
- * The send cadence ([interval]) is owned by the caller (orchestrator) and only crosses
+ * The send cadence (`interval`) is owned by the caller (orchestrator) and only crosses
  * here to be stamped into the payload — receivers derive their idle-timeout from the announced
  * value, so the router never needs it from config.
  *

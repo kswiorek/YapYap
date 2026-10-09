@@ -22,10 +22,10 @@ data class RouterConfig(
     val proactiveSessionFreshness: Duration = 60.seconds,
     /** Minimum interval between proactive open attempts to the same peer after a failed/closed session. */
     val proactiveSessionRetryDelay: Duration = 30.seconds,
-    /** Default budget for [ProactiveSessionOpener.awaitSession] (best-effort REQUIRED mode). */
+    /** Default budget for `ProactiveSessionOpener.awaitSession` (best-effort REQUIRED mode). */
     val sessionAwaitTimeout: Duration = 45.seconds,
     /**
-     * Cadence at which [ProactiveSessionOpener.awaitSession] re-issues the idempotent
+     * Cadence at which `ProactiveSessionOpener.awaitSession` re-issues the idempotent
      * open while waiting. The wait itself is event-driven; this is only the safety net
      * for silently lost signaling (no event ever arrives) and the rate limit for
      * re-opening after terminal states. Signaling round-trips take seconds, so this is

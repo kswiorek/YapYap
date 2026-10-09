@@ -12,7 +12,10 @@ import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.testfixtures.*
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.FakeRoomRepository
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -22,7 +25,6 @@ class DefaultSyncCoordinatorTest {
 
     private val localAccount = AccountId("local-account")
     private val remoteAccount = AccountId("remote-account")
-    private val localDevice = PeerId("local-device")
     private val remoteDevice = PeerId("remote-device")
     private val roomId = RoomId(Uuid.random())
 
@@ -43,7 +45,6 @@ class DefaultSyncCoordinatorTest {
             pipeline = pipeline,
             roomRepository = roomRepo,
             messageRepository = messageRepo,
-            identityResolver = FakeIdentityResolver(localAccount, localDevice),
             pendingSyncRepository = pendingRepo,
             clock = clock,
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),

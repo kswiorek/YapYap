@@ -38,7 +38,7 @@ interface CausalHoldRepository {
 }
 
 class DefaultCausalHoldRepository(
-    private val database: YapYapDatabase,
+    database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : CausalHoldRepository {
 

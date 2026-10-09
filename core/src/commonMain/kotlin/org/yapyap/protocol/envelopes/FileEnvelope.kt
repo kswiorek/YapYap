@@ -199,8 +199,8 @@ sealed interface FilePayload {
             var result = totalBytes.hashCode()
             result = 31 * result + chunkSizeBytes
             result = 31 * result + chunkCount
-            result = 31 * result + (fileNameHint?.hashCode() ?: 0)
-            result = 31 * result + (mimeType?.hashCode() ?: 0)
+            result = 31 * result + fileNameHint.hashCode()
+            result = 31 * result + mimeType.hashCode()
             result = 31 * result + objectHash.contentHashCode()
             result = 31 * result + control.hashCode()
             result = 31 * result + kind.hashCode()

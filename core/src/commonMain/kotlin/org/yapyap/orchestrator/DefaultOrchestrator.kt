@@ -474,7 +474,6 @@ class DefaultOrchestrator(
             pipeline = pipeline,
             roomRepository = roomRepository,
             messageRepository = messageRepo,
-            identityResolver = identityResolver,
             pendingSyncRepository = syncRepo,
             orchestratorConfig = configStore.orchestratorConfig,
         )
@@ -708,7 +707,7 @@ class DefaultOrchestrator(
                     if (localDeviceId != null) {
                         refs += identityRepo.getSignedPreKeyIds(localDeviceId).map { signedPreKeyPrivateRef(it) }
                     }
-                    opkRepository?.let { refs += it.opkIds().map { oneTimePreKeyPrivateRef(it) } }
+                    opkRepository?.let { repo -> refs += repo.opkIds().map { oneTimePreKeyPrivateRef(it) } }
                     refs
                 }
             },

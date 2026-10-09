@@ -206,10 +206,6 @@ internal class SystemInboundHandler(
                     sourceAuthenticated = true,
                 )
             }
-
-            else -> {
-                TODO("[Finishing touches] Unhandled system payload: ${payload::class.simpleName ?: "unknown"}")
-            }
         }
     }
 }

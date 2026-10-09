@@ -76,7 +76,6 @@ class SyncIntegrationTest {
         pipeline = pipeline,
         roomRepository = localRoomRepo,
         messageRepository = localMessageRepo,
-        identityResolver = localIdentity,
         pendingSyncRepository = pendingRepo,
         clock = localTime,
         orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = Duration.ZERO)),

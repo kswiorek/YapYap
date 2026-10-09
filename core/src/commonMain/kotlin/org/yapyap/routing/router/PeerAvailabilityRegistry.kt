@@ -18,7 +18,7 @@ import kotlin.time.Instant
  *
  * - Instantaneous online/offline of peers: [onlineDevices], [isOnline], driven by inbound traffic
  *   via [markReachable], with pings guaranteeing there is always *some* traffic. A peer is offline
- *   once silent for two [pingInterval]s.
+ *   once silent for two `pingInterval`s.
  * - Per-peer reliability: the **measured** score (advanced every [RouterConfig.sweepInterval] by the
  *   sweep, converging on the peer's availability fraction as judged from our vantage point) and the
  *   peer's **self-reported** score (carried on its pings). [reliabilityScore] blends the two with a
@@ -61,7 +61,6 @@ internal class PeerAvailabilityRegistry(
     val onlineDevices: Flow<Set<PeerId>> = onlineDevicesFlow.asStateFlow()
     val onlineEvents: Flow<PeerId> = onlineEventsFlow.asSharedFlow()
 
-    @OptIn(InternalCoroutinesApi::class)
     private fun now(): Instant = clock.now()
 
     /**
@@ -80,7 +79,7 @@ internal class PeerAvailabilityRegistry(
             routerConfig.map { it.sweepInterval }
                 .distinctUntilChanged()
                 .collectLatest { interval ->
-                    while (isActive) {
+                    while (currentCoroutineContext().isActive) {
                         delay(interval)
                         // Best-effort: a DB hiccup must not kill the sweep permanently.
                         runCatching { sweep() }
@@ -251,14 +250,12 @@ internal class PeerAvailabilityRegistry(
         }
     }
 
-    @OptIn(InternalCoroutinesApi::class)
     private fun isOnlineLocked(deviceId: PeerId, at: Instant): Boolean {
         val last = lastSeen[deviceId] ?: return false
         return at - last < offlineAfter()
     }
 
     /** A peer is considered offline once it has missed two consecutive pings. */
-    @OptIn(InternalCoroutinesApi::class)
     private fun offlineAfter(): Duration =
         (routerConfig.value.pingInterval * 2).coerceAtLeast(1.seconds)
 

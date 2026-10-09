@@ -15,9 +15,9 @@ import kotlin.uuid.Uuid
  * outbox, scheme chosen by kind), queue with `dispositionRequested` and the short
  * [bootstrapIntroLifetime][org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime].
  *
- * @param targetEndpoint out-of-band endpoint override for targets with no local devices row
+ * `targetEndpoint` out-of-band endpoint override for targets with no local devices row
  *   (persisted on the outbox row, preferred at dispatch).
- * @param sharedSecret sender's in-memory one-time secret, required for INTRO; never persisted
+ * `sharedSecret` sender's in-memory one-time secret, required for INTRO; never persisted
  *   (used once for protect, the outbox holds the ciphertext). Null for RECOVERY_REQUEST.
  */
 internal class BootstrapSender(

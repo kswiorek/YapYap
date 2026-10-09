@@ -32,7 +32,7 @@ class MaintenanceScheduler(
         config.map { it.maintenanceInterval }
             .distinctUntilChanged()
             .collectLatest { interval ->
-                while (isActive) {
+                while (currentCoroutineContext().isActive) {
                     delay(interval); runOnce()
                 }
             }

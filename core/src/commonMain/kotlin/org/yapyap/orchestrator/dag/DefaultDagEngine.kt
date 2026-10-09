@@ -31,7 +31,7 @@ import kotlin.uuid.Uuid
  * (`createdAt`, `messageId`); causal order is recovered by walking `prevIds`
  * edges, never by a scalar clock.
  *
- * Gap model: when [ingest] receives a message with any [prevIds] entry missing from
+ * Gap model: when [ingest] receives a message with any `prevIds` entry missing from
  * the DB, the message is inserted as an orphan (`is_orphaned = 1`) with
  * `ancestry_complete = 0`, and one `causal_hold` row per missing parent records
  * `missing_prev_id`. As missing parents arrive, holds are deleted; when the last

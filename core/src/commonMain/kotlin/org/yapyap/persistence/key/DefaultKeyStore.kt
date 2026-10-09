@@ -7,7 +7,6 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 class DefaultKeyStore(
     private val sessionFactory: KeyringSessionFactory,
@@ -83,9 +82,7 @@ class DefaultKeyStore(
         }
     }
 
-    @OptIn(ExperimentalEncodingApi::class)
     private fun encode(bytes: ByteArray): String = Base64.encode(bytes)
 
-    @OptIn(ExperimentalEncodingApi::class)
     private fun decode(value: String): ByteArray = Base64.decode(value)
 }

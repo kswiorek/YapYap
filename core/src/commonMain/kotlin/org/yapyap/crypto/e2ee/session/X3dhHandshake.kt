@@ -222,13 +222,8 @@ class X3dhHandshake(
         val dh1 = crypto.deriveSharedSecret(identityEncryptionPrivateKey, remoteSignedPreKeyPublicKey)
         val dh2 = crypto.deriveSharedSecret(ephemeralPrivateKey, remoteIdentityEncryptionPublicKey)
         val dh3 = crypto.deriveSharedSecret(ephemeralPrivateKey, remoteSignedPreKeyPublicKey)
-        val ikm = if (oneTimePreKeyPublicKey == null) {
-            dh1 + dh2 + dh3
-        } else {
-            val dh4 = crypto.deriveSharedSecret(ephemeralPrivateKey, oneTimePreKeyPublicKey)
-            dh1 + dh2 + dh3 + dh4
-        }
-        return kdfSharedSecret(ikm)
+        val dh4 = oneTimePreKeyPublicKey?.let { crypto.deriveSharedSecret(ephemeralPrivateKey, it) }
+        return combineAndKdf(dh1, dh2, dh3, dh4)
     }
 
     private suspend fun computeSharedSecretResponder(
@@ -241,10 +236,19 @@ class X3dhHandshake(
         val dh1 = crypto.deriveSharedSecret(signedPreKeyPrivateKey, remoteIdentityEncryptionPublicKey)
         val dh2 = crypto.deriveSharedSecret(identityEncryptionPrivateKey, remoteEphemeralPublicKey)
         val dh3 = crypto.deriveSharedSecret(signedPreKeyPrivateKey, remoteEphemeralPublicKey)
-        val ikm = if (oneTimePreKeyPrivateKey == null) {
+        val dh4 = oneTimePreKeyPrivateKey?.let { crypto.deriveSharedSecret(it, remoteEphemeralPublicKey) }
+        return combineAndKdf(dh1, dh2, dh3, dh4)
+    }
+
+    private suspend fun combineAndKdf(
+        dh1: ByteArray,
+        dh2: ByteArray,
+        dh3: ByteArray,
+        dh4: ByteArray?,
+    ): ByteArray {
+        val ikm = if (dh4 == null) {
             dh1 + dh2 + dh3
         } else {
-            val dh4 = crypto.deriveSharedSecret(oneTimePreKeyPrivateKey, remoteEphemeralPublicKey)
             dh1 + dh2 + dh3 + dh4
         }
         return kdfSharedSecret(ikm)

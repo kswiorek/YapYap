@@ -55,7 +55,7 @@ sealed interface IdentityStateChange {
  *    the DAG. Each call appends to the global room (signed by the local device via
  *    [DagEngine.append]), folds + commits synchronously, then broadcasts to the room members.
  *    The sponsor service and the recovery responder are thin callers over these.
- *    The [DagException.FrontierUnavailable] refusal propagates: when the global room holds
+ *    The `DagException.FrontierUnavailable` refusal propagates: when the global room holds
  *    messages but its chainable frontier is empty (every tip parked on an open gap, or no
  *    tip VERIFIED yet), nothing is appended and nothing is broadcast — callers map it to a
  *    domain failure (the future AccountService, the sponsor flow's `SponsorRefusal`).
@@ -67,7 +67,7 @@ sealed interface IdentityStateChange {
  * account key; the fold only verifies them against fold-state pub keys via [CryptoProvider]
  * primitives (never the live-table-backed `SignatureProvider`).
  *
- * The fold itself lives in [GlobalFold]: this class owns scaffolding (canonical order,
+ * The fold itself lives in `GlobalFold`: this class owns scaffolding (canonical order,
  * genesis, reachability), the storage-backed verdict write and the merge commit; the pure
  * replay/restart core ([replayFold]/[foldToFixpoint]) is shared with the dynamics fuzzer.
  */

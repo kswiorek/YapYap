@@ -7,7 +7,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.AccountId
-import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -39,7 +38,6 @@ class DefaultSyncCoordinator(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
-    private val identityResolver: IdentityResolver,
     private val pendingSyncRepository: PendingSyncRepository,
     private val clock: Clock = Clock.System,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>

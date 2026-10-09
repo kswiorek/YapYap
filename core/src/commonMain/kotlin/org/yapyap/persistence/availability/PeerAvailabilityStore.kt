@@ -39,7 +39,7 @@ data class PeerAvailability(
 )
 
 class DefaultPeerAvailabilityStore(
-    private val database: YapYapDatabase,
+    database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PeerAvailabilityStore {
 

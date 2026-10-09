@@ -72,7 +72,7 @@ class DefaultSignatureProvider(
         // event is known).
         val deviceRecord = try {
             identityResolver.resolvePeerIdentityRecord(authorDeviceId)
-        } catch (e: CryptoException) {
+        } catch (_: CryptoException) {
             AppLog.debug(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.AUTHOR_SIGNATURE_VERIFICATION_FAILED,

@@ -385,7 +385,7 @@ class DefaultIdentityResolver(
                 )
             }
         require(stored.deviceId == device) {
-            "Signed prekey $signedPreKeyId does not belong to local device ${device}"
+            "Signed prekey $signedPreKeyId does not belong to local device $device"
         }
         privateKeyStore.getKey(
             ref = KeyReference(

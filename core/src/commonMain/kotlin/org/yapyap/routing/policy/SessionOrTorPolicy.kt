@@ -15,13 +15,10 @@ class SessionOrTorPolicy(
         forced: RouterTransport?
     ): ResolvedOutbound {
         val configSnapshot = config.value
-        var transport: RouterTransport
-        if (forced != null) {
-            transport = forced
-        } else if (hasWebRtcSession) {
-            transport = RouterTransport.WEBRTC
+        val transport: RouterTransport = forced ?: if (hasWebRtcSession) {
+            RouterTransport.WEBRTC
         } else {
-            transport = RouterTransport.TOR
+            RouterTransport.TOR
         }
 
         var retryDelay = configSnapshot.standbyRetryDelay

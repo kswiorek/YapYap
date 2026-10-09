@@ -118,7 +118,7 @@ interface MessageRepository {
 }
 
 class DefaultMessageRepository(
-    private val database: YapYapDatabase,
+    database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : MessageRepository {
     private val queries = database.messageQueries

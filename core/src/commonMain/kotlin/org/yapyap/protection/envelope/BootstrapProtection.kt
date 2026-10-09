@@ -20,7 +20,7 @@ import kotlin.uuid.Uuid
  * scan / responder request copy, so neither role needs state), [open] resolves the newcomer's
  * persisted secret from [BootstrapKeySource].
  *
- * ChaCha20-Poly1305, library-managed IV; the header is bound as AEAD AAD ([aadBytes]).
+ * ChaCha20-Poly1305, library-managed IV; the header is bound as AEAD AAD (`aadBytes`).
  */
 class BootstrapProtection(
     private val crypto: CryptoProvider,

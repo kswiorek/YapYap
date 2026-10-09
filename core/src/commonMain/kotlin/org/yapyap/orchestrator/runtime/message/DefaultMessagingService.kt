@@ -263,7 +263,7 @@ internal class DefaultMessagingService(
 
         val payload = try {
             dagEngine.append(roomId, MessageDraft.Text(text))
-        } catch (e: DagException.FrontierUnavailable) {
+        } catch (_: DagException.FrontierUnavailable) {
             AppLog.warn(
                 component = LogComponent.MESSAGING,
                 event = LogEvent.APPEND_REFUSED,

@@ -62,10 +62,6 @@ internal class OutboxProcessor(
         wake()
     }
 
-    suspend fun recordSendAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant) {
-        packetOutbox.recordAttempt(packetId, nextRetryAt, at)
-    }
-
     suspend fun onPeerOnline(peerId: PeerId) {
         val now = ctx.clock.now()
         packetOutbox.setDueForTarget(peerId, now)

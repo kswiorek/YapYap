@@ -757,7 +757,7 @@ private suspend fun RTCPeerConnection.createAnswerSuspending(options: RTCAnswerO
     }
 
 private suspend fun RTCPeerConnection.setLocalDescriptionSuspending(description: RTCSessionDescription) {
-    suspendCancellableCoroutine<Unit> { cont ->
+    suspendCancellableCoroutine { cont ->
         setLocalDescription(
             description,
             object : SetSessionDescriptionObserver {
@@ -774,7 +774,7 @@ private suspend fun RTCPeerConnection.setLocalDescriptionSuspending(description:
 }
 
 private suspend fun RTCPeerConnection.setRemoteDescriptionSuspending(description: RTCSessionDescription) {
-    suspendCancellableCoroutine<Unit> { cont ->
+    suspendCancellableCoroutine { cont ->
         setRemoteDescription(
             description,
             object : SetSessionDescriptionObserver {

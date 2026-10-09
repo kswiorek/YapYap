@@ -289,7 +289,7 @@ data class Invite(
     /** Canonical binding bytes this invite's [accountKeySignature] covers (new-account only). */
     fun accountSignedDeviceBindingBytes(): ByteArray {
         requireNotNull(account) { "INVITE account binding requires a new account" }
-        return org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes(
+        return accountSignedDeviceBindingBytes(
             accountId = account.accountId,
             deviceId = device.deviceId,
             signingPublicKey = device.signing.publicKey,
@@ -659,8 +659,7 @@ private fun identityPublicKeyEquals(a: IdentityPublicKeyRecord?, b: IdentityPubl
 }
 
 private fun bootstrapPayloadDeviceEquals(a: DeviceIdentityRecord, b: DeviceIdentityRecord): Boolean {
-    if (a === b) return true
-    return a.deviceId == b.deviceId &&
+    return a === b || a.deviceId == b.deviceId &&
             identityPublicKeyEquals(a.signing, b.signing) &&
             identityPublicKeyEquals(a.encryption, b.encryption) &&
             signedPreKeyEquals(a.signedPreKey, b.signedPreKey) &&
@@ -713,6 +712,6 @@ private fun signedPreKeyHashCode(spk: SignedPreKeyRecord?): Int {
     result = 31 * result + (spk.privateKey?.contentHashCode() ?: 0)
     result = 31 * result + spk.deviceId.hashCode()
     result = 31 * result + spk.isActive.hashCode()
-    result = 31 * result + (spk.createdAt?.hashCode() ?: 0)
+    result = 31 * result + spk.createdAt.hashCode()
     return result
 }

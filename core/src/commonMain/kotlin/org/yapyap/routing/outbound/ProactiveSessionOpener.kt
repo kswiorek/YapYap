@@ -99,7 +99,7 @@ internal class ProactiveSessionOpener(
     }
 
     /**
-     * REQUIRED: best effort to establish a usable session to [peerId] within [timeoutSeconds].
+     * REQUIRED: best effort to establish a usable session to [peerId] within `timeout`.
      * Ignores the freshness gate and the backoff window — the caller explicitly needs the
      * session. Event-driven: waits on the peer's session states and re-issues the
      * idempotent open on a slow cadence as a safety net for silently lost signaling

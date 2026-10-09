@@ -371,15 +371,6 @@ sealed interface MessagePayload {
             return writer.toByteArray()
         }
 
-        /** Verify path: recompute the genesis id from stored row fields, no arg-plumbing. */
-        fun derivationBytes(): ByteArray = derivationBytes(
-            genesisMessageId = messageId,
-            senderAccountId = senderAccountId,
-            authorDeviceId = authorDeviceId,
-            createdAt = createdAt,
-            eventBytes = eventBytes,
-        )
-
         /** Verify path. */
         suspend fun deriveRoomId(crypto: CryptoProvider): RoomId =
             deriveRoomId(

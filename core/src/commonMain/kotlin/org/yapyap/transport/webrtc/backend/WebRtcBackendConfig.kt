@@ -28,5 +28,4 @@ data class WebRtcBackendConfig(
     val maxPayloadBytes: Int = 250 * 1024,
     val channelOpenTimeout: Duration = 30.seconds,
     val drainChannelTimeout: Duration = 5.seconds,
-) {
-}
+)

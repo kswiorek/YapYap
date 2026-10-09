@@ -79,7 +79,7 @@ internal class DefaultOnboardingService(
             } else {
                 projector.publishSponsoredNewAccount(invite, admin)
             }
-        } catch (e: DagException.FrontierUnavailable) {
+        } catch (_: DagException.FrontierUnavailable) {
             return SponsorOutcome.Refused(SponsorRefusal.SponsorNotReady)
         }
 

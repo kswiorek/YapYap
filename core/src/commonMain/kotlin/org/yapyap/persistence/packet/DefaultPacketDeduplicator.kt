@@ -19,23 +19,22 @@ class DefaultPacketDeduplicator(
     private val queries = database.dedupQueries
     override suspend fun firstSeen(packetId: Uuid, sourceDeviceId: PeerId, receivedAt: Instant): Boolean =
         withContext(dbDispatcher) {
-            val packetHex = packetId
             queries.transactionWithResult {
                 val existing = queries.selectDedupBySourceAndPacketId(
                     source_device_id = sourceDeviceId.id,
-                    packet_id = packetHex,
+                    packet_id = packetId,
                 ).executeAsOneOrNull()
                 if (existing != null) {
                     AppLog.debug(
                         component = LogComponent.DATABASE,
                         event = LogEvent.DEDUP_CACHE_HIT,
                         message = "Deduplicator hit existing packet",
-                        fields = mapOf("packetId" to packetHex, "sourceDeviceId" to sourceDeviceId),
+                        fields = mapOf("packetId" to packetId, "sourceDeviceId" to sourceDeviceId),
                     )
                     false
                 } else {
                     queries.insertDedup(
-                        packet_id = packetHex,
+                        packet_id = packetId,
                         source_device_id = sourceDeviceId.id,
                         received_at = receivedAt,
                     )
@@ -43,7 +42,7 @@ class DefaultPacketDeduplicator(
                         component = LogComponent.DATABASE,
                         event = LogEvent.DEDUP_CACHE_MISS,
                         message = "Deduplicator recorded new packet",
-                        fields = mapOf("packetId" to packetHex, "sourceDeviceId" to sourceDeviceId),
+                        fields = mapOf("packetId" to packetId, "sourceDeviceId" to sourceDeviceId),
                     )
                     true
                 }
