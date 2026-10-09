@@ -25,4 +25,7 @@ sealed interface GlobalEventRefusal {
 
     /** Self-service target belongs to another account. */
     data object NotOwnDevice : GlobalEventRefusal
+
+    /** Newcomer onboarding in flight — the fold has not anchored the local device yet. */
+    data object OnboardingActive : GlobalEventRefusal
 }

@@ -11,6 +11,7 @@ import org.yapyap.orchestrator.fold.room.RoomEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.account.AccountService
+import org.yapyap.orchestrator.runtime.account.DefaultAccountService
 import org.yapyap.orchestrator.runtime.admin.AdminService
 import org.yapyap.orchestrator.runtime.config.ConfigService
 import org.yapyap.orchestrator.runtime.config.DefaultConfigService
@@ -82,7 +83,9 @@ internal class DefaultOrchestratorRuntime(
 
     override val identity: IdentityService get() = TODO("[Sprint 4] DefaultIdentityService")
     override val admin: AdminService get() = TODO("[Sprint 4] DefaultAdminService")
-    override val account: AccountService get() = TODO("[Sprint 4] DefaultAccountService")
+
+    private lateinit var _account: DefaultAccountService
+    override val account: AccountService get() = _account
 
     fun start(scope: CoroutineScope) {
         _messaging = DefaultMessagingService(
@@ -118,6 +121,15 @@ internal class DefaultOrchestratorRuntime(
             identityResolver = identityResolver,
         )
         _rooms.start(scope)
+
+        // Stateless (no StateFlow of its own, nothing to collect): constructed only,
+        // no start/stop.
+        _account = DefaultAccountService(
+            projector = globalEventProjector,
+            identityResolver = identityResolver,
+            identityKeyRepository = identityKeyRepository,
+            onboardingState = onboardingProvider.state,
+        )
     }
 
     suspend fun stop() {
