@@ -17,7 +17,9 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.policy.RelaySelectionPolicy
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.PeerSendOutcome
+import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
@@ -30,21 +32,33 @@ internal class OutboundMessenger(
     suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult {
+    ): AccountPushReport {
         val peers = ctx.identityResolver.getAllPeerDevicesForAccount(target)
             .filter { it != ctx.localDeviceId }   // skip originating device only
         if (peers.isEmpty()) {
-            AppLog.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.MESSAGE_NO_PEERS,
-                message = "No peer devices found for target account",
-                fields = mapOf("targetAccountId" to target),
-            )
-            return SendMessageResult(
-                status = SendMessageStatus.FAILURE,
-                peersTotal = 0,
-                peersQueued = 0,
-                failureKind = SendFailureKind.NO_PEERS,
+            if (target == ctx.identityResolver.getLocalAccountId()) {
+                // Own account, no other devices: the steady state for single-device
+                // users — the pull path converges own devices regardless. Quiet by
+                // design, never a failure.
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.MESSAGE_NO_PEERS,
+                    message = "Own account has no other devices; delivery falls back to sync pull",
+                    fields = mapOf("targetAccountId" to target),
+                )
+            } else {
+                AppLog.warn(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.MESSAGE_NO_PEERS,
+                    message = "No peer devices found for target account",
+                    fields = mapOf("targetAccountId" to target),
+                )
+            }
+            return AccountPushReport(
+                devicesTotal = 0,
+                devicesQueued = 0,
+                devicesDeferred = 0,
+                devicesFailed = 0,
             )
         }
 
@@ -61,39 +75,25 @@ internal class OutboundMessenger(
         return aggregateSendResults(outcomes)
     }
 
-    private fun aggregateSendResults(outcomes: List<PeerSendOutcome>): SendMessageResult {
-        val deviceCount = outcomes.size
-        val queuedDevices = outcomes.count { it is PeerSendOutcome.Queued }
-        val relaysDeposited = outcomes.sumOf { (it as? PeerSendOutcome.Queued)?.relaysDeposited ?: 0 }
+    private fun aggregateSendResults(outcomes: List<PeerSendOutcome>): AccountPushReport {
+        val queued = outcomes.count { it is PeerSendOutcome.Queued }
         val deferred = outcomes.count { it is PeerSendOutcome.Deferred }
-        val permanent = outcomes.count { it is PeerSendOutcome.PermanentFailure }
-
-        val status = when (queuedDevices) {
-            deviceCount -> SendMessageStatus.SUCCESS
-            0 -> SendMessageStatus.FAILURE
-            else -> SendMessageStatus.PARTIAL
+        val failed = outcomes.count { it is PeerSendOutcome.PermanentFailure }
+        val relaysDeposited = outcomes.sumOf { (it as? PeerSendOutcome.Queued)?.relaysDeposited ?: 0 }
+        if (relaysDeposited > 0) {
+            // Router-internal delivery mechanism: diagnostics only, never a destination count.
+            AppLog.debug(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+                message = "Relay deposits enqueued alongside direct delivery",
+                fields = mapOf("relaysDeposited" to relaysDeposited),
+            )
         }
-
-        val failureKind = when (status) {
-            SendMessageStatus.SUCCESS -> null
-            SendMessageStatus.FAILURE -> when {
-                deferred == deviceCount -> SendFailureKind.DEFERRED
-                permanent == deviceCount -> SendFailureKind.PERMANENT
-                else -> SendFailureKind.MIXED
-            }
-
-            SendMessageStatus.PARTIAL -> when {
-                permanent > 0 -> SendFailureKind.MIXED
-                deferred > 0 -> SendFailureKind.DEFERRED
-                else -> SendFailureKind.MIXED
-            }
-        }
-        //TODO: [Finishing touches] more complete statistics for the gui
-        return SendMessageResult(
-            status = status,
-            peersTotal = deviceCount + relaysDeposited,
-            peersQueued = queuedDevices + relaysDeposited,
-            failureKind = failureKind,
+        return AccountPushReport(
+            devicesTotal = outcomes.size,
+            devicesQueued = queued,
+            devicesDeferred = deferred,
+            devicesFailed = failed,
         )
     }
 

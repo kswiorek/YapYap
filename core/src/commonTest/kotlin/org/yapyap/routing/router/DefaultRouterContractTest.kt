@@ -89,9 +89,34 @@ class DefaultRouterContractTest {
         val payload = sampleTextPayload()
         val result = router.sendMessage(targetAccount, payload)
 
-        assertEquals(SendMessageStatus.FAILURE, result.status)
-        assertEquals(SendFailureKind.NO_PEERS, result.failureKind)
-        assertEquals(0, result.peersQueued)
+        assertEquals(0, result.devicesTotal)
+        assertEquals(0, result.devicesQueued)
+        assertEquals(0, result.devicesDeferred)
+        assertEquals(0, result.devicesFailed)
+        assertTrue(tor.sends.isEmpty())
+        router.stop()
+    }
+
+    @Test
+    fun sendMessage_toOwnAccountWithNoOtherDevices_returnsEmptyReport() = runBlocking {
+        val tor = RecordingTorTransport()
+        val ownAccount = AccountId("own-account")
+        val identity =
+            FakeIdentityResolverForRouter(
+                localDevice = localDevice(),
+                peersByAccount = mapOf(ownAccount to emptyList()),
+                localAccount = ownAccount,
+            )
+        val router = defaultRouterUnderTest(tor = tor, identity = identity)
+        router.start()
+
+        val result = router.sendMessage(ownAccount, sampleTextPayload())
+
+        // Quiet steady state for single-device users — covered by the pull path, never a failure.
+        assertEquals(0, result.devicesTotal)
+        assertEquals(0, result.devicesQueued)
+        assertEquals(0, result.devicesDeferred)
+        assertEquals(0, result.devicesFailed)
         assertTrue(tor.sends.isEmpty())
         router.stop()
     }
@@ -140,9 +165,10 @@ class DefaultRouterContractTest {
         router.start()
         val result = router.sendMessage(account, sampleTextPayload())
 
-        assertEquals(SendMessageStatus.SUCCESS, result.status)
-        assertEquals(2, result.peersTotal)
-        assertEquals(2, result.peersQueued)
+        assertEquals(2, result.devicesTotal)
+        assertEquals(2, result.devicesQueued)
+        assertEquals(0, result.devicesDeferred)
+        assertEquals(0, result.devicesFailed)
         // Dispatch is async via the outbox loop (single dispatch path).
         withTimeout(10.seconds) { tor.awaitMessageSendCount(2) }
         assertEquals(2, tor.sendsExcludingHeartbeat().size)
@@ -170,10 +196,10 @@ class DefaultRouterContractTest {
 
         val result = router.sendMessage(account, sampleTextPayload())
 
-        assertEquals(SendMessageStatus.SUCCESS, result.status)
-        assertEquals(1, result.peersQueued)
-        assertEquals(1, result.peersTotal)
-        assertEquals(null, result.failureKind)
+        assertEquals(1, result.devicesTotal)
+        assertEquals(1, result.devicesQueued)
+        assertEquals(0, result.devicesDeferred)
+        assertEquals(0, result.devicesFailed)
         // Dispatch is async via the outbox loop (single dispatch path).
         withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
         assertEquals(1, tor.sendsExcludingHeartbeat().size)

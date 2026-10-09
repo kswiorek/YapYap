@@ -105,10 +105,12 @@ Inbound/outbound disposition contract:
   `DECLINED`) delete the outbox row; `WRONG_TARGET` keeps it (endpoint reconciliation
   self-heals; the fast-attempt budget self-limits cadence). An unrecognized reason byte
   never deletes — never act destructively on confusion with a newer peer.
-- Outbound `DEFER` (session not ready at protect time) returns `SendFailureKind.DEFERRED`:
-  the message stays in the local DAG and delivery falls back to the pull path. Deliberately
-  no separate staging table: epoch-1 encrypt self-bootstraps, so the remaining defer
-  windows are round-trip-scale races the pull path covers.
+- Outbound `DEFER` (session not ready at protect time) surfaces as a deferred device
+  count in `AccountPushReport` (router vocabulary only): the message stays in the
+  local DAG and delivery falls back to the pull path. The orchestrator maps it to a
+  pull-only member in `FanoutReport` — pending display state, never a failure.
+  Deliberately no separate staging table: epoch-1 encrypt self-bootstraps, so the
+  remaining defer windows are round-trip-scale races the pull path covers.
 - Sync rows die when their target arrives in any state (`Inserted` or `BecameOrphan`):
   an arrived orphan's fetch is satisfied and its missing parents get fresh rows. This keeps
   out-of-order delivery (normal for store-and-forward) from leaking sync rows.

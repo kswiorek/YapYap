@@ -87,3 +87,46 @@ interface RoomMessageWindow {
     /** Release this window and unsubscribe from updates. */
     suspend fun close()
 }
+
+/** Outcome of the GUI-facing text-send flow. Domain refusals are values;
+ *  infrastructure failures (transport, storage) still throw. */
+sealed interface SendTextResult {
+    /** Appended to the room DAG and fanned out. [fanout] is a send-time
+     *  reachability snapshot — advisory, never an error state. */
+    data class Sent(val fanout: FanoutReport) : SendTextResult
+
+    /** Refused before any write — nothing appended, nothing sent. */
+    data class Refused(val reason: SendRefusal) : SendTextResult
+}
+
+sealed interface SendRefusal {
+    /** Local account holds a committed REMOVED row for the room. */
+    data object NotMember : SendRefusal
+
+    /** Text exceeds [MessagingService.maxTextMessageBytes]. */
+    data object TooLarge : SendRefusal
+
+    /** Room frontier unchainable — still syncing. */
+    data object HistoryIncomplete : SendRefusal
+}
+
+/**
+ * Reachability snapshot at send time, per *member account* (devices collapsed;
+ * the orchestrator never deals in peer ids).
+ *
+ * The local account is excluded: own devices converge via the pull path
+ * regardless, and the user's mental model of delivery is other members.
+ *
+ * [membersPullOnly] covers every no-live-push situation — deferred sessions,
+ * no known devices, failed pushes — because in all of them the pull path
+ * (ping frontiers + sync) is the delivery path. "Pending" would overpromise
+ * for the no-devices case; the GUI may still render it as "pending sync".
+ */
+data class FanoutReport(
+    /** Other member accounts fanned out to. */
+    val membersTotal: Int,
+    /** Accounts with at least one device queued to the outbox now. */
+    val membersQueued: Int,
+    /** Accounts with no live push path — they pick the message up via sync. */
+    val membersPullOnly: Int,
+)

@@ -40,8 +40,8 @@ class DefaultRouterE2eeIntegrationTest {
                 delay(200.milliseconds)
 
                 val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound)
-                assertEquals(SendMessageStatus.SUCCESS, sendResult.status)
-                assertEquals(1, sendResult.peersQueued)
+                assertEquals(1, sendResult.devicesTotal)
+                assertEquals(1, sendResult.devicesQueued)
 
                 withTimeout(10.seconds) { it.aliceTor.awaitMessageSendCount(1) }
                 val (_, binaryEnvelope) = it.aliceTor.sendsExcludingHeartbeat().single()
@@ -67,7 +67,7 @@ class DefaultRouterE2eeIntegrationTest {
             it.aliceRouter.start()
 
             val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound)
-            assertEquals(SendMessageStatus.SUCCESS, sendResult.status)
+            assertEquals(1, sendResult.devicesQueued)
             withTimeout(10.seconds) { it.aliceTor.awaitMessageSendCount(1) }
             assertEquals(1, it.aliceTor.sendsExcludingHeartbeat().size)
 

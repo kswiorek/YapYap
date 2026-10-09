@@ -49,13 +49,19 @@ interface Router {
     suspend fun announceOnline()
 
     /**
-     * Sends [payload] to every device of [target]. Transport selection is owned by the
+     * Pushes [payload] to every device of [target]. Transport selection is owned by the
      * outbox retry loop, per attempt — there is no per-send override.
+     *
+     * The returned report is a latency snapshot, not a delivery verdict: the message
+     * is already durable in the sender's DAG, and the peer's pull path (ping frontiers
+     * + sync) delivers even when every count is zero. The local device is never a
+     * target (own-account sends reach the account's other devices only); an
+     * own-account send with no other devices is a normal, quiet outcome.
      */
     suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult
+    ): AccountPushReport
 
     /**
      * Signal that the local user is typing in [roomId] to [targets] (room members).

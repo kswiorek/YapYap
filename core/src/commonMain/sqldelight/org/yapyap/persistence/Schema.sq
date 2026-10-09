@@ -1,6 +1,7 @@
 import org.yapyap.persistence.db.FileChunkStatus;
 import org.yapyap.persistence.db.FileTransferStatus;
 
+-- placeholder schema for not-yet implemented tables
 CREATE TABLE spaces (
     space_id TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,

@@ -334,7 +334,7 @@ class DefaultRouter(
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult {
+    ): AccountPushReport {
         check(started) { "Router must be started before sending messages" }
         return outboundMessenger.sendMessage(target, payload)
     }

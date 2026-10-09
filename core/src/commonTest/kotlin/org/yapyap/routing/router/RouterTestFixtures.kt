@@ -408,6 +408,7 @@ internal class FakeIdentityResolverForRouter(
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
     val accountStatuses: MutableMap<AccountId, IdentityStatus> = mutableMapOf(),
     private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
+    private val localAccount: AccountId = AccountId("local-account"),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = localDevice
@@ -437,7 +438,7 @@ internal class FakeIdentityResolverForRouter(
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
     override suspend fun getLocalDeviceId(): PeerId = error("not used")
-    override suspend fun getLocalAccountId(): AccountId = error("not used in test")
+    override suspend fun getLocalAccountId(): AccountId = localAccount
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         throw CryptoException.MissingDeviceRecord(deviceId.id)
@@ -600,6 +601,7 @@ internal class E2eeIdentityResolverForRouter(
     private val crypto: CryptoProvider = DefaultCryptoProvider(),
     private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
     private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
+    private val localAccount: AccountId = AccountId("local-account"),
 ) : IdentityResolver {
 
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
@@ -631,7 +633,7 @@ internal class E2eeIdentityResolverForRouter(
         error("E2eeIdentityResolverForRouter: account private key not stubbed")
 
     override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
-    override suspend fun getLocalAccountId(): AccountId = error("not used in test")
+    override suspend fun getLocalAccountId(): AccountId = localAccount
 
     override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
         peers[deviceId]?.device ?: throw CryptoException.MissingDeviceRecord(deviceId.id)

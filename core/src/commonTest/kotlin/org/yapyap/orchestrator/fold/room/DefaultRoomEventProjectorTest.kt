@@ -174,9 +174,9 @@ private class FakeRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult {
+    ): AccountPushReport {
         sent.add(target to payload)
-        return SendMessageResult(SendMessageStatus.SUCCESS, peersTotal = 1, peersQueued = 1, failureKind = null)
+        return AccountPushReport(devicesTotal = 1, devicesQueued = 1, devicesDeferred = 0, devicesFailed = 0)
     }
 
     override suspend fun sendTypingIndicator(

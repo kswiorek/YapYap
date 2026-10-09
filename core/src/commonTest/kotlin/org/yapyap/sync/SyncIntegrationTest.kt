@@ -418,13 +418,13 @@ private class RecordingRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult {
+    ): AccountPushReport {
         sent.add(payload)
-        return SendMessageResult(
-            status = SendMessageStatus.SUCCESS,
-            peersTotal = 1,
-            peersQueued = 1,
-            failureKind = null,
+        return AccountPushReport(
+            devicesTotal = 1,
+            devicesQueued = 1,
+            devicesDeferred = 0,
+            devicesFailed = 0,
         )
     }
 

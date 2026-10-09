@@ -4,7 +4,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.protocol.RoomId
-import org.yapyap.routing.router.SendMessageResult
 import kotlin.uuid.Uuid
 
 interface MessagingService {
@@ -22,8 +21,9 @@ interface MessagingService {
      */
     val typingState: StateFlow<Map<RoomId, Set<AccountId>>>
 
-    /** Outbound: append to local DAG, fan out to room members via router. */
-    suspend fun sendTextMessage(roomId: RoomId, text: String): SendMessageResult
+    /** Outbound: append to local DAG (refused up front on policy violations),
+     *  then fan out to room members. The message is durable once [SendTextResult.Sent] returns. */
+    suspend fun sendTextMessage(roomId: RoomId, text: String): SendTextResult
 
     /** Lookup of a single message by id, mapped to its GUI display item (null when unknown or not displayable). */
     suspend fun getMessage(messageId: Uuid): MessageDisplayItem?

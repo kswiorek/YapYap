@@ -51,7 +51,7 @@ private class FakeOnboardingRouter(
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult = error("not used")
+    ): AccountPushReport = error("not used")
 
     override suspend fun sendTypingIndicator(
         targets: Collection<AccountId>,

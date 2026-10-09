@@ -26,29 +26,24 @@ enum class RouterTransport {
     WEBRTC
 }
 
-enum class SendMessageStatus {
-    SUCCESS,
-    PARTIAL,
-    FAILURE,
-}
-
-enum class SendFailureKind {
-    //TODO: [Sprint 4] Cleanup - split Router vs Gui-exposed types
-    NO_PEERS,
-    DEFERRED,
-    PERMANENT,
-    TOO_LARGE,
-    HISTORY_INCOMPLETE,
-    /** Local account holds a committed REMOVED row for the room — refused before any write. */
-    NOT_A_MEMBER,
-    MIXED,
-}
-
-data class SendMessageResult(
-    val status: SendMessageStatus,
-    val peersTotal: Int,
-    val peersQueued: Int,
-    val failureKind: SendFailureKind?,
+/**
+ * Per-account push report: how the fan-out to every device of one target account went.
+ *
+ * Mechanics only — no GUI vocabulary; display categorization is the caller's job.
+ * Push is a latency path: the DAG pull path delivers regardless of these counts,
+ * so no count here is a delivery verdict. Relay deposits are a router-internal
+ * delivery mechanism, not destinations, and never appear in these counts.
+ */
+data class AccountPushReport(
+    /** Peer devices found for the account (excluding the originating device). */
+    val devicesTotal: Int,
+    /** Envelopes accepted by the outbox (direct or relay-supplemented). */
+    val devicesQueued: Int,
+    /** Protection deferred (session/identity prerequisites) — payloads leave on
+     * their own once the crypto session is ready; render as pending, not failed. */
+    val devicesDeferred: Int,
+    /** Permanent protection/size failures. */
+    val devicesFailed: Int,
 )
 
 /**
@@ -133,7 +128,8 @@ internal sealed interface PeerSendOutcome {
     /**
      * Protection deferred (session/identity prerequisites) — the payload is staged in
      * pending_sends and leaves automatically once the crypto session is ready.
-     * GUI-facing: render as pending, not failed.
+     * Surfaces as [AccountPushReport.devicesDeferred]; the caller maps it to a
+     * pending display state, never a failure.
      */
     data object Deferred : PeerSendOutcome
 

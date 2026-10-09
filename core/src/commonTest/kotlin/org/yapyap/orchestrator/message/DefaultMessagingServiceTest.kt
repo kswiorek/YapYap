@@ -18,9 +18,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
-import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
-import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
-import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
+import org.yapyap.orchestrator.runtime.message.*
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.db.RoomMemberStatus
@@ -118,8 +116,10 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendTextMessage(roomId, "hello from local")
 
-        assertEquals(SendMessageStatus.SUCCESS, result.status)
-        // Sent to all room members — no account-level self-filter (router handles device skip).
+        val sent = assertIs<SendTextResult.Sent>(result)
+        // Report counts other members only — the self fan-out (multi-device push) is excluded.
+        assertEquals(FanoutReport(membersTotal = 1, membersQueued = 1, membersPullOnly = 0), sent.fanout)
+        // Fan-out still reaches all room members — no account-level self-filter (router handles device skip).
         assertEquals(2, router.sentTargets.size)
         assertTrue(router.sentTargets.contains(remoteAccount))
         assertTrue(router.sentTargets.contains(localAccount))
@@ -152,10 +152,8 @@ class DefaultMessagingServiceTest {
 
             val result = service.sendTextMessage(roomId, "hello from local")
 
-            assertEquals(SendMessageStatus.FAILURE, result.status)
-            assertEquals(SendFailureKind.HISTORY_INCOMPLETE, result.failureKind)
-            assertEquals(0, result.peersTotal)
-            assertEquals(0, result.peersQueued)
+            val refused = assertIs<SendTextResult.Refused>(result)
+            assertEquals(SendRefusal.HistoryIncomplete, refused.reason)
             assertTrue(router.sentTargets.isEmpty())
             assertEquals(1, messageRepo.byId.size)
         }
@@ -169,9 +167,8 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendTextMessage(roomId, "no peers here")
 
-        assertEquals(SendMessageStatus.SUCCESS, result.status)
-        assertEquals(0, result.peersTotal)
-        assertEquals(0, result.peersQueued)
+        val sent = assertIs<SendTextResult.Sent>(result)
+        assertEquals(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0), sent.fanout)
         assertEquals(0, router.sentTargets.size)
     }
 
@@ -191,10 +188,8 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendTextMessage(roomId, "this text is too long")
 
-        assertEquals(SendMessageStatus.FAILURE, result.status)
-        assertEquals(SendFailureKind.TOO_LARGE, result.failureKind)
-        assertEquals(0, result.peersTotal)
-        assertEquals(0, result.peersQueued)
+        val refused = assertIs<SendTextResult.Refused>(result)
+        assertEquals(SendRefusal.TooLarge, refused.reason)
         assertEquals(0, router.sentTargets.size)
         assertEquals(0, messageRepo.findAllInRoom(roomId).size)
     }
@@ -855,7 +850,9 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendTextMessage(roomId, "hello")
 
-        assertEquals(SendMessageStatus.SUCCESS, result.status)
+        val sent = assertIs<SendTextResult.Sent>(result)
+        // The self fan-out (multi-device push) is excluded from the report.
+        assertEquals(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0), sent.fanout)
         // REMOVED rows never receive fan-out: only the local account is targeted.
         assertEquals(listOf(localAccount), router.sentTargets)
     }
@@ -872,10 +869,8 @@ class DefaultMessagingServiceTest {
 
         val result = service.sendTextMessage(roomId, "should not send")
 
-        assertEquals(SendMessageStatus.FAILURE, result.status)
-        assertEquals(SendFailureKind.NOT_A_MEMBER, result.failureKind)
-        assertEquals(0, result.peersTotal)
-        assertEquals(0, result.peersQueued)
+        val refused = assertIs<SendTextResult.Refused>(result)
+        assertEquals(SendRefusal.NotMember, refused.reason)
         assertTrue(router.sentTargets.isEmpty())
         assertTrue(messageRepo.byId.isEmpty())
     }
@@ -1214,13 +1209,13 @@ private class RecordingRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult {
+    ): AccountPushReport {
         sentTargets.add(target)
-        return SendMessageResult(
-            status = SendMessageStatus.SUCCESS,
-            peersTotal = 1,
-            peersQueued = 1,
-            failureKind = null,
+        return AccountPushReport(
+            devicesTotal = 1,
+            devicesQueued = 1,
+            devicesDeferred = 0,
+            devicesFailed = 0,
         )
     }
 

@@ -217,9 +217,9 @@ private class RecordingProjectorRouter : Router {
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
-    ): SendMessageResult {
+    ): AccountPushReport {
         sent.add(target to payload)
-        return SendMessageResult(SendMessageStatus.SUCCESS, 0, 0, null)
+        return AccountPushReport(devicesTotal = 0, devicesQueued = 0, devicesDeferred = 0, devicesFailed = 0)
     }
 
     override suspend fun sendTypingIndicator(

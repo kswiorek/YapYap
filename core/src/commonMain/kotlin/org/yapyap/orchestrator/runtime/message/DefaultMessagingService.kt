@@ -21,7 +21,9 @@ import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.concurrent.Volatile
 import kotlin.uuid.Uuid
 
@@ -228,7 +230,7 @@ internal class DefaultMessagingService(
     override suspend fun sendTextMessage(
         roomId: RoomId,
         text: String,
-    ): SendMessageResult {
+    ): SendTextResult {
         // Removal refusal: a removed local account cannot append to the room — the
         // GUI banner gates compose, and this refusal is the backend feedback
         // (docs/room events.md §3). Only a committed REMOVED row refuses: no row
@@ -241,12 +243,7 @@ internal class DefaultMessagingService(
                 message = "Text message not sent — local account removed from room",
                 fields = mapOf("roomId" to roomId),
             )
-            return SendMessageResult(
-                status = SendMessageStatus.FAILURE,
-                peersTotal = 0,
-                peersQueued = 0,
-                failureKind = SendFailureKind.NOT_A_MEMBER,
-            )
+            return SendTextResult.Refused(SendRefusal.NotMember)
         }
 
         val textBytes = text.encodeToByteArray()
@@ -261,12 +258,7 @@ internal class DefaultMessagingService(
                     "maxTextMessageBytes" to maxTextMessageBytes,
                 ),
             )
-            return SendMessageResult(
-                status = SendMessageStatus.FAILURE,
-                peersTotal = 0,
-                peersQueued = 0,
-                failureKind = SendFailureKind.TOO_LARGE,
-            )
+            return SendTextResult.Refused(SendRefusal.TooLarge)
         }
 
         val payload = try {
@@ -278,12 +270,7 @@ internal class DefaultMessagingService(
                 message = "Text message not sent — room holds messages but the chainable frontier is empty",
                 fields = mapOf("roomId" to roomId),
             )
-            return SendMessageResult(
-                status = SendMessageStatus.FAILURE,
-                peersTotal = 0,
-                peersQueued = 0,
-                failureKind = SendFailureKind.HISTORY_INCOMPLETE,
-            )
+            return SendTextResult.Refused(SendRefusal.HistoryIncomplete)
         }
 
         val members = roomRepository.membersOfRoom(roomId)
@@ -302,18 +289,17 @@ internal class DefaultMessagingService(
                     "messageId" to payload.messageId,
                 ),
             )
-            return SendMessageResult(
-                status = SendMessageStatus.SUCCESS,
-                peersTotal = 0,
-                peersQueued = 0,
-                failureKind = null,
-            )
+            return SendTextResult.Sent(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0))
         }
 
-        val results = coroutineScope {
+        // Fan out to ALL members — the local account's own other devices get the
+        // push (multi-device latency); the pull path converges them regardless.
+        // The report counts other members only (display-side self-exclusion, like
+        // typing indicators), paired by member so the self report drops out.
+        val reports = coroutineScope {
             members.map { member ->
                 async {
-                    router.sendMessage(member, payload)
+                    member to router.sendMessage(member, payload)
                 }
             }.awaitAll()
         }
@@ -329,7 +315,9 @@ internal class DefaultMessagingService(
             ),
         )
 
-        return aggregateRoomSendResults(results)
+        return SendTextResult.Sent(
+            aggregateFanout(reports.filter { it.first != localAccountId }.map { it.second }),
+        )
     }
 
     override suspend fun getMessage(messageId: Uuid): MessageDisplayItem? {
@@ -410,32 +398,17 @@ internal class DefaultMessagingService(
         return null
     }
 
-    private fun aggregateRoomSendResults(results: List<SendMessageResult>): SendMessageResult {
-        val totalPeers = results.sumOf { it.peersTotal }
-        val totalQueued = results.sumOf { it.peersQueued }
-        val allStatuses = results.map { it.status }
-
-        val aggregatedStatus = when {
-            allStatuses.all { it == SendMessageStatus.SUCCESS } -> SendMessageStatus.SUCCESS
-            allStatuses.all { it == SendMessageStatus.FAILURE } -> SendMessageStatus.FAILURE
-            else -> SendMessageStatus.PARTIAL
-        }
-
-        val aggregatedFailureKind = when (aggregatedStatus) {
-            SendMessageStatus.SUCCESS -> null
-            SendMessageStatus.FAILURE -> {
-                results.firstOrNull { it.failureKind != null }?.failureKind
-                    ?: SendFailureKind.MIXED
-            }
-
-            SendMessageStatus.PARTIAL -> SendFailureKind.MIXED
-        }
-
-        return SendMessageResult(
-            status = aggregatedStatus,
-            peersTotal = totalPeers,
-            peersQueued = totalQueued,
-            failureKind = aggregatedFailureKind,
+    /**
+     * Collapses per-member push reports into the send-time reachability snapshot.
+     * A member counts as queued with at least one device in the outbox now;
+     * everything else is pull-only (deferred, no devices, failed pushes).
+     */
+    private fun aggregateFanout(reports: List<AccountPushReport>): FanoutReport {
+        val queued = reports.count { it.devicesQueued > 0 }
+        return FanoutReport(
+            membersTotal = reports.size,
+            membersQueued = queued,
+            membersPullOnly = reports.size - queued,
         )
     }
 
