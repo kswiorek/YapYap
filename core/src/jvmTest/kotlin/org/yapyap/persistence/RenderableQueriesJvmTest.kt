@@ -69,7 +69,7 @@ class RenderableQueriesJvmTest {
     ): Uuid {
         seedLocalAccountAndDevice(connection!!.database, FixtureAccountId, FixtureDevicePeerId)
         DefaultIdentityKeyRepository(connection!!.database, DeviceType.DESKTOP).upsertChainAccount(
-            removed, null, false, IdentityStatus.ACTIVE, "removed",
+            removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
         )
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "boundary")
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
@@ -178,7 +178,7 @@ class RenderableQueriesJvmTest {
         // REMOVED row without a defining node (should not exist; fail closed).
         val nodeless = AccountId("nodeless-account")
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
-            nodeless, null, false, IdentityStatus.ACTIVE, "nodeless",
+            nodeless, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "nodeless",
         )
         rooms.upsertMember(room, nodeless, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, null)
         val nodelessMsg = textIn(room, nodeless, 7L)

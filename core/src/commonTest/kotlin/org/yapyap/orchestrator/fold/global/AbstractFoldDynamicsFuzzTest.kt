@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.fold.global
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -123,11 +124,19 @@ private fun genWorld(seed: Int): FuzzWorld {
     val attacker = 1 + r.nextInt(nDevices - 1)
     // Honest banner: an admin device, or a sibling of the attacker (own-account
     // path) — anything else would make the "honest" ban itself invalid.
+    // Owner-device protection: an off-account admin cannot ban an owner-account
+    // device, so an attacker on the genesis account is banned by a same-account
+    // sibling (own-account path — device 0 always qualifies). Anything else would
+    // make the "honest" ban itself invalid.
     // Device 0 (genesis account, always admin) guarantees a non-empty pool.
-    val banner = (
-            (0 until nDevices).filter { (deviceAccount[it] ?: -1) in admins } +
-                    (0 until nDevices).filter { it != attacker && deviceAccount[it] == deviceAccount[attacker] }
-            ).filter { it != attacker }.toSet().random(r)
+    val attackerAcct = deviceAccount.getValue(attacker)
+    val bannerPool = if (attackerAcct == 0) {
+        (0 until nDevices).filter { it != attacker && deviceAccount[it] == 0 }
+    } else {
+        (0 until nDevices).filter { (deviceAccount[it] ?: -1) in admins } +
+                (0 until nDevices).filter { it != attacker && deviceAccount[it] == attackerAcct }
+    }
+    val banner = bannerPool.filter { it != attacker }.toSet().random(r)
 
     // Honest ban with full ancestry.
     emit(banner, GlobalEventPayload.RemoveDevice(fuzzDevice(attacker)), frontier())
@@ -136,7 +145,7 @@ private fun genWorld(seed: Int): FuzzWorld {
     val stalePool = order.toList()
     repeat(r.nextInt(5)) {
         val stale = stalePool.shuffled(r).take(r.nextInt(stalePool.size + 1)).toSet()
-        when (r.nextInt(100)) {
+        when (r.nextInt(110)) {
             // Counter-ban of the banner by the attacker.
             in 0 until 40 -> emit(attacker, GlobalEventPayload.RemoveDevice(fuzzDevice(banner)), stale)
             // Third-party ban by attacker.
@@ -156,6 +165,23 @@ private fun genWorld(seed: Int): FuzzWorld {
             }
             // Backdated grant by attacker.
             in 75 until 90 -> emit(attacker, GlobalEventPayload.GrantAdmin(fuzzAccount(r.nextInt(nAccounts))), stale)
+            // Invalid owner handover (fail-closed shapes, all ignored whole — the owner
+            // never moves): no successor, self-successor, unknown successor, or a
+            // successor smuggled on a non-owner removal (poisons an otherwise valid
+            // removal — the banner authorizes it, so only the smuggle guard kills it).
+            // Stale or full ancestry; the oracle below pins the owner slot.
+            in 100 until 110 -> {
+                val ownerAcct = fuzzAccount(0)
+                val attackerAcct = fuzzAccount(deviceAccount.getValue(attacker))
+                val (target, succ, author) = when (r.nextInt(4)) {
+                    0 -> Triple(ownerAcct, null, attacker)
+                    1 -> Triple(ownerAcct, ownerAcct, attacker)
+                    2 -> Triple(ownerAcct, fuzzAccount(900 + r.nextInt(100)), attacker)
+                    else -> Triple(attackerAcct, ownerAcct, banner)
+                }
+                val anc = if (r.nextBoolean()) stale else frontier()
+                emit(author, GlobalEventPayload.RemoveAccount(target, succ), anc)
+            }
             // Sibling-revenge: attacker bans a same-account device.
             else -> {
                 val sibs = (0 until nDevices).filter {
@@ -206,6 +232,14 @@ class AbstractFoldDynamicsFuzzTest {
                     "seed $seed: attacker ${world.attacker} NOT banned in picked fixpoint " +
                             "bans=${result.bans} demotions=${result.demotions}",
                 )
+            }
+            // The owner slot is never empty and never leaves the genesis account
+            // (this fuzzer emits no RemoveAccount; the owner is irrevocable by others).
+            if (result.output.ownerAccountId != fuzzAccount(0)) {
+                fail("seed $seed: owner slot moved or empty: ${result.output.ownerAccountId}")
+            }
+            if (result.output.accounts[fuzzAccount(0)]?.role != AccountRole.OWNER) {
+                fail("seed $seed: genesis account lost the OWNER role")
             }
         }
         println("dynamics-fuzz: $seeds seeds, oscillations=$oscillations maxWalks=$maxWalks")

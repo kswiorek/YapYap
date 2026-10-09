@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.boot
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.key.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -44,7 +45,7 @@ class BootDiagnoserTest {
                     "test",
                     IdentityPublicKeyRecord("local", 0, IdentityKeyPurpose.SIGNING, accountSigning.publicKey),
                 ),
-                admin = false,
+                role = AccountRole.MEMBER,
                 provisional = provisional,
             )
             repo.insertLocalDevice(

@@ -183,6 +183,7 @@ private class TestIdentities : IdentityResolver {
     override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used")
     override suspend fun isLocalAccountAdmin(): Boolean = admin
+    override suspend fun isLocalAccountOwner(): Boolean = false
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = device.deviceId
@@ -358,10 +359,14 @@ class DefaultGlobalEventProjectorTest {
 
         assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(h.account.accountId))
         assertTrue(h.identityRepo.isAccountAdmin(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertEquals(h.account.accountId, h.identityRepo.getOwnerAccountId())
         assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
         assertEquals(listOf(h.account.accountId), h.roomRepo.membersOfRoom(RoomId.GLOBAL))
         assertContains(h.seen, IdentityStateChange.AccountAdded(h.account.accountId))
         assertContains(h.seen, IdentityStateChange.AdminGranted(h.account.accountId))
+        // The owner arrives with the network: no handover, no OwnerTransferred.
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
         assertContains(h.seen, IdentityStateChange.DeviceAdded(h.account.accountId, h.oldPhone.deviceId))
         for (row in h.messageRepo.findAllInRoom(RoomId.GLOBAL)) {
             assertEquals(VerificationState.VERIFIED, row.verificationState)
@@ -1184,7 +1189,7 @@ class DefaultGlobalEventProjectorTest {
     }
 
     @Test
-    fun counter_ban_backdated_forgery_bans_both() = runTest {
+    fun counter_ban_against_owner_device_kills_attacker_only() = runTest {
         val h = newHarness()
         h.startIn(backgroundScope)
         h.genesis()
@@ -1192,16 +1197,20 @@ class DefaultGlobalEventProjectorTest {
         val (_, deviceB) = h.secondAdminAccount()
         runCurrent()
 
-        // True order: B bans the old phone at the frontier.
+        // B (a grant-derived admin) bans the old phone (an OWNER device) at the
+        // frontier: admins cannot remove the owner's devices, so the ban is ignored
+        // whole — the owner's repair path survives.
         h.become(deviceB, admin = true)
         h.tickTo(13_000L)
         h.projector.publishRemoveDevice(h.oldPhone.deviceId)
         runCurrent()
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
 
-        // Forged counter-ban: positioned after device B exists (so the forgery is
-        // authorization-plausible and genuinely threatens the honest ban) but forked off
-        // the root (concurrent with it — outside its ancestry, as every post-hoc forgery
-        // is). Sorts before the honest ban, voids nothing.
+        // Forged counter-ban by the still-active old phone: positioned after device B
+        // exists (authorization-plausible) but forked off the root (concurrent with
+        // the ignored ban — outside its ancestry, as every post-hoc forgery is).
+        // No opposing pair forms (the ignored ban minted no seal): the owner's ban
+        // stands alone and the attacker falls.
         val forged = globalNode(
             crypto = h.crypto,
             author = h.oldPhone,
@@ -1212,12 +1221,61 @@ class DefaultGlobalEventProjectorTest {
         h.store(forged)
         runCurrent()
 
-        // Mutual destruction: the forgery is valid at its position (A still admin), and so
-        // is the real ban (B's adminship is independent of the forgery) — both banned.
-        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
         assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(deviceB.deviceId))
         assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
-        assertContains(h.seen, IdentityStateChange.DeviceRemoved(h.oldPhone.deviceId))
+        assertContains(h.seen, IdentityStateChange.DeviceRemoved(deviceB.deviceId))
+        assertTrue(h.seen.none {
+            it is IdentityStateChange.DeviceRemoved && it.deviceId == h.oldPhone.deviceId
+        })
+    }
+
+    @Test
+    fun counter_ban_grant_derived_mutual_destruction() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        // The duel runs between two grant-derived admins (the owner is exempt from
+        // mutual destruction, so neither side may hold the slot here).
+        val (_, deviceB) = h.secondAdminAccount()
+        runCurrent()
+        val accountC = newAccount(h.crypto, "admin-c")
+        val deviceC = newDevice(h.crypto, accountC, "device-c")
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(11_500L)
+        h.projector.publishSponsoredNewAccount(
+            inviteFor(deviceC, accountC, bindingSig(h.crypto, accountC, deviceC)),
+            grantAdmin = true,
+        )
+        runCurrent()
+
+        // True order: B bans C's device at the frontier.
+        h.become(deviceB, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(deviceC.deviceId)
+        runCurrent()
+
+        // Forged counter-ban: positioned after device B exists (so the forgery is
+        // authorization-plausible and genuinely threatens the honest ban) but forked off
+        // the root (concurrent with it — outside its ancestry, as every post-hoc forgery
+        // is). Sorts before the honest ban, voids nothing.
+        val forged = globalNode(
+            crypto = h.crypto,
+            author = deviceC,
+            prevIds = listOf(h.rootId()),
+            createdAt = epochSeconds(12_000L),
+            event = GlobalEventPayload.RemoveDevice(deviceB.deviceId),
+        )
+        h.store(forged)
+        runCurrent()
+
+        // Mutual destruction: the forgery is valid at its position (C still admin), and so
+        // is the real ban (B's adminship is independent of the forgery) — both banned.
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(deviceC.deviceId))
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(deviceB.deviceId))
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
+        assertContains(h.seen, IdentityStateChange.DeviceRemoved(deviceC.deviceId))
         assertContains(h.seen, IdentityStateChange.DeviceRemoved(deviceB.deviceId))
     }
 
@@ -1295,7 +1353,7 @@ class DefaultGlobalEventProjectorTest {
         val (accountB, deviceB) = h.secondAdminAccount()
         runCurrent()
         // Third admin C: the duel below runs between the two grant-derived admins
-        // (genesis itself is irrevocable).
+        // (the owner is irrevocable).
         val (accountC, deviceC) = h.secondAdminAccount()
         runCurrent()
 
@@ -1335,7 +1393,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
         val (accountB, deviceB) = h.secondAdminAccount()
         runCurrent()
-        // Third admin C: the banner (genesis itself is irrevocable, so the duel
+        // Third admin C: the banner (the owner is irrevocable, so the duel
         // runs between grant-derived admins).
         val (accountC, deviceC) = h.secondAdminAccount()
         runCurrent()
@@ -1383,7 +1441,7 @@ class DefaultGlobalEventProjectorTest {
             inviteFor(plainDevice, plainAccount, bindingSig(h.crypto, plainAccount, plainDevice)),
             grantAdmin = false,
         )
-        // Third admin C: demotes B (genesis itself is irrevocable, so the suite
+        // Third admin C: demotes B (the owner is irrevocable, so the suite
         // exercises demotion on a grant-derived admin).
         val accountC = newAccount(h.crypto, "admin-c")
         val deviceC = newDevice(h.crypto, accountC, "device-c")
@@ -1418,7 +1476,7 @@ class DefaultGlobalEventProjectorTest {
     }
 
     @Test
-    fun genesis_demotion_and_removal_are_ignored() = runTest {
+    fun owner_demotion_and_removal_are_ignored() = runTest {
         val h = newHarness()
         h.startIn(backgroundScope)
         h.genesis()
@@ -1431,12 +1489,337 @@ class DefaultGlobalEventProjectorTest {
         h.projector.publishRemoveAdmin(h.account.accountId)
         runCurrent()
         assertTrue(h.identityRepo.isAccountAdmin(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
 
         h.tickTo(14_000L)
         h.projector.publishRemoveAccount(h.account.accountId)
         runCurrent()
         assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(h.account.accountId))
         assertTrue(h.identityRepo.isAccountAdmin(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertEquals(h.account.accountId, h.identityRepo.getOwnerAccountId())
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+    }
+
+    /**
+     * Sponsors a plain member account (ACTIVE account + ACTIVE device, no admin).
+     * Resets the harness signer to the old phone; the caller owns the clock (tick
+     * before calling — the append stamps `clock.now()`).
+     */
+    private suspend fun Harness.sponsoredMember(name: String): Pair<TestAccount, TestDevice> {
+        val account = newAccount(crypto, name)
+        val device = newDevice(crypto, account, "$name-device")
+        become(oldPhone, admin = true)
+        projector.publishSponsoredNewAccount(
+            inviteFor(device, account, bindingSig(crypto, account, device)),
+            grantAdmin = false,
+        )
+        return account to device
+    }
+
+    private suspend fun Harness.removeAccountNodes(target: AccountId): List<Uuid> =
+        messageRepo.findAllInRoom(RoomId.GLOBAL).mapNotNull { row ->
+            val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+            if (event is GlobalEventPayload.RemoveAccount && event.targetAccountId == target) {
+                row.payload.messageId
+            } else {
+                null
+            }
+        }
+
+    @Test
+    fun owner_handover_transfers_owner_and_removes_leaver() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        h.tickTo(11_000L)
+        val (successorAccount, successorDevice) = h.sponsoredMember("successor")
+        runCurrent()
+
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, successorAccount.accountId)
+        runCurrent()
+
+        // Leaver tombstoned with all its devices; the successor is admin + owner
+        // atomically — one event, no zero-owner window.
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getAccountStatus(h.account.accountId))
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(successorAccount.accountId))
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(successorDevice.deviceId))
+        assertTrue(h.identityRepo.isAccountAdmin(successorAccount.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(successorAccount.accountId))
+        assertFalse(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertEquals(successorAccount.accountId, h.identityRepo.getOwnerAccountId())
+        assertContains(
+            h.seen,
+            IdentityStateChange.OwnerTransferred(h.account.accountId, successorAccount.accountId),
+        )
+        assertContains(h.seen, IdentityStateChange.AdminGranted(successorAccount.accountId))
+        assertContains(h.seen, IdentityStateChange.AccountRemoved(h.account.accountId))
+        assertContains(h.seen, IdentityStateChange.DeviceRemoved(h.oldPhone.deviceId))
+        assertEquals(listOf(successorAccount.accountId), h.roomRepo.membersOfRoom(RoomId.GLOBAL))
+    }
+
+    @Test
+    fun owner_leave_without_successor_is_noop() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(h.account.accountId)
+        runCurrent()
+
+        // The owner slot is never empty: the leaver stays OWNER and ACTIVE.
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertEquals(h.account.accountId, h.identityRepo.getOwnerAccountId())
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+        assertTrue(h.seen.none { it is IdentityStateChange.AccountRemoved })
+    }
+
+    @Test
+    fun handover_with_unknown_successor_is_noop() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, AccountId("ghost-account"))
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertEquals(
+            VerificationState.VERIFIED,
+            h.verdictOf(h.removeAccountNodes(h.account.accountId).single()),
+        )
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+    }
+
+    @Test
+    fun handover_with_self_successor_is_noop() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, h.account.accountId)
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+    }
+
+    @Test
+    fun handover_with_device_less_successor_is_noop() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        // A device-less ACTIVE account: sponsored AddAccount with no paired AddDevice
+        // (inert until a device lands — handing the slot to it would soft-lock the owner).
+        val ghostAccount = newAccount(h.crypto, "ghost")
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(11_000L)
+        h.store(
+            globalNode(
+                crypto = h.crypto,
+                author = h.oldPhone,
+                prevIds = h.frontier(),
+                createdAt = epochSeconds(11_000L),
+                event = addAccountEvent(ghostAccount),
+            ),
+        )
+        runCurrent()
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(ghostAccount.accountId))
+
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, ghostAccount.accountId)
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(h.account.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertFalse(h.identityRepo.isAccountOwner(ghostAccount.accountId))
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+    }
+
+    @Test
+    fun non_owner_remove_with_successor_is_ignored_whole() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        h.tickTo(11_000L)
+        val (plainAccount, _) = h.sponsoredMember("plain")
+        val (successorAccount, _) = h.sponsoredMember("successor")
+        runCurrent()
+        val (accountB, deviceB) = h.secondAdminAccount()
+        runCurrent()
+
+        // B is admin, so the removal alone would be valid — the smuggled successor
+        // field poisons it whole instead.
+        h.become(deviceB, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(plainAccount.accountId, successorAccount.accountId)
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(plainAccount.accountId))
+        assertFalse(h.identityRepo.isAccountOwner(successorAccount.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+        assertTrue(h.seen.none { it is IdentityStateChange.AccountRemoved })
+    }
+
+    @Test
+    fun admin_remove_device_of_owner_is_ignored() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        val (_, deviceB) = h.secondAdminAccount()
+        runCurrent()
+
+        h.become(deviceB, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(h.oldPhone.deviceId)
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+        assertTrue(h.seen.none {
+            it is IdentityStateChange.DeviceRemoved && it.deviceId == h.oldPhone.deviceId
+        })
+    }
+
+    @Test
+    fun competing_handovers_first_wins() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        h.tickTo(11_000L)
+        val (successor1, _) = h.sponsoredMember("successor-1")
+        val (successor2, _) = h.sponsoredMember("successor-2")
+        runCurrent()
+
+        // First handover lands; the second is authored by a now-removed account off a
+        // stale frontier — the leaver is already tombstoned at its position, so the
+        // duplicate is ignored (first in canonical order wins).
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, successor1.accountId)
+        runCurrent()
+        h.tickTo(14_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, successor2.accountId)
+        runCurrent()
+
+        assertTrue(h.identityRepo.isAccountOwner(successor1.accountId))
+        assertFalse(h.identityRepo.isAccountOwner(successor2.accountId))
+        assertEquals(successor1.accountId, h.identityRepo.getOwnerAccountId())
+        assertEquals(
+            listOf(
+                IdentityStateChange.OwnerTransferred(h.account.accountId, successor1.accountId),
+            ),
+            h.seen.filterIsInstance<IdentityStateChange.OwnerTransferred>(),
+        )
+    }
+
+    @Test
+    fun backdated_handover_by_banned_owner_device_is_ignored() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+        h.tickTo(11_000L)
+        val (successorAccount, _) = h.sponsoredMember("successor")
+        runCurrent()
+
+        // The owner device removes itself (own-account path — honored).
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(h.oldPhone.deviceId)
+        runCurrent()
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+
+        // A backdated handover by the banned device, forked off the root (outside the
+        // ban's ancestry, as every post-hoc forgery is) — the author cut voids it.
+        val forged = globalNode(
+            crypto = h.crypto,
+            author = h.oldPhone,
+            prevIds = listOf(h.rootId()),
+            createdAt = epochSeconds(12_000L),
+            event = GlobalEventPayload.RemoveAccount(h.account.accountId, successorAccount.accountId),
+        )
+        h.store(forged)
+        runCurrent()
+
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
+        assertTrue(h.identityRepo.isAccountOwner(h.account.accountId))
+        assertFalse(h.identityRepo.isAccountOwner(successorAccount.accountId))
+        assertTrue(h.seen.none { it is IdentityStateChange.OwnerTransferred })
+    }
+
+    @Test
+    fun backdated_handover_by_banned_successor_device_is_ignored() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        // Legitimate handover first: genesis A hands over to successor S.
+        h.tickTo(11_000L)
+        val (successorAccount, successorDevice) = h.sponsoredMember("successor")
+        // A second member T, for the forged handover to name (positionally valid).
+        h.tickTo(11_500L)
+        val (targetAccount, _) = h.sponsoredMember("target")
+        runCurrent()
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(12_000L)
+        h.projector.publishRemoveAccount(h.account.accountId, successorAccount.accountId)
+        runCurrent()
+        assertTrue(h.identityRepo.isAccountOwner(successorAccount.accountId))
+
+        // S discards its own device (own-account path — honored, seals).
+        h.become(successorDevice, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(successorDevice.deviceId)
+        runCurrent()
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(successorDevice.deviceId))
+
+        // A backdated handover by the banned successor device, forked off the root
+        // (outside the ban's ancestry, as every post-hoc forgery is). The carried
+        // tombstone must not kill the successor's own intro mid-loop — rule 2 governs
+        // re-entry, not the historical intro of an already-banned device — or the ban
+        // could never re-mint and the oscillation would keep the forged handover.
+        val forged = globalNode(
+            crypto = h.crypto,
+            author = successorDevice,
+            prevIds = listOf(h.rootId()),
+            createdAt = epochSeconds(12_500L),
+            event = GlobalEventPayload.RemoveAccount(successorAccount.accountId, targetAccount.accountId),
+        )
+        h.store(forged)
+        runCurrent()
+
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getAccountStatus(successorAccount.accountId))
+        assertTrue(h.identityRepo.isAccountOwner(successorAccount.accountId))
+        assertEquals(successorAccount.accountId, h.identityRepo.getOwnerAccountId())
+        assertFalse(h.identityRepo.isAccountOwner(targetAccount.accountId))
+        assertEquals(
+            listOf(IdentityStateChange.OwnerTransferred(h.account.accountId, successorAccount.accountId)),
+            h.seen.filterIsInstance<IdentityStateChange.OwnerTransferred>(),
+        )
     }
 
     @Test
@@ -1457,7 +1840,7 @@ class DefaultGlobalEventProjectorTest {
             grantAdmin = false,
         )
         // Third admin C so the demotion below targets a grant-derived admin
-        // (genesis itself is irrevocable).
+        // (the owner is irrevocable).
         val accountC = newAccount(h.crypto, "admin-c2")
         val deviceC = newDevice(h.crypto, accountC, "device-c2")
         h.tickTo(12_500L)
@@ -1492,7 +1875,7 @@ class DefaultGlobalEventProjectorTest {
     }
 
     @Test
-    fun granter_ban_cycle_resolves_against_attacker() = runTest {
+    fun owner_device_ban_ignored_own_retaliation_stands() = runTest {
         val h = newHarness()
         h.startIn(backgroundScope)
         h.genesis()
@@ -1518,7 +1901,8 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
         assertTrue(h.identityRepo.isAccountAdmin(accountX.accountId))
 
-        // True order: X bans the old phone at the frontier.
+        // X bans the old phone (an OWNER device) at the frontier: ignored whole —
+        // admins cannot remove the owner's devices.
         h.become(deviceX, admin = true)
         h.tickTo(13_000L)
         h.projector.publishRemoveDevice(h.oldPhone.deviceId)
@@ -1528,32 +1912,168 @@ class DefaultGlobalEventProjectorTest {
                 event is GlobalEventPayload.RemoveDevice && event.targetDeviceId == h.oldPhone.deviceId
             }.payload.messageId
         runCurrent()
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
 
-        // Retaliation: the old phone bans its sibling G — positionally valid (G's add
-        // synced long before), but forked off a stale frontier that excludes G's grant,
-        // so the grant is outside the ban's ancestry. Two self-consistent fixpoints;
-        // the oscillation tie-break keeps the maximal-revocation one.
+        // The old phone removes its sibling G (own-account path, unaffected by the
+        // ignored ban): the owner's housekeeping still works. Honest-shaped removal
+        // off the full frontier — everything the remover synced stays inside the
+        // (trivially single-revocation) seal, so third-party adminship is untouched.
+        val retaliation = globalNode(
+            crypto = h.crypto,
+            author = h.oldPhone,
+            prevIds = h.frontier(),
+            createdAt = epochSeconds(13_500L),
+            event = GlobalEventPayload.RemoveDevice(siblingG.deviceId),
+        )
+        h.store(retaliation)
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(siblingG.deviceId))
+        assertTrue(h.identityRepo.isAccountAdmin(accountX.accountId))
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(retaliation.messageId))
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(banXId))
+        assertContains(h.seen, IdentityStateChange.DeviceRemoved(siblingG.deviceId))
+    }
+
+    @Test
+    fun owner_narrow_removal_seals_outside_grant() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        // Sibling device G on the genesis account.
+        val siblingG = newDevice(h.crypto, h.account, "sibling-g")
+        h.tickTo(11_000L)
+        h.projector.publishOwnAccountDevice(inviteFor(siblingG))
+        runCurrent()
+
+        // Account X sponsored, then granted admin by G.
+        val accountX = newAccount(h.crypto, "x")
+        val deviceX = newDevice(h.crypto, accountX, "device-x")
+        h.tickTo(11_500L)
+        h.projector.publishSponsoredNewAccount(
+            inviteFor(deviceX, accountX, bindingSig(h.crypto, accountX, deviceX)),
+            grantAdmin = false,
+        )
+        h.become(siblingG, admin = true)
+        h.tickTo(12_000L)
+        h.projector.publishGrantAdmin(accountX.accountId)
+        runCurrent()
+        assertTrue(h.identityRepo.isAccountAdmin(accountX.accountId))
+
+        // X bans the old phone (an OWNER device) at the frontier: ignored whole.
+        h.become(deviceX, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(h.oldPhone.deviceId)
+        runCurrent()
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+
+        // Forgery-shaped removal of G off a stale fork: the grant sits outside the
+        // ban's ancestry, so the seal voids it — the standard seal collateral (§3),
+        // recoverable by re-grant. The owner exemption covers being targeted, not
+        // the collateral of owner-authored narrow bans: a single revocation folds
+        // stably with no oscillation to resurrect the grant.
         val gAddId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
             .first { row ->
                 val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
                 event is GlobalEventPayload.AddDevice && event.deviceId == siblingG.deviceId
             }.payload.messageId
-        val forged = globalNode(
+        val retaliation = globalNode(
             crypto = h.crypto,
             author = h.oldPhone,
             prevIds = listOf(gAddId),
             createdAt = epochSeconds(12_500L),
             event = GlobalEventPayload.RemoveDevice(siblingG.deviceId),
         )
+        h.store(retaliation)
+        runCurrent()
+
+        assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(siblingG.deviceId))
+        assertFalse(h.identityRepo.isAccountAdmin(accountX.accountId))
+        assertEquals(VerificationState.VERIFIED, h.verdictOf(retaliation.messageId))
+        assertContains(h.seen, IdentityStateChange.DeviceRemoved(siblingG.deviceId))
+        assertContains(h.seen, IdentityStateChange.AdminRevoked(accountX.accountId))
+    }
+
+    @Test
+    fun granter_ban_cycle_resolves_against_attacker() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        // The 6.2 cycle runs between grant-derived accounts only (no owner principal
+        // may appear: owner devices are unbannable and would dissolve the cycle).
+        // Granter G grants the banner X; the attacker A is a third admin.
+        val accountG = newAccount(h.crypto, "granter")
+        val deviceG = newDevice(h.crypto, accountG, "granter-device")
+        h.become(h.oldPhone, admin = true)
+        h.tickTo(11_000L)
+        h.projector.publishSponsoredNewAccount(
+            inviteFor(deviceG, accountG, bindingSig(h.crypto, accountG, deviceG)),
+            grantAdmin = true,
+        )
+        runCurrent()
+
+        val accountX = newAccount(h.crypto, "x")
+        val deviceX = newDevice(h.crypto, accountX, "device-x")
+        h.tickTo(11_500L)
+        h.projector.publishSponsoredNewAccount(
+            inviteFor(deviceX, accountX, bindingSig(h.crypto, accountX, deviceX)),
+            grantAdmin = false,
+        )
+        val accountA = newAccount(h.crypto, "attacker")
+        val deviceA = newDevice(h.crypto, accountA, "attacker-device")
+        h.tickTo(11_600L)
+        h.projector.publishSponsoredNewAccount(
+            inviteFor(deviceA, accountA, bindingSig(h.crypto, accountA, deviceA)),
+            grantAdmin = true,
+        )
+        h.become(deviceG, admin = true)
+        h.tickTo(12_000L)
+        h.projector.publishGrantAdmin(accountX.accountId)
+        runCurrent()
+        assertTrue(h.identityRepo.isAccountAdmin(accountX.accountId))
+
+        // True order: X bans the attacker at the frontier.
+        h.become(deviceX, admin = true)
+        h.tickTo(13_000L)
+        h.projector.publishRemoveDevice(deviceA.deviceId)
+        val banXId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
+            .first { row ->
+                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                event is GlobalEventPayload.RemoveDevice && event.targetDeviceId == deviceA.deviceId
+            }.payload.messageId
+        runCurrent()
+
+        // Retaliation: the attacker bans its granter G — positionally valid (G's grant
+        // synced long before), but forked off a stale frontier that excludes G's grant,
+        // so the grant is outside the ban's ancestry. Two self-consistent fixpoints;
+        // the oscillation tie-break keeps the maximal-revocation one.
+        val gAddId = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
+            .first { row ->
+                val event = (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+                event is GlobalEventPayload.AddDevice && event.deviceId == deviceG.deviceId
+            }.payload.messageId
+        val forged = globalNode(
+            crypto = h.crypto,
+            author = deviceA,
+            prevIds = listOf(gAddId),
+            createdAt = epochSeconds(12_500L),
+            event = GlobalEventPayload.RemoveDevice(deviceG.deviceId),
+        )
         h.store(forged)
         runCurrent()
 
         // The attacker is banned (its own revocation stands); the banner's adminship is
         // intact. Collateral, per the contested-principal-loses doctrine: the validly-
-        // positioned retaliation takes the innocent sibling G down with the attacker —
+        // positioned retaliation takes the innocent granter G down with the attacker —
         // griefing-only, auditable, recoverable by re-adding G with a fresh device id.
-        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
-        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(siblingG.deviceId))
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(deviceA.deviceId))
+        assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(deviceG.deviceId))
         assertTrue(h.identityRepo.isAccountAdmin(accountX.accountId))
         assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
         assertEquals(VerificationState.VERIFIED, h.verdictOf(banXId))
@@ -1589,6 +2109,7 @@ class DefaultGlobalEventProjectorTest {
         roles["sibling"] = h.identityRepo.getDeviceStatus(r.sibling.deviceId)?.name
         roles["extra"] = r.extraDevice?.let { h.identityRepo.getDeviceStatus(it.deviceId)?.name }
         roles["genesisAdmin"] = h.identityRepo.isAccountAdmin(r.genesisAccount.accountId).toString()
+        roles["genesisOwner"] = h.identityRepo.isAccountOwner(r.genesisAccount.accountId).toString()
         roles["extraAdmin"] =
             r.extraAccount?.let { h.identityRepo.isAccountAdmin(it.accountId).toString() }
         val verdicts = h.messageRepo.findAllInRoom(RoomId.GLOBAL)
@@ -1636,12 +2157,13 @@ class DefaultGlobalEventProjectorTest {
             runCurrent()
         }
 
-        // Banner: random admin device distinct from victim; victim: random genesis device.
-        // The genesis account is admin by definition, so d0/d1 always qualify as banners.
+        // Banner: the other genesis device — same account as the victim, so the honest
+        // ban always lands via the own-account path. A cross-account admin cannot ban
+        // an owner-account device (the ban would be ignored, the "banned" victim would
+        // stay ACTIVE, and the retaliation invariant under test would be void) — the
+        // optional a1 admin still feeds forgery variety below.
         val victim = if (random.nextBoolean()) d0 else d1
-        val candidates = mutableListOf(d0, d1)
-        if (a1Admin) candidates.add(e0!!)
-        val banner = candidates.filter { it.deviceId != victim.deviceId }.random(random)
+        val banner = if (victim.deviceId == d0.deviceId) d1 else d0
         h.become(banner, admin = true)
         h.tickTo(14_000L)
         h.projector.publishRemoveDevice(victim.deviceId)
@@ -1806,7 +2328,7 @@ class DefaultGlobalEventProjectorTest {
 
             // Two grant-derived admin accounts; demoter demotes the other; forged
             // counter-demotion, positioned after the target account exists, concurrent
-            // ancestry. (Genesis itself is irrevocable, so the duel avoids it.)
+            // ancestry. (The owner is irrevocable, so the duel avoids it.)
             val a1 = newAccount(crypto, "a1")
             val e0 = newDevice(crypto, a1, "e0")
             h.become(d0, admin = true)

@@ -152,7 +152,7 @@ class RoomFoldQueriesJvmTest {
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "members")
         val gone = AccountId("gone-account")
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
-            gone, null, false, IdentityStatus.ACTIVE, "gone",
+            gone, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "gone",
         )
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER)
         rooms.upsertMember(room, gone, RoomMemberRole.MEMBER)
@@ -198,7 +198,7 @@ class RoomFoldQueriesJvmTest {
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "active-only")
         val removed = AccountId("removed-account")
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
-            removed, null, false, IdentityStatus.ACTIVE, "removed",
+            removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
         )
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
         rooms.upsertMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)
@@ -217,7 +217,7 @@ class RoomFoldQueriesJvmTest {
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "statuses")
         val removed = AccountId("removed-account")
         DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
-            removed, null, false, IdentityStatus.ACTIVE, "removed",
+            removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
         )
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
         rooms.upsertMember(room, removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED)

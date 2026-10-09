@@ -49,6 +49,7 @@ class DatabaseFactory(
                 driver = driver,
                 accountsAdapter = Accounts.Adapter(
                     statusAdapter = EnumColumnAdapter(),
+                    roleAdapter = EnumColumnAdapter(),
                     account_idAdapter = AccountIdAdapter(),
                 ),
                 devicesAdapter = Devices.Adapter(

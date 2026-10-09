@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.fold.global
 
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
@@ -43,7 +44,7 @@ interface FoldCrypto {
 internal data class FoldAccount(
     val accountId: AccountId,
     val accountSigningPublicKey: ByteArray,
-    val isAdmin: Boolean,
+    val role: AccountRole,
     val status: IdentityStatus,
     /** Defining `AddAccount` node — the material source for the projector's commit. */
     val nodeId: Uuid,
@@ -65,6 +66,8 @@ internal data class FoldDevice(
 internal data class FoldOutput(
     val accounts: Map<AccountId, FoldAccount>,
     val devices: Map<PeerId, FoldDevice>,
+    /** The single ACTIVE OWNER account, or null pre-genesis (the slot is never empty after). */
+    val ownerAccountId: AccountId?,
 )
 
 /** Genesis root: the empty-`prevIds` `AddAccount` the DAG grew from. */
@@ -161,6 +164,9 @@ internal suspend fun replayFold(
 ): ReplayResult {
     val accounts = LinkedHashMap<AccountId, FoldAccount>()
     val devices = LinkedHashMap<PeerId, FoldDevice>()
+    // The owner slot: the genesis account initially, moved only by its own handover.
+    // Irrevocable by others — the network's repair path (mirrors the room tier's slot).
+    var owner: AccountId? = null
     // Validated (signer, account) AddAccount links — the branch-2 onboarding proof.
     val sponsorKeys = HashMap<Pair<PeerId, AccountId>, ByteArray>()
     val verdicts = HashMap<Uuid, VerificationState>()
@@ -176,6 +182,20 @@ internal suspend fun replayFold(
     // Merged revocation views: this walk's discoveries shadow the carried ones (identical
     // in the common case — the replay is deterministic over a fixed canonical order).
     fun demotionOf(account: AccountId): Uuid? = walkDemotions[account] ?: carriedDemotions[account]
+
+    // Shared removal projection for RemoveAccount and the owner handover: the account
+    // leaves ACTIVE with its role reset (admin-ness is meaningless while removed) and
+    // all its devices banned — a tombstone, never row deletion.
+    fun removeAccount(target: AccountId) {
+        val targetAcc = accounts.getValue(target)
+        accounts[target] =
+            targetAcc.copy(role = AccountRole.MEMBER, status = IdentityStatus.BANNED)
+        for ((deviceId, dev) in devices) {
+            if (dev.accountId == target && dev.status == IdentityStatus.ACTIVE) {
+                devices[deviceId] = dev.copy(status = IdentityStatus.BANNED)
+            }
+        }
+    }
 
     for (id in order) {
         val node = nodes.getValue(id)
@@ -262,7 +282,8 @@ internal suspend fun replayFold(
         fun effectiveAdmin(account: AccountId): Boolean {
             val acc = accounts[account] ?: return false
             if (acc.status != IdentityStatus.ACTIVE) return false
-            if (acc.isAdmin) return true
+            // OWNER implies admin authority (mirrors the room tier's role check).
+            if (acc.role.isAdmin) return true
             // Demoted only by a concurrent mutual revoker → still admin here;
             // settled demotions count.
             val walkSeal = walkDemotions[account]
@@ -305,14 +326,15 @@ internal suspend fun replayFold(
         when (event) {
             is GlobalEventPayload.AddAccount -> {
                 if (id == genesis?.nodeId) {
-                    // Genesis: admin by definition.
+                    // Genesis: owner by definition (and admin by implication).
                     accounts[event.accountId] = FoldAccount(
                         accountId = event.accountId,
                         accountSigningPublicKey = event.accountSigningPublicKey,
-                        isAdmin = true,
+                        role = AccountRole.OWNER,
                         status = IdentityStatus.ACTIVE,
                         nodeId = id,
                     )
+                    owner = event.accountId
                     sponsorKeys[authorId to event.accountId] = event.accountSigningPublicKey
                     verdicts[id] = VerificationState.VERIFIED
                     continue
@@ -333,7 +355,7 @@ internal suspend fun replayFold(
                 accounts[event.accountId] = FoldAccount(
                     accountId = event.accountId,
                     accountSigningPublicKey = event.accountSigningPublicKey,
-                    isAdmin = false,
+                    role = AccountRole.MEMBER,
                     status = IdentityStatus.ACTIVE,
                     nodeId = id,
                 )
@@ -361,11 +383,24 @@ internal suspend fun replayFold(
                     }
                 } else {
                     val binding = event.bindingBytes()
+                    // A carried tombstone kills re-entry adds — never the historical intro
+                    // of a device that is itself already carried-banned. The ban seal
+                    // re-applies to that device regardless (its events outside the ban's
+                    // ancestry stay cut, and any replayed ban re-bans it), so the intro is
+                    // history, not re-entry — but without the intro the device's authorship
+                    // un-resolves mid-loop and the ban can't re-mint, oscillating the
+                    // restart into the attacker's fixpoint (the handover + self-ban shape,
+                    // for the genesis owner and every successor alike). Fresh device ids
+                    // are never carried-banned, so rule 2 still governs re-entry; the
+                    // genesis self-intro is covered the same way whenever its device is
+                    // carried-banned, and by the structural pin below otherwise.
+                    val tombstoneExempt = event.deviceId in carriedBans
                     if (target == null) {
                         // Branch 2: same-signer AddAccount earlier in canonical order.
                         // Tombstoned accounts kill these at every position.
                         val sponsorKey = sponsorKeys[authorId to event.accountId]
-                        if (event.accountId in carriedTombstonedAccounts || sponsorKey == null ||
+                        if ((!tombstoneExempt && event.accountId in carriedTombstonedAccounts) ||
+                            sponsorKey == null ||
                             !crypto.verifyBinding(sponsorKey, binding, event.keySignature)
                         ) {
                             ignoreAdd()
@@ -373,8 +408,16 @@ internal suspend fun replayFold(
                         }
                     } else {
                         // Branch 3: account-key-authorized add (recovery relay, genesis intro).
+                        // The genesis self-intro is additionally pinned structurally (genesisKey +
+                        // id-derivation): it is the trust root's authenticity, and the whole
+                        // sponsorship chain of an honest handover resolves through it even when
+                        // the genesis device itself was only cascade-banned (no carried ban).
+                        val isGenesisIntro = genesisKey != null &&
+                                event.deviceId == genesisKey.deviceId &&
+                                event.signingPublicKey.contentEquals(genesisKey.signingPublicKey)
                         if (target.status != IdentityStatus.ACTIVE ||
-                            event.accountId in carriedTombstonedAccounts ||
+                            (!tombstoneExempt && !isGenesisIntro &&
+                                    event.accountId in carriedTombstonedAccounts) ||
                             !crypto.verifyBinding(
                                 target.accountSigningPublicKey,
                                 binding,
@@ -401,28 +444,29 @@ internal suspend fun replayFold(
                 val targetAcc = accounts[event.targetAccountId]
                 if (!authorIsShadow || authorAccountId == null || !effectiveAdmin(authorAccountId) ||
                     sealed(authorAccountId) ||
-                    targetAcc == null || targetAcc.status != IdentityStatus.ACTIVE
+                    targetAcc == null || targetAcc.status != IdentityStatus.ACTIVE ||
+                    targetAcc.role != AccountRole.MEMBER
                 ) {
                     verdicts[id] = VerificationState.VERIFIED
                     continue
                 }
-                accounts[event.targetAccountId] = targetAcc.copy(isAdmin = true)
+                accounts[event.targetAccountId] = targetAcc.copy(role = AccountRole.ADMIN)
                 verdicts[id] = VerificationState.VERIFIED
             }
 
             is GlobalEventPayload.RemoveAdmin -> {
                 val targetAcc = accounts[event.targetAccountId]
-                // Genesis account is irrevocable: no zero-admin network.
+                // The owner is irrevocable: no forgery can strip the network's repair path.
                 if (!authorIsShadow || authorAccountId == null ||
                     targetAcc == null || targetAcc.status != IdentityStatus.ACTIVE ||
-                    event.targetAccountId == genesis?.accountId ||
+                    targetAcc.role != AccountRole.ADMIN ||
                     !effectiveAdmin(authorAccountId) ||
                     sealed(authorAccountId)
                 ) {
                     verdicts[id] = VerificationState.VERIFIED
                     continue
                 }
-                accounts[event.targetAccountId] = targetAcc.copy(isAdmin = false)
+                accounts[event.targetAccountId] = targetAcc.copy(role = AccountRole.MEMBER)
                 // First in canonical order defines the seal (§3).
                 if (event.targetAccountId !in walkDemotions) {
                     walkDemotions[event.targetAccountId] = id
@@ -434,19 +478,29 @@ internal suspend fun replayFold(
                 val target = devices[event.targetDeviceId]
                 val ownAccount = authorAccountId != null && target != null &&
                         authorAccountId == target.accountId
+                // Admins cannot remove the owner's devices (the owner's repair path, §3);
+                // the owner removes their own via the own-account branch below.
                 val adminPath = authorIsShadow && authorAccountId != null &&
-                        effectiveAdmin(authorAccountId) && !sealed(authorAccountId)
-                if (!authorIsShadow || (!adminPath && !ownAccount) ||
-                    target == null || target.status != IdentityStatus.ACTIVE
-                ) {
+                        effectiveAdmin(authorAccountId) && !sealed(authorAccountId) &&
+                        target?.accountId != owner
+                if (!authorIsShadow || (!adminPath && !ownAccount) || target == null) {
+                    verdicts[id] = VerificationState.VERIFIED
+                    continue
+                }
+                // The ban seals even when its target is already dead: a backdated
+                // forgery that pre-kills the target (the owner handover cascade-banning
+                // the self-ban's device) must not void the seal — the seal is defined
+                // by the ban's own vouching set, not by its effect. First in canonical
+                // order still defines it. (Unknown targets stay pure no-ops: a ban of a
+                // never-existent device seals nothing.)
+                if (event.targetDeviceId !in walkBans) {
+                    walkBans[event.targetDeviceId] = id
+                }
+                if (target.status != IdentityStatus.ACTIVE) {
                     verdicts[id] = VerificationState.VERIFIED
                     continue
                 }
                 devices[event.targetDeviceId] = target.copy(status = IdentityStatus.BANNED)
-                // First in canonical order defines the cut (§3).
-                if (event.targetDeviceId !in walkBans) {
-                    walkBans[event.targetDeviceId] = id
-                }
                 verdicts[id] = VerificationState.VERIFIED
             }
 
@@ -455,21 +509,46 @@ internal suspend fun replayFold(
                 val ownAccount = authorAccountId != null && authorAccountId == event.targetAccountId
                 val adminPath = authorIsShadow && authorAccountId != null &&
                         effectiveAdmin(authorAccountId) && !sealed(authorAccountId)
-                // Genesis account is irrevocable: no zero-admin network.
                 if (!authorIsShadow || (!adminPath && !ownAccount) ||
-                    targetAcc == null || targetAcc.status != IdentityStatus.ACTIVE ||
-                    event.targetAccountId == genesis?.accountId
+                    targetAcc == null || targetAcc.status != IdentityStatus.ACTIVE
                 ) {
                     verdicts[id] = VerificationState.VERIFIED
                     continue
                 }
-                accounts[event.targetAccountId] =
-                    targetAcc.copy(isAdmin = false, status = IdentityStatus.BANNED)
-                for ((deviceId, dev) in devices) {
-                    if (dev.accountId == event.targetAccountId && dev.status == IdentityStatus.ACTIVE) {
-                        devices[deviceId] = dev.copy(status = IdentityStatus.BANNED)
+                val successor = event.successorAccountId
+                if (successor != null) {
+                    // Owner handover: honored only as the owner's own removal carrying a
+                    // valid successor — ACTIVE, not the leaver, holding at least one
+                    // ACTIVE device at this position (a device-less successor would
+                    // soft-lock the slot behind an inert account). Any other
+                    // RemoveAccount carrying a successor is ignored whole (the field is
+                    // owner-only — no smuggling); a failed handover leaves the removal
+                    // unhonored too (the owner slot is never empty).
+                    val successorAcc = accounts[successor]
+                    val successorHasDevice = devices.values.any {
+                        it.accountId == successor && it.status == IdentityStatus.ACTIVE
                     }
+                    if (!ownAccount || event.targetAccountId != owner ||
+                        successor == event.targetAccountId ||
+                        successorAcc == null || successorAcc.status != IdentityStatus.ACTIVE ||
+                        !successorHasDevice
+                    ) {
+                        verdicts[id] = VerificationState.VERIFIED
+                        continue
+                    }
+                    accounts[successor] = successorAcc.copy(role = AccountRole.OWNER)
+                    owner = successor
+                    removeAccount(event.targetAccountId)
+                    verdicts[id] = VerificationState.VERIFIED
+                    continue
                 }
+                // The owner is irrevocable by others, and the owner's own leave without a
+                // valid successor is a no-op — the owner slot is never empty.
+                if (event.targetAccountId == owner) {
+                    verdicts[id] = VerificationState.VERIFIED
+                    continue
+                }
+                removeAccount(event.targetAccountId)
                 verdicts[id] = VerificationState.VERIFIED
             }
         }
@@ -491,6 +570,9 @@ internal suspend fun replayFold(
         output = FoldOutput(
             accounts = accounts.filterValues { it.status == IdentityStatus.ACTIVE },
             devices = devices.filterValues { it.status == IdentityStatus.ACTIVE },
+            ownerAccountId = accounts.values
+                .firstOrNull { it.status == IdentityStatus.ACTIVE && it.role == AccountRole.OWNER }
+                ?.accountId,
         ),
         verdicts = verdicts,
         tombstonedAccounts = tombstonedAccounts,

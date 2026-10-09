@@ -25,8 +25,8 @@ flowchart TD
     D4 -- " no: REJECTED + poison " --> REJECTED
     D4 -- yes --> D5{"Author cut? (carried ban sealing<br/>its ancestry-exterior, or sequential<br/>walk ban; self + direct opponent exempt)"}
     D5 -- " yes: ignored, stored VERIFIED " --> IGNORED["ignored, VERIFIED<br/>(authentic, no effect)"]
-    D5 -- no --> D6{"Admin-gated and sealed? (carried/sequential<br/>demotion sealing its interval; direct<br/>opponent exempt; genesis never demoted)"}
+    D5 -- no --> D6{"Admin-gated and sealed? (carried/sequential<br/>demotion sealing its interval; direct<br/>opponent exempt; owner never demoted)"}
     D6 -- " yes: ignored, stored VERIFIED " --> IGNORED
-    D6 -- no --> D7{"Positional authorization holds?<br/>(genesis RemoveAdmin/RemoveAccount ignored)"}
+    D6 -- no --> D7{"Positional authorization holds?<br/>(owner RemoveAdmin/RemoveAccount ignored;<br/>admin RemoveDevice of owner devices ignored;<br/>owner leave needs a valid successor)"}
     D7 -- " no: ignored, stored VERIFIED " --> IGNORED
     D7 -- " yes: apply to shadow state, VERIFIED,<br/>record bans / demotions / tombstones " --> APPLY["VERIFIED + effect"]

@@ -32,6 +32,9 @@ interface IdentityResolver {
 
     suspend fun isLocalAccountAdmin(): Boolean
 
+    /** Local account's owner flag (false when absent) — the self-leave handover gate. */
+    suspend fun isLocalAccountOwner(): Boolean
+
     suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray
 
     suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray

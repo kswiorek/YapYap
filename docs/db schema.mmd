@@ -12,7 +12,7 @@ erDiagram
 
     ACCOUNTS {
         string account_pub_key PK "The mathematically unique, constant ID"
-        boolean is_admin "RBAC: Can issue bans?"
+        string role "MEMBER, ADMIN, or OWNER (owner = repair path, irrevocable)"
         string status "ACTIVE or BANNED"
         string display_name "Visible to users, changeable (e.g., 'Alice')"
     }

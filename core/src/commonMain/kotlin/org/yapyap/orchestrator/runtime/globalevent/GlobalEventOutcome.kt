@@ -28,4 +28,17 @@ sealed interface GlobalEventRefusal {
 
     /** Newcomer onboarding in flight — the fold has not anchored the local device yet. */
     data object OnboardingActive : GlobalEventRefusal
+
+    /** Malformed owner-handover shapes (fail-closed, mirroring the room tier's
+     * `InvalidSuccessor`): the owner leaving without a successor, an unknown/inactive/
+     * device-less successor, the leaver as successor, or a successor on a non-owner leave. */
+    data object InvalidSuccessor : GlobalEventRefusal
+
+    /** Admin op targeting the owner or the owner's devices (irrevocable — the network's
+     * repair path). The owner acts on their own account via the self-service paths. */
+    data object OwnerIrrevocable : GlobalEventRefusal
+
+    /** Removing the account's last confirmed device without proving possession of the
+     * recovery key — the GUI gates this on `verifyRecoveryKey`. */
+    data object RecoveryKeyRequired : GlobalEventRefusal
 }

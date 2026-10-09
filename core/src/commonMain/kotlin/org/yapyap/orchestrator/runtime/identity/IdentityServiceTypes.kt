@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.runtime.identity
 
 import org.yapyap.crypto.identity.AccountId
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
@@ -10,7 +11,8 @@ import kotlin.time.Instant
 data class AccountView(
     val accountId: AccountId,
     val displayName: String,
-    val isAdmin: Boolean,
+    /** Chain-derived network role (MEMBER / ADMIN / OWNER); OWNER implies admin authority. */
+    val role: AccountRole,
     /** Chain-derived membership status (ACTIVE / BANNED / UNBOUND). */
     val status: IdentityStatus,
     val isLocal: Boolean,

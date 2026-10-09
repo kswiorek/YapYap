@@ -3,6 +3,7 @@ package org.yapyap.crypto.identity
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.*
 import org.yapyap.protocol.DeviceType
@@ -149,7 +150,7 @@ class DefaultIdentityOrchestrationTest {
             )
         repo.insertPeerAccount(
             identity = acc,
-            admin = false,
+            role = AccountRole.MEMBER,
             status = IdentityStatus.ACTIVE,
             displayName = acc.displayName,
         )
@@ -178,6 +179,33 @@ class DefaultIdentityOrchestrationTest {
         assertEquals(original.accountId, resolved.accountId)
         assertEquals("Recover Me", resolved.displayName)
         assertTrue(targetResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING).isNotEmpty())
+    }
+
+    @Test
+    fun provisioning_verifyRecoveryKey_acceptsOwnKey() = runTest {
+        val (_, _, source) = stack()
+        val (_, sourceProvisioning) = source
+
+        sourceProvisioning.createNewAccountIdentity(displayName = "Verify Me")
+        val recoveryKey = sourceProvisioning.exportLocalAccountRecoveryKey()
+
+        assertTrue(sourceProvisioning.verifyRecoveryKey(recoveryKey))
+    }
+
+    @Test
+    fun provisioning_verifyRecoveryKey_rejectsMalformedAndForeignKeys() = runTest {
+        val (_, _, source) = stack()
+        val (_, sourceProvisioning) = source
+        sourceProvisioning.createNewAccountIdentity(displayName = "Verify Me")
+
+        assertFalse(sourceProvisioning.verifyRecoveryKey("not-a-recovery-key"))
+
+        val (_, _, other) = stack()
+        val (_, otherProvisioning) = other
+        otherProvisioning.createNewAccountIdentity(displayName = "Someone Else")
+        val foreignKey = otherProvisioning.exportLocalAccountRecoveryKey()
+
+        assertFalse(sourceProvisioning.verifyRecoveryKey(foreignKey))
     }
 
     @Test

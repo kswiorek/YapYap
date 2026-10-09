@@ -91,7 +91,7 @@ private class NoopGlobalEventProjector : GlobalEventProjector {
     override suspend fun publishRelayedDevice(request: RecoveryRequest) = Unit
     override suspend fun publishGrantAdmin(targetAccountId: AccountId) = Unit
     override suspend fun publishRemoveAdmin(targetAccountId: AccountId) = Unit
-    override suspend fun publishRemoveAccount(targetAccountId: AccountId) = Unit
+    override suspend fun publishRemoveAccount(targetAccountId: AccountId, successorAccountId: AccountId?) = Unit
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = Unit
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = emptyList()
 }

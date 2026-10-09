@@ -320,6 +320,7 @@ class FakeIdentityResolver(
     private val localDeviceId: PeerId,
     private val accountByDevice: Map<PeerId, AccountId> = emptyMap(),
     private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
+    private val localOwner: Boolean = false,
 ) : IdentityResolver {
     override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
     override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
@@ -327,6 +328,7 @@ class FakeIdentityResolver(
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         accountStatuses[accountId]
     override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
+    override suspend fun isLocalAccountOwner(): Boolean = localOwner
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = localDeviceId

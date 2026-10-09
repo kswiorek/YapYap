@@ -2,6 +2,7 @@ package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.DeviceType
@@ -42,13 +43,13 @@ internal class InMemoryIdentityKeyRepository(
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
     val devices = mutableMapOf<String, DeviceIdentityRecord>()
     val identityStatuses = mutableMapOf<String, IdentityStatus>()
-    val accountAdmins = mutableMapOf<String, Boolean>()
+    val accountRoles = mutableMapOf<String, AccountRole>()
     val deviceStatuses = mutableMapOf<String, IdentityStatus>()
     val provisionalDevices = mutableSetOf<String>()
     val provisionalAccounts = mutableSetOf<String>()
     var localDevice: DeviceIdentityRecord? = null
     var localAccount: AccountIdentityRecord? = null
-    var localAdmin: Boolean = false
+    var localRole: AccountRole = AccountRole.MEMBER
     private val signedPreKeys = mutableMapOf<String, SignedPreKeyRecord>()
     private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
     private val deviceToAccount = mutableMapOf<String, String>()
@@ -67,7 +68,7 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun upsertChainAccount(
         accountId: AccountId,
         accountSigningPublicKey: ByteArray?,
-        isAdmin: Boolean,
+        role: AccountRole,
         status: IdentityStatus,
         displayName: String,
     ) {
@@ -81,9 +82,9 @@ internal class InMemoryIdentityKeyRepository(
         } ?: accounts[accountId.id]?.key
         accounts[accountId.id] = AccountIdentityRecord(accountId, displayName, key)
         identityStatuses[accountId.id] = status
-        accountAdmins[accountId.id] = isAdmin
+        accountRoles[accountId.id] = role
         provisionalAccounts.remove(accountId.id)
-        if (localAccount?.accountId == accountId) localAdmin = isAdmin
+        if (localAccount?.accountId == accountId) localRole = role
     }
 
     override suspend fun upsertChainDevice(
@@ -127,6 +128,8 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun tombstoneAccount(accountId: AccountId) {
         if (!accounts.containsKey(accountId.id)) return
         identityStatuses[accountId.id] = IdentityStatus.BANNED
+        accountRoles[accountId.id] = AccountRole.MEMBER
+        if (localAccount?.accountId == accountId) localRole = AccountRole.MEMBER
         provisionalAccounts.remove(accountId.id)
     }
 
@@ -195,18 +198,30 @@ internal class InMemoryIdentityKeyRepository(
         }
     }
 
-    override suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean, provisional: Boolean) {
+    override suspend fun insertLocalAccount(
+        identity: AccountIdentityRecord,
+        role: AccountRole,
+        provisional: Boolean,
+    ) {
         localAccount = identity
-        localAdmin = admin
+        localRole = role
         accounts[identity.accountId.id] = identity
-        accountAdmins[identity.accountId.id] = admin
+        accountRoles[identity.accountId.id] = role
         if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
 
-    override suspend fun isLocalAccountAdmin(): Boolean = localAdmin
+    override suspend fun isLocalAccountAdmin(): Boolean = localRole.isAdmin
+
+    override suspend fun isLocalAccountOwner(): Boolean = localRole == AccountRole.OWNER
 
     override suspend fun isAccountAdmin(accountId: AccountId): Boolean =
-        accountAdmins[accountId.id] ?: false
+        accountRoles[accountId.id]?.isAdmin ?: false
+
+    override suspend fun isAccountOwner(accountId: AccountId): Boolean =
+        accountRoles[accountId.id] == AccountRole.OWNER
+
+    override suspend fun getOwnerAccountId(): AccountId? =
+        accountRoles.entries.firstOrNull { it.value == AccountRole.OWNER }?.let { AccountId(it.key) }
 
     override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
         val d = devices[deviceId.id] ?: return null
@@ -232,14 +247,14 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun insertPeerAccount(
         identity: AccountIdentityRecord,
-        admin: Boolean,
+        role: AccountRole,
         status: IdentityStatus,
         displayName: String,
         provisional: Boolean,
     ) {
         accounts[identity.accountId.id] = identity
         identityStatuses[identity.accountId.id] = status
-        accountAdmins[identity.accountId.id] = admin
+        accountRoles[identity.accountId.id] = role
         if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
 
@@ -331,11 +346,11 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun seedProvisionalPeerAccount(
         identity: AccountIdentityRecord,
-        admin: Boolean,
+        role: AccountRole,
         displayName: String,
     ) {
         if (accounts.containsKey(identity.accountId.id)) return
-        insertPeerAccount(identity, admin, IdentityStatus.ACTIVE, displayName, provisional = true)
+        insertPeerAccount(identity, role, IdentityStatus.ACTIVE, displayName, provisional = true)
         provisionalAccounts.add(identity.accountId.id)
     }
 

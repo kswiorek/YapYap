@@ -28,7 +28,7 @@ sealed interface GlobalEventPayload {
      * devices is inert — it becomes operational only when a paired [AddDevice] lands.
      *
      * The genesis variant is structural, not a flag: the AddAccount whose DAG node has
-     * `prevId == null` is admin by definition (§3) and its pub key is the network's trust root.
+     * `prevId == null` is owner by definition (§3) and its pub key is the network's trust root.
      *
      * [accountId] is derivable from [accountSigningPublicKey] (`accountIdFromPublicKey`); it is
      * carried explicitly for decode-time readability and asserted by the fold.
@@ -203,8 +203,9 @@ sealed interface GlobalEventPayload {
     }
 
     /**
-     * Grants admin to [targetAccountId]. Valid iff the inserter's account `is_admin` at that fold
-     * position. Admin status is derived from the log — never a field of [AddAccount].
+     * Grants admin to [targetAccountId]. Valid iff the inserter's account has an admin role
+     * (ADMIN or OWNER) at that fold position. Admin status is derived from the log — never
+     * a field of [AddAccount].
      */
     data class GrantAdmin(val targetAccountId: AccountId) : GlobalEventPayload {
         override val kind: GlobalEventKind = GlobalEventKind.GRANT_ADMIN
@@ -256,16 +257,26 @@ sealed interface GlobalEventPayload {
     /**
      * Removes [targetAccountId] and all its devices (status flip to tombstone, never row
      * deletion — the keys must stay resolvable for historical verification). Valid iff the
-     * inserter's account `is_admin` at that fold position, OR the inserter belongs to
+     * inserter's account has an admin role at that fold position, OR the inserter belongs to
      * [targetAccountId] (own-account removal; non-admins can remove their own account).
+     *
+     * [successorAccountId] is the owner handover (§3): the owner's own removal carrying a
+     * successor transfers OWNER (+ admin) to the successor atomically in the same event.
+     * The field is owner-only — any other `RemoveAccount` carrying one is ignored whole
+     * (no smuggling) — and the successor must be ACTIVE with at least one ACTIVE device
+     * at that fold position, else the whole event (removal included) is ignored.
      */
-    data class RemoveAccount(val targetAccountId: AccountId) : GlobalEventPayload {
+    data class RemoveAccount(
+        val targetAccountId: AccountId,
+        val successorAccountId: AccountId? = null,
+    ) : GlobalEventPayload {
         override val kind: GlobalEventKind = GlobalEventKind.REMOVE_ACCOUNT
 
         override fun encode(): ByteArray {
-            val writer = ByteWriter(64)
+            val writer = ByteWriter(64 + (successorAccountId?.id?.length ?: 0))
             writer.writeByte(kind.wireValue)
             writer.writeString(targetAccountId.id)
+            writer.writeNullableString(successorAccountId?.id)
             return writer.toByteArray()
         }
 
@@ -276,15 +287,18 @@ sealed interface GlobalEventPayload {
                     "Expected REMOVE_ACCOUNT event kind"
                 }
                 val targetAccountId = AccountId(reader.readString())
+                val successorAccountId = reader.readNullableString()?.let { AccountId(it) }
                 reader.requireFullyRead()
-                return RemoveAccount(targetAccountId)
+                return RemoveAccount(targetAccountId, successorAccountId)
             }
         }
     }
 
     /**
      * Removes [targetDeviceId] (status flip to tombstone). Valid iff the inserter's account
-     * `is_admin` at that fold position, OR the inserter belongs to the target device's account.
+     * has an admin role at that fold position — except against the OWNER's devices, which
+     * admins cannot remove (the owner's repair path; §3) — OR the inserter belongs to the
+     * target device's account (own-device removal, OWNER included).
      * Re-adding after removal requires a fresh key set (new device id) — removal is a ban.
      */
     data class RemoveDevice(val targetDeviceId: PeerId) : GlobalEventPayload {

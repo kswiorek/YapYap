@@ -431,6 +431,9 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("FakeIdentityResolverForRouter: admin flag not stubbed")
 
+    override suspend fun isLocalAccountOwner(): Boolean =
+        error("FakeIdentityResolverForRouter: owner flag not stubbed")
+
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
@@ -621,6 +624,9 @@ internal class E2eeIdentityResolverForRouter(
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("E2eeIdentityResolverForRouter: admin flag not stubbed")
+
+    override suspend fun isLocalAccountOwner(): Boolean =
+        error("E2eeIdentityResolverForRouter: owner flag not stubbed")
 
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         when (purpose) {

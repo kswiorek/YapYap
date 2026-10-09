@@ -41,6 +41,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.availability.DefaultPeerAvailabilityStore
 import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.db.RoomMemberRole
@@ -209,7 +210,8 @@ class DefaultOrchestrator(
         // are cleared through it after init(), before a new session begins.
         when (intent) {
             is SetupIntent.Genesis -> {
-                val account = identityProvisioning.createNewAccountIdentity(intent.accountName, admin = true)
+                val account =
+                    identityProvisioning.createNewAccountIdentity(intent.accountName, role = AccountRole.OWNER)
                 val device = identityProvisioning.createNewDeviceIdentity()
                 val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
                 _state.value = OrchestratorState.Starting
@@ -218,10 +220,10 @@ class DefaultOrchestrator(
                 roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
                 _state.value = OrchestratorState.Running
 
-                // Genesis: append AddAccount (DAG root, prevId == null — admin by definition, §3)
+                // Genesis: append AddAccount (DAG root, prevId == null — owner by definition, §3)
                 // + AddDevice self-introduction, then fold immediately. The account key is online
                 // here (fresh provisioning), so the binding signature is computed locally.
-                // is_admin is seeded true in the local accounts row already so the GUI can rely
+                // The role is seeded OWNER in the local accounts row already so the GUI can rely
                 // on it; the projector's fold owns this column once it lands.
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 val genesisKeySignature = cryptoProvider.signDetached(
@@ -259,8 +261,8 @@ class DefaultOrchestrator(
                 val tor = identityResolver.resolveTorEndpointForDevice(device.deviceId)
                 _state.value = OrchestratorState.Running
 
-                // Join-existing-network path: always produces a sponsor invite (is_admin seeded
-                // false, projector-corrected). The provider persists the secret, enters
+                // Join-existing-network path: always produces a sponsor invite (role seeded
+                // MEMBER, projector-corrected). The provider persists the secret, enters
                 // AWAITING_INTRO, and arms the timer. The newcomer's account key signs the device
                 // binding — the sponsor relays it as the AddDevice key_signature (branch 2).
                 val secret = cryptoProvider.randomBytes(32)
@@ -629,6 +631,7 @@ class DefaultOrchestrator(
                 configStore = configStore,
                 onboardingProvider = onboardingProvider,
                 identityKeyRepository = identityRepo,
+                identityProvisioning = identityProvisioning,
                 cryptoProvider = cryptoProvider,
                 globalEventProjector = projector,
                 roomEventProjector = roomEventProjector,

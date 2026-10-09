@@ -14,10 +14,7 @@ import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
-import org.yapyap.persistence.db.VerificationState
+import org.yapyap.persistence.db.*
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.persistence.messaging.RoomRecord
@@ -155,7 +152,8 @@ private class FakeGlobalEventProjector : GlobalEventProjector {
     override suspend fun publishRelayedDevice(request: RecoveryRequest) = error("not used")
     override suspend fun publishGrantAdmin(targetAccountId: AccountId) = error("not used")
     override suspend fun publishRemoveAdmin(targetAccountId: AccountId) = error("not used")
-    override suspend fun publishRemoveAccount(targetAccountId: AccountId) = error("not used")
+    override suspend fun publishRemoveAccount(targetAccountId: AccountId, successorAccountId: AccountId?) =
+        error("not used")
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = error("not used")
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = error("not used")
 }
@@ -261,7 +259,7 @@ private class Harness {
     /** Simulates a GLOBAL commit landing identity (the deferral counterpart). */
     suspend fun known(vararg accounts: AccountId) {
         for (account in accounts) {
-            identityRepo.upsertChainAccount(account, null, false, IdentityStatus.ACTIVE, account.id)
+            identityRepo.upsertChainAccount(account, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, account.id)
         }
     }
 

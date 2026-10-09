@@ -47,6 +47,9 @@ internal class TestIdentityResolver(
     override suspend fun isLocalAccountAdmin(): Boolean =
         error("not used in crypto session tests")
 
+    override suspend fun isLocalAccountOwner(): Boolean =
+        error("not used in crypto session tests")
+
     override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
         when (purpose) {
             IdentityKeyPurpose.ENCRYPTION -> local.encryptionPrivateKey

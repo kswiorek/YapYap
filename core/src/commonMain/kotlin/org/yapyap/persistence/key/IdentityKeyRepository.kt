@@ -1,6 +1,7 @@
 package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.*
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
@@ -16,7 +17,7 @@ interface IdentityKeyRepository {
     suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus?
 
     /**
-     * Projector commit write: upserts the chain-derived account columns (pub key, admin, status,
+     * Projector commit write: upserts the chain-derived account columns (pub key, role, status,
      * display name) and clears `provisional` (the fold now carries the Add event). Preserves
      * local-only columns (`is_local_account`, key id/version bookkeeping — minted as chain
      * placeholders when the row is fresh).
@@ -24,7 +25,7 @@ interface IdentityKeyRepository {
     suspend fun upsertChainAccount(
         accountId: AccountId,
         accountSigningPublicKey: ByteArray?,
-        isAdmin: Boolean,
+        role: AccountRole,
         status: IdentityStatus,
         displayName: String,
     )
@@ -61,11 +62,20 @@ interface IdentityKeyRepository {
 
     suspend fun getLocalAccountRecord(): AccountIdentityRecord?
 
-    /** Local account's admin flag (false when absent) — the sponsor's fail-fast read. Chain-owned; seeded locally, projector-corrected. */
+    /** Local account's admin flag (false when absent; OWNER implies admin) — the sponsor's fail-fast read. Chain-owned; seeded locally, projector-corrected. */
     suspend fun isLocalAccountAdmin(): Boolean
 
-    /** Chain-derived admin flag for any account (false when absent — absence asserts nothing). */
+    /** Local account's owner flag (false when absent) — the self-leave handover gate. Chain-owned; seeded locally, projector-corrected. */
+    suspend fun isLocalAccountOwner(): Boolean
+
+    /** Chain-derived admin flag for any account (false when absent — absence asserts nothing; OWNER implies admin). */
     suspend fun isAccountAdmin(accountId: AccountId): Boolean
+
+    /** Chain-derived owner flag for any account (false when absent — absence asserts nothing). */
+    suspend fun isAccountOwner(accountId: AccountId): Boolean
+
+    /** The single OWNER account id, or null when no owner row is committed yet. */
+    suspend fun getOwnerAccountId(): AccountId?
 
     /** Provisional bit of a device row (true when absent — unknown rows are unconfirmed by definition). */
     suspend fun isDeviceProvisional(deviceId: PeerId): Boolean
@@ -87,9 +97,13 @@ interface IdentityKeyRepository {
     )
 
     /** Insert-only intro seed, account half of [seedProvisionalPeerDevice] (`provisional = true`, ACTIVE). */
-    suspend fun seedProvisionalPeerAccount(identity: AccountIdentityRecord, admin: Boolean, displayName: String)
+    suspend fun seedProvisionalPeerAccount(identity: AccountIdentityRecord, role: AccountRole, displayName: String)
 
-    suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean = false, provisional: Boolean = true)
+    suspend fun insertLocalAccount(
+        identity: AccountIdentityRecord,
+        role: AccountRole = AccountRole.MEMBER,
+        provisional: Boolean = true,
+    )
 
     suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord?
 
@@ -97,7 +111,7 @@ interface IdentityKeyRepository {
 
     suspend fun insertPeerAccount(
         identity: AccountIdentityRecord,
-        admin: Boolean,
+        role: AccountRole,
         status: IdentityStatus,
         displayName: String,
         provisional: Boolean = true

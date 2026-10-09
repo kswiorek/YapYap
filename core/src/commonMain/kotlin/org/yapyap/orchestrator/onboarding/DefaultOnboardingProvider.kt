@@ -13,6 +13,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
@@ -212,10 +213,10 @@ internal class DefaultOnboardingProvider(
         )
         armTimeout(syncDeadline)
         // FK order: account, device, membership. Never clobber existing rows with intro data
-        // (admin stays projector-owned; both seeds are insert-only).
+        // (the role stays projector-owned; both seeds are insert-only).
         identityKeyRepository.seedProvisionalPeerAccount(
             identity = intro.account,
-            admin = false,
+            role = AccountRole.MEMBER,
             displayName = intro.account.displayName,
         )
         identityKeyRepository.seedProvisionalPeerDevice(

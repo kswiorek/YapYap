@@ -1,6 +1,7 @@
 import kotlin.Boolean;
 import kotlin.time.Instant;
 import org.yapyap.crypto.identity.AccountId;
+import org.yapyap.persistence.db.AccountRole;
 import org.yapyap.persistence.db.IdentityStatus;
 import org.yapyap.protocol.DeviceType;
 import org.yapyap.persistence.db.OpkStatus;
@@ -12,7 +13,7 @@ CREATE TABLE accounts (
     account_pub_key BLOB,
     pub_key_version INTEGER,
     pub_key_id TEXT,
-    is_admin INTEGER AS Boolean NOT NULL,
+    role TEXT AS AccountRole NOT NULL,
     status TEXT AS IdentityStatus NOT NULL,
     display_name TEXT NOT NULL,
     -- Intro-seeded or freshly provisioned row awaiting fold confirmation (cleared by the
@@ -76,7 +77,7 @@ INSERT OR REPLACE INTO accounts (
     is_local_account,
     pub_key_version,
     pub_key_id,
-    is_admin,
+    role,
     status,
     display_name,
     provisional
@@ -97,15 +98,21 @@ SELECT provisional
 FROM devices
 WHERE device_id = ?;
 
-selectLocalAccountAdmin:
-SELECT is_admin
+selectLocalAccountRole:
+SELECT role
 FROM accounts
 WHERE is_local_account = 1;
 
-selectAccountAdminById:
-SELECT is_admin
+selectAccountRoleById:
+SELECT role
 FROM accounts
 WHERE account_id = ?;
+
+selectOwnerAccountId:
+SELECT account_id
+FROM accounts
+WHERE role = 'OWNER'
+LIMIT 1;
 
 selectAllAccounts:
 SELECT *

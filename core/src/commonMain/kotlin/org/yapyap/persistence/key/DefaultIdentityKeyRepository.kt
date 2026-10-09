@@ -7,6 +7,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.DeviceType
@@ -79,7 +80,7 @@ class DefaultIdentityKeyRepository(
     override suspend fun upsertChainAccount(
         accountId: AccountId,
         accountSigningPublicKey: ByteArray?,
-        isAdmin: Boolean,
+        role: AccountRole,
         status: IdentityStatus,
         displayName: String,
     ) {
@@ -93,7 +94,7 @@ class DefaultIdentityKeyRepository(
                     is_local_account = existing?.is_local_account ?: false,
                     pub_key_version = existing?.pub_key_version ?: CHAIN_KEY_VERSION,
                     pub_key_id = existing?.pub_key_id ?: CHAIN_KEY_ID,
-                    is_admin = isAdmin,
+                    role = role,
                     status = status,
                     display_name = displayName,
                     provisional = false,
@@ -103,7 +104,7 @@ class DefaultIdentityKeyRepository(
                 component = LogComponent.DATABASE,
                 event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
                 message = "Committed chain-derived account identity record",
-                fields = mapOf("accountId" to accountId, "isAdmin" to isAdmin, "status" to status),
+                fields = mapOf("accountId" to accountId, "role" to role, "status" to status),
             )
         }
     }
@@ -168,7 +169,7 @@ class DefaultIdentityKeyRepository(
                     is_local_account = existing.is_local_account,
                     pub_key_version = existing.pub_key_version,
                     pub_key_id = existing.pub_key_id,
-                    is_admin = false,
+                    role = AccountRole.MEMBER,
                     status = IdentityStatus.BANNED,
                     display_name = existing.display_name,
                     provisional = false,
@@ -384,7 +385,11 @@ class DefaultIdentityKeyRepository(
         }
     }
 
-    override suspend fun insertLocalAccount(identity: AccountIdentityRecord, admin: Boolean, provisional: Boolean) {
+    override suspend fun insertLocalAccount(
+        identity: AccountIdentityRecord,
+        role: AccountRole,
+        provisional: Boolean,
+    ) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
             queries.putAccount(
@@ -393,7 +398,7 @@ class DefaultIdentityKeyRepository(
                 is_local_account = true,
                 pub_key_version = identity.key?.keyVersion,
                 pub_key_id = identity.key?.keyId,
-                is_admin = admin,
+                role = role,
                 status = IdentityStatus.ACTIVE,
                 display_name = identity.displayName,
                 provisional = provisional,
@@ -409,12 +414,27 @@ class DefaultIdentityKeyRepository(
 
     override suspend fun isLocalAccountAdmin(): Boolean =
         withContext(dbDispatcher) {
-            database.identityQueries.selectLocalAccountAdmin().executeAsOneOrNull() ?: false
+            database.identityQueries.selectLocalAccountRole().executeAsOneOrNull()?.isAdmin ?: false
+        }
+
+    override suspend fun isLocalAccountOwner(): Boolean =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectLocalAccountRole().executeAsOneOrNull() == AccountRole.OWNER
         }
 
     override suspend fun isAccountAdmin(accountId: AccountId): Boolean =
         withContext(dbDispatcher) {
-            database.identityQueries.selectAccountAdminById(accountId).executeAsOneOrNull() ?: false
+            database.identityQueries.selectAccountRoleById(accountId).executeAsOneOrNull()?.isAdmin ?: false
+        }
+
+    override suspend fun isAccountOwner(accountId: AccountId): Boolean =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectAccountRoleById(accountId).executeAsOneOrNull() == AccountRole.OWNER
+        }
+
+    override suspend fun getOwnerAccountId(): AccountId? =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectOwnerAccountId().executeAsOneOrNull()
         }
 
     override suspend fun isDeviceProvisional(deviceId: PeerId): Boolean =
@@ -477,7 +497,7 @@ class DefaultIdentityKeyRepository(
 
     override suspend fun insertPeerAccount(
         identity: AccountIdentityRecord,
-        admin: Boolean,
+        role: AccountRole,
         status: IdentityStatus,
         displayName: String,
         provisional: Boolean,
@@ -491,7 +511,7 @@ class DefaultIdentityKeyRepository(
                 is_local_account = false,
                 pub_key_version = identity.key?.keyVersion,
                 pub_key_id = identity.key?.keyId,
-                is_admin = admin,
+                role = role,
                 status = status,
                 display_name = displayName,
                 provisional = provisional,
@@ -501,7 +521,7 @@ class DefaultIdentityKeyRepository(
 
     override suspend fun seedProvisionalPeerAccount(
         identity: AccountIdentityRecord,
-        admin: Boolean,
+        role: AccountRole,
         displayName: String,
     ) {
         withContext(dbDispatcher) {
@@ -515,7 +535,7 @@ class DefaultIdentityKeyRepository(
                     is_local_account = false,
                     pub_key_version = identity.key?.keyVersion,
                     pub_key_id = identity.key?.keyId,
-                    is_admin = admin,
+                    role = role,
                     status = IdentityStatus.ACTIVE,
                     display_name = displayName,
                     provisional = true,

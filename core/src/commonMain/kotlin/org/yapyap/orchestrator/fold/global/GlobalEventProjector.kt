@@ -38,12 +38,14 @@ import kotlin.uuid.Uuid
  * Committed fold diff of the global control room. Consumers: the onboarding provider
  * (own-device anchoring → COMPLETE), the pending-reverify hook, the sprint-4d firewall, UI.
  */
-//TODO: [Sprint 4] instead of irrevokable genesis admin, specify OWNER, similar to room events
 sealed interface IdentityStateChange {
     data class AccountAdded(val accountId: AccountId) : IdentityStateChange
     data class AccountRemoved(val accountId: AccountId) : IdentityStateChange
     data class AdminGranted(val accountId: AccountId) : IdentityStateChange
     data class AdminRevoked(val accountId: AccountId) : IdentityStateChange
+
+    /** The owner handover landed: [from] removed itself, [to] is admin + owner atomically. */
+    data class OwnerTransferred(val from: AccountId, val to: AccountId) : IdentityStateChange
     data class DeviceAdded(val accountId: AccountId, val deviceId: PeerId) : IdentityStateChange
     data class DeviceRemoved(val deviceId: PeerId) : IdentityStateChange
 }
@@ -79,7 +81,7 @@ interface GlobalEventProjector {
     suspend fun stop()
 
     /**
-     * Genesis (create-new-network): AddAccount (DAG root, `prevId == null`, admin by definition)
+     * Genesis (create-new-network): AddAccount (DAG root, `prevId == null`, owner by definition)
      * + AddDevice self-introduction (branch 3, authorized by [accountKeySignature]).
      * The global room must be empty — the DAG structure itself enforces the "only once".
      */
@@ -94,7 +96,7 @@ interface GlobalEventProjector {
     /**
      * New-account sponsorship (§8.1): AddAccount + AddDevice back-to-back with the same signer
      * (branch 2, authorized by the invite's `accountKeySignature`), plus GrantAdmin when
-     * [grantAdmin] — fail-fast on the local `is_admin` BEFORE appending anything.
+     * [grantAdmin] — fail-fast on the local admin role BEFORE appending anything.
      */
     suspend fun publishSponsoredNewAccount(invite: Invite, grantAdmin: Boolean)
 
@@ -107,7 +109,13 @@ interface GlobalEventProjector {
 
     suspend fun publishGrantAdmin(targetAccountId: AccountId)
     suspend fun publishRemoveAdmin(targetAccountId: AccountId)
-    suspend fun publishRemoveAccount(targetAccountId: AccountId)
+
+    /**
+     * Remove-account publish. [successorAccountId] is the owner handover (§3): honored only
+     * as the owner's own removal carrying a valid successor — any other removal carrying
+     * one is ignored whole by the fold, so fail-fast refusals live in the service layer.
+     */
+    suspend fun publishRemoveAccount(targetAccountId: AccountId, successorAccountId: AccountId? = null)
     suspend fun publishRemoveDevice(targetDeviceId: PeerId)
 
     /**
@@ -285,8 +293,8 @@ internal class DefaultGlobalEventProjector(
         publish(listOf(GlobalEventPayload.RemoveAdmin(targetAccountId)))
     }
 
-    override suspend fun publishRemoveAccount(targetAccountId: AccountId) {
-        publish(listOf(GlobalEventPayload.RemoveAccount(targetAccountId)))
+    override suspend fun publishRemoveAccount(targetAccountId: AccountId, successorAccountId: AccountId?) {
+        publish(listOf(GlobalEventPayload.RemoveAccount(targetAccountId, successorAccountId)))
     }
 
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) {
@@ -339,7 +347,7 @@ internal class DefaultGlobalEventProjector(
         foldMutex.withLock {
             val rows = messageRepository.findAllInRoom(RoomId.GLOBAL)
             if (rows.isEmpty()) {
-                if (lastCommit == null) lastCommit = FoldOutput(emptyMap(), emptyMap())
+                if (lastCommit == null) lastCommit = FoldOutput(emptyMap(), emptyMap(), null)
                 return
             }
             val byId = rows.associateBy { it.payload.messageId }
@@ -515,7 +523,7 @@ internal class DefaultGlobalEventProjector(
             identityKeyRepository.upsertChainAccount(
                 accountId = acc.accountId,
                 accountSigningPublicKey = acc.accountSigningPublicKey,
-                isAdmin = acc.isAdmin,
+                role = acc.role,
                 status = IdentityStatus.ACTIVE,
                 displayName = add.displayName,
             )
@@ -559,19 +567,26 @@ internal class DefaultGlobalEventProjector(
             )
             return
         }
-        val baseline = prev ?: FoldOutput(emptyMap(), emptyMap())
+        val baseline = prev ?: FoldOutput(emptyMap(), emptyMap(), null)
         val changes = ArrayList<IdentityStateChange>()
         for ((accountId, acc) in output.accounts) {
             val before = baseline.accounts[accountId]
             if (before == null) {
                 changes.add(IdentityStateChange.AccountAdded(accountId))
-                if (acc.isAdmin) changes.add(IdentityStateChange.AdminGranted(accountId))
+                if (acc.role.isAdmin) changes.add(IdentityStateChange.AdminGranted(accountId))
                 roomRepository.upsertMember(RoomId.GLOBAL, accountId, RoomMemberRole.MEMBER)
-            } else if (!before.isAdmin && acc.isAdmin) {
+            } else if (!before.role.isAdmin && acc.role.isAdmin) {
                 changes.add(IdentityStateChange.AdminGranted(accountId))
-            } else if (before.isAdmin && !acc.isAdmin) {
+            } else if (before.role.isAdmin && !acc.role.isAdmin) {
                 changes.add(IdentityStateChange.AdminRevoked(accountId))
             }
+        }
+        // Owner handover: the slot moved from one live account to another (the genesis
+        // commit from an empty baseline is silent — the owner arrives with the network).
+        val beforeOwner = baseline.ownerAccountId
+        val afterOwner = output.ownerAccountId
+        if (beforeOwner != null && afterOwner != null && beforeOwner != afterOwner) {
+            changes.add(IdentityStateChange.OwnerTransferred(beforeOwner, afterOwner))
         }
         for (accountId in baseline.accounts.keys) {
             if (accountId !in output.accounts && accountId in result.tombstonedAccounts) {

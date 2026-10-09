@@ -32,18 +32,18 @@ Related: [`guide.md`](guide.md), [`e2ee.md`](e2ee.md), [`ban diagram.mmd`](ban d
   **in a validity paradox, the contested principal loses** (fail-closed on authorization,
   fail-closed on revocation-evasion).
 - Events contain **as little information as possible**: only keys and bindings that cannot be derived.
-  Everything else (admin status, membership, removal state) is derived from the log.
+  Everything else (role, membership, removal state) is derived from the log.
 
 ### Event types (typed `GlobalEventPayload` codec, replacing the raw `eventBytes` TODO in `MessageEnvelope.kt`)
 
-| Event           | Carries (non-derivable only)                                                                                                  | Notes                                                     |
-|-----------------|-------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
-| `AddAccount`    | account_id (pub key), account signing pub key, display name                                                                   | Genesis variant: `prevId == null`                         |
-| `AddDevice`     | device_id, signing + encryption pub keys, onion address, device_type, account_id, `key_signature` (account signs device keys) | Sponsor-appended; QR payload embedded in a signed message |
-| `GrantAdmin`    | target account_id                                                                                                             |                                                           |
-| `RemoveAdmin`   | target account_id                                                                                                             |                                                           |
-| `RemoveAccount` | target account_id                                                                                                             | Removes all its devices                                   |
-| `RemoveDevice`  | target device_id                                                                                                              |                                                           |
+| Event           | Carries (non-derivable only)                                                                                                  | Notes                                                                      |
+|-----------------|-------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| `AddAccount`    | account_id (pub key), account signing pub key, display name                                                                   | Genesis variant: `prevId == null`                                          |
+| `AddDevice`     | device_id, signing + encryption pub keys, onion address, device_type, account_id, `key_signature` (account signs device keys) | Sponsor-appended; QR payload embedded in a signed message                  |
+| `GrantAdmin`    | target account_id                                                                                                             |                                                                            |
+| `RemoveAdmin`   | target account_id                                                                                                             | Owner irrevocable (§3)                                                     |
+| `RemoveAccount` | target account_id, optional successor (owner handover)                                                                        | Removes all its devices; owner's own leave requires a valid successor (§3) |
+| `RemoveDevice`  | target device_id                                                                                                              | Owner's devices unbannable by admins (§3)                                  |
 
 Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode per type).
 
@@ -113,25 +113,53 @@ Codec style mirrors `SystemPayload` (sealed interface, kind byte, encode/decode 
       account-key-signed AddDevices *anywhere in the fold* — a leaked recovery key of a banned
       account re-enters nothing (positional validity alone was evadable by backdating).
 - `GrantAdmin` / `RemoveAdmin` / `RemoveDevice(other)` / `RemoveAccount(other)`: signer's account
-  `is_admin` **at that fold position**.
-- `RemoveDevice(own)` / `RemoveAccount(own)`: signer belongs to the target account. Non-admins can
-  remove their own devices/accounts, nobody else's.
+  holds an admin role (ADMIN or OWNER — `AccountRole`, owner implies admin) **at that fold position**.
+- `RemoveDevice(own)`: signer belongs to the target device's account. Non-admins can
+  remove their own devices, nobody else's. Admins cannot remove the OWNER's devices —
+  the owner's repair path (see the owner slot below); the owner removes their own via
+  this same own-account branch.
+- `RemoveAccount(own)`: signer belongs to the target account — except the owner's own
+  leave, which is the handover (see the owner slot below): honored only carrying a valid
+  successor, ignored (removal included) otherwise. Non-owner, non-admin accounts can
+  remove their own account, nobody else's.
 - **Any existing device can sponsor an `AddAccount`** (member-level, matching the onboarding diagram's
   non-admin Sponsor). Deliberate RBAC decision — document in UI.
-- **Genesis**: the `AddAccount` with `prevId == null` (DAG root) is admin by definition — with
+- **Genesis**: the `AddAccount` with `prevId == null` (DAG root) is OWNER by definition — with
   one hardening the self-declared positions force. `prevIds == []` is forgeable, so a banned
   device could append a second root for a fresh account (or the same account) with a forged
-  `createdAt` sorting first and steal genesis-admin / displace the true root. The fold resolves
+  `createdAt` sorting first and steal genesis-owner / displace the true root. The fold resolves
   this structurally: among empty-`prevIds` `AddAccount` nodes, genesis is the one with the most
   transitive descendants in the stored graph (tiebreak earliest `(createdAt, messageId)`) — the
   true root is the ancestor of (almost) the whole DAG, a forged root has (almost) no
   descendants, and the pre-forgery margin is permanent (honest appends after the forgery
-  reference both roots equally). Only the winner confers admin-by-definition; other roots
+  reference both roots equally). Only the winner confers owner-by-definition; other roots
   validate as normal sponsored adds (no admin), and a same-account duplicate of the winner is
   preempted (invalid) even when it sorts first. GUI surfaces this as "create new network"; the
   counterpart "join existing network" is the same provisioning path
-  minus the genesis event. (`insertLocalAccount` hardcodes `is_admin = false` — the projector's first
-  fold corrects it from the genesis event; fold immediately after genesis append so the GUI reflects it.)
+  minus the genesis event. (`insertLocalAccount` seeds the genesis role locally — the projector's first
+  fold confirms it from the genesis event; fold immediately after genesis append so the GUI reflects it.)
+- **The owner slot: genesis account initially, transferable by a deterministic handover**
+  (mirrors the room tier's slot, `room events.md` §2). The fold's shadow state carries one
+  owner account. The owner is an irrevocable admin — `RemoveAdmin` and admin-gated
+  `RemoveAccount` targeting the owner are ignored, and admin-gated `RemoveDevice` targeting
+  the owner's devices is ignored — so mutual-destruction collateral (§3 opposing pairs, §6.2)
+  can never strip the network of its repair path; the owner is exempt from being dragged
+  down (unlike every other principal, for whom "the revoker's device may fall too" still holds).
+  The owner's own exit is the handover: a `RemoveAccount(self)` carrying `successorAccountId`,
+  honored only in that shape — the successor must be ACTIVE with at least one ACTIVE device
+  at that fold position (a device-less successor would soft-lock the slot behind an inert
+  account) and must not be the leaver; on success the successor becomes admin + owner
+  atomically and the leaver is tombstoned with its devices (sealing the leaver's backdated
+  acts like any removal). Fail closed on every bad shape: owner self-leave without a valid
+  successor → ignored whole (the owner slot is never empty — the owner cannot leave without
+  naming a successor); any other `RemoveAccount` carrying a successor (non-owner author, or
+  targeting another account) → ignored whole (the field is owner-only — no smuggling). One
+  event, not a separate handover kind: a single atomic transition, no zero- or two-owner
+  window; if two handovers ever compete, first in canonical order wins (the second's target
+  is already tombstoned at its position). The projection maps the slot to `AccountRole.OWNER`
+  (sibling enum of `RoomMemberRole`, not shared with it — the tiers evolve role vocabularies
+  independently); the owner implies admin authority in the fold, so admin reads (`isLocalAccountAdmin`, the sponsor
+  fail-fast) stay true for the owner with no special-casing.
 - **Don't cut off the branch**: validity is evaluated against fold state *at the event's position*.
   A removed admin's earlier grants remain valid; only its later events become invalid. Same principle
   applies to chat history (see §6). Deliberate exception: every revocation additionally seals the
@@ -178,13 +206,27 @@ below remain pure functions of the stored set (ancestry is derived from `prevIds
    its backdated adds). Transitivity comes free: a cut device never enters shadow state, so
    its adds fail, so its puppets' adds fail too. Terminality is what makes this absolute: a
    banned device never returns (re-adding requires a fresh key set → new device_id), so the
-   seal never needs to open again.
+   seal never needs to open again. The seal is minted even when the ban node itself is a
+   no-op (its target already dead — e.g. cascade-removed by an earlier-sorting `RemoveAccount`):
+   the seal is defined by the ban's own vouching set, not by its effect; without this, a
+   backdated forgery that pre-kills the ban's target would void the seal (the owner-handover
+    + self-ban shape). Bans of never-existent targets stay pure no-ops (no seal — a typo'd
+      ban must not brick a future device id that can never be unbanned).
 2. **Account-key adds die with the account (absolute, unchanged).** A `key_signature`-authorized
    `AddDevice` (branches 2/3) targeting account A is valid only if A is not tombstoned anywhere
    in the fold. The relay's authorship is transport, not authorization — the account key is —
    so device bans never touch these events, and account bans kill them at every position.
    Account removal is rare and the account key is the crown jewel: no UX cost to being absolute
-   here.
+   here. Narrowly scoped exemption, uniform for the genesis owner and every successor: a
+   carried tombstone never kills the historical intro of a device that is itself already
+   carried-banned, nor the structurally pinned genesis self-intro. The ban seal re-applies
+   to such a device regardless (its events outside the ban's ancestry stay cut, and any
+   replayed ban re-bans it), so the intro is history, not re-entry — but without the intro
+   the device's authorship un-resolves mid-loop and the ban can't re-mint, oscillating the
+   restart into the attacker's fixpoint (a backdated forged handover sorts before the honest
+   self-ban and cascade-kills the ban's target; the successor's sponsored intro is no safer
+   than the genesis one). Fresh device ids are never carried-banned, so rule 2 still governs
+   re-entry; self-certifying ids pin every intro to the real device keys.
 3. **Admin demotions seal admin authority (interval-scoped, reversible).** An admin-gated event (`GrantAdmin`,
    `RemoveAdmin`, `RemoveDevice`/`RemoveAccount` of another account) authored by
    a device of account A is valid only if, for every effective demotion (`RemoveAdmin(A)`)
@@ -260,7 +302,11 @@ and cannot drag its revoker down — only principals who could legitimately have
 revoker (admins, account siblings, already in a symmetric power duel) trigger the mutual case.
 Honest cost: any revoked admin or sibling can always drag their revoker's device down with
 them — the guarantee becomes "the revoked principal always loses; the revoker's device may
-fall too." Recovery is the existing machinery (the revoker's account survives a device ban;
+fall too" — **except against the owner**: counter-revocations targeting the owner's account
+or devices fail authorization outright (owner irrevocable, owner devices unbannable), form
+no pair, and leave the owner's revocation standing alone. The owner is the network's repair
+path (mirrors the room tier's slot); exempting it is the price of keeping a repair path
+under forgery duels. Recovery is the existing machinery (the revoker's account survives a device ban;
 demotions are re-grantable). A persistent compromised admin burns one of its own devices per
 mutual destruction — attrition favors the network at 10–20 users. This is the price of
 single-signer authority without quorums, and the depth-1 instance of the general doctrine:
@@ -285,17 +331,20 @@ the contested-principal-loses doctrine (§1) as an implementable rule, and it sy
 disfavors the attacker (an attacker-favorable fixpoint always has fewer revocations in
 effect — the attacker's own revocation void). The residual collateral is griefing-only (a valid-at-position retaliation
 may take an innocent sibling down with the attacker),
-auditable and recoverable; (4) **genesis immunity** — cycles can only entangle grant-derived
-authority (genesis adminship is structural, the genesis device's add is
-account-key-authorized), so the genesis account always retains an unentangled re-grant/re-ban
+auditable and recoverable; (4) **owner immunity** — cycles can only entangle grant-derived
+authority (owner-ness is structural at genesis and handover-derived afterwards — an
+own-account event, untouched by demotion seals — and the genesis device's add is the
+exempt trust-root intro), so the owner account always retains an unentangled re-grant/re-ban
 path. What remains outside cycles is pre-emptive grooming (decapitating grant-derived admins *before* any revocation
 exists) — visible in the log, auditable, recoverable, never touching
-genesis.
+the owner.
 
 **Edge rules:**
 
 - Duplicate revocations: the first in canonical order defines the seal; later ones are
-  redundant. Backdated duplicate revocations are authorable only by admins/account siblings (trusted or
+  redundant — but an authorized ban mints even when its target is already dead (rule 1):
+  the seal is defined by the ban's own vouching set, not by its effect. Backdated duplicate
+  revocations are authorable only by admins/account siblings (trusted or
   already-compromised principals) — griefing-only, auditable.
 - A revocation never seals itself: a node is trivially outside its own ancestry, so the seal
   explicitly exempts the revocation node itself. Without the exemption a carried revocation
@@ -406,12 +455,15 @@ RbacProjector(
 ```
 
 - `stateChanges: Flow<RbacStateChange>` — emits `DeviceAdded`, `DeviceRemoved`, `AccountAdded`,
-  `AccountRemoved`, `AdminGranted`, `AdminRevoked`. Consumers: banned-source check, sprint 4d socket
+  `AccountRemoved`, `AdminGranted`, `AdminRevoked`, `OwnerTransferred` (owner handover: the
+  successor also emits `AdminGranted`; the genesis commit from an empty baseline is silent).
+  Consumers: banned-source check, sprint 4d socket
   firewall, sprint 5b key rotations, UI, and (once wired) the pending-reverify trigger.
 - **Commit is a merge, never a blind swap.** Preserve local-only fields:
   `is_local_account` / `is_local_device`, `reliability_score`, `last_seen_timestamp`, `push_token`,
   and the `signed_prekeys` / `one_time_prekeys` tables. Chain-derived fields: account pub key,
-  `is_admin`, status, display name; device keys, account binding, device_type, status — and the
+  `role` (`AccountRole`: MEMBER / ADMIN / OWNER — owner implies admin), status, display name; device keys, account
+  binding, device_type, status — and the
   onion endpoint only for fresh/provisional rows (a live-updated onion on a confirmed row is
   preserved: Tor rotation has no chain event, so the fold must not clobber it).
 - **Absence is ambiguous; the fold disambiguates.** A row present in the DB but absent from the fold
@@ -469,11 +521,11 @@ of truth can disagree):
   is rejected here — the account exists and its status doesn't change on device-add.
 - `invite.account != null` → **new account**: re-derive `accountId` from the account pub key, append
   `AddAccount` + `AddDevice` back-to-back (§3: same signer); when `admin == true` also append
-  `GrantAdmin` — valid only if the *sponsor* is admin at that fold position, so fail fast on the
-  local `is_admin` (the GUI shows the toggle only to admins). `GrantAdmin` is a separate event, never
-  a field of `AddAccount` (admin status is derived from the log, §1/§5). The sponsor writes no
+  `GrantAdmin` — valid only if the *sponsor* holds an admin role at that fold position, so fail
+  fast on the local role (the GUI shows the toggle only to admins). `GrantAdmin` is a separate event, never
+  a field of `AddAccount` (the role is derived from the log, §1/§5). The sponsor writes no
   provisional row for the newcomer — the synchronous fold commit upserts the chain row
-  directly, with `is_admin` derived from the fold (the `GrantAdmin` event when present).
+  directly, with the role derived from the fold (the `GrantAdmin` event when present).
 
 ### 8.2 Account recovery over the network (recovery key on a fresh device)
 
@@ -570,8 +622,8 @@ are REJECTED:
   member) → ignored (direct, and via an intermediate device — the cascade case);
 - backdated account-key `AddDevice` (branch-3 relay) for a removed account → ignored;
 - `AddAccount` for a tombstoned (or already-active) account_id → ignored;
-- sponsored members and account-key-added devices survive their sponsor's ban — including a
-  genesis-device ban (single-account recovery, no network reset);
+- sponsored members and account-key-added devices survive their sponsor's ban — including an
+  owner-device ban via the own-account path (single-account recovery, no network reset);
 - **device rotation (the regression test for §3's revision)**: ban the genesis device → its
   pre-ban *synced* adds survive with their device_ids intact — fails under the rejected
   absolute-invalidation drafts (§11);
@@ -584,11 +636,21 @@ are REJECTED:
 - backdated counter-ban → **both devices banned** (mutual destruction); honest sequential
   duel → first mover wins; non-admin forged counter-ban → ignored, banner untouched;
   counter-ban of the banner's sibling device → killed by the seal, banner untouched;
+  counter-ban against the owner's devices → ignored (owner exempt), attacker's ban stands alone;
 - backdated counter-demotion → **both accounts demoted** (mutual destruction); demote then
   re-grant → admin restored, post-re-grant acts valid; backdated `GrantAdmin` by a demoted
-  admin → ignored;
-- 6.2 granter cycle (ban the banner's authority source via a stale-frontier fork) → the
-  honest fixpoint on every node (attacker banned, granter alive, banner's adminship intact);
+  admin → ignored; `RemoveAdmin` / admin-gated `RemoveAccount` / `RemoveDevice` targeting the
+  owner or the owner's devices → ignored (stored VERIFIED, no effect);
+- owner handover → successor admin + owner atomically, leaver tombstoned with its devices,
+  `OwnerTransferred` emitted; handover without a valid successor (missing, unknown, tombstoned,
+  self, or device-less) → ignored whole, owner stays; non-owner `RemoveAccount` carrying a
+  successor → ignored whole; competing handovers → first in canonical order wins; backdated
+  handover by a banned owner device → void by the ban seal (the no-op ban still seals, rule 1);
+- owner removing their own last device without the recovery key → refused at the service layer (`RecoveryKeyRequired`;
+  the fold would honor it — self-harm prevention, not authorization);
+- 6.2 granter cycle (ban the banner's authority source via a stale-frontier fork, all
+  grant-derived accounts) → the honest fixpoint on every node (attacker banned, granter banned
+  as seal collateral, banner's adminship intact);
 - crypto-forgery poisons descendants: child of a REJECTED node stays PENDING (never folds),
   no tombstone;
 - forged genesis root → generic PENDING (loser), its private branch unreachable → PENDING,
@@ -646,7 +708,9 @@ are REJECTED:
   sorts first and wins): rejected — it lets the attacker survive by construction; the whole
   point of the forgery is to sort first. Superseded by mutual destruction (§3): concurrent
   opposing pairs both stand. Cost accepted: any revoked admin/sibling can drag its revoker's
-  device down (griefing over spying), recoverable by third admins/genesis.
+  device down (griefing over spying), recoverable by third admins — except against the owner,
+  which is exempt (counter-revocations targeting the owner fail authorization and form no
+  pair): keeping a repair path under forgery duels outweighs symmetric griefing there.
 - **Both-void for opposing revocations** (concurrent pair cancels out): rejected — same outcome
   as first-wins for the attacker (it survives). Only mutual destruction preserves the invariant
   that a landed revocation always removes its target.
@@ -673,3 +737,42 @@ are REJECTED:
   rotation exclude it): rejected — divergent recipient sets per node; the firewall,
   banned-source check, and relay selection all read the projection; the fold is the single
   source of truth.
+- **Irrevocable genesis admin** (the pre-OWNER design: genesis `is_admin` irrevocable,
+  genesis devices admin-bannable): rejected for longevity — the creator could never leave,
+  and an admin cohort could ban every genesis device, leaving a permanently device-less,
+  unable-to-act genesis admin behind a hollow "no zero-admin network" guarantee. Superseded
+  by the OWNER slot (§3): genesis is owner by definition, the owner hands over atomically to
+  a successor, and owner devices are unbannable by admins — the repair path is real, not nominal.
+- **Admin-removable owner devices**: rejected — a compromised admin cohort could permanently
+  lock out an owner who hasn't kept the recovery key (device bans are terminal), and mutual
+  destruction would let any revoked admin drag the repair path down with them. The residual (a compromised *owner*
+  device is unbannable by admins) is bounded by self-service: the owner
+  removes their own devices, or recovers via the account key on a fresh device (branch 3 works
+  while old devices are still ACTIVE) and self-removes the stolen one.
+- **Owner-absence dead-man's switch** (admins may remove a device-less owner after N days, as
+  a lockout escape): rejected — needs a trusted clock; same verdict as expiry-based admin
+  leases above (node-local wall-clock diverges verdicts). The self-inflicted lockout (owner
+  removes all own devices + loses the recovery key → the slot points at an inert, irrevocable
+  account forever) is the accepted residual; admins keep functioning, so the network survives
+  with a vestigial owner. Mitigation is the service-layer recovery-key gate, not the fold.
+- **Chain-level recovery-key proof on last-device removal** (a signature field on `RemoveDevice`
+  verified by the fold): rejected as over-engineering — the threat is self-harm, not attack, so
+  the proof lives at the service layer (`verifyRecoveryKey` + `RecoveryKeyRequired`), where a
+  bypass bricks only the caller's own account. The event stays unchanged.
+- **Handover to a device-less successor**: rejected (fail-closed) — an ACTIVE account with no
+  devices is inert and can only return via its own recovery key (branch 3; branch 1 needs an
+  existing device), so handing the slot to it risks a soft-lock behind an account that may never
+  come back. The fold requires ≥1 ACTIVE device at position; the service mirrors it fail-fast (`InvalidSuccessor`).
+- **Shared `RoomMemberRole` for the account role** (rename + reuse): rejected — sibling enum (`AccountRole`) instead,
+  per the sibling-folds doctrine (`room events.md` §4): roles are
+  tier policy vocabulary that may diverge, a shared enum would type-allow cross-tier mixups,
+  and SQLDelight maps per column anyway, so sharing buys nothing. (`IdentityStatus` stays
+  shared — removal semantics genuinely coincide there.)
+- **Genesis-only rule-2 exemption** (exempt just the genesis self-introduction from the
+  carried-tombstone kill): superseded — the successor-owner attack (forged backdated handover
+  by the banned successor device vs the honest self-ban) oscillates through the identical
+  mechanism, and the successor's sponsored intro has no structural pin. The uniform rule (carried-banned devices' intros
+  are history, not re-entry) covers genesis and every
+  successor; the genesisKey pin stays as the complementary link for cascade-banned (never explicitly banned) genesis
+  devices, which keep the honest handover's sponsorship
+  chain resolvable.

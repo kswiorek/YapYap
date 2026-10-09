@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.runtime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.MessageLimits
+import org.yapyap.crypto.identity.IdentityProvisioning
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.DagEngine
@@ -62,6 +63,7 @@ internal class DefaultOrchestratorRuntime(
     private val configStore: ConfigStore,
     private val onboardingProvider: OnboardingProvider,
     private val identityKeyRepository: IdentityKeyRepository,
+    private val identityProvisioning: IdentityProvisioning,
     private val cryptoProvider: CryptoProvider,
     private val globalEventProjector: GlobalEventProjector,
     private val roomEventProjector: RoomEventProjector,
@@ -128,6 +130,7 @@ internal class DefaultOrchestratorRuntime(
             projector = globalEventProjector,
             identityResolver = identityResolver,
             identityKeyRepository = identityKeyRepository,
+            identityProvisioning = identityProvisioning,
             onboardingState = onboardingProvider.state,
         )
     }

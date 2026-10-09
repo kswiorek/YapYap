@@ -1,9 +1,11 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.key.*
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
@@ -144,7 +146,7 @@ class DefaultIdentityProvisioning(
         return record
     }
 
-    override suspend fun createNewAccountIdentity(displayName: String, admin: Boolean): AccountIdentityRecord {
+    override suspend fun createNewAccountIdentity(displayName: String, role: AccountRole): AccountIdentityRecord {
         AppLog.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.STARTED,
@@ -169,7 +171,7 @@ class DefaultIdentityProvisioning(
         keyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
 
         val accountRecord = AccountIdentityRecord(accountId, displayName, key = accountKeyRecord)
-        publicKeyRepository.insertLocalAccount(accountRecord, admin = admin)
+        publicKeyRepository.insertLocalAccount(accountRecord, role = role)
         AppLog.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
@@ -199,6 +201,18 @@ class DefaultIdentityProvisioning(
         )
     }
 
+    override suspend fun verifyRecoveryKey(recoveryKey: String): Boolean {
+        val material = try {
+            AccountRecoveryKeyCodec.decode(recoveryKey)
+        } catch (_: CryptoException.InvalidRecoveryKey) {
+            return false
+        }
+        val derivedPublicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
+        val storedPublicKey = identityResolver.getLocalAccountIdentityRecord().key?.publicKey
+            ?: return false
+        return derivedPublicKey.contentEquals(storedPublicKey)
+    }
+
     override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord {
         val material = AccountRecoveryKeyCodec.decode(recoveryKey)
         AppLog.info(
@@ -226,8 +240,8 @@ class DefaultIdentityProvisioning(
         keyStore.putKey(publicAccountKeyRef, publicKey)
 
         val accountRecord = AccountIdentityRecord(accountId, material.displayName, key = accountKeyRecord)
-        // admin = false (default): not derivable from the recovery code alone; the global-room fold
-        // (genesis AddAccount / GrantAdmin) corrects is_admin after sync.
+        // role = MEMBER (default): not derivable from the recovery code alone; the global-room fold
+        // (genesis AddAccount / GrantAdmin / owner handover) corrects the role after sync.
         publicKeyRepository.insertLocalAccount(accountRecord)
         AppLog.info(
             component = LogComponent.CRYPTO,
