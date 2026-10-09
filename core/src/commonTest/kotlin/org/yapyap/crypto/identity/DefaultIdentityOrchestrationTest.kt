@@ -105,7 +105,7 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun provisioning_provisionPeerDevice_then_resolveTor_and_listPeers() = runTest {
+    fun repository_insertPeerDevice_then_resolveTor_and_listPeers() = runTest {
         val (repo, _, triple) = stack()
         val (resolver, provisioning) = triple
 
@@ -127,7 +127,7 @@ class DefaultIdentityOrchestrationTest {
             )
         val peerTor = TorEndpoint(onionAddress = "peerfixture.onion", port = 995)
 
-        provisioning.provisionDeviceIdentity(account.accountId, DeviceType.DESKTOP, remotePeer, peerTor)
+        repo.insertPeerDevice(account.accountId, DeviceType.DESKTOP, remotePeer, peerTor)
 
         assertEquals(peerTor, resolver.resolveTorEndpointForDevice(remotePeer.deviceId))
 
@@ -137,9 +137,8 @@ class DefaultIdentityOrchestrationTest {
     }
 
     @Test
-    fun provisioning_provisionPeerAccount_persistsInRepository() = runTest {
-        val (repo, _, triple) = stack()
-        val (_, provisioning) = triple
+    fun repository_insertPeerAccount_persistsInRepository() = runTest {
+        val (repo, _, _) = stack()
 
         val signing = DefaultCryptoProvider().generateSigningKeyPair()
         val acc =
@@ -148,10 +147,11 @@ class DefaultIdentityOrchestrationTest {
                 displayName = "Peer Account",
                 key = IdentityPublicKeyRecord("ext", 1L, IdentityKeyPurpose.SIGNING, signing.publicKey),
             )
-        provisioning.provisionAccountIdentity(
-            accountIdentity = acc,
+        repo.insertPeerAccount(
+            identity = acc,
             admin = false,
             status = IdentityStatus.ACTIVE,
+            displayName = acc.displayName,
         )
 
         assertNotNull(repo.accounts["external-acc-id"])

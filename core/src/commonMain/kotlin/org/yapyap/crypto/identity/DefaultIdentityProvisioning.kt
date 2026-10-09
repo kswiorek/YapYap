@@ -4,11 +4,8 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.*
-import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -239,39 +236,6 @@ class DefaultIdentityProvisioning(
             fields = mapOf("accountId" to accountId, "displayName" to material.displayName),
         )
         return accountRecord
-    }
-
-    override suspend fun provisionDeviceIdentity(
-        accountId: AccountId,
-        deviceType: DeviceType,
-        deviceIdentity: DeviceIdentityRecord,
-        torEndpoint: TorEndpoint
-    ) {
-        publicKeyRepository.insertPeerDevice(accountId, deviceType, deviceIdentity, torEndpoint)
-        AppLog.info(
-            component = LogComponent.CRYPTO,
-            event = LogEvent.IDENTITY_DEVICE_RECORD_CREATED,
-            message = "Provisioned local device identity",
-            fields = mapOf(
-                "deviceId" to deviceIdentity.deviceId,
-                "accountId" to accountId,
-                "torEndpoint" to torEndpoint.toString()
-            ),
-        )
-    }
-
-    override suspend fun provisionAccountIdentity(
-        accountIdentity: AccountIdentityRecord,
-        admin: Boolean,
-        status: IdentityStatus
-    ) {
-        publicKeyRepository.insertPeerAccount(accountIdentity, admin, status, accountIdentity.displayName)
-        AppLog.info(
-            component = LogComponent.CRYPTO,
-            event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
-            message = "Provisioned local account identity",
-            fields = mapOf("accountId" to accountIdentity.accountId, "displayName" to accountIdentity.displayName),
-        )
     }
 
     companion object {

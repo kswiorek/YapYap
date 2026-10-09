@@ -471,8 +471,9 @@ of truth can disagree):
   `AddAccount` + `AddDevice` back-to-back (§3: same signer); when `admin == true` also append
   `GrantAdmin` — valid only if the *sponsor* is admin at that fold position, so fail fast on the
   local `is_admin` (the GUI shows the toggle only to admins). `GrantAdmin` is a separate event, never
-  a field of `AddAccount` (admin status is derived from the log, §1/§5). The newcomer's provisional
-  peer row is written with `is_admin = admin` since it is known here.
+  a field of `AddAccount` (admin status is derived from the log, §1/§5). The sponsor writes no
+  provisional row for the newcomer — the synchronous fold commit upserts the chain row
+  directly, with `is_admin` derived from the fold (the `GrantAdmin` event when present).
 
 ### 8.2 Account recovery over the network (recovery key on a fresh device)
 
@@ -518,6 +519,12 @@ declines during that transient window (the request retries elsewhere).
   unknown account → Deferred so the sender's retry re-runs the check), and the newcomer's persisted
   session deadline (burn + TIMED_OUT) is the backstop for everything after the emit.
 - `INVITE` is out-of-band only; `BootstrapEnvelope.init` rejects it on the wire.
+- A timed-out newcomer's `AddDevice` outlives it: the sponsor published before sending the
+  intro, so the mesh keeps a chain row for a device that never joined (ACTIVE, never seen).
+  Cleanup is an admin `removeDevice` — nobody's job today, accepted residue. The newcomer
+  itself lands in `ResetRequired(ONBOARDING_EXPIRED)` (live and, via the boot diagnoser,
+  after restart) and retries with fresh keys — same-key retry would be an invalid duplicate
+  `AddDevice` under §3.
 
 ## 9. Build order & test matrix
 

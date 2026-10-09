@@ -38,6 +38,7 @@ import kotlin.uuid.Uuid
  * Committed fold diff of the global control room. Consumers: the onboarding provider
  * (own-device anchoring → COMPLETE), the pending-reverify hook, the sprint-4d firewall, UI.
  */
+//TODO: [Sprint 4] instead of irrevokable genesis admin, specify OWNER, similar to room events
 sealed interface IdentityStateChange {
     data class AccountAdded(val accountId: AccountId) : IdentityStateChange
     data class AccountRemoved(val accountId: AccountId) : IdentityStateChange

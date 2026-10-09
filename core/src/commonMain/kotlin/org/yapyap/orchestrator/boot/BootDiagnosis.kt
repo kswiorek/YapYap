@@ -13,4 +13,5 @@ sealed interface BootDiagnosis {
 enum class ResetReason {
     INCONSISTENT_STORAGE,
     SELF_BANNED,
+    ONBOARDING_EXPIRED,
 }

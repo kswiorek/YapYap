@@ -1,9 +1,5 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.TorEndpoint
-
 interface IdentityProvisioning {
     suspend fun createNewDeviceIdentity(): DeviceIdentityRecord
 
@@ -21,15 +17,6 @@ interface IdentityProvisioning {
 
     /** Restore local account from a recovery code (keystore + local accounts row). */
     suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord
-
-    suspend fun provisionDeviceIdentity(
-        accountId: AccountId,
-        deviceType: DeviceType,
-        deviceIdentity: DeviceIdentityRecord,
-        torEndpoint: TorEndpoint
-    )
-
-    suspend fun provisionAccountIdentity(accountIdentity: AccountIdentityRecord, admin: Boolean, status: IdentityStatus)
 
     suspend fun provisionSignedPreKey(): SignedPreKeyRecord
 }

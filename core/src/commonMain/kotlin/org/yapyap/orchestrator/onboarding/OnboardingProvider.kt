@@ -18,8 +18,11 @@ enum class OnboardingState {
     COMPLETE,
 
     /**
-     * Deadline passed before completion; secret burned. Terminal until the next setup run —
-     * surfaced (not silent IDLE) so the GUI can show "didn't complete, try again".
+     * Deadline passed before completion; secret burned. Terminal: no in-place retry exists
+     * (setup requires SetupRequired state; the sponsor already published our AddDevice, so
+     * same-key retry would be an invalid duplicate; the burned secret can never open the
+     * intro). Lands in `OrchestratorState.ResetRequired(ONBOARDING_EXPIRED)` — recovery is
+     * `resetApp()` plus a fresh setup.
      */
     TIMED_OUT,
 }

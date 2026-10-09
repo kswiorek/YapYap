@@ -177,7 +177,7 @@ class DefaultOrchestrator(
                 Clock.System,
             )
             // Boot diagnosis owns the Healthy/SetupRequired/ResetRequired decision.
-            when (val diagnosis = BootDiagnoser(identityRepo, keyStore, cryptoProvider).diagnose()) {
+            when (val diagnosis = BootDiagnoser(identityRepo, keyStore, cryptoProvider, bootstrapSessionStore, Clock.System).diagnose()) {
                 is BootDiagnosis.Healthy -> {
                     _state.value = OrchestratorState.Starting
                     init()
@@ -581,9 +581,22 @@ class DefaultOrchestrator(
         onboardingProvider.start(orchestratorScope)
         // Mirror the provider's flow: the provider is recreated per start cycle, the exposed
         // flow is stable. Collectors see the current value on subscribe (IDLE before first
-        // start, then whatever the provider drives).
+        // start, then whatever the provider drives). A live timeout is terminal with no
+        // in-place retry (completeSetup requires SetupRequired; same keys would duplicate
+        // our AddDevice) — same machinery as the self-ban path. The no-op-unless-Running
+        // guard accepts one residual: a deadline expiring between diagnose() and Running
+        // skips the reset here and is caught at the next boot by the diagnoser (the
+        // provider's resume burned the session) — a one-boot delay in a tiny window.
         orchestratorScope.launch {
-            onboardingProvider.state.collect { _onboardingState.value = it }
+            onboardingProvider.state.collect {
+                _onboardingState.value = it
+                if (it == OnboardingState.TIMED_OUT) {
+                    enterResetRequired(
+                        ResetReason.ONBOARDING_EXPIRED,
+                        "Onboarding timed out; secret burned (retry requires fresh keys)",
+                    )
+                }
+            }
         }
 
         // Standing recovery service: serves OTHER nodes' account-recovery requests, in every mode —
