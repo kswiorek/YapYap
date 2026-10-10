@@ -1,7 +1,7 @@
 import kotlin.Boolean;
 import kotlin.time.Instant;
 import kotlin.uuid.Uuid;
-import org.yapyap.crypto.identity.AccountId;
+import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.RoomId;
 import org.yapyap.protocol.MessagePayloadType;
 import org.yapyap.persistence.db.VerificationState;

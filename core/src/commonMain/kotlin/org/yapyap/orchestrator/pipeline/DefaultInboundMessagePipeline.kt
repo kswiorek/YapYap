@@ -14,7 +14,7 @@ import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.routing.router.Router
 import kotlin.coroutines.cancellation.CancellationException
 
-class DefaultInboundMessagePipeline(
+internal class DefaultInboundMessagePipeline(
     private val router: Router,
     private val dagEngine: DagEngine,
 ) : InboundMessagePipeline {

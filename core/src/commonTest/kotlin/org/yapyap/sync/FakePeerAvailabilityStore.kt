@@ -6,7 +6,7 @@ import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
 /** In-memory [PeerAvailabilityStore] for tests: no dispatcher, records writes into maps. */
-class FakePeerAvailabilityStore : PeerAvailabilityStore {
+internal class FakePeerAvailabilityStore : PeerAvailabilityStore {
     val reliability = mutableMapOf<PeerId, Double>()
     val lastSeen = mutableMapOf<PeerId, Instant>()
 

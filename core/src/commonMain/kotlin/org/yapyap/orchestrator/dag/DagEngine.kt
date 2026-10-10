@@ -13,7 +13,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
  * changes surface on [verificationStateChanges], new arrivals on the inbound
  * pipeline's `ingestResults`.
  */
-interface DagEngine {
+internal interface DagEngine {
     /**
      * Chains a new message off the room's covering antichain and stores it.
      *

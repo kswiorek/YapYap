@@ -2,7 +2,7 @@ package org.yapyap.sync
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint

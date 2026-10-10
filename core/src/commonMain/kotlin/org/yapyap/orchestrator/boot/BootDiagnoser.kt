@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.boot
 
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.*
+import org.yapyap.protocol.IdentityStatus
 import kotlin.time.Clock
 
 /**
@@ -21,7 +21,7 @@ import kotlin.time.Clock
  *   the intro can never arrive and same-key retry is structurally dead, so only
  *   wipe + fresh setup recovers; checked last so consistency reasons win)
  */
-class BootDiagnoser(
+internal class BootDiagnoser(
     private val identityRepository: IdentityKeyRepository,
     private val keyStore: KeyStore,
     private val cryptoProvider: CryptoProvider,

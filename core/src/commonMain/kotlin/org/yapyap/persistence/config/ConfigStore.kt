@@ -24,7 +24,7 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 
-class ConfigStore(
+internal class ConfigStore(
     private val userSettingsFile: Path,
     private val stateFile: Path,
 ) {

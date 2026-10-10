@@ -2,11 +2,11 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.TransportLimits
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -21,7 +21,7 @@ import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-enum class RouterTransport {
+internal enum class RouterTransport {
     TOR,
     WEBRTC
 }
@@ -34,7 +34,7 @@ enum class RouterTransport {
  * so no count here is a delivery verdict. Relay deposits are a router-internal
  * delivery mechanism, not destinations, and never appear in these counts.
  */
-data class AccountPushReport(
+internal data class AccountPushReport(
     /** Peer devices found for the account (excluding the originating device). */
     val devicesTotal: Int,
     /** Envelopes accepted by the outbox (direct or relay-supplemented). */
@@ -51,7 +51,7 @@ data class AccountPushReport(
  * [senderAccountId]. Emitted per-account (multiple devices of the same account collapse here);
  * room state management and idle-timeout handling are an orchestrator concern.
  */
-data class TypingIndicatorEvent(
+internal data class TypingIndicatorEvent(
     val senderAccountId: AccountId,
     val roomId: RoomId,
     val interval: Duration,
@@ -73,7 +73,7 @@ data class TypingIndicatorEvent(
  * about the room) runs in `PingProvider` against the repository directly.
  * Everything crossing into the orchestrator is account-level.
  */
-data class PingFrontiers(
+internal data class PingFrontiers(
     val senderAccount: AccountId?,
     val roomFrontiers: List<Pair<RoomId, List<Uuid>>>,
 )
@@ -85,7 +85,7 @@ data class PingFrontiers(
  * handling role: INTRO → the newcomer-side onboarding provider, RECOVERY_REQUEST → the recovery
  * responder (INVITE never travels on the wire — it is an out-of-band QR/CLI artifact).
  */
-data class BootstrapPacketEvent(
+internal data class BootstrapPacketEvent(
     val payload: BootstrapPayload,
     val receivedAt: Instant,
 )

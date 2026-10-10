@@ -15,7 +15,7 @@ import kotlin.time.Instant
  * callers never block a thread on IO. Timestamps are mapped to/from epoch seconds by the SQLDelight
  * column adapter.
  */
-interface PeerAvailabilityStore {
+internal interface PeerAvailabilityStore {
     /** Records that [deviceId] was seen at [at]. */
     suspend fun markSeen(deviceId: PeerId, at: Instant)
 
@@ -32,13 +32,13 @@ interface PeerAvailabilityStore {
     suspend fun availabilityForAll(): List<PeerAvailability>
 }
 
-data class PeerAvailability(
+internal data class PeerAvailability(
     val deviceId: PeerId,
     val reliabilityScore: Double,
     val lastSeen: Instant,
 )
 
-class DefaultPeerAvailabilityStore(
+internal class DefaultPeerAvailabilityStore(
     database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PeerAvailabilityStore {

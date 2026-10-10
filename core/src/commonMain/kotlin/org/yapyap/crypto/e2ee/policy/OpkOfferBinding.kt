@@ -4,7 +4,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 
-object OpkOfferBinding {
+internal object OpkOfferBinding {
     const val BINDING_LENGTH = 32
 
     private val KDF_INFO = "YapYapOpkOfferBinding".encodeToByteArray()

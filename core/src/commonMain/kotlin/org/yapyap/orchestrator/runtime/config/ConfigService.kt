@@ -8,15 +8,15 @@ import org.yapyap.config.UpdateResult
 import org.yapyap.config.buildSettings
 import org.yapyap.persistence.config.ConfigStore
 
-interface ConfigService {
+public interface ConfigService {
     /** All user-facing settings, live, in a stable order (grouped via [Setting.group]). */
-    val settings: StateFlow<List<Setting>>
+    public val settings: StateFlow<List<Setting>>
 
     /**
      * Update a user setting by id. Pass `null` to clear the override and
      * restore the default. Non-user-editable ids and invalid values are rejected.
      */
-    suspend fun update(id: String, value: ConfigValue?): UpdateResult
+    public suspend fun update(id: String, value: ConfigValue?): UpdateResult
 }
 
 internal class DefaultConfigService(

@@ -1,6 +1,5 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.protocol.*
 
 /**
@@ -18,7 +17,7 @@ import org.yapyap.protocol.*
  * The node header's `senderAccountId`/`authorDeviceId` identify the INSERTER; [AddDevice.accountId]
  * identifies the TARGET account. Never conflate them.
  */
-sealed interface GlobalEventPayload {
+internal sealed interface GlobalEventPayload {
     val kind: GlobalEventKind
 
     fun encode(): ByteArray
@@ -339,7 +338,7 @@ sealed interface GlobalEventPayload {
     }
 }
 
-enum class GlobalEventKind(val wireValue: Byte) {
+internal enum class GlobalEventKind(val wireValue: Byte) {
     ADD_ACCOUNT(1),
     ADD_DEVICE(2),
     GRANT_ADMIN(3),
@@ -367,7 +366,7 @@ enum class GlobalEventKind(val wireValue: Byte) {
  * Deliberately carries no key ids/versions — those are locally-minted DB bookkeeping, not
  * identity (§1: events carry only keys and bindings that cannot be derived).
  */
-fun accountSignedDeviceBindingBytes(
+internal fun accountSignedDeviceBindingBytes(
     accountId: AccountId,
     deviceId: PeerId,
     signingPublicKey: ByteArray,

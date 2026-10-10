@@ -38,7 +38,7 @@ import kotlin.uuid.Uuid
  * hold closes, the orphan flag clears and ancestry-completeness is re-derived
  * (with a downward cascade to children).
  */
-class DefaultDagEngine(
+internal class DefaultDagEngine(
     private val messageRepository: MessageRepository,
     private val causalHoldRepository: CausalHoldRepository,
     private val roomRepository: RoomRepository,

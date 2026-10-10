@@ -1,10 +1,6 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.protocol.ByteReader
-import org.yapyap.protocol.ByteWriter
-import org.yapyap.protocol.MessagePayloadType
-import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.*
 import kotlin.uuid.Uuid
 
 /**
@@ -19,7 +15,7 @@ import kotlin.uuid.Uuid
  * `MemberRemove.successorAccountId` handover field verbatim — shape validation
  * (owner-only, self-leave-only, member-successor) belongs to the room fold, never the codec.
  */
-sealed interface RoomEventPayload {
+internal sealed interface RoomEventPayload {
     val kind: RoomEventKind
 
     fun encode(): ByteArray
@@ -199,7 +195,7 @@ sealed interface RoomEventPayload {
     }
 }
 
-enum class RoomEventKind(val wireValue: Byte) {
+internal enum class RoomEventKind(val wireValue: Byte) {
     ROOM_CREATED(1),
     MEMBER_ADD(2),
     MEMBER_REMOVE(3),

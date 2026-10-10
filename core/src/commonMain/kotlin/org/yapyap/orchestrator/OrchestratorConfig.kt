@@ -6,7 +6,7 @@ import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
-data class OrchestratorConfig(
+internal data class OrchestratorConfig(
     val maintenanceInterval: Duration = 1.hours,
     /** Send cadence for typing indicators while the user is composing; receivers idle-timeout at ~2x this. */
     val typingIndicatorInterval: Duration = 3.seconds,

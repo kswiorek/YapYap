@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
 // TODO: [Sprint 5] Replace with real encrypted file protection (SignedAndEncryptedFileProtection).
 //  This is a plaintext passthrough placeholder so the orchestrator can compile and boot.
 //  Sprint 5 tasks: FileEnvelope lifecycle, chunk scheduler, E2EE for file payloads.
-class PlaintextFileProtection(
+internal class PlaintextFileProtection(
     private val cryptoProvider: CryptoProvider,
 ) : FileProtection {
 

@@ -50,6 +50,9 @@ val webrtcNativeClassifier: String? = run {
 }
 
 kotlin {
+    // Strict explicit API mode: SQLDelight 2.x generates explicit modifiers, so generated
+    // sources comply. The GUI boundary itself is enforced by PublicApiSurfaceTest (fails CI).
+    explicitApi()
     compilerOptions {
         freeCompilerArgs.add("-Xexpect-actual-classes")
     }

@@ -1,6 +1,6 @@
 package org.yapyap.config
 
-data class TransportLimits(
+internal data class TransportLimits(
     val torMaxPayloadBytes: Int,
     val webRtcMaxPayloadBytes: Int,
 ) {

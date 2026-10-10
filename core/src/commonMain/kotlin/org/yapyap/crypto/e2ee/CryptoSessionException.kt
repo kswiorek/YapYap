@@ -7,7 +7,7 @@ import org.yapyap.protocol.PeerId
  * store state). Programming mistakes and invalid local API use should throw [IllegalArgumentException]
  * via [require] or [error] instead.
  */
-sealed class CryptoSessionException(
+internal sealed class CryptoSessionException(
     message: String,
     cause: Throwable? = null,
 ) : Exception(message, cause) {

@@ -13,7 +13,7 @@ import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.types.*
 
-class DefaultWebRtcTransport(
+internal class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
 ) : WebRtcTransport {
 

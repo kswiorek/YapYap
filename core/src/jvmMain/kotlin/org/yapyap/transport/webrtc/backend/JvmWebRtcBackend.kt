@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
-class JvmWebRtcBackend(
+internal class JvmWebRtcBackend(
     private val config: StateFlow<WebRtcBackendConfig>,
 ) : WebRtcBackend {
 
@@ -790,7 +790,7 @@ private suspend fun RTCPeerConnection.setRemoteDescriptionSuspending(description
     }
 }
 
-class WebRtcBackendException(message: String) : RuntimeException(message)
+internal class WebRtcBackendException(message: String) : RuntimeException(message)
 
 private fun encodeIceCandidate(candidate: RTCIceCandidate): ByteArray {
     val mid = candidate.sdpMid

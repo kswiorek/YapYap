@@ -5,7 +5,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
-data class WebRtcIceServerConfig(
+internal data class WebRtcIceServerConfig(
     val urls: List<String>,
     val username: String? = null,
     val password: String? = null,
@@ -16,7 +16,7 @@ data class WebRtcIceServerConfig(
 }
 
 @Serializable
-data class WebRtcBackendConfig(
+internal data class WebRtcBackendConfig(
     val iceServers: List<WebRtcIceServerConfig> = listOf(
         WebRtcIceServerConfig(urls = listOf("stun:stun.l.google.com:19302")),
         WebRtcIceServerConfig(urls = listOf("stun:stun1.l.google.com:19302")),

@@ -1,25 +1,25 @@
 package org.yapyap.orchestrator.runtime.message
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-sealed interface MessageDisplayItem {
+public sealed interface MessageDisplayItem {
     /** Stable identity used as a Compose list key and for targeted removal (e.g. on rejection). */
-    val messageId: Uuid
-    val accountId: AccountId
-    val timestamp: Instant
+    public val messageId: Uuid
+    public val accountId: AccountId
+    public val timestamp: Instant
 
-    data class Text(
+    public data class Text(
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
         val text: String,
     ) : MessageDisplayItem
 
-    data class File(
+    public data class File(
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
@@ -28,7 +28,7 @@ sealed interface MessageDisplayItem {
         val fileSize: Long,
     ) : MessageDisplayItem
 
-    data class Gap(
+    public data class Gap(
         override val messageId: Uuid,
         override val accountId: AccountId,
         override val timestamp: Instant,
@@ -45,7 +45,7 @@ sealed interface MessageDisplayItem {
  * remains the source of truth for initial population and re-pulls (e.g.
  * after a REJECTED drop).
  */
-data class IncomingMessageEvent(
+public data class IncomingMessageEvent(
     val roomId: RoomId,
     val senderAccountId: AccountId,
     val item: MessageDisplayItem,
@@ -60,7 +60,7 @@ data class IncomingMessageEvent(
  * The item is carried unformatted: truncation, "sent a file" labels and any
  * other presentation decisions are GUI concerns.
  */
-data class RoomPreview(
+public data class RoomPreview(
     val messageId: Uuid,
     val senderAccountId: AccountId,
     val timestamp: Instant,
@@ -71,43 +71,43 @@ data class RoomPreview(
  * A paginated window into a room's messages.
  * Created by [MessagingService.openRoom]; caller must [close] when done.
  */
-interface RoomMessageWindow {
+public interface RoomMessageWindow {
     /** Current loaded messages (oldest→newest). Bind this to the GUI list. */
-    val displayItems: StateFlow<List<MessageDisplayItem>>
+    public val displayItems: StateFlow<List<MessageDisplayItem>>
 
     /** Whether older messages exist beyond the currently loaded window. */
-    val hasMoreOlder: StateFlow<Boolean>
+    public val hasMoreOlder: StateFlow<Boolean>
 
     /**
      * Load the next page of older messages (prepended to [displayItems]).
      * @return Number of messages loaded (0 means no more older messages).
      */
-    suspend fun loadOlder(pageSize: Int = 50): Int
+    public suspend fun loadOlder(pageSize: Int = 50): Int
 
     /** Release this window and unsubscribe from updates. */
-    suspend fun close()
+    public suspend fun close()
 }
 
 /** Outcome of the GUI-facing text-send flow. Domain refusals are values;
  *  infrastructure failures (transport, storage) still throw. */
-sealed interface SendTextResult {
+public sealed interface SendTextResult {
     /** Appended to the room DAG and fanned out. [fanout] is a send-time
      *  reachability snapshot — advisory, never an error state. */
-    data class Sent(val fanout: FanoutReport) : SendTextResult
+    public data class Sent(val fanout: FanoutReport) : SendTextResult
 
     /** Refused before any write — nothing appended, nothing sent. */
-    data class Refused(val reason: SendRefusal) : SendTextResult
+    public data class Refused(val reason: SendRefusal) : SendTextResult
 }
 
-sealed interface SendRefusal {
+public sealed interface SendRefusal {
     /** Local account holds a committed REMOVED row for the room. */
-    data object NotMember : SendRefusal
+    public data object NotMember : SendRefusal
 
     /** Text exceeds [MessagingService.maxTextMessageBytes]. */
-    data object TooLarge : SendRefusal
+    public data object TooLarge : SendRefusal
 
     /** Room frontier unchainable — still syncing. */
-    data object HistoryIncomplete : SendRefusal
+    public data object HistoryIncomplete : SendRefusal
 }
 
 /**
@@ -122,7 +122,7 @@ sealed interface SendRefusal {
  * (ping frontiers + sync) is the delivery path. "Pending" would overpromise
  * for the no-devices case; the GUI may still render it as "pending sync".
  */
-data class FanoutReport(
+public data class FanoutReport(
     /** Other member accounts fanned out to. */
     val membersTotal: Int,
     /** Accounts with at least one device queued to the outbox now. */

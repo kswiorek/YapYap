@@ -10,7 +10,7 @@ import org.yapyap.routing.router.RoutingContext
  * Picks the relay (store-and-forward) peers a message for `targetDevice` should be deposited with,
  * to be held until the recipient surfaces. Used when there is no direct WebRTC session.
  */
-interface RelaySelectionPolicy {
+internal interface RelaySelectionPolicy {
     /** Relays to deposit with, best first, or empty if none qualify. */
     suspend fun selectRelays(targetDevice: PeerId): List<PeerId>
 }

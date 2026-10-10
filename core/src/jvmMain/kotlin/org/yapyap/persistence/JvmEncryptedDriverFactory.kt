@@ -8,7 +8,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.DriverFactory
 
-class JvmEncryptedDriverFactory(
+internal class JvmEncryptedDriverFactory(
     private val databaseFile: Path,
     private val masterKey: ByteArray,
 ) : DriverFactory {

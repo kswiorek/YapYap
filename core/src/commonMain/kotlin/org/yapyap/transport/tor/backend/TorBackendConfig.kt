@@ -9,7 +9,7 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 
 @Serializable
-data class TorBackendConfig(
+internal data class TorBackendConfig(
     val startupTimeout: Duration = 120_000L.milliseconds,
     val maxPayloadBytes: Int = 4 * 1024 * 1024,
     val socksRetryTimeout: Duration = 300_000.milliseconds,

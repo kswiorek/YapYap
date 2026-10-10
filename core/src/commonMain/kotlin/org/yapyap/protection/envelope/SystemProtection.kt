@@ -13,12 +13,12 @@ import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import kotlin.uuid.Uuid
 
-interface SystemProtection {
+internal interface SystemProtection {
     suspend fun open(envelope: SystemEnvelope): SystemPayload
     suspend fun protect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope
 }
 
-class PlaintextSystemProtection(
+internal class PlaintextSystemProtection(
     private val cryptoProvider: CryptoProvider,
 ) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
     override suspend fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
@@ -68,7 +68,7 @@ class PlaintextSystemProtection(
     override fun envelopeLabel(): String = "System envelope"
 }
 
-class SignedSystemProtection(
+internal class SignedSystemProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
 ) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {

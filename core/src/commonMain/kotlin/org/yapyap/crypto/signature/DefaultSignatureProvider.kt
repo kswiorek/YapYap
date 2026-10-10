@@ -1,16 +1,16 @@
 package org.yapyap.crypto.signature
 
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 
-class DefaultSignatureProvider(
+internal class DefaultSignatureProvider(
     private val identityResolver: IdentityResolver,
     private val cryptoProvider: CryptoProvider,
 ) : SignatureProvider {

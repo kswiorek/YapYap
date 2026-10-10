@@ -7,12 +7,12 @@ import org.yapyap.crypto.primitives.CryptoProvider
 /**
  * Provides the SQLCipher / DB master key, persisted via [KeyStore] (typically OS keyring).
  */
-interface MasterKeyProvider {
+internal interface MasterKeyProvider {
     /** Returns the existing DB master key, or creates and stores one. */
     suspend fun getOrCreate(): ByteArray
 }
 
-class DefaultMasterKeyProvider(
+internal class DefaultMasterKeyProvider(
     private val keyStore: KeyStore,
     private val crypto: CryptoProvider,
     private val keyId: String = DEFAULT_KEY_ID,

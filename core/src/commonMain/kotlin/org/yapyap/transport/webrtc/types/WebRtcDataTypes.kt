@@ -2,12 +2,12 @@ package org.yapyap.transport.webrtc.types
 
 import org.yapyap.protocol.PeerId
 
-enum class WebRtcDataType {
+internal enum class WebRtcDataType {
     ENVELOPE_BINARY,
     AV_DATA,
 }
 
-data class WebRtcDataFrame(
+internal data class WebRtcDataFrame(
     val source: PeerId,
     val target: PeerId,
     val dataType: WebRtcDataType,

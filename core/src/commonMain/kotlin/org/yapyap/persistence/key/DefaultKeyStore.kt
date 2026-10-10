@@ -8,7 +8,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import kotlin.io.encoding.Base64
 
-class DefaultKeyStore(
+internal class DefaultKeyStore(
     private val sessionFactory: KeyringSessionFactory,
     private val serviceName: String = "org.yapyap",
 ) : KeyStore {

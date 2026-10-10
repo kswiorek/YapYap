@@ -1,6 +1,6 @@
 package org.yapyap.logging
 
-interface AppLogger {
+internal interface AppLogger {
     fun debug(
         component: LogComponent,
         event: LogEvent,
@@ -31,7 +31,7 @@ interface AppLogger {
     )
 }
 
-object NoopAppLogger : AppLogger {
+internal object NoopAppLogger : AppLogger {
     override fun debug(component: LogComponent, event: LogEvent, message: String, fields: Map<String, Any?>) = Unit
 
     override fun info(component: LogComponent, event: LogEvent, message: String, fields: Map<String, Any?>) = Unit

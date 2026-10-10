@@ -6,7 +6,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-interface PacketOutbox {
+internal interface PacketOutbox {
     /**
      * @param targetEndpoint out-of-band endpoint override for targets with no local devices row
      *   (bootstrap: recovery request / intro). Persisted on the row so retries — including after
@@ -32,7 +32,7 @@ interface PacketOutbox {
     suspend fun pruneRelayOverCapacity(maxBytes: Long): Int
 }
 
-data class OutboxEntry(
+internal data class OutboxEntry(
     val packetId: Uuid,
     val envelope: BinaryEnvelope,
     val nextRetryAt: Instant?,

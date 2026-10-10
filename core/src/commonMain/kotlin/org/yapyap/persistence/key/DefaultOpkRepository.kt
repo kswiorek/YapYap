@@ -12,7 +12,7 @@ import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 import kotlin.time.Instant
 
-class DefaultOpkRepository(
+internal class DefaultOpkRepository(
     private val database: YapYapDatabase,
     private val keyStore: KeyStore,
     private val crypto: CryptoProvider,

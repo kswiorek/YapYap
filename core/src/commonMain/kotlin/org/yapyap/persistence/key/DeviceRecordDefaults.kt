@@ -2,7 +2,7 @@ package org.yapyap.persistence.key
 
 import kotlin.time.Instant
 
-data class DeviceRecordDefaults(
+internal data class DeviceRecordDefaults(
     val onionAddress: String = "unknown.onion",
     val onionPort: Long = 80L,
     val pushToken: String? = null,

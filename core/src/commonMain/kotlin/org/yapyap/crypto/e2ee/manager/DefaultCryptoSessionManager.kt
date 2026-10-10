@@ -17,7 +17,7 @@ import org.yapyap.persistence.key.OpkRepository
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 
-class DefaultCryptoSessionManager(
+internal class DefaultCryptoSessionManager(
     private val crypto: CryptoProvider,
     private val x3dh: X3dhHandshake,
     private val sessionStore: CryptoSessionStore,

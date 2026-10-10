@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.fold.room
 
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.random.Random

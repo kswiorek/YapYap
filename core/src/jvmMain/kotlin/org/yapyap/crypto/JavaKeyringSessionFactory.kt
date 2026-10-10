@@ -4,7 +4,7 @@ import com.github.javakeyring.Keyring
 import org.yapyap.persistence.key.KeyringSession
 import org.yapyap.persistence.key.KeyringSessionFactory
 
-object JavaKeyringSessionFactory : KeyringSessionFactory {
+internal object JavaKeyringSessionFactory : KeyringSessionFactory {
     override fun open(): KeyringSession {
         val keyring = Keyring.create()
         return object : KeyringSession {

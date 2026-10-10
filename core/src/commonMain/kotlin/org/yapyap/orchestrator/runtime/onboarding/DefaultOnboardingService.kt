@@ -40,7 +40,16 @@ internal class DefaultOnboardingService(
         provider.cancelOnboarding()
     }
 
-    override suspend fun sponsorNewcomer(invite: Invite, admin: Boolean): SponsorOutcome {
+    override suspend fun sponsorNewcomer(inviteBytes: ByteArray, admin: Boolean): SponsorOutcome {
+        // 0. Decode: raw QR bytes into the invite. A failure here means a corrupt QR /
+        //    version skew — the GUI should ask for a fresh code, not crash.
+        val invite = try {
+            Invite.decode(inviteBytes)
+        } catch (_: RuntimeException) {
+            return SponsorOutcome.Refused(
+                SponsorRefusal.MalformedInvite(InviteDefect.MALFORMED_BYTES),
+            )
+        }
         // 1. Shape: pure checks on the decoded invite, no I/O. A failure here means a corrupt
         //    QR / version skew — the GUI should ask for a fresh code, not crash.
         val newcomerAccount = invite.account?.let { account ->

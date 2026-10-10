@@ -11,7 +11,7 @@ import kotlin.time.Instant
  * Capacity limits (max frame/body/plaintext/control bytes) that depend on transport limits live in
  * [CryptoLimits] and are enforced by [CryptoWireCodec].
  */
-object CryptoWireLimits {
+internal object CryptoWireLimits {
     /** X25519 keys are stored in DER form in this stack (~44 bytes); cap prevents hostile oversize. */
     const val MAX_DH_PUBLIC_KEY_BYTES: Int = 64
     const val MAX_X3DH_EPHEMERAL_KEY_BYTES: Int = 64
@@ -51,7 +51,7 @@ object CryptoWireLimits {
     }
 }
 
-data class SessionWireFrame(
+internal data class SessionWireFrame(
     val sessionEpoch: Int,
     val sessionGeneration: Int = 1,
     val outerHandshake: X3dhWireInfo?,   // epoch-1 initiator first message only
@@ -70,7 +70,7 @@ data class SessionWireFrame(
     }
 }
 
-sealed interface RatchetInnerPlaintext {
+internal sealed interface RatchetInnerPlaintext {
     val bytes: ByteArray
 
     data class Payload(override val bytes: ByteArray) : RatchetInnerPlaintext
@@ -86,7 +86,7 @@ sealed interface RatchetInnerPlaintext {
     }
 }
 
-sealed interface InnerSessionControl {
+internal sealed interface InnerSessionControl {
     data class OpkOffer(
         val sessionEpoch: Int,
         val sessionGeneration: Int,
@@ -97,7 +97,7 @@ sealed interface InnerSessionControl {
 }
 
 
-data class CryptoSessionRecord(
+internal data class CryptoSessionRecord(
     val peerDeviceId: PeerId,
     val sessionEpoch: Int,
     val ratchetState: RatchetSessionState,
@@ -105,7 +105,7 @@ data class CryptoSessionRecord(
     val canonical: Boolean,
 )
 
-data class CryptoSessionMeta(
+internal data class CryptoSessionMeta(
     val role: SessionRole,
     val x3dhMode: X3dhMode,
     val handshakeSpkId: String,
@@ -119,5 +119,5 @@ data class CryptoSessionMeta(
     val updatedAt: Instant,
 )
 
-enum class SessionRole { INITIATOR, RESPONDER }
-enum class SessionStatus { ACTIVE, PENDING, SUPERSEDED }
+public enum class SessionRole { INITIATOR, RESPONDER }
+public enum class SessionStatus { ACTIVE, PENDING, SUPERSEDED }

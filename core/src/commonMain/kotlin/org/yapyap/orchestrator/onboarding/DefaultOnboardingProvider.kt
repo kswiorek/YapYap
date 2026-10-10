@@ -13,12 +13,12 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.persistence.db.AccountRole
-import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.key.BootstrapSessionStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterConfig

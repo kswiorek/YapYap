@@ -4,8 +4,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protection.ProtectionException
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure

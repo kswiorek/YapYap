@@ -5,7 +5,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 
-interface TorTransport {
+internal interface TorTransport {
     val incoming: Flow<TorIncomingEnvelope>
 
     suspend fun start(): TorEndpoint

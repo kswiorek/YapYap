@@ -19,7 +19,7 @@ package org.yapyap.crypto.e2ee.session
  * [maxInnerControlBytes] is not derived from transport capacity; control blocks (OPK offers)
  * are structurally tiny and kept at a fixed, generous cap.
  */
-data class CryptoLimits(
+internal data class CryptoLimits(
     val maxSessionWireFrameBytes: Int,
     val maxInnerPlaintextBytes: Int,
     val maxRatchetBodyBytes: Int,

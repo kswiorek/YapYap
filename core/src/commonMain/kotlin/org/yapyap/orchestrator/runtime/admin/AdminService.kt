@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.runtime.admin
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 
 /**
@@ -23,22 +23,22 @@ import org.yapyap.protocol.PeerId
  * (not-yet-folded) targets are refused `NotReady` — the fold evaluates them
  * against shadow state that doesn't contain them yet.
  */
-interface AdminService {
+public interface AdminService {
     /** Local account's admin flag, live (OWNER implies admin). */
-    val localIsAdmin: StateFlow<Boolean>
+    public val localIsAdmin: StateFlow<Boolean>
 
     /** Grant admin to an ACTIVE MEMBER account (`TargetNotEligible` otherwise). */
-    suspend fun grantAdmin(target: AccountId): GlobalEventOutcome
+    public suspend fun grantAdmin(target: AccountId): GlobalEventOutcome
 
     /** Revoke admin from an ACTIVE ADMIN account; self step-down is legal.
      *  The owner is irrevocable (`OwnerIrrevocable`). */
-    suspend fun revokeAdmin(target: AccountId): GlobalEventOutcome
+    public suspend fun revokeAdmin(target: AccountId): GlobalEventOutcome
 
     /** Remove (ban) another account, cascade-banning its devices. Never the
      *  local account (`SelfServiceRequired`) or the owner (`OwnerIrrevocable`). */
-    suspend fun removeAccount(target: AccountId): GlobalEventOutcome
+    public suspend fun removeAccount(target: AccountId): GlobalEventOutcome
 
     /** Remove (ban) another account's device. Never the local account's
      *  devices (`SelfServiceRequired`) or the owner's (`OwnerIrrevocable`). */
-    suspend fun removeDevice(target: PeerId): GlobalEventOutcome
+    public suspend fun removeDevice(target: PeerId): GlobalEventOutcome
 }

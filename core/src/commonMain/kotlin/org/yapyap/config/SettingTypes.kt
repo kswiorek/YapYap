@@ -10,32 +10,32 @@ import kotlin.time.Duration
 // Value representation (uniform type for the override map).
 // ---------------------------------------------------------------------------
 
-sealed interface ConfigValue {
-    data class Number(val value: Long) : ConfigValue
-    data class Text(val value: String) : ConfigValue
-    data class Toggle(val value: Boolean) : ConfigValue
-    data class Period(val value: Duration) : ConfigValue
+public sealed interface ConfigValue {
+    public data class Number(val value: Long) : ConfigValue
+    public data class Text(val value: String) : ConfigValue
+    public data class Toggle(val value: Boolean) : ConfigValue
+    public data class Period(val value: Duration) : ConfigValue
 }
 
 // ---------------------------------------------------------------------------
 // Who sets a field.
 // ---------------------------------------------------------------------------
 
-enum class FieldSource { USER, NETWORK, READ_ONLY }
+internal enum class FieldSource { USER, NETWORK, READ_ONLY }
 
 // ---------------------------------------------------------------------------
 // GUI-facing display model.
 // ---------------------------------------------------------------------------
 
-sealed interface Setting {
-    val id: String
-    val title: String
-    val description: String
-    val group: String
-    val editable: Boolean
+public sealed interface Setting {
+    public val id: String
+    public val title: String
+    public val description: String
+    public val group: String
+    public val editable: Boolean
 }
 
-data class NumberSetting(
+public data class NumberSetting(
     override val id: String,
     override val title: String,
     override val description: String,
@@ -47,7 +47,7 @@ data class NumberSetting(
     val max: Long? = null,
 ) : Setting
 
-data class TextSetting(
+public data class TextSetting(
     override val id: String,
     override val title: String,
     override val description: String,
@@ -57,7 +57,7 @@ data class TextSetting(
     val isSecret: Boolean = false,
 ) : Setting
 
-data class ToggleSetting(
+public data class ToggleSetting(
     override val id: String,
     override val title: String,
     override val description: String,
@@ -66,7 +66,7 @@ data class ToggleSetting(
     val value: Boolean,
 ) : Setting
 
-data class PeriodSetting(
+public data class PeriodSetting(
     override val id: String,
     override val title: String,
     override val description: String,
@@ -79,7 +79,7 @@ data class PeriodSetting(
 // Result of applying a value onto a RuntimeConfig.
 // ---------------------------------------------------------------------------
 
-sealed interface WriteResult {
+internal sealed interface WriteResult {
     data class Ok(val cfg: RuntimeConfig) : WriteResult
     data class Invalid(val reason: String) : WriteResult
 }
@@ -89,7 +89,7 @@ sealed interface WriteResult {
 // persistence and the GUI display model.
 // ---------------------------------------------------------------------------
 
-sealed class Field(
+internal sealed class Field(
     val id: String,
     val title: String,
     val description: String,
@@ -103,7 +103,7 @@ sealed class Field(
     abstract fun setting(value: ConfigValue): Setting
 }
 
-class NumberField(
+internal class NumberField(
     id: String,
     title: String,
     description: String,
@@ -137,7 +137,7 @@ class NumberField(
     )
 }
 
-class TextField(
+internal class TextField(
     id: String,
     title: String,
     description: String,
@@ -169,7 +169,7 @@ class TextField(
     )
 }
 
-class ToggleField(
+internal class ToggleField(
     id: String,
     title: String,
     description: String,
@@ -199,7 +199,7 @@ class ToggleField(
     )
 }
 
-class PeriodField(
+internal class PeriodField(
     id: String,
     title: String,
     description: String,
@@ -232,9 +232,9 @@ class PeriodField(
 // Overrides: absence of a key means "use the default".
 // ---------------------------------------------------------------------------
 
-typealias Overrides = Map<String, ConfigValue>
+internal typealias Overrides = Map<String, ConfigValue>
 
-fun Overrides.toTomlText(): String {
+internal fun Overrides.toTomlText(): String {
     val grouped: Map<String, Map<String, Any>> = FIELDS
         .filter { it.source == FieldSource.USER }
         .groupBy { it.group }
@@ -244,7 +244,7 @@ fun Overrides.toTomlText(): String {
     return Toml.encodeToString(TomlTable.serializer(), TomlTable(grouped))
 }
 
-fun TomlTable.toOverrides(): Overrides = buildMap {
+internal fun TomlTable.toOverrides(): Overrides = buildMap {
     for (field in FIELDS.filter { it.source == FieldSource.USER }) {
         val literal = getTableOrNull(field.group)?.getLiteralOrNull(field.id) ?: continue
         when (field) {
@@ -268,7 +268,7 @@ private val ConfigValue.raw: Any
 // Generic derivation / projection, driven by the registry.
 // ---------------------------------------------------------------------------
 
-fun derive(overrides: Overrides): RuntimeConfig =
+internal fun derive(overrides: Overrides): RuntimeConfig =
     FIELDS.fold(RuntimeConfig()) { cfg, field ->
         val override = overrides[field.id] ?: return@fold cfg
         when (val result = field.write(cfg, override)) {
@@ -285,11 +285,11 @@ fun derive(overrides: Overrides): RuntimeConfig =
         }
     }
 
-fun buildSettings(overrides: Overrides): List<Setting> {
+internal fun buildSettings(overrides: Overrides): List<Setting> {
     val effective = derive(overrides)
     return FIELDS.map { field -> field.setting(field.read(effective)) }
 }
 
-fun projectNetwork(runtime: RuntimeConfig): Overrides =
+internal fun projectNetwork(runtime: RuntimeConfig): Overrides =
     FIELDS.filter { it.source == FieldSource.NETWORK }
         .associate { field -> field.id to field.read(runtime) }

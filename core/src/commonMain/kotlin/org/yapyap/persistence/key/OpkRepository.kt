@@ -6,7 +6,7 @@ import kotlin.time.Instant
 /**
  * Local pool of one-time prekeys (OPKs) consumed during optional 4-DH session upgrade.
  */
-interface OpkRepository {
+internal interface OpkRepository {
     /** Generate and persist a fresh OPK in [org.yapyap.persistence.db.OpkStatus.ALLOCATED] state. */
     suspend fun allocate(): LocalOneTimePreKey
 

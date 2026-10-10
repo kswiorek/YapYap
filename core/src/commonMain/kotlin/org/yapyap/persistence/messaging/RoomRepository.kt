@@ -2,22 +2,17 @@ package org.yapyap.persistence.messaging
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.databaseDispatcher
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.*
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 /** One committed `room_members` row: the fold's member-at-some-point record. */
-data class RoomMemberRecord(
+internal data class RoomMemberRecord(
     val accountId: AccountId,
     val role: RoomMemberRole,
     val status: RoomMemberStatus,
@@ -30,14 +25,14 @@ data class RoomMemberRecord(
 )
 
 /** One `rooms` row: genesis-merged display state (provisional UNKNOWN until the fold commits). */
-data class RoomRecord(
+internal data class RoomRecord(
     val roomId: RoomId,
     val spaceId: String?,
     val type: RoomType,
     val name: String,
 )
 
-interface RoomRepository {
+internal interface RoomRepository {
     /**
      * ACTIVE members of [roomId] (access read: sync gate, fan-out, sync
      * candidates). REMOVED rows never grant access — removal cuts sync from the
@@ -108,7 +103,7 @@ interface RoomRepository {
     suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>)
 }
 
-class DefaultRoomRepository(
+internal class DefaultRoomRepository(
     private val database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : RoomRepository {

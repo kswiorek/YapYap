@@ -1,7 +1,7 @@
 package org.yapyap.orchestrator.dag
 
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.db.VerificationState
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.GlobalEventPayload
@@ -9,7 +9,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.uuid.Uuid
 
-sealed interface MessageDraft {
+internal sealed interface MessageDraft {
     data class Text(val text: String) : MessageDraft
     data class GlobalEvent(val event: GlobalEventPayload) : MessageDraft
 
@@ -27,7 +27,7 @@ sealed interface MessageDraft {
  * genesis messageId, never supplied — mirroring
  * [MessagePayload.RoomEvent.createGenesis].
  */
-data class RoomCreatedDraft(
+internal data class RoomCreatedDraft(
     val memberAccountIds: Set<AccountId>,
     val roomName: String,
     val roomType: RoomType,
@@ -44,14 +44,14 @@ data class RoomCreatedDraft(
  * arrives). Emitted on [DagEngine.verificationStateChanges] — a message-related signal that is
  * *not* a new message.
  */
-data class VerificationStateChange(
+internal data class VerificationStateChange(
     val messageId: Uuid,
     val roomId: RoomId,
     val fromState: VerificationState,
     val toState: VerificationState,
 )
 
-sealed interface IngestResult {
+internal sealed interface IngestResult {
     val payload: MessagePayload
     val closedGapMissingPrevIds: List<Uuid>
     val verificationState: VerificationState
@@ -75,7 +75,7 @@ sealed interface IngestResult {
  * Domain failures of the room DAG engine. State refusals are typed values in this
  * hierarchy; generic throws stay reserved for programming errors and infrastructure failures.
  */
-sealed class DagException(message: String) : Exception(message) {
+internal sealed class DagException(message: String) : Exception(message) {
     /**
      * The room holds messages but its chainable frontier is empty — every tip parked on
      * an open gap, unverified, or excluded by non-VERIFIED ancestry. Appending would fork

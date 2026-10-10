@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.fold.room
 
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.uuid.Uuid
 
@@ -15,7 +15,7 @@ import kotlin.uuid.Uuid
 /** One fold input node. Null [event] rows (content messages) ride the order as no-ops:
  * they are needed for ancestry closures and canonical positions but never exercise
  * authority. */
-data class RoomFoldNode(
+internal data class RoomFoldNode(
     val id: Uuid,
     val authorAccountId: AccountId,
     val event: RoomEventPayload?,

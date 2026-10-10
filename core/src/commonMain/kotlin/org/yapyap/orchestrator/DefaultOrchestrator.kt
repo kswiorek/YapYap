@@ -41,10 +41,8 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.availability.DefaultPeerAvailabilityStore
 import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.crypto.DefaultCryptoSessionStore
-import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.key.*
 import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
@@ -55,7 +53,9 @@ import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.persistence.sync.DefaultPendingSyncRepository
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
@@ -72,7 +72,7 @@ import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import kotlin.time.Clock
 
-class DefaultOrchestrator(
+internal class DefaultOrchestrator(
     private val dataDirectory: Path,
     private val bootConfig: BootConfig,
     private val keyringSessionFactory: KeyringSessionFactory,
@@ -245,7 +245,7 @@ class DefaultOrchestrator(
                     accountKeySignature = genesisKeySignature,
                 )
                 return SetupResult(
-                    invite = null, // no sponsor invite — the network waits in limbo for its first newcomer
+                    inviteBytes = null, // no sponsor invite — the network waits in limbo for its first newcomer
                     recoveryKey = recoveryKey,
                 )
             }
@@ -281,14 +281,14 @@ class DefaultOrchestrator(
                 )
 
                 return SetupResult(
-                    invite = Invite(
+                    inviteBytes = Invite(
                         account = account,
                         device = newcomerDevice,
                         deviceType = bootConfig.localDeviceType,
                         torEndpoint = tor,
                         sharedSecret = secret,
                         accountKeySignature = accountKeySignature,
-                    ),
+                    ).encode(),
                     recoveryKey = recoveryKey,
                 )
             }
@@ -330,7 +330,7 @@ class DefaultOrchestrator(
                 )
 
                 return SetupResult(
-                    invite = null, // no sponsor QR — direct to the supplied bootstrap endpoint
+                    inviteBytes = null, // no sponsor QR — direct to the supplied bootstrap endpoint
                     recoveryKey = null,
                 )
             }
@@ -350,14 +350,14 @@ class DefaultOrchestrator(
                 onboardingProvider.beginSession(secret)
 
                 return SetupResult(
-                    invite = Invite(
+                    inviteBytes = Invite(
                         account = null, // existing account; the sponsor adds the device to its own
                         device = identityResolver.getLocalDeviceIdentityRecord(),
                         deviceType = bootConfig.localDeviceType,
                         torEndpoint = tor,
                         sharedSecret = secret,
                         accountKeySignature = null, // branch 1: the sponsor's own authorship authorizes
-                    ),
+                    ).encode(),
                     recoveryKey = null,
                 )
             }

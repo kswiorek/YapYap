@@ -1,11 +1,11 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.runBlocking
-import org.yapyap.crypto.identity.*
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.crypto.identity.AccountIdentityRecord
+import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.IdentityKeyPurpose
+import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.testfixtures.FakeClock

@@ -2,14 +2,14 @@ package org.yapyap.transport.webrtc.types
 
 import org.yapyap.protocol.PeerId
 
-data class WebRtcSignal(
+internal data class WebRtcSignal(
     val kind: WebRtcSignalKind,
     val source: PeerId,
     val target: PeerId,
     val payload: ByteArray,
 )
 
-enum class WebRtcSignalKind(val wireValue: Byte) {
+internal enum class WebRtcSignalKind(val wireValue: Byte) {
     OFFER(1),
     ANSWER(2),
     ICE(3),

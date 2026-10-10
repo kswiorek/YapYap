@@ -1,7 +1,7 @@
 package org.yapyap.orchestrator.runtime.account
 
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 
 /**
@@ -14,14 +14,14 @@ import org.yapyap.protocol.PeerId
  * anchored the local device yet) and before any write — refusals are values
  * ([GlobalEventOutcome.Refused]); infrastructure failures still throw.
  */
-interface AccountService {
+public interface AccountService {
     /**
      * Remove another of the local account's devices (e.g. a lost phone). When the
      * target is the account's last confirmed device, [recoveryKey] must prove
      * possession of the account recovery key (else `RecoveryKeyRequired`) — removing
      * the last device without it bricks the account once the key is lost too.
      */
-    suspend fun removeOwnDevice(deviceId: PeerId, recoveryKey: String? = null): GlobalEventOutcome
+    public suspend fun removeOwnDevice(deviceId: PeerId, recoveryKey: String? = null): GlobalEventOutcome
 
     /**
      * Remove this device, keeping the account. After Published this node is
@@ -30,7 +30,7 @@ interface AccountService {
      * `Orchestrator.state` until `resetApp()`. The last-device recovery-key gate
      * applies as in [removeOwnDevice].
      */
-    suspend fun removeThisDevice(recoveryKey: String? = null): GlobalEventOutcome
+    public suspend fun removeThisDevice(recoveryKey: String? = null): GlobalEventOutcome
 
     /**
      * Remove the local account entirely (leave the network). Same teardown
@@ -39,7 +39,7 @@ interface AccountService {
      * least one ACTIVE device, never the leaver) — the removal then hands OWNER +
      * admin to the successor atomically; otherwise `InvalidSuccessor`.
      */
-    suspend fun removeOwnAccount(successor: AccountId? = null): GlobalEventOutcome
+    public suspend fun removeOwnAccount(successor: AccountId? = null): GlobalEventOutcome
 
     /**
      * Still-active devices whose branch-1 `AddDevice` was authored by [deviceId],
@@ -49,5 +49,5 @@ interface AccountService {
      * never to a second removal of its author — offer [removeOwnDevice] per
      * survivor. Read-only: no onboarding guard.
      */
-    suspend fun devicesAddedBy(deviceId: PeerId): List<PeerId>
+    public suspend fun devicesAddedBy(deviceId: PeerId): List<PeerId>
 }

@@ -6,7 +6,7 @@ import org.yapyap.protocol.envelopes.*
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.time.Instant
 
-interface EnvelopeProtectionService {
+internal interface EnvelopeProtectionService {
     suspend fun protectSignal(
         input: WebRtcSignal,
         context: EnvelopeProtectContext,
@@ -66,7 +66,7 @@ interface EnvelopeProtectionService {
     suspend fun isBootstrapSessionActive(): Boolean
 }
 
-data class EnvelopeProtectContext(
+internal data class EnvelopeProtectContext(
     val createdAt: Instant,
     val sourceDeviceId: PeerId,
     val targetDeviceId: PeerId,

@@ -19,7 +19,7 @@ import kotlin.uuid.Uuid
  *
  * Real implementations should sign/encrypt payloads before transport and verify/decrypt on receive.
  */
-interface WebRtcSignalProtection {
+internal interface WebRtcSignalProtection {
     suspend fun protect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope
 
     suspend fun open(envelope: WebRtcSignalEnvelope): WebRtcSignal
@@ -28,7 +28,7 @@ interface WebRtcSignalProtection {
 /**
  * Test/dev adapter that keeps signaling in plaintext.
  */
-class PlaintextWebRtcSignalProtection(
+internal class PlaintextWebRtcSignalProtection(
     private val cryptoProvider: CryptoProvider,
 ) :
     BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(),
@@ -76,7 +76,7 @@ class PlaintextWebRtcSignalProtection(
     override fun envelopeLabel(): String = "WebRTC signal envelope"
 }
 
-class SignedWebRtcSignalProtection(
+internal class SignedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
 ) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
@@ -135,7 +135,7 @@ class SignedWebRtcSignalProtection(
     override fun envelopeLabel(): String = "WebRTC signal envelope"
 }
 
-class SignedAndEncryptedWebRtcSignalProtection(
+internal class SignedAndEncryptedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,

@@ -3,8 +3,8 @@ package org.yapyap.orchestrator.boot
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.key.*
+import org.yapyap.protocol.AccountRole
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test

@@ -9,7 +9,7 @@ import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 import kotlin.time.Instant
 
-class CryptoMaintenance(
+internal class CryptoMaintenance(
     private val sessionStore: CryptoSessionStore,
     private val opkRepository: OpkRepository,
     private val sessionConfig: StateFlow<CryptoSessionConfig>,

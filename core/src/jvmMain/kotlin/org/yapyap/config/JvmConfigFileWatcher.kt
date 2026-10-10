@@ -14,7 +14,7 @@ import java.nio.file.FileSystems
 import java.nio.file.StandardWatchEventKinds.*
 import kotlin.time.Duration.Companion.milliseconds
 
-class JvmConfigFileWatcher(
+internal class JvmConfigFileWatcher(
     private val configFile: Path,
 ) : ConfigFileWatcher {
 

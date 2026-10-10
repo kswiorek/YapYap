@@ -1,11 +1,11 @@
 package org.yapyap.orchestrator.sync
 
 import kotlinx.coroutines.CoroutineScope
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import kotlin.uuid.Uuid
 
-interface SyncCoordinator {
+internal interface SyncCoordinator {
     fun start(scope: CoroutineScope)
     suspend fun stop()
 

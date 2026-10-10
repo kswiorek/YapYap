@@ -1,10 +1,10 @@
 package org.yapyap.crypto.signature
 
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 
 /** Result of classifying a message's claimed authorship into a three-valued outcome. */
-enum class AuthorshipOutcome {
+internal enum class AuthorshipOutcome {
     /** Signature is cryptographically valid against a known author key and the author binds to the claimed account. */
     VALID,
 
@@ -15,7 +15,7 @@ enum class AuthorshipOutcome {
     UNKNOWN_AUTHOR,
 }
 
-interface SignatureProvider {
+internal interface SignatureProvider {
     suspend fun sign(message: ByteArray): ByteArray
 
     suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean

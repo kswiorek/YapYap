@@ -12,14 +12,14 @@ import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-data class Gap(
+internal data class Gap(
     val gapId: Uuid,
     val missingPrevId: Uuid,
     val orphanedMessageId: Uuid,
     val detectedTimestamp: Instant,
 )
 
-interface CausalHoldRepository {
+internal interface CausalHoldRepository {
 
     suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant)
 
@@ -37,7 +37,7 @@ interface CausalHoldRepository {
     suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid)
 }
 
-class DefaultCausalHoldRepository(
+internal class DefaultCausalHoldRepository(
     database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : CausalHoldRepository {

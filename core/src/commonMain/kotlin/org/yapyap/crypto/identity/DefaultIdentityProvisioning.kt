@@ -5,13 +5,14 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.AccountRole
 import org.yapyap.persistence.key.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 import kotlin.time.Instant
 
-class DefaultIdentityProvisioning(
+internal class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityKeyRepository,
     private val keyStore: KeyStore,

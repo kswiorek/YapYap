@@ -1,12 +1,12 @@
 package org.yapyap.crypto.primitives
 
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.uuid.Uuid
 
 
-interface CryptoProvider {
+internal interface CryptoProvider {
     suspend fun sha256(bytes: ByteArray): ByteArray
 
     fun randomBytes(size: Int): ByteArray
@@ -73,12 +73,12 @@ interface CryptoProvider {
     suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray
 }
 
-data class SigningKeyPair(
+internal data class SigningKeyPair(
     val publicKey: ByteArray,
     val privateKey: ByteArray,
 )
 
-data class EncryptionKeyPair(
+internal data class EncryptionKeyPair(
     val publicKey: ByteArray,
     val privateKey: ByteArray,
 )

@@ -2,13 +2,13 @@ package org.yapyap.protocol
 
 import org.yapyap.protocol.envelopes.*
 
-enum class FieldSensitivity {
+internal enum class FieldSensitivity {
     ROUTING_VISIBLE,
     ENDPOINT_VISIBLE,
     PROTECTED,
 }
 
-data class ObservabilityProfile(
+internal data class ObservabilityProfile(
     val schemaId: String,
     val fields: Map<String, FieldSensitivity>,
 )
@@ -19,7 +19,7 @@ data class ObservabilityProfile(
  * Envelope builders/protection adapters should keep cleartext fields limited to what
  * these profiles mark as non-protected.
  */
-object EnvelopeObservability {
+internal object EnvelopeObservability {
     val binaryEnvelope = ObservabilityProfile(
         schemaId = "binary-envelope-v1",
         fields = mapOf(

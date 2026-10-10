@@ -2,7 +2,7 @@ package org.yapyap.transport.webrtc.types
 
 import org.yapyap.protocol.PeerId
 
-enum class WebRtcSessionPhase {
+internal enum class WebRtcSessionPhase {
     NEGOTIATING,
     CONNECTED,
     REJECTED,
@@ -22,13 +22,13 @@ enum class WebRtcSessionPhase {
  * never go stale relative to the channel. Subscribers may treat a replayed `CONNECTED`
  * as ground truth, not as a hint.
  */
-data class WebRtcSessionState(
+internal data class WebRtcSessionState(
     val peerId: PeerId,
     val phase: WebRtcSessionPhase,
     val reason: String? = null,
 )
 
-sealed interface WebRtcSessionEvent {
+internal sealed interface WebRtcSessionEvent {
     val peer: PeerId
 
     data class Connecting(override val peer: PeerId) : WebRtcSessionEvent
@@ -43,7 +43,7 @@ sealed interface WebRtcSessionEvent {
     data class Failed(override val peer: PeerId, val reason: String) : WebRtcSessionEvent
 }
 
-sealed interface WebRtcAvChannelEvent {
+internal sealed interface WebRtcAvChannelEvent {
     val peer: PeerId
 
     data class Adding(override val peer: PeerId) : WebRtcAvChannelEvent

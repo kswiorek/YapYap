@@ -2,9 +2,9 @@ package org.yapyap.orchestrator
 
 import kotlinx.io.files.Path
 
-expect class OrchestratorFactory(
+public expect class OrchestratorFactory(
     dataDirectory: Path,
     mode: NodeMode
 ) {
-    fun create(): Orchestrator
+    public fun create(): Orchestrator
 }

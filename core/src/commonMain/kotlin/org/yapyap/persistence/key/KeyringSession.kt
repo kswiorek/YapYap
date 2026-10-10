@@ -1,10 +1,10 @@
 package org.yapyap.persistence.key
 
-fun interface KeyringSessionFactory {
+internal fun interface KeyringSessionFactory {
     fun open(): KeyringSession
 }
 
-interface KeyringSession : AutoCloseable {
+internal interface KeyringSession : AutoCloseable {
     fun setPassword(serviceName: String, accountName: String, secret: String)
 
     fun getPassword(serviceName: String, accountName: String): String

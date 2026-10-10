@@ -6,7 +6,7 @@ import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 
-interface FileProtection {
+internal interface FileProtection {
     suspend fun open(input: FileEnvelope): OpenedFileEnvelope
     suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope
     suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk

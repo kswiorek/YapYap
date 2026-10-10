@@ -25,7 +25,7 @@ import org.yapyap.persistence.key.KeyStore
  * Caller (orchestrator) owns transport shutdown + scope cancellation + state
  * transitions; this only touches persistence.
  */
-class LocalStoreReset(
+internal class LocalStoreReset(
     private val dataDirectory: Path,
     private val keyStore: KeyStore,
     private val closeDatabase: suspend () -> Unit = {},

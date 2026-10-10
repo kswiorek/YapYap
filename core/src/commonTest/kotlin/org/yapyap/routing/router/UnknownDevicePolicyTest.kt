@@ -4,11 +4,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.sync.FakePeerAvailabilityStore

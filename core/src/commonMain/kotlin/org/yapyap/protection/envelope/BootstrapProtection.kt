@@ -22,7 +22,7 @@ import kotlin.uuid.Uuid
  *
  * ChaCha20-Poly1305, library-managed IV; the header is bound as AEAD AAD (`aadBytes`).
  */
-class BootstrapProtection(
+internal class BootstrapProtection(
     private val crypto: CryptoProvider,
     private val keySource: BootstrapKeySource,
 ) {

@@ -7,10 +7,12 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.AccountIdentityRecord
+import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.IdentityKeyPurpose
+import org.yapyap.crypto.identity.IdentityPublicKeyRecord
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.BootstrapKeySource
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
@@ -18,10 +20,7 @@ import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock

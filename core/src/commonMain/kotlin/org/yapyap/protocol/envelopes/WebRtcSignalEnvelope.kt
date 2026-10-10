@@ -9,7 +9,7 @@ import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-data class WebRtcSignalEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+internal data class WebRtcSignalEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     val signalEnvelopeId: Uuid,
     val kind: WebRtcSignalKind,
     val source: PeerId,

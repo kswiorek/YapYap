@@ -5,7 +5,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-interface PacketDeduplicator {
+internal interface PacketDeduplicator {
     /**
      * Marks packet as seen and returns whether it is first time seen.
      */

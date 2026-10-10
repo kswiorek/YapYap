@@ -10,12 +10,12 @@ import org.yapyap.protocol.DeviceType
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 
-actual class OrchestratorFactory actual constructor(
+public actual class OrchestratorFactory actual constructor(
     private val dataDirectory: Path,
     private val mode: NodeMode,
 ) {
 
-    actual fun create(): Orchestrator =
+    public actual fun create(): Orchestrator =
         DefaultOrchestrator(
             dataDirectory = dataDirectory,
             bootConfig = BootConfig(

@@ -1,6 +1,6 @@
 package org.yapyap.logging
 
-object AppLog {
+internal object AppLog {
     private var delegate: AppLogger = NoopAppLogger
 
     fun init(logger: AppLogger) {

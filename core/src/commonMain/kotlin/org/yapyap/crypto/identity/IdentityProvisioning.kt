@@ -1,8 +1,8 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.persistence.db.AccountRole
+import org.yapyap.protocol.AccountRole
 
-interface IdentityProvisioning {
+internal interface IdentityProvisioning {
     suspend fun createNewDeviceIdentity(): DeviceIdentityRecord
 
     /**

@@ -7,7 +7,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 
-class DatabaseInitializer(
+internal class DatabaseInitializer(
     private val schema: SqlSchema<QueryResult.Value<Unit>>,
 ) {
     fun initialize(driver: SqlDriver) {

@@ -7,12 +7,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.persistence.key.AccountRow
 import org.yapyap.persistence.key.DeviceRow
 import org.yapyap.persistence.key.IdentityKeyRepository
+import org.yapyap.protocol.AccountId
 import org.yapyap.routing.router.Router
 
 /**

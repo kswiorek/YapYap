@@ -4,7 +4,7 @@ package org.yapyap.config
 // The fields. This is the single place a setting is defined.
 // ---------------------------------------------------------------------------
 
-val FIELDS: List<Field> = listOf(
+internal val FIELDS: List<Field> = listOf(
     NumberField(
         id = "outboxMaxSizeBytes",
         title = "Outbox max size",

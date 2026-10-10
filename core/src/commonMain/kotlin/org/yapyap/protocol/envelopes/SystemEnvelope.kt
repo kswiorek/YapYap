@@ -6,7 +6,7 @@ import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+internal data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     val systemEnvelopeId: Uuid,
     val source: PeerId,
     val target: PeerId,
@@ -97,7 +97,7 @@ data class SystemEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     }
 }
 
-sealed interface SystemPayload {
+internal sealed interface SystemPayload {
     val kind: SystemEnvelopeKind
 
     fun encode(): ByteArray
@@ -398,7 +398,7 @@ sealed interface SystemPayload {
     }
 }
 
-enum class SystemEnvelopeKind(val wireValue: Byte) {
+internal enum class SystemEnvelopeKind(val wireValue: Byte) {
     PACKET_ACK(1),
     PACKET_NACK(2),
     SYNC_REQUEST(3),
@@ -423,7 +423,7 @@ enum class SystemEnvelopeKind(val wireValue: Byte) {
  * [org.yapyap.routing.inbound.inboundResultForProtectionFailure]) and rely on the
  * sender's own resend cadence.
  */
-enum class PacketNackReason(val wireValue: Byte) {
+public enum class PacketNackReason(public val wireValue: Byte) {
     // --- Sender action: REMOVE the outbox row. The verdict is final for these bytes. ---
 
     /**
@@ -460,7 +460,7 @@ enum class PacketNackReason(val wireValue: Byte) {
      */
     WRONG_TARGET(6);
 
-    companion object {
+    internal companion object {
         /**
          * Null = reason byte from a newer peer. The sender must never act destructively
          * on confusion — see [org.yapyap.routing.policy.nackActionFor].

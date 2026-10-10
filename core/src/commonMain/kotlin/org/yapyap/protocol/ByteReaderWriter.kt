@@ -2,7 +2,7 @@ package org.yapyap.protocol
 
 import kotlin.uuid.Uuid
 
-class ByteReader(private val bytes: ByteArray) {
+internal class ByteReader(private val bytes: ByteArray) {
     private var position: Int = 0
 
     fun readByte(): Byte {
@@ -99,7 +99,7 @@ class ByteReader(private val bytes: ByteArray) {
     }
 }
 
-class ByteWriter(initialCapacity: Int) {
+internal class ByteWriter(initialCapacity: Int) {
     private var buffer = ByteArray(initialCapacity)
     private var size = 0
 

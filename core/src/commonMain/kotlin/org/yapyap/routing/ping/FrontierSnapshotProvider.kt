@@ -6,12 +6,12 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import kotlin.uuid.Uuid
 
-interface FrontierSnapshotProvider {
+internal interface FrontierSnapshotProvider {
     /** Chainable frontier tip IDs per room the peer belongs to. Empty map on fresh installs. */
     suspend fun latestRoomFrontiers(peerId: PeerId): List<Pair<RoomId, List<Uuid>>>
 }
 
-class DefaultFrontierSnapshotProvider(
+internal class DefaultFrontierSnapshotProvider(
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
     private val localDeviceId: PeerId,

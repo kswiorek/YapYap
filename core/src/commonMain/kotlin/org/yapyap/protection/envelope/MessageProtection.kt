@@ -14,12 +14,12 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 
-interface MessageProtection {
+internal interface MessageProtection {
     suspend fun open(envelope: MessageEnvelope): MessagePayload
     suspend fun protect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope
 }
 
-class PlaintextMessageProtection(
+internal class PlaintextMessageProtection(
     private val cryptoProvider: CryptoProvider,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
@@ -70,7 +70,7 @@ class PlaintextMessageProtection(
     override fun envelopeLabel(): String = "Message envelope"
 }
 
-class SignedMessageProtection(
+internal class SignedMessageProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
 ) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
@@ -135,7 +135,7 @@ class SignedMessageProtection(
     override fun envelopeLabel(): String = "Message envelope"
 }
 
-class SignedAndEncryptedMessageProtection(
+internal class SignedAndEncryptedMessageProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,

@@ -1,7 +1,7 @@
 package org.yapyap.orchestrator.runtime.room
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 
 /**
@@ -10,17 +10,17 @@ import org.yapyap.protocol.RoomId
  * (genesis + MemberAdd/MemberRemove/AddAdmin/RemoveAdmin) via the room-event
  * projector's publish path; the fold (not the service) decides what lands.
  */
-interface RoomService {
+public interface RoomService {
     /**
      * Rooms the local account belongs to (GLOBAL excluded; provisional UNKNOWN
      * rooms excluded until their genesis folds). Projection order —
      * message-derived ordering (e.g. by last activity) is composed by the GUI
      * from `MessagingService.roomPreview`, which owns all message reads.
      */
-    val rooms: StateFlow<List<RoomDetails>>
+    public val rooms: StateFlow<List<RoomDetails>>
 
     /** Chat-header detail, or null for unknown rooms. */
-    suspend fun room(roomId: RoomId): RoomDetails?
+    public suspend fun room(roomId: RoomId): RoomDetails?
 
     /**
      * Create a direct or group chat with [members]. Publishes the `RoomCreated`
@@ -31,7 +31,7 @@ interface RoomService {
      * room (empty name — the GUI renders participant names). Refusals are values;
      * infra failures throw.
      */
-    suspend fun createRoom(name: String?, members: Set<AccountId>): CreateRoomResult
+    public suspend fun createRoom(name: String?, members: Set<AccountId>): CreateRoomResult
 
     /**
      * Membership ops (admin-gated unless noted). The service pre-checks against
@@ -39,15 +39,15 @@ interface RoomService {
      * events regardless, so a revocation race degrades to a no-op publish, never
      * a fork. Infra failures throw.
      */
-    suspend fun addMember(roomId: RoomId, target: AccountId): RoomEventOutcome
-    suspend fun removeMember(roomId: RoomId, target: AccountId): RoomEventOutcome
-    suspend fun grantAdmin(roomId: RoomId, target: AccountId): RoomEventOutcome
-    suspend fun revokeAdmin(roomId: RoomId, target: AccountId): RoomEventOutcome
+    public suspend fun addMember(roomId: RoomId, target: AccountId): RoomEventOutcome
+    public suspend fun removeMember(roomId: RoomId, target: AccountId): RoomEventOutcome
+    public suspend fun grantAdmin(roomId: RoomId, target: AccountId): RoomEventOutcome
+    public suspend fun revokeAdmin(roomId: RoomId, target: AccountId): RoomEventOutcome
 
     /**
      * Own-account leave (always allowed for non-owners). The owner's own leave
      * is the handover: it requires [successorAccountId] (an ACTIVE member that
      * is not the leaver) and atomically transfers OWNER + admin to them.
      */
-    suspend fun leaveRoom(roomId: RoomId, successorAccountId: AccountId? = null): RoomEventOutcome
+    public suspend fun leaveRoom(roomId: RoomId, successorAccountId: AccountId? = null): RoomEventOutcome
 }

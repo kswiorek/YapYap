@@ -1,6 +1,6 @@
 import kotlin.uuid.Uuid;
 import kotlin.time.Instant;
-import org.yapyap.crypto.identity.AccountId;
+import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.RoomId;
 import org.yapyap.protocol.PeerId;
 

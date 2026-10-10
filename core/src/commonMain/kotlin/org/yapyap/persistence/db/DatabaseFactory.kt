@@ -7,11 +7,11 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import org.yapyap.crypto.e2ee.session.X3dhMode
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.*
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import kotlin.time.Instant
@@ -25,13 +25,13 @@ import kotlin.uuid.Uuid
  * DB call onto one thread matches SQLite's single-writer model and avoids `SQLITE_BUSY`/corruption
  * when operations are issued concurrently from many coroutines.
  */
-val databaseDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
+internal val databaseDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
 
-interface DriverFactory {
+internal interface DriverFactory {
     fun createDriver(): SqlDriver
 }
 
-class DatabaseFactory(
+internal class DatabaseFactory(
     private val driverFactory: DriverFactory,
     private val initializer: DatabaseInitializer = DatabaseInitializer(YapYapDatabase.Schema),
 ) {
@@ -139,7 +139,7 @@ class DatabaseFactory(
     }
 }
 
-class UuidAdapter : ColumnAdapter<Uuid, String> {
+internal class UuidAdapter : ColumnAdapter<Uuid, String> {
     override fun decode(databaseValue: String): Uuid {
         return Uuid.parseHex(databaseValue)
     }
@@ -150,17 +150,17 @@ class UuidAdapter : ColumnAdapter<Uuid, String> {
 
 }
 
-object InstantEpochSecondsAdapter : ColumnAdapter<Instant, Long> {
+internal object InstantEpochSecondsAdapter : ColumnAdapter<Instant, Long> {
     override fun decode(databaseValue: Long): Instant = Instant.fromEpochSeconds(databaseValue)
     override fun encode(value: Instant): Long = value.epochSeconds
 }
 
-class RoomIdAdapter : ColumnAdapter<RoomId, String> {
+internal class RoomIdAdapter : ColumnAdapter<RoomId, String> {
     override fun decode(databaseValue: String) = RoomId(Uuid.parseHex(databaseValue))
     override fun encode(value: RoomId) = value.value.toHexString()
 }
 
-class AccountIdAdapter : ColumnAdapter<AccountId, String> {
+internal class AccountIdAdapter : ColumnAdapter<AccountId, String> {
     override fun decode(databaseValue: String): AccountId {
         return AccountId(databaseValue)
     }
@@ -170,7 +170,7 @@ class AccountIdAdapter : ColumnAdapter<AccountId, String> {
     }
 }
 
-class PeerIdAdapter : ColumnAdapter<PeerId, String> {
+internal class PeerIdAdapter : ColumnAdapter<PeerId, String> {
     override fun decode(databaseValue: String): PeerId {
         return PeerId(databaseValue)
     }
@@ -180,7 +180,7 @@ class PeerIdAdapter : ColumnAdapter<PeerId, String> {
     }
 }
 
-data class DatabaseConnection(
+internal data class DatabaseConnection(
     val database: YapYapDatabase,
     val driver: SqlDriver,
 )

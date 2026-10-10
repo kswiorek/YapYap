@@ -17,7 +17,7 @@ import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration.Companion.milliseconds
 
 /** Recording fake — no real Tor mesh. */
-class RecordingTorTransport(
+internal class RecordingTorTransport(
     val advertisedEndpoint: TorEndpoint = TorEndpoint(onionAddress = "fake.onion", port = 80),
 ) : TorTransport {
 
@@ -82,7 +82,7 @@ class RecordingTorTransport(
  * [TorTransport] fake that delays each [send] and tracks overlapping dispatches.
  * Used to verify outbox retry dispatches run concurrently.
  */
-class ConcurrencyTrackingTorTransport(
+internal class ConcurrencyTrackingTorTransport(
     val advertisedEndpoint: TorEndpoint = TorEndpoint(onionAddress = "fake.onion", port = 80),
     private val sendDelayMillis: Long = 200,
 ) : TorTransport {
@@ -137,7 +137,7 @@ class ConcurrencyTrackingTorTransport(
 }
 
 /** Recording lower-level Tor backend (byte payloads). */
-class RecordingTorBackend : TorBackend {
+internal class RecordingTorBackend : TorBackend {
 
     private val framesMutable = MutableSharedFlow<TorIncomingFrame>(extraBufferCapacity = 64)
     override val incomingFrames = framesMutable.asSharedFlow()

@@ -3,7 +3,6 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.yapyap.config.TransportLimits
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
@@ -14,10 +13,7 @@ import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
@@ -40,7 +36,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
 
-class DefaultRouter(
+internal class DefaultRouter(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val identityResolver: IdentityResolver,

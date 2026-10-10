@@ -8,7 +8,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-class JvmAppLogger(
+internal class JvmAppLogger(
     logDirectory: Path,
     fileName: String = "yapyap.log",
     private val minLevel: LogLevel = LogLevel.DEBUG,

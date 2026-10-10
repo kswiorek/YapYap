@@ -9,7 +9,7 @@ import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.*
 
 /** Recording fake — no WebRTC stack; satisfies all flows and records API usage. */
-class RecordingWebRtcTransport : WebRtcTransport {
+internal class RecordingWebRtcTransport : WebRtcTransport {
 
     private val incomingEnvelopesMutable = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFramesMutable =
@@ -118,7 +118,7 @@ class RecordingWebRtcTransport : WebRtcTransport {
 }
 
 /** Recording lower-level WebRTC backend. */
-class RecordingWebRtcBackend : WebRtcBackend {
+internal class RecordingWebRtcBackend : WebRtcBackend {
 
     private val outgoingSignalsMutable = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
     private val incomingDataFramesMutable = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)

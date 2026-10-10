@@ -7,7 +7,7 @@ import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-data class FileEnvelope(
+internal data class FileEnvelope(
     val transferId: Uuid,
     val source: PeerId,
     val target: PeerId,
@@ -95,7 +95,7 @@ data class FileEnvelope(
     }
 }
 
-enum class FileType(val wireValue: Byte) {
+internal enum class FileType(val wireValue: Byte) {
     GENERIC(1),
     IMAGE(2),
     VIDEO(3),
@@ -104,7 +104,7 @@ enum class FileType(val wireValue: Byte) {
     OTHER(6)
 }
 
-data class FileChunk(
+internal data class FileChunk(
     val fileName: String,
     val chunkIndex: Int,
     val chunkCount: Int,
@@ -112,7 +112,7 @@ data class FileChunk(
     val fileData: ByteArray,
 )
 
-data class OpenedFileEnvelope(
+internal data class OpenedFileEnvelope(
     val transferId: Uuid,
     val source: String,
     val target: String,
@@ -121,7 +121,7 @@ data class OpenedFileEnvelope(
     val payload: FilePayload,
 )
 
-sealed interface FilePayload {
+internal sealed interface FilePayload {
     val kind: FileEnvelopeKind
 
     fun encode(): ByteArray
@@ -423,7 +423,7 @@ sealed interface FilePayload {
     }
 }
 
-enum class FileEnvelopeKind(val wireValue: Byte) {
+internal enum class FileEnvelopeKind(val wireValue: Byte) {
     OFFER(1),
     CHUNK(2),
     ACK(3),
@@ -437,7 +437,7 @@ enum class FileEnvelopeKind(val wireValue: Byte) {
     }
 }
 
-enum class FileTransferClass(val wireValue: Byte) {
+internal enum class FileTransferClass(val wireValue: Byte) {
     SMALL_STORE_FORWARD(1),
     LARGE_P2P(2);
 
@@ -448,7 +448,7 @@ enum class FileTransferClass(val wireValue: Byte) {
     }
 }
 
-enum class FileTransportPreference(val wireValue: Byte) {
+internal enum class FileTransportPreference(val wireValue: Byte) {
     TOR(1),
     WEBRTC_DATA(2),
     AUTO(3);
@@ -460,7 +460,7 @@ enum class FileTransportPreference(val wireValue: Byte) {
     }
 }
 
-data class FileControlPayload(
+internal data class FileControlPayload(
     val transferClass: FileTransferClass,
     val preferredTransport: FileTransportPreference,
     val supportsResume: Boolean,

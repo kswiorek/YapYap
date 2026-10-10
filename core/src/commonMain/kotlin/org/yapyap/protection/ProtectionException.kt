@@ -3,7 +3,7 @@ package org.yapyap.protection
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.CryptoSessionException
 
-enum class ProtectionDisposition {
+internal enum class ProtectionDisposition {
     /** Corrupt, authenticated-as-bad, or replay — resending the same bytes will not help. */
     PERMANENT,
 
@@ -15,7 +15,7 @@ enum class ProtectionDisposition {
     DEFER,
 }
 
-enum class ProtectionReason {
+internal enum class ProtectionReason {
     WIRE_DECODE,
     AUTH,
     IDENTITY,
@@ -24,13 +24,13 @@ enum class ProtectionReason {
     SESSION_VIOLATION,
 }
 
-enum class AuthenticationReason {
+internal enum class AuthenticationReason {
     MISSING_SIGNATURE,
     INVALID_SIGNATURE,
     DECRYPT_AUTH_FAILED,
 }
 
-sealed class ProtectionException(
+internal sealed class ProtectionException(
     message: String,
     val disposition: ProtectionDisposition,
     val reason: ProtectionReason,

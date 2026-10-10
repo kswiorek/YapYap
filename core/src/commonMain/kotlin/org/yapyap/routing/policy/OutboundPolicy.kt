@@ -4,7 +4,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.RouterTransport
 import kotlin.time.Duration
 
-interface OutboundPolicy {
+internal interface OutboundPolicy {
     fun resolve(
         target: PeerId,
         hasWebRtcSession: Boolean,
@@ -13,7 +13,7 @@ interface OutboundPolicy {
     ): ResolvedOutbound
 }
 
-data class ResolvedOutbound(
+internal data class ResolvedOutbound(
     val transport: RouterTransport,
     val retryDelay: Duration,
 )

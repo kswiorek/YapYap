@@ -2,7 +2,7 @@ package org.yapyap.crypto.e2ee.manager
 
 import org.yapyap.protocol.PeerId
 
-enum class SessionUpgradePolicy {
+internal enum class SessionUpgradePolicy {
     NEVER,
     OFFER_OPK_ON_FIRST_EPOCH1_REPLY,
 }
@@ -12,7 +12,7 @@ enum class SessionUpgradePolicy {
  * encapsulated here: callers pass plaintext bytes and receive encoded frame bytes (and vice versa),
  * without knowing the crypto session wire format.
  */
-interface CryptoSessionManager {
+internal interface CryptoSessionManager {
     /** Encrypt [bytes] for [remoteDeviceId] and return the encoded session wire frame bytes. */
     suspend fun encryptMessage(
         remoteDeviceId: PeerId,

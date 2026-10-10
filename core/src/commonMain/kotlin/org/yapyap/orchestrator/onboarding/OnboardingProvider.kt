@@ -4,7 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 
 /** Onboarding lifecycle state, surfaced to the GUI. */
-enum class OnboardingState {
+public enum class OnboardingState {
     /** No onboarding in progress (or already complete — the one-time secret is burned). */
     IDLE,
 
@@ -32,7 +32,7 @@ enum class OnboardingState {
  * of the session slot ([org.yapyap.persistence.key.BootstrapSessionStore]); the sponsor side
  * is stateless and lives in the runtime service.
  */
-interface OnboardingProvider {
+internal interface OnboardingProvider {
     /** Onboarding lifecycle state. */
     val state: StateFlow<OnboardingState>
 

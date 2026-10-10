@@ -22,7 +22,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
  * constants from both the protocol layer ([BinaryEnvelope], [MessageEnvelope]) and the crypto
  * layer ([SessionWireFrame], [RatchetCiphertext], [RatchetInnerPlaintext]).
  */
-data class MessageLimits(
+internal data class MessageLimits(
     val transport: TransportLimits,
     val crypto: CryptoLimits,
     /** Max text bytes the GUI may submit via `MessagingService.sendTextMessage`. */

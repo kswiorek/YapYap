@@ -18,7 +18,7 @@ import kotlin.random.Random
  * On JVM and Android, depend on `cryptography-provider-jdk-bc` so Ed25519/X25519 public keys can be
  * derived from private key material (stock JDK JCA does not support this).
  */
-class DefaultCryptoProvider(
+internal class DefaultCryptoProvider(
     private val provider: CryptographyProvider = CryptographyProvider.Default,
     private val random: Random = CryptographyRandom.Default,
 ) : CryptoProvider {

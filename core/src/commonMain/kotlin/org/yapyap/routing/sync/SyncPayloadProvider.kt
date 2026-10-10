@@ -1,22 +1,22 @@
 package org.yapyap.routing.sync
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.router.RouterConfig
 import kotlin.uuid.Uuid
 
-interface SyncPayloadProvider {
+internal interface SyncPayloadProvider {
     suspend fun getMessages(syncRequest: SyncRequest, peerId: PeerId): List<MessagePayload>
 
     /**
@@ -29,7 +29,7 @@ interface SyncPayloadProvider {
     suspend fun removalNodeFor(roomId: RoomId, accountId: AccountId): MessagePayload?
 }
 
-class DefaultSyncPayloadProvider(
+internal class DefaultSyncPayloadProvider(
     private val messageRepository: MessageRepository,
     private val routerConfig: StateFlow<RouterConfig>,
     private val roomRepository: RoomRepository,

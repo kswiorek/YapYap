@@ -3,25 +3,25 @@ package org.yapyap.transport.webrtc.types
 import org.yapyap.protocol.PeerId
 
 
-enum class AvQualityTier {
+internal enum class AvQualityTier {
     LOW,
     MEDIUM,
     HIGH,
 }
 
-data class AvSessionOptions(
+internal data class AvSessionOptions(
     val audioEnabled: Boolean = true,
     val videoEnabled: Boolean = true,
     val screenShareEnabled: Boolean = false,
     val qualityTier: AvQualityTier = AvQualityTier.MEDIUM,
 )
 
-data class WebRtcIncomingAvSessionRequest(
+internal data class WebRtcIncomingAvSessionRequest(
     val source: PeerId,
     val options: AvSessionOptions? = null,
 )
 
-enum class WebRtcAvSessionPhase {
+internal enum class WebRtcAvSessionPhase {
     PENDING_DECISION,
     NEGOTIATING,
     ACTIVE,
@@ -30,7 +30,7 @@ enum class WebRtcAvSessionPhase {
     FAILED,
 }
 
-data class WebRtcAvSessionState(
+internal data class WebRtcAvSessionState(
     val peer: PeerId,
     val phase: WebRtcAvSessionPhase,
     val options: AvSessionOptions? = null,

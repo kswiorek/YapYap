@@ -60,6 +60,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core"))
+            // The runtime API surfaces StateFlows; the GUI collects them with its own copy.
+            implementation(libs.kotlinx.coroutinesCore)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)

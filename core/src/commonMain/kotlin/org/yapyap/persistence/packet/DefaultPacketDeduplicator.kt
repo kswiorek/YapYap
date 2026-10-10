@@ -12,7 +12,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-class DefaultPacketDeduplicator(
+internal class DefaultPacketDeduplicator(
     database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PacketDeduplicator {

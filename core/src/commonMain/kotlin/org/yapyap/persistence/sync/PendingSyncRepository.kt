@@ -2,17 +2,17 @@ package org.yapyap.persistence.sync
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.persistence.Pending_syncs
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-data class PendingSyncRow(
+internal data class PendingSyncRow(
     val syncId: Uuid,
     val roomId: RoomId,
     val targetMessageId: Uuid,
@@ -21,7 +21,7 @@ data class PendingSyncRow(
     val attempts: Int
 )
 
-interface PendingSyncRepository {
+internal interface PendingSyncRepository {
 
     /**
      * Inserts a new pending sync for [targetMessageId] with its candidate accounts.
@@ -89,7 +89,7 @@ interface PendingSyncRepository {
     suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow?
 }
 
-class DefaultPendingSyncRepository(
+internal class DefaultPendingSyncRepository(
     private val database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PendingSyncRepository {

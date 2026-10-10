@@ -3,15 +3,9 @@ package org.yapyap.testfixtures
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.messaging.*
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -23,7 +17,7 @@ import kotlin.uuid.Uuid
  * messaging and dag tests can reuse them instead of duplicating private copies.
  */
 
-class FakeMessageRepository : MessageRepository {
+internal class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, MessageRow>()
     private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
 
@@ -201,7 +195,7 @@ class FakeMessageRepository : MessageRepository {
  * Mirrors the SQL semantics: [membersOfRoom] is ACTIVE-only, [removeMember]
  * flips to REMOVED and retains the row, [addMember] is an upsert.
  */
-class FakeRoomRepository(
+internal class FakeRoomRepository(
     private val members: Map<RoomId, List<AccountId>> = emptyMap(),
     private val devicesByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
 ) : RoomRepository {
@@ -282,7 +276,7 @@ class FakeRoomRepository(
     }
 }
 
-class FakeCausalHoldRepository(
+internal class FakeCausalHoldRepository(
     private val messageRepo: FakeMessageRepository,
 ) : CausalHoldRepository {
     private val rows = mutableListOf<Gap>()
@@ -315,7 +309,7 @@ class FakeCausalHoldRepository(
     }
 }
 
-class FakeIdentityResolver(
+internal class FakeIdentityResolver(
     private val localAccountId: AccountId,
     private val localDeviceId: PeerId,
     private val accountByDevice: Map<PeerId, AccountId> = emptyMap(),
@@ -346,7 +340,7 @@ class FakeIdentityResolver(
     override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used")
 }
 
-class FakeSignatureProvider : SignatureProvider {
+internal class FakeSignatureProvider : SignatureProvider {
     override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
 
     override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = true
@@ -359,7 +353,7 @@ class FakeSignatureProvider : SignatureProvider {
     ): Boolean = true
 }
 
-class FakeRejectingSignatureProvider : SignatureProvider {
+internal class FakeRejectingSignatureProvider : SignatureProvider {
     override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
 
     override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = false
@@ -372,7 +366,7 @@ class FakeRejectingSignatureProvider : SignatureProvider {
     ): Boolean = false
 }
 
-class FakeUnknownAuthorSignatureProvider : SignatureProvider {
+internal class FakeUnknownAuthorSignatureProvider : SignatureProvider {
     override suspend fun sign(message: ByteArray): ByteArray = byteArrayOf(0x01, 0x02, 0x03)
 
     override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean = false

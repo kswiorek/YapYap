@@ -1,14 +1,10 @@
 package org.yapyap.orchestrator.runtime.identity
 
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.AccountRole
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.*
 import kotlin.time.Instant
 
 /** GUI-facing snapshot of one known account and its devices. */
-data class AccountView(
+public data class AccountView(
     val accountId: AccountId,
     val displayName: String,
     /** Chain-derived network role (MEMBER / ADMIN / OWNER); OWNER implies admin authority. */
@@ -21,7 +17,7 @@ data class AccountView(
 )
 
 /** GUI-facing snapshot of one known device. */
-data class DeviceView(
+public data class DeviceView(
     val deviceId: PeerId,
     val deviceType: DeviceType,
     /** Chain-derived device state (ACTIVE / BANNED). */
@@ -35,13 +31,13 @@ data class DeviceView(
 /** Account-level presence, aggregated from the account's devices. The GUI sorts
  *  by [AccountAvailability.lastSeen] for finer gradations — recency buckets are
  *  a display concern, not a backend one. */
-data class AccountAvailability(
+public data class AccountAvailability(
     val label: AvailabilityLabel,
     /** Most recent device sighting; null when never seen. */
     val lastSeen: Instant?,
 )
 
-enum class AvailabilityLabel {
+public enum class AvailabilityLabel {
     ONLINE,
     OFFLINE,
     UNKNOWN,

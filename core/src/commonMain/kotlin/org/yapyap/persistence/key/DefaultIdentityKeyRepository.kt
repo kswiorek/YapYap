@@ -7,15 +7,11 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.AccountRole
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.databaseDispatcher
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import kotlin.time.Instant
 
-class DefaultIdentityKeyRepository(
+internal class DefaultIdentityKeyRepository(
     private val database: YapYapDatabase,
     private val deviceType: DeviceType,
     private val defaults: DeviceRecordDefaults = DeviceRecordDefaults(),

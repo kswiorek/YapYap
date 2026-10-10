@@ -1,7 +1,6 @@
 package org.yapyap.orchestrator.runtime.account
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityProvisioning
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.DagException
@@ -9,8 +8,9 @@ import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.IdentityKeyRepository
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 
 /**

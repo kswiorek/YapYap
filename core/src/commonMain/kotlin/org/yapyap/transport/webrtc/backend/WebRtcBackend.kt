@@ -7,7 +7,7 @@ import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 
-interface WebRtcBackend {
+internal interface WebRtcBackend {
     val outgoingSignals: Flow<WebRtcSignal>
     val incomingDataFrames: Flow<WebRtcDataFrame>
     val sessionEvents: Flow<WebRtcSessionEvent>

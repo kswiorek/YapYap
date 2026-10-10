@@ -5,7 +5,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RouterTransport
 
-class SessionOrTorPolicy(
+internal class SessionOrTorPolicy(
     private val config: StateFlow<RouterConfig>,
 ) : OutboundPolicy {
     override fun resolve(

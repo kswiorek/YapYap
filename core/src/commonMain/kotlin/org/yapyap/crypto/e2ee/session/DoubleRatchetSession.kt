@@ -8,7 +8,7 @@ private const val KEY_SIZE = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 private const val MAX_SKIP = 256
 private val ZERO_SALT = ByteArray(KEY_SIZE)
 
-class DoubleRatchetSession private constructor(
+internal class DoubleRatchetSession private constructor(
     private val crypto: CryptoProvider,
     private var state: MutableRatchetState,
 ) {
@@ -252,7 +252,7 @@ class DoubleRatchetSession private constructor(
     }
 }
 
-data class RatchetCiphertext(
+internal data class RatchetCiphertext(
     val dhPublicKey: ByteArray,
     val messageNumber: Int,
     val previousChainLength: Int,
@@ -279,7 +279,7 @@ data class RatchetCiphertext(
     }
 }
 
-data class RatchetSessionState(
+internal data class RatchetSessionState(
     val rootKey: ByteArray,
     val sendChainKey: ByteArray?,
     val recvChainKey: ByteArray?,
@@ -292,7 +292,7 @@ data class RatchetSessionState(
     val skippedMessageKeys: Map<RatchetSkippedKeyId, ByteArray>,
 )
 
-data class RatchetSkippedKeyId(
+internal data class RatchetSkippedKeyId(
     val dhPublicKey: ByteArray,
     val messageNumber: Int,
 ) {

@@ -26,7 +26,7 @@ import kotlin.uuid.Uuid
  * device. The cipher's IV is embedded in the AEAD output (library-managed), so no separate nonce
  * field is needed.
  */
-data class BootstrapEnvelope(
+internal data class BootstrapEnvelope(
     val scheme: BootstrapSecurityScheme,
     val bootstrapEnvelopeId: Uuid,
     val source: PeerId,
@@ -109,7 +109,7 @@ data class BootstrapEnvelope(
  * header discriminator only tells the handler how to open it, mirroring
  * [MessageEnvelope.securityScheme].
  */
-enum class BootstrapSecurityScheme(val wireValue: Byte) {
+internal enum class BootstrapSecurityScheme(val wireValue: Byte) {
     /** INTRO: AEAD under the one-time session secret (QR shared secret / recovery request secret). */
     SECRET_AEAD(1),
 
@@ -123,7 +123,7 @@ enum class BootstrapSecurityScheme(val wireValue: Byte) {
     }
 }
 
-enum class BootstrapPayloadKind(val wireValue: Byte) {
+internal enum class BootstrapPayloadKind(public val wireValue: Byte) {
     /**
      * Sponsor → newcomer. Delivers the sponsor's identity (account + device keys, onion, DAG head)
      * to a newcomer before any DB rows exist. AEAD-encrypted inside [BootstrapEnvelope], keyed from
@@ -149,7 +149,7 @@ enum class BootstrapPayloadKind(val wireValue: Byte) {
      */
     RECOVERY_REQUEST(3);
 
-    companion object {
+    internal companion object {
         fun fromWireValue(value: Byte): BootstrapPayloadKind =
             entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported bootstrap payload kind wire value: $value")
@@ -168,7 +168,7 @@ enum class BootstrapPayloadKind(val wireValue: Byte) {
  * The wire kind byte selects which subtype to decode ([decode]), so each subtype's fields are
  * non-nullable where they belong — no nullable soup, no `init` validity table.
  */
-sealed interface BootstrapPayload {
+internal sealed interface BootstrapPayload {
     val version: Int
     val kind: BootstrapPayloadKind
     val account: AccountIdentityRecord?
@@ -192,7 +192,7 @@ sealed interface BootstrapPayload {
 }
 
 /** Sponsor → newcomer: sponsor's identity + DAG head; AEAD-encrypted under the newcomer's secret. */
-data class Intro(
+internal data class Intro(
     override val version: Int = 1,
     override val account: AccountIdentityRecord,
     override val device: DeviceIdentityRecord,
@@ -256,13 +256,13 @@ data class Intro(
 }
 
 /** Newcomer → sponsor (out-of-band QR/CLI only): the newcomer's identity + one-time shared secret. */
-data class Invite(
-    override val version: Int = 1,
-    override val account: AccountIdentityRecord?,
-    override val device: DeviceIdentityRecord,
-    override val deviceType: DeviceType,
-    override val torEndpoint: TorEndpoint,
-    val sharedSecret: ByteArray,
+internal class Invite(
+    public override val version: Int = 1,
+    public override val account: AccountIdentityRecord?,
+    public override val device: DeviceIdentityRecord,
+    public override val deviceType: DeviceType,
+    public override val torEndpoint: TorEndpoint,
+    internal val sharedSecret: ByteArray,
     /**
      * The newcomer's account key over [accountSignedDeviceBindingBytes] (the device binding
      * consent). Required when [account] != null — the sponsor relays it as the back-to-back
@@ -271,9 +271,9 @@ data class Invite(
      * newcomer exists. Distinct from [DeviceIdentityRecord.keySignature], which is the
      * device-internal signing→encryption binding.
      */
-    val accountKeySignature: ByteArray? = null,
+    internal val accountKeySignature: ByteArray? = null,
 ) : BootstrapPayload {
-    override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INVITE
+    public override val kind: BootstrapPayloadKind = BootstrapPayloadKind.INVITE
 
     init {
         require(version in 0..255) { "version must be in 0..255" }
@@ -287,7 +287,7 @@ data class Invite(
     }
 
     /** Canonical binding bytes this invite's [accountKeySignature] covers (new-account only). */
-    fun accountSignedDeviceBindingBytes(): ByteArray {
+    internal fun accountSignedDeviceBindingBytes(): ByteArray {
         requireNotNull(account) { "INVITE account binding requires a new account" }
         return accountSignedDeviceBindingBytes(
             accountId = account.accountId,
@@ -332,8 +332,11 @@ data class Invite(
         return result
     }
 
-    companion object {
-        fun decode(reader: ByteReader): Invite {
+    internal companion object {
+        /** Decode scanned invite bytes; throws on malformed input (callers map to MalformedInvite). */
+        internal fun decode(bytes: ByteArray): Invite = decode(ByteReader(bytes))
+
+        internal fun decode(reader: ByteReader): Invite {
             val prefix = reader.readBootstrapPayloadPrefix()
             val sharedSecret = reader.readNullableByteArray()
                 ?: error("INVITE requires a sharedSecret")
@@ -353,7 +356,7 @@ data class Invite(
 }
 
 /** Recovering device → mesh node (account-recovery over the network): account-signed device binding. */
-data class RecoveryRequest(
+internal data class RecoveryRequest(
     override val version: Int = 1,
     override val account: AccountIdentityRecord,
     override val device: DeviceIdentityRecord,

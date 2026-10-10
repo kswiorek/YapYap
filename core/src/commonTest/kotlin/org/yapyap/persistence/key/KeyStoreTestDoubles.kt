@@ -2,12 +2,8 @@ package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.persistence.db.AccountRole
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.OpkStatus
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.time.Clock
 import kotlin.time.Instant

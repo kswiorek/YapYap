@@ -5,7 +5,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 
 @Serializable
-data class CryptoSessionConfig(
+internal data class CryptoSessionConfig(
     /** Keep superseded rows for late decrypt, then delete this long after supersede (`updatedAtEpochSeconds`). */
     val supersededRetention: Duration = 2.days,
     /** Delete OFFERED OPKs not consumed within this window (aligned with message lifetime). */

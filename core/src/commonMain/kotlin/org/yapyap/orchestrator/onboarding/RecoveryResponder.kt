@@ -11,7 +11,7 @@ import kotlinx.coroutines.CoroutineScope
  * Refuse-while-own-onboarding policy and the relay flow are implementation details; this interface
  * exists so wiring stays stable.
  */
-interface RecoveryResponder {
+internal interface RecoveryResponder {
     fun start(scope: CoroutineScope)
 
     suspend fun stop()

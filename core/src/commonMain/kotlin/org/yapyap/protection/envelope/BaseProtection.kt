@@ -9,7 +9,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.coroutines.cancellation.CancellationException
 
-abstract class BaseProtection<I, E> {
+internal abstract class BaseProtection<I, E> {
     suspend fun protect(input: I, context: EnvelopeProtectContext): E {
         val envelope = try {
             doProtect(input, context)

@@ -14,7 +14,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-class DefaultPacketOutbox(
+internal class DefaultPacketOutbox(
     private val database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PacketOutbox {

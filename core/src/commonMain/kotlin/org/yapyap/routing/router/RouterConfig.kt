@@ -8,7 +8,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
-data class RouterConfig(
+internal data class RouterConfig(
     val binaryEnvelopeLifetime: Duration = 2.days,
     val ackLifetime: Duration = 1.hours,
     val fastRetryBudget: Int = 3,

@@ -1,9 +1,9 @@
 package org.yapyap.orchestrator.fold.global
 
-import org.yapyap.crypto.identity.AccountId
-import org.yapyap.persistence.db.AccountRole
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.db.VerificationState
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import kotlin.uuid.Uuid
@@ -22,7 +22,7 @@ import kotlin.uuid.Uuid
  * One fold input node. A null [event] is a proven forgery (undecodable bytes or
  * wrong payload type) — REJECTED, poisoning structural descendants.
  */
-data class FoldNode(
+internal data class FoldNode(
     val id: Uuid,
     val authorDeviceId: PeerId,
     val senderAccountId: AccountId,
@@ -35,7 +35,7 @@ data class FoldNode(
 )
 
 /** Signature oracles the fold needs — the only crypto surface of the core. */
-interface FoldCrypto {
+internal interface FoldCrypto {
     suspend fun verifyAuthor(key: ByteArray, msg: ByteArray, sig: ByteArray): Boolean
     suspend fun verifyBinding(key: ByteArray, binding: ByteArray, sig: ByteArray): Boolean
 }

@@ -6,15 +6,16 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyStore
 import org.yapyap.persistence.key.KeyType
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 
-class DefaultIdentityResolver(
+internal class DefaultIdentityResolver(
     private val cryptoProvider: CryptoProvider,
     private val publicKeyRepository: IdentityKeyRepository,
     private val privateKeyStore: KeyStore,

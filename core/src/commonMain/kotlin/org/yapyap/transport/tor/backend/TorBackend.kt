@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.tor.TorIncomingFrame
 
-interface TorBackend {
+internal interface TorBackend {
     val incomingFrames: Flow<TorIncomingFrame>
 
     suspend fun start(): TorEndpoint

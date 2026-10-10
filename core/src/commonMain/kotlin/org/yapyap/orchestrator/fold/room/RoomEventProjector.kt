@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -18,14 +17,11 @@ import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
 import org.yapyap.orchestrator.fold.graph.childAdjacency
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.MessageRow
 import org.yapyap.persistence.messaging.RoomRepository
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.Router
@@ -35,7 +31,7 @@ import kotlin.uuid.Uuid
  * Committed fold diff of one chat room. Consumers: the GUI (member list + the §3
  * removal banner, which re-query the projection on these changes), future fan-out.
  */
-sealed interface RoomStateChange {
+internal sealed interface RoomStateChange {
     val roomId: RoomId
 
     /** Genesis commit: the room row is real (the GUI stops filtering it as UNKNOWN). */
@@ -66,7 +62,7 @@ sealed interface RoomStateChange {
  * Deferral lives here: rows for accounts not yet in `accounts` wait for a later
  * fold (the `account_id` FK stays).
  */
-interface RoomEventProjector {
+internal interface RoomEventProjector {
     val stateChanges: Flow<RoomStateChange>
 
     fun start(scope: CoroutineScope)

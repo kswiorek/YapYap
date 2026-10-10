@@ -35,7 +35,7 @@ import kotlin.time.TimeSource
 /**
  * Tor backend powered by kmp-tor runtime using noexec resources.
  */
-class KmpTorBackend(
+internal class KmpTorBackend(
     private val torStateRootPath: Path,
     private val coroutineContext: CoroutineContext = EmptyCoroutineContext,
     private val config: StateFlow<TorBackendConfig>,

@@ -12,7 +12,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
 
-class DefaultTorTransport(
+internal class DefaultTorTransport(
     private val backend: TorBackend,
 ) : TorTransport {
 

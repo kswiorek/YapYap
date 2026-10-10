@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -16,6 +15,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
@@ -34,7 +34,7 @@ import kotlin.uuid.Uuid
  * stored message has a sync row. Each delivered message reveals its own gaps, so the
  * sync never needs to know the shape of what is missing in advance.
  */
-class DefaultSyncCoordinator(
+internal class DefaultSyncCoordinator(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,

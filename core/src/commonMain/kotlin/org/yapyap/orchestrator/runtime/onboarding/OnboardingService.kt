@@ -3,7 +3,6 @@ package org.yapyap.orchestrator.runtime.onboarding
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.onboarding.OnboardingState
-import org.yapyap.protocol.envelopes.Invite
 
 /**
  * GUI-facing onboarding service (mirrors [org.yapyap.orchestrator.runtime.message.MessagingService]),
@@ -12,13 +11,15 @@ import org.yapyap.protocol.envelopes.Invite
  * relays; this service exposes the newcomer's progress to the GUI ([newcomerState]) and drives the
  * interactive sponsor flow (scanning a newcomer's QR identity payload out-of-band).
  */
-interface OnboardingService {
+public interface OnboardingService {
     /** Newcomer-side onboarding progress, delegated from the [OnboardingProvider]. */
-    val newcomerState: StateFlow<OnboardingState>
+    public val newcomerState: StateFlow<OnboardingState>
 
     /**
-     * Sponsor side: onboard a newcomer whose QR invite was scanned out-of-band. The [invite] is
-     * authoritative about the target account; UI-mode mismatches degrade gracefully:
+     * Sponsor side: onboard a newcomer whose QR invite was scanned out-of-band. The
+     * [inviteBytes] are decoded internally and authoritative about the target account;
+     * undecodable bytes are refused as `MalformedInvite(MALFORMED_BYTES)` — ask for a
+     * fresh code, don't crash. UI-mode mismatches degrade gracefully:
      *  - `invite.account == null` → the newcomer joins the sponsor's existing account: append only
      *    `AddDevice`, bound to the sponsor's local account. [admin] is meaningless here — the
      *    device is still added, reported via `Sponsored(adminGranted = false)`;
@@ -29,11 +30,11 @@ interface OnboardingService {
      * synced yet) happen BEFORE any write — nothing is appended and no intro is sent.
      * Infrastructure failures (transport, storage) still throw.
      */
-    suspend fun sponsorNewcomer(invite: Invite, admin: Boolean = false): SponsorOutcome
+    public suspend fun sponsorNewcomer(inviteBytes: ByteArray, admin: Boolean = false): SponsorOutcome
 
     /**
      * GUI cancel button for an abandoned onboarding (newcomer or sponsor side): delegates to
      * [OnboardingProvider.cancelOnboarding].
      */
-    suspend fun newcomerCancelOnboarding()
+    public suspend fun newcomerCancelOnboarding()
 }

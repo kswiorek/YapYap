@@ -4,7 +4,7 @@ import org.yapyap.protection.envelope.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.transport.webrtc.types.WebRtcSignal
 
-class DefaultEnvelopeProtectionService(
+internal class DefaultEnvelopeProtectionService(
     val webRtcSignalProtection: WebRtcSignalProtection,
     val fileProtection: FileProtection,
     val messageProtection: MessageProtection,

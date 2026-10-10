@@ -18,7 +18,7 @@ import kotlin.uuid.Uuid
  * DB row mapped from [org.yapyap.persistence.Messages]: the decoded [MessagePayload]
  * plus local-only metadata not carried on the wire.
  */
-data class MessageRow(
+internal data class MessageRow(
     val payload: MessagePayload,
     val isOrphaned: Boolean,
     val verificationState: VerificationState = VerificationState.VERIFIED,
@@ -33,12 +33,12 @@ data class MessageRow(
  * order with no ties, so pagination is stable across live inserts and reloads. The cursor captures
  * the oldest row of the currently-loaded window so the next page begins strictly below it.
  */
-data class MessageCursor(
+internal data class MessageCursor(
     val createdAt: Instant,
     val messageId: Uuid,
 )
 
-interface MessageRepository {
+internal interface MessageRepository {
 
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
     suspend fun insert(
@@ -117,7 +117,7 @@ interface MessageRepository {
     suspend fun findAllPending(): List<MessageRow>
 }
 
-class DefaultMessageRepository(
+internal class DefaultMessageRepository(
     database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : MessageRepository {

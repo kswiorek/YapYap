@@ -8,30 +8,30 @@ import org.yapyap.crypto.primitives.EncryptionKeyPair
 private const val SHARED_SECRET_SIZE = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 private val X3DH_KDF_INFO = "YapYapX3DH".encodeToByteArray()
 
-enum class X3dhMode(val wireValue: Byte) {
+public enum class X3dhMode(public val wireValue: Byte) {
 
     THREE_DH(3),
     FOUR_DH(4);
 
-    companion object {
+    internal companion object {
         fun fromWireValue(value: Byte): X3dhMode =
             entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported packet type value: $value")
     }
 }
 
-data class X3dhRemotePeerKeys(
+internal data class X3dhRemotePeerKeys(
     val identityEncryptionPublicKey: ByteArray,
     val signedPreKeyPublicKey: ByteArray,
     val signedPreKeyId: String,
 )
 
-data class X3dhLocalInitiatorKeys(
+internal data class X3dhLocalInitiatorKeys(
     val identityEncryptionPrivateKey: ByteArray,
     val identityEncryptionPublicKey: ByteArray,
 )
 
-data class X3dhLocalResponderKeys(
+internal data class X3dhLocalResponderKeys(
     val identityEncryptionPrivateKey: ByteArray,
     val identityEncryptionPublicKey: ByteArray,
     val signedPreKeyPrivateKey: ByteArray,
@@ -39,7 +39,7 @@ data class X3dhLocalResponderKeys(
     val signedPreKeyId: String,
 )
 
-data class X3dhWireInfo(
+internal data class X3dhWireInfo(
     val ephemeralPublicKey: ByteArray,
     val signedPreKeyId: String,
     val sessionEpoch: Int,
@@ -48,27 +48,27 @@ data class X3dhWireInfo(
     val oneTimePreKeyId: String? = null,
 )
 
-data class X3dhInitiatorResult(
+internal data class X3dhInitiatorResult(
     val sharedSecret: ByteArray,
     val ratchetBootstrap: RatchetBootstrap,
     val wire: X3dhWireInfo,
     val ephemeralKeyPair: EncryptionKeyPair,
 )
 
-data class X3dhResponderResult(
+internal data class X3dhResponderResult(
     val sharedSecret: ByteArray,
     val ratchetBootstrap: RatchetBootstrap,
 )
 
 /** Output of X3DH used to construct a [DoubleRatchetSession]. */
-data class RatchetBootstrap(
+internal data class RatchetBootstrap(
     val sharedSecret: ByteArray,
     val remoteDhPublicKey: ByteArray? = null,
     val localDhPrivateKey: ByteArray? = null,
     val localDhPublicKey: ByteArray? = null,
 )
 
-class X3dhHandshake(
+internal class X3dhHandshake(
     private val crypto: CryptoProvider,
 ) {
     suspend fun initiatorCompute3Dh(

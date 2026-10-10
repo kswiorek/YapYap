@@ -6,7 +6,7 @@ import org.yapyap.crypto.e2ee.session.SessionStatus
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
-interface CryptoSessionStore {
+internal interface CryptoSessionStore {
     /** Canonical [SessionStatus.ACTIVE] session for encrypt and session orchestration. */
     suspend fun loadActiveCanonical(peerDeviceId: PeerId, sessionEpoch: Int): CryptoSessionRecord?
 

@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
@@ -20,8 +19,6 @@ import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
 import org.yapyap.orchestrator.fold.graph.childAdjacency
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.persistence.db.RoomMemberRole
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.MessageRepository
 import org.yapyap.persistence.messaging.MessageRow
@@ -38,7 +35,7 @@ import kotlin.uuid.Uuid
  * Committed fold diff of the global control room. Consumers: the onboarding provider
  * (own-device anchoring → COMPLETE), the pending-reverify hook, the sprint-4d firewall, UI.
  */
-sealed interface IdentityStateChange {
+internal sealed interface IdentityStateChange {
     data class AccountAdded(val accountId: AccountId) : IdentityStateChange
     data class AccountRemoved(val accountId: AccountId) : IdentityStateChange
     data class AdminGranted(val accountId: AccountId) : IdentityStateChange
@@ -74,7 +71,7 @@ sealed interface IdentityStateChange {
  * genesis, reachability), the storage-backed verdict write and the merge commit; the pure
  * replay/restart core ([replayFold]/[foldToFixpoint]) is shared with the dynamics fuzzer.
  */
-interface GlobalEventProjector {
+internal interface GlobalEventProjector {
     val stateChanges: Flow<IdentityStateChange>
 
     fun start(scope: CoroutineScope)

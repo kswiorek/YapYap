@@ -1,9 +1,10 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
-enum class IdentityKeyPurpose {
+internal enum class IdentityKeyPurpose {
     SIGNING,
     ENCRYPTION,
     SIGNED_PREKEY,
@@ -12,22 +13,14 @@ enum class IdentityKeyPurpose {
     BOOTSTRAP_SECRET,
 }
 
-data class IdentityPublicKeyRecord(
+internal data class IdentityPublicKeyRecord(
     val keyId: String,
     val keyVersion: Long,
     val purpose: IdentityKeyPurpose,
     val publicKey: ByteArray,
 )
 
-data class AccountId(
-    val id: String,
-) {
-    init {
-        require(id.isNotBlank()) { "AccountId cannot be blank" }
-    }
-}
-
-data class SignedPreKeyRecord(
+internal data class SignedPreKeyRecord(
     val keyId: String,
     val publicKey: ByteArray,
     val signature: ByteArray,
@@ -44,7 +37,7 @@ data class SignedPreKeyRecord(
 }
 
 /** One-time prekey allocated locally and offered to a peer for 4-DH upgrade. */
-data class LocalOneTimePreKey(
+internal data class LocalOneTimePreKey(
     val keyId: String,
     val publicKey: ByteArray,
     val privateKey: ByteArray,
@@ -56,7 +49,7 @@ data class LocalOneTimePreKey(
     }
 }
 
-data class DeviceIdentityRecord(
+internal data class DeviceIdentityRecord(
     val deviceId: PeerId,
     val signing: IdentityPublicKeyRecord,
     val encryption: IdentityPublicKeyRecord,
@@ -64,23 +57,23 @@ data class DeviceIdentityRecord(
     val keySignature: ByteArray? = null,
 )
 
-data class AccountIdentityRecord(
+internal data class AccountIdentityRecord(
     val accountId: AccountId,
     val displayName: String,
     val key: IdentityPublicKeyRecord? = null,
 )
 
 /** Single keystore/DB key namespace for all YapYap-held keys. All key IDs below derive from this. */
-const val YAPYAP_KEY_PREFIX = "yapyap:"
+internal const val YAPYAP_KEY_PREFIX: String = "yapyap:"
 
-const val LOCAL_DEVICE_KEY_PREFIX = YAPYAP_KEY_PREFIX + "local_device:"
-const val LOCAL_ACCOUNT_KEY_PREFIX = YAPYAP_KEY_PREFIX + "local_account:"
+internal const val LOCAL_DEVICE_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "local_device:"
+internal const val LOCAL_ACCOUNT_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "local_account:"
 
 /** Signed-prekey IDs (`yapyap:spk-<hex>`, wire-visible in X3DH). */
-const val SPK_KEY_PREFIX = YAPYAP_KEY_PREFIX + "spk-"
+internal const val SPK_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "spk-"
 
 /** One-time-prekey IDs (`yapyap:opk-<hex>`, wire-visible in 4-DH upgrade offers). */
-const val OPK_KEY_PREFIX = YAPYAP_KEY_PREFIX + "opk-"
+internal const val OPK_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "opk-"
 
 /** SQLCipher master-key ID (keystore only, never on the wire). */
-const val MASTER_KEY_ID = YAPYAP_KEY_PREFIX + "db-master-key"
+internal const val MASTER_KEY_ID: String = YAPYAP_KEY_PREFIX + "db-master-key"

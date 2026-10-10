@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
@@ -16,6 +15,7 @@ import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -40,7 +40,7 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /** [InboundMessagePipeline] whose [ingestResults] can be driven manually. */
-class FakeInboundMessagePipeline : InboundMessagePipeline {
+internal class FakeInboundMessagePipeline : InboundMessagePipeline {
     private val _ingestResults = MutableSharedFlow<IngestResult>(extraBufferCapacity = 64)
     override val ingestResults: Flow<IngestResult> = _ingestResults.asSharedFlow()
 
@@ -56,7 +56,7 @@ class FakeInboundMessagePipeline : InboundMessagePipeline {
  * [frontierOf] recomputes the requester's chainable frontier fresh on every
  * [buildSyncRequest], mirroring the real repository (which never stores knownIds).
  */
-class FakePendingSyncRepository(
+internal class FakePendingSyncRepository(
     private val frontierOf: suspend (RoomId) -> List<Uuid> = { emptyList() },
     /**
      * Candidate-account → device resolution backing the re-open gate below.
@@ -218,7 +218,7 @@ class FakePendingSyncRepository(
 }
 
 /** Records sync requests and returns a configurable batch of messages. */
-class RecordingSyncPayloadProvider(
+internal class RecordingSyncPayloadProvider(
     var messages: List<MessagePayload> = emptyList(),
     var removalNode: MessagePayload? = null,
 ) : SyncPayloadProvider {
@@ -238,14 +238,14 @@ class RecordingSyncPayloadProvider(
 }
 
 /** [SyncPeerPolicy] that always returns a fixed device (or null when not set). */
-class FixedSyncPeerPolicy(
+internal class FixedSyncPeerPolicy(
     var nextDevice: PeerId? = null,
 ) : SyncPeerPolicy {
     override fun pickNextDevice(candidates: List<PeerId>, attempted: Set<PeerId>): PeerId? = nextDevice
 }
 
 /** Minimal [DeviceIdentityRecord] — signing/encryption keys are not validated here. */
-fun testDeviceIdentity(deviceId: PeerId): DeviceIdentityRecord =
+internal fun testDeviceIdentity(deviceId: PeerId): DeviceIdentityRecord =
     DeviceIdentityRecord(
         deviceId = deviceId,
         signing = IdentityPublicKeyRecord("signing", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),

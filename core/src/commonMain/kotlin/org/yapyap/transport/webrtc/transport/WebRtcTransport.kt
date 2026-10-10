@@ -8,7 +8,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.webrtc.types.*
 
 
-interface WebRtcTransport {
+internal interface WebRtcTransport {
     // Data plane
     val incomingEnvelopes: Flow<WebRtcIncomingEnvelope>
     val incomingAvFrames: Flow<WebRtcDataFrame>
@@ -68,7 +68,7 @@ interface WebRtcTransport {
     suspend fun endCall(peer: PeerId, reason: String? = null)
 }
 
-data class WebRtcIncomingEnvelope(
+internal data class WebRtcIncomingEnvelope(
     val source: PeerId,
     val envelope: BinaryEnvelope,
 )

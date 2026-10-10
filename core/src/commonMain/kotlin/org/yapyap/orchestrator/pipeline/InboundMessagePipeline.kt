@@ -10,7 +10,7 @@ import org.yapyap.orchestrator.dag.IngestResult
  *
  * Runs on ALL nodes (GUI + headless relay). Not GUI-facing.
  */
-interface InboundMessagePipeline {
+internal interface InboundMessagePipeline {
     /** Hot stream of ingest results. Collect to react to new messages. */
     val ingestResults: Flow<IngestResult>
 

@@ -8,7 +8,7 @@ import kotlin.time.Instant
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
+internal data class BinaryEnvelope @OptIn(ExperimentalUuidApi::class) constructor(
     val packetId: Uuid,
     val packetType: PacketType,
     val dispositionRequested: Boolean,

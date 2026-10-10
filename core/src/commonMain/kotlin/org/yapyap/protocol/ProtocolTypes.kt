@@ -13,7 +13,7 @@ import kotlin.uuid.Uuid
 // Identities
 // ------------------------------------------------------------------
 
-data class PeerId(
+public data class PeerId(
     val id: String,
 ) {
     init {
@@ -26,14 +26,14 @@ data class PeerId(
  * the DAG — protocol and routing must not import the orchestrator for it.
  */
 @JvmInline
-value class RoomId(val value: Uuid) {
-    companion object {
+public value class RoomId(public val value: Uuid) {
+    public companion object {
         /** The single global control room shared by every device. */
-        val GLOBAL = RoomId(Uuid.NIL)
+        public val GLOBAL: RoomId = RoomId(Uuid.NIL)
     }
 }
 
-data class TorEndpoint(
+public data class TorEndpoint(
     val onionAddress: String,
     val port: Int = 80,
 ) {
@@ -47,7 +47,7 @@ data class TorEndpoint(
 // Wire enums
 // ------------------------------------------------------------------
 
-enum class SignalSecurityScheme(val wireValue: Byte, val nonceSize: Int) {
+internal enum class SignalSecurityScheme(val wireValue: Byte, val nonceSize: Int) {
     PLAINTEXT_TEST_ONLY(0, 24),
     SIGNED(1, 24),
     ENCRYPTED_AND_SIGNED(2, 24);
@@ -62,7 +62,7 @@ enum class SignalSecurityScheme(val wireValue: Byte, val nonceSize: Int) {
 /**
  * Packet categories carried by the Tor envelope.
  */
-enum class PacketType(val wireValue: Byte) {
+internal enum class PacketType(val wireValue: Byte) {
     MESSAGE(1),
     SIGNAL(2),
     FILE(3),
@@ -76,20 +76,20 @@ enum class PacketType(val wireValue: Byte) {
     }
 }
 
-enum class DeviceType(val wireValue: Byte) {
+public enum class DeviceType(public val wireValue: Byte) {
     APPLE(0),
     ANDROID(1),
     DESKTOP(2),
     HEADLESS(3);
 
-    companion object {
+    internal companion object {
         fun fromWireValue(value: Byte): DeviceType =
             entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported device type wire value: $value")
     }
 }
 
-enum class RoomType(val wireValue: Byte) {
+public enum class RoomType(public val wireValue: Byte) {
     TEXT_CHANNEL(0),
     VOICE_CHANNEL(1),
     GLOBAL_CONTROL(2),
@@ -101,21 +101,29 @@ enum class RoomType(val wireValue: Byte) {
      */
     UNKNOWN(3);
 
-    companion object {
+    internal companion object {
         fun fromWireValue(value: Byte): RoomType =
             entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported room type wire value: $value")
     }
 }
 
-enum class MessagePayloadType(val wireValue: Byte) {
+public enum class MessagePayloadType(public val wireValue: Byte) {
     TEXT(1),
     GLOBAL_EVENT(2),
     ROOM_EVENT(3);
 
-    companion object {
+    internal companion object {
         fun fromWireValue(value: Byte): MessagePayloadType =
             entries.firstOrNull { it.wireValue == value }
                 ?: error("Unsupported message payload type wire value: $value")
+    }
+}
+
+public data class AccountId(
+    val id: String,
+) {
+    init {
+        require(id.isNotBlank()) { "AccountId cannot be blank" }
     }
 }

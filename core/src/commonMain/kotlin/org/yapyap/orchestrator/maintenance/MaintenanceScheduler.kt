@@ -10,7 +10,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 
-class MaintenanceScheduler(
+internal class MaintenanceScheduler(
     private val tasks: List<suspend () -> Unit>,
     private val config: StateFlow<OrchestratorConfig>,
 ) {

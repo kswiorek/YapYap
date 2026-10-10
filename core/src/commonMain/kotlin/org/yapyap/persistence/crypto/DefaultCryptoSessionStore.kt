@@ -10,7 +10,7 @@ import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
-class DefaultCryptoSessionStore(
+internal class DefaultCryptoSessionStore(
     private val database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : CryptoSessionStore {

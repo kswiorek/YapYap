@@ -34,24 +34,24 @@ import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.DeviceType
 import org.yapyap.routing.router.Router
 
-interface OrchestratorRuntime {
-    val messaging: MessagingService
-    val config: ConfigService
+public interface OrchestratorRuntime {
+    public val messaging: MessagingService
+    public val config: ConfigService
 
     /** Bootstrap / onboarding handshake (scaffolding; bodies land with sprint 4). */
-    val onboarding: OnboardingService
+    public val onboarding: OnboardingService
 
     /** Read-only roster: accounts, devices, per-account presence. */
-    val identity: IdentityService
+    public val identity: IdentityService
 
     /** Chat list, headers, and room creation. */
-    val rooms: RoomService
+    public val rooms: RoomService
 
     /** Admin-gated global-event mutations. */
-    val admin: AdminService
+    public val admin: AdminService
 
     /** Self-service: own devices and account. */
-    val account: AccountService
+    public val account: AccountService
     // sync added in a later sprint
 }
 

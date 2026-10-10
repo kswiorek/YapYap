@@ -10,7 +10,7 @@ import kotlin.io.encoding.Base64
  *
  * Admin status is intentionally omitted — mesh/roster is authoritative.
  */
-object AccountRecoveryKeyCodec {
+internal object AccountRecoveryKeyCodec {
     private const val PREFIX = "YYR1"
     private val b64 = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)
 
@@ -40,7 +40,7 @@ object AccountRecoveryKeyCodec {
     }
 }
 
-data class AccountRecoveryMaterial(
+internal data class AccountRecoveryMaterial(
     val displayName: String,
     val privateSigningKey: ByteArray,
 )

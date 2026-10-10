@@ -10,14 +10,14 @@ import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 
 // Frozen at boot, read from config file + platform factory
-data class BootConfig(
+internal data class BootConfig(
     val mode: NodeMode = NodeMode.FULL_CLIENT,
     val localDeviceType: DeviceType = DeviceType.DESKTOP, // from platform factory, NOT a default
 )
 
 // Hot-reloadable, exposed as StateFlow<RuntimeConfig>
 @Serializable
-data class RuntimeConfig(
+internal data class RuntimeConfig(
     val tor: TorBackendConfig = TorBackendConfig(),
     val webRtc: WebRtcBackendConfig = WebRtcBackendConfig(),
     val router: RouterConfig = RouterConfig(),
@@ -25,7 +25,7 @@ data class RuntimeConfig(
     val orchestrator: OrchestratorConfig = OrchestratorConfig(),
 )
 
-sealed interface UpdateResult {
-    data object Success : UpdateResult
-    data class Failure(val reason: String) : UpdateResult
+public sealed interface UpdateResult {
+    public data object Success : UpdateResult
+    public data class Failure(val reason: String) : UpdateResult
 }

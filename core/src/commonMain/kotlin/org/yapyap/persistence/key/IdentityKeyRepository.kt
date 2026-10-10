@@ -1,15 +1,11 @@
 package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.*
-import org.yapyap.persistence.db.AccountRole
-import org.yapyap.persistence.db.IdentityStatus
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import kotlin.time.Instant
 
 /** Roster read: one account row with its chain-derived columns (any status — BANNED included). */
-data class AccountRow(
+internal data class AccountRow(
     val accountId: AccountId,
     val displayName: String,
     val role: AccountRole,
@@ -18,7 +14,7 @@ data class AccountRow(
 )
 
 /** Roster read: one device row with its chain-derived columns (any status — BANNED included). */
-data class DeviceRow(
+internal data class DeviceRow(
     val deviceId: PeerId,
     val accountId: AccountId,
     val deviceType: DeviceType,
@@ -29,7 +25,7 @@ data class DeviceRow(
     val lastSeen: Instant?,
 )
 
-interface IdentityKeyRepository {
+internal interface IdentityKeyRepository {
     suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
 
     /** Chain-derived membership status, or null when absent (absence asserts nothing — treat as "not yet known", never "removed"). */

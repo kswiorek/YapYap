@@ -5,22 +5,22 @@ import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 
 
-interface Orchestrator {
-    val state: StateFlow<OrchestratorState>
+public interface Orchestrator {
+    public val state: StateFlow<OrchestratorState>
 
     /**
      * Newcomer onboarding lifecycle, in every mode (headless relays have no runtime, so this —
      * plus the log — is their whole onboarding UX; the GUI reads the same flow through the
      * runtime service). IDLE when no onboarding ever ran or after cancel/complete.
      */
-    val onboardingState: StateFlow<OnboardingState>
+    public val onboardingState: StateFlow<OnboardingState>
 
     /** Boot recovery → start router → start domain loops. */
-    suspend fun start()
+    public suspend fun start()
 
-    suspend fun stop()
+    public suspend fun stop()
 
-    suspend fun completeSetup(intent: SetupIntent): SetupResult
+    public suspend fun completeSetup(intent: SetupIntent): SetupResult
 
     /**
      * Terminal offline wipe: deletes local persistence (`vault.db*`, keyring
@@ -29,11 +29,11 @@ interface Orchestrator {
      * [OrchestratorState.ResetRequired], `Stopped`, `Failed` or `SetupRequired`;
      * refuses in `Running`/`Starting`.
      */
-    suspend fun resetApp()
+    public suspend fun resetApp()
 
     /**
      * Domain APIs. Prefer throwing/checking state over nullable returns
      * so misuse fails fast in tests.
      */
-    fun runtime(): OrchestratorRuntime
+    public fun runtime(): OrchestratorRuntime
 }

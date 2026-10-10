@@ -1,7 +1,7 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.Flow
-import org.yapyap.crypto.identity.AccountId
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -9,7 +9,7 @@ import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
 
-interface Router {
+internal interface Router {
     val incomingMessages: Flow<MessagePayload>
 
     /**

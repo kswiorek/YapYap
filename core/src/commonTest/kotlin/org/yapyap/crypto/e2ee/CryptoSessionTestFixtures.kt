@@ -14,8 +14,9 @@ import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.persistence.key.OpkRepository
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.testfixtures.FakeClock

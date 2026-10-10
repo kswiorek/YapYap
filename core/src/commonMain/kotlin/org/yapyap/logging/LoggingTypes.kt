@@ -1,6 +1,6 @@
 package org.yapyap.logging
 
-enum class LogEvent {
+internal enum class LogEvent {
     STARTED,
     STOPPED,
     INBOUND_ENVELOPE_RECEIVED,
@@ -110,7 +110,7 @@ enum class LogEvent {
     BANNED_DEVICE_PACKET,
 }
 
-enum class LogComponent {
+internal enum class LogComponent {
     ROUTER,
     WEBRTC_TRANSPORT,
     WEBRTC_BACKEND,
@@ -124,7 +124,7 @@ enum class LogComponent {
     CONFIG,
 }
 
-enum class LogLevel {
+internal enum class LogLevel {
     DEBUG,
     INFO,
     WARN,

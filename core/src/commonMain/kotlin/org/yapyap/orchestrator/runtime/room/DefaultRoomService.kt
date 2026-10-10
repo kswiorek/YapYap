@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -14,13 +13,10 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.dag.RoomCreatedDraft
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
-import org.yapyap.persistence.db.RoomMemberRole
-import org.yapyap.persistence.db.RoomMemberStatus
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.RoomMemberRecord
 import org.yapyap.persistence.messaging.RoomRepository
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.*
 
 /**
  * GUI-facing room management over the room-event projector's publish path.

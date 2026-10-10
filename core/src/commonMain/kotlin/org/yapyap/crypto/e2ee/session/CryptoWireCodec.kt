@@ -30,7 +30,7 @@ private const val CONTROL_TAG_OPK_OFFER: Byte = 1
  * Capacity limits come from [limits]; protocol-invariant structural caps (key sizes, string id
  * caps, binding length) come from [CryptoWireLimits].
  */
-class CryptoWireCodec(
+internal class CryptoWireCodec(
     private val limits: StateFlow<CryptoLimits>,
 ) {
     // ── SessionWireFrame ──

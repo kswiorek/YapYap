@@ -1,12 +1,11 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.protocol.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-data class MessageEnvelope(
+internal data class MessageEnvelope(
     val messageEnvelopeId: Uuid, //UUID as hash of message content
     val source: PeerId,
     val target: PeerId,
@@ -143,7 +142,7 @@ data class MessageEnvelope(
  *
  * TODO: [Sprint 5] Attachment / file-offer message payload types (link to FileEnvelope transfers).
  */
-sealed interface MessagePayload {
+internal sealed interface MessagePayload {
     val messageId: Uuid
     val roomId: RoomId
     val senderAccountId: AccountId

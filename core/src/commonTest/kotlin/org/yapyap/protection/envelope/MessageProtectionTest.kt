@@ -9,6 +9,7 @@ import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.key.KeyReference
 import org.yapyap.persistence.key.KeyType
 import org.yapyap.protection.*
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint

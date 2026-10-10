@@ -1,8 +1,8 @@
 import kotlin.Boolean;
 import kotlin.time.Instant;
-import org.yapyap.crypto.identity.AccountId;
-import org.yapyap.persistence.db.AccountRole;
-import org.yapyap.persistence.db.IdentityStatus;
+import org.yapyap.protocol.AccountId;
+import org.yapyap.protocol.AccountRole;
+import org.yapyap.protocol.IdentityStatus;
 import org.yapyap.protocol.DeviceType;
 import org.yapyap.persistence.db.OpkStatus;
 import org.yapyap.protocol.PeerId;

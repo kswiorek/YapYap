@@ -2,12 +2,12 @@ package org.yapyap.persistence.key
 
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 
-enum class KeyType {
+internal enum class KeyType {
     PUBLIC,
     PRIVATE,
 }
 
-data class KeyReference(
+internal data class KeyReference(
     val keyId: String,
     val purpose: IdentityKeyPurpose,
     val type: KeyType,
@@ -17,7 +17,7 @@ data class KeyReference(
     }
 }
 
-interface KeyStore {
+internal interface KeyStore {
     suspend fun putKey(ref: KeyReference, key: ByteArray)
 
     suspend fun getKey(ref: KeyReference): ByteArray?

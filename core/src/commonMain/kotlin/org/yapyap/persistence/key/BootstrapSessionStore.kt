@@ -7,12 +7,12 @@ import org.yapyap.logging.LogEvent
 import kotlin.time.Instant
 
 /** Source of the active one-time bootstrap secret. Null when no session is active — the "not on-boarding" gate. */
-fun interface BootstrapKeySource {
+internal fun interface BootstrapKeySource {
     suspend fun introKey(): ByteArray?
 }
 
 /** One-time secret plus its absolute expiry deadline (boot-anchored: restarts keep the remaining budget, never a fresh window). */
-data class BootstrapSession(
+internal data class BootstrapSession(
     val secret: ByteArray,
     val deadline: Instant,
 ) {
@@ -34,7 +34,7 @@ data class BootstrapSession(
  * signing path; secret and deadline share one entry ([burn] deletes both, no drift states).
  * Missing/unreadable reads as null (gate closed); corrupt entries are repaired away.
  */
-class BootstrapSessionStore(
+internal class BootstrapSessionStore(
     private val keyStore: KeyStore,
 ) : BootstrapKeySource {
     override suspend fun introKey(): ByteArray? = session()?.secret
