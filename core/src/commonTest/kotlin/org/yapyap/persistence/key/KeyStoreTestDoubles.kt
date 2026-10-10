@@ -38,6 +38,7 @@ internal class InMemoryKeyStore : KeyStore {
  */
 internal class InMemoryIdentityKeyRepository(
     private val defaultLocalTor: TorEndpoint = TorEndpoint(onionAddress = "unknown.onion", port = 80),
+    private val defaultLocalDeviceType: DeviceType = DeviceType.DESKTOP,
 ) : IdentityKeyRepository {
 
     val accounts = mutableMapOf<String, AccountIdentityRecord>()
@@ -55,6 +56,8 @@ internal class InMemoryIdentityKeyRepository(
     private val deviceToAccount = mutableMapOf<String, String>()
     private val peersForAccount = mutableMapOf<String, MutableSet<String>>()
     private val torForDevice = mutableMapOf<String, TorEndpoint>()
+    private val deviceTypes = mutableMapOf<String, DeviceType>()
+    private val deviceLastSeen = mutableMapOf<String, Instant>()
 
     override suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
         accounts[accountId.id]
@@ -119,6 +122,7 @@ internal class InMemoryIdentityKeyRepository(
         )
         devices[deviceId.id] = merged
         deviceStatuses[deviceId.id] = status
+        deviceTypes[deviceId.id] = deviceType
         provisionalDevices.remove(deviceId.id)
         deviceToAccount[deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(deviceId.id)
@@ -153,6 +157,7 @@ internal class InMemoryIdentityKeyRepository(
     ) {
         devices[identity.deviceId.id] = identity
         deviceStatuses[identity.deviceId.id] = IdentityStatus.ACTIVE
+        deviceTypes[identity.deviceId.id] = defaultLocalDeviceType
         if (provisional) provisionalDevices.add(identity.deviceId.id) else provisionalDevices.remove(identity.deviceId.id)
         localDevice = identity
         deviceToAccount[identity.deviceId.id] = accountId.id
@@ -184,6 +189,7 @@ internal class InMemoryIdentityKeyRepository(
     ) {
         devices[identity.deviceId.id] = identity
         deviceStatuses[identity.deviceId.id] = IdentityStatus.ACTIVE
+        deviceTypes[identity.deviceId.id] = deviceType
         if (provisional) provisionalDevices.add(identity.deviceId.id) else provisionalDevices.remove(identity.deviceId.id)
         deviceToAccount[identity.deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
@@ -269,6 +275,30 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun getAllDeviceIds(): List<PeerId> =
         devices.keys.map { PeerId(it) }.sortedBy { it.id }
 
+    override suspend fun getAllAccountRows(): List<AccountRow> =
+        accounts.keys.map { id ->
+            AccountRow(
+                accountId = AccountId(id),
+                displayName = accounts.getValue(id).displayName,
+                role = accountRoles[id] ?: AccountRole.MEMBER,
+                status = identityStatuses[id] ?: IdentityStatus.ACTIVE,
+                isLocal = localAccount?.accountId?.id == id,
+            )
+        }
+
+    override suspend fun getAllDeviceRows(): List<DeviceRow> =
+        devices.keys.map { id ->
+            DeviceRow(
+                deviceId = PeerId(id),
+                accountId = AccountId(deviceToAccount.getValue(id)),
+                deviceType = deviceTypes[id] ?: defaultLocalDeviceType,
+                status = deviceStatuses[id] ?: IdentityStatus.ACTIVE,
+                isLocal = localDevice?.deviceId?.id == id,
+                provisional = provisionalDevices.contains(id),
+                lastSeen = deviceLastSeen[id],
+            )
+        }
+
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         deviceToAccount[deviceId.id]?.let { AccountId(it) }
 
@@ -333,6 +363,11 @@ internal class InMemoryIdentityKeyRepository(
     /** Seeds Tor for a device already stored (e.g. after [insertLocalDevice]). */
     fun seedTorEndpoint(deviceId: PeerId, endpoint: TorEndpoint) {
         torForDevice[deviceId.id] = endpoint
+    }
+
+    /** Seeds last-seen for a device already stored (absent = never seen). */
+    fun seedLastSeen(deviceId: PeerId, at: Instant) {
+        deviceLastSeen[deviceId.id] = at
     }
 
     override suspend fun seedProvisionalPeerDevice(

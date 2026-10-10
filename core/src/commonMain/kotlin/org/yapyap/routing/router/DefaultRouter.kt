@@ -203,6 +203,15 @@ class DefaultRouter(
 
     override val pingPayloads: Flow<PingFrontiers> = pingPayloadFlow.asSharedFlow()
 
+    // Account-level by design: the resolver maps each online device to its
+    // account here, so device-level presence never leaves the router. Unknown
+    // devices (no row yet) are dropped — absence asserts nothing. Intra-account
+    // device flaps re-emit the same set and are deduped below.
+    override val onlineAccounts: Flow<Set<AccountId>> =
+        peerAvailabilityRegistry.onlineDevices
+            .map { online -> online.mapNotNull { identityResolver.getAccountIdForDevice(it) }.toSet() }
+            .distinctUntilChanged()
+
     override suspend fun start() {
         check(!started) { "Router is already started" }
         localDeviceIdentity = identityResolver.getLocalDeviceIdentityRecord()

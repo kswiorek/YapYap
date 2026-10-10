@@ -118,6 +118,11 @@ selectAllAccounts:
 SELECT *
 FROM accounts;
 
+-- Roster read (unfiltered — BANNED rows stay visible with their status).
+selectAllDevices:
+SELECT *
+FROM devices;
+
 putDevice:
 INSERT OR REPLACE INTO devices (
     device_id,

@@ -6,6 +6,28 @@ import org.yapyap.persistence.db.IdentityStatus
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import kotlin.time.Instant
+
+/** Roster read: one account row with its chain-derived columns (any status — BANNED included). */
+data class AccountRow(
+    val accountId: AccountId,
+    val displayName: String,
+    val role: AccountRole,
+    val status: IdentityStatus,
+    val isLocal: Boolean,
+)
+
+/** Roster read: one device row with its chain-derived columns (any status — BANNED included). */
+data class DeviceRow(
+    val deviceId: PeerId,
+    val accountId: AccountId,
+    val deviceType: DeviceType,
+    val status: IdentityStatus,
+    val isLocal: Boolean,
+    val provisional: Boolean,
+    /** Last inbound traffic; null when never seen (stored as the NEVER sentinel). */
+    val lastSeen: Instant?,
+)
 
 interface IdentityKeyRepository {
     suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord?
@@ -122,6 +144,12 @@ interface IdentityKeyRepository {
     suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId>
 
     suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId?
+
+    /** All account rows, any status (BANNED rows stay visible with their status) — the read-only roster source. */
+    suspend fun getAllAccountRows(): List<AccountRow>
+
+    /** All device rows, any status — the read-only roster source. */
+    suspend fun getAllDeviceRows(): List<DeviceRow>
 
     suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
 

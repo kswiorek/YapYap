@@ -211,6 +211,7 @@ private class RecordingProjectorRouter : Router {
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = emptyFlow()
+    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true

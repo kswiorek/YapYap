@@ -33,6 +33,15 @@ interface Router {
      */
     val bootstrapPackets: Flow<BootstrapPacketEvent>
 
+    /**
+     * Live set of accounts with at least one currently-online device.
+     * Account-level by design: device-level presence (PeerId-keyed) stays
+     * inside the router — consumers never learn which device carries an
+     * account. The local account is not a member (self-presence is not peer
+     * presence); callers that display the local account treat it as online.
+     */
+    val onlineAccounts: Flow<Set<AccountId>>
+
     suspend fun start()
     suspend fun stop()
     fun isRunning(): Boolean

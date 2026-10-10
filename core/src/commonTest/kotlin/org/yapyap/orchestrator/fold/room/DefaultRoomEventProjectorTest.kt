@@ -5,6 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -164,6 +165,8 @@ private class FakeRouter : Router {
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
+
+    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
     override suspend fun start() = Unit
     override suspend fun stop() = Unit

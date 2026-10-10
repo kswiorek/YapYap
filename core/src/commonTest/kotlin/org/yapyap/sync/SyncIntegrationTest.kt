@@ -1,10 +1,7 @@
 package org.yapyap.sync
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import org.yapyap.crypto.identity.AccountId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
@@ -406,6 +403,8 @@ private class RecordingRouter : Router {
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
+
+    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
     val sent = mutableListOf<MessagePayload>()
 

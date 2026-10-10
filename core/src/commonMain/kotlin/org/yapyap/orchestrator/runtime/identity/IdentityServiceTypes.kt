@@ -32,7 +32,9 @@ data class DeviceView(
     val lastSeen: Instant?,
 )
 
-/** Account-level presence, aggregated from the account's devices. */
+/** Account-level presence, aggregated from the account's devices. The GUI sorts
+ *  by [AccountAvailability.lastSeen] for finer gradations — recency buckets are
+ *  a display concern, not a backend one. */
 data class AccountAvailability(
     val label: AvailabilityLabel,
     /** Most recent device sighting; null when never seen. */
@@ -41,7 +43,6 @@ data class AccountAvailability(
 
 enum class AvailabilityLabel {
     ONLINE,
-    RECENT,
     OFFLINE,
     UNKNOWN,
 }

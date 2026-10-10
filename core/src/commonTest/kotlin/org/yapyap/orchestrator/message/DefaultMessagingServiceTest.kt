@@ -1,10 +1,7 @@
 package org.yapyap.orchestrator.message
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.yapyap.config.MessageLimits
@@ -1200,6 +1197,8 @@ private class RecordingRouter : Router {
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
 
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
+
+    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
     val sentTargets = mutableListOf<AccountId>()
     override suspend fun start() {}

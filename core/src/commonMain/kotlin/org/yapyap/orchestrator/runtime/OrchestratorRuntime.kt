@@ -17,6 +17,7 @@ import org.yapyap.orchestrator.runtime.admin.AdminService
 import org.yapyap.orchestrator.runtime.admin.DefaultAdminService
 import org.yapyap.orchestrator.runtime.config.ConfigService
 import org.yapyap.orchestrator.runtime.config.DefaultConfigService
+import org.yapyap.orchestrator.runtime.identity.DefaultIdentityService
 import org.yapyap.orchestrator.runtime.identity.IdentityService
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.MessagingService
@@ -84,7 +85,8 @@ internal class DefaultOrchestratorRuntime(
     private lateinit var _rooms: DefaultRoomService
     override val rooms: RoomService get() = _rooms
 
-    override val identity: IdentityService get() = TODO("[Sprint 4] DefaultIdentityService")
+    private lateinit var _identity: DefaultIdentityService
+    override val identity: IdentityService get() = _identity
 
     private lateinit var _admin: DefaultAdminService
     override val admin: AdminService get() = _admin
@@ -146,11 +148,22 @@ internal class DefaultOrchestratorRuntime(
             onboardingState = onboardingProvider.state,
         )
         _admin.start(scope)
+
+        // Read-only roster: rows + router presence + fold events. All deps are
+        // already constructor params — no new wiring.
+        _identity = DefaultIdentityService(
+            identityKeyRepository = identityKeyRepository,
+            router = router,
+            projector = globalEventProjector,
+            orchestratorConfig = configStore.orchestratorConfig,
+        )
+        _identity.start(scope)
     }
 
     suspend fun stop() {
         _messaging.stop()
         _rooms.stop()
         _admin.stop()
+        _identity.stop()
     }
 }

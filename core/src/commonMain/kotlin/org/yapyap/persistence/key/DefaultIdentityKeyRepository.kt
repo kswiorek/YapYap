@@ -719,6 +719,36 @@ class DefaultIdentityKeyRepository(
             database.identityQueries.selectActiveDeviceIds().executeAsList()
         }
 
+    override suspend fun getAllAccountRows(): List<AccountRow> =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectAllAccounts().executeAsList().map {
+                AccountRow(
+                    accountId = it.account_id,
+                    displayName = it.display_name,
+                    role = it.role,
+                    status = it.status,
+                    isLocal = it.is_local_account,
+                )
+            }
+        }
+
+    override suspend fun getAllDeviceRows(): List<DeviceRow> =
+        withContext(dbDispatcher) {
+            database.identityQueries.selectAllDevices().executeAsList().map {
+                DeviceRow(
+                    deviceId = it.device_id,
+                    accountId = it.account_id,
+                    deviceType = it.device_type,
+                    status = it.status,
+                    isLocal = it.is_local_device,
+                    provisional = it.provisional,
+                    // Fresh provision writes the NEVER sentinel (DeviceRecordDefaults)
+                    // — the roster treats it as "never seen".
+                    lastSeen = it.last_seen_timestamp.takeUnless { seen -> seen == Instant.DISTANT_PAST },
+                )
+            }
+        }
+
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         withContext(dbDispatcher) {
             val queries = database.identityQueries
