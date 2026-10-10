@@ -14,6 +14,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.account.AccountService
 import org.yapyap.orchestrator.runtime.account.DefaultAccountService
 import org.yapyap.orchestrator.runtime.admin.AdminService
+import org.yapyap.orchestrator.runtime.admin.DefaultAdminService
 import org.yapyap.orchestrator.runtime.config.ConfigService
 import org.yapyap.orchestrator.runtime.config.DefaultConfigService
 import org.yapyap.orchestrator.runtime.identity.IdentityService
@@ -84,7 +85,9 @@ internal class DefaultOrchestratorRuntime(
     override val rooms: RoomService get() = _rooms
 
     override val identity: IdentityService get() = TODO("[Sprint 4] DefaultIdentityService")
-    override val admin: AdminService get() = TODO("[Sprint 4] DefaultAdminService")
+
+    private lateinit var _admin: DefaultAdminService
+    override val admin: AdminService get() = _admin
 
     private lateinit var _account: DefaultAccountService
     override val account: AccountService get() = _account
@@ -133,10 +136,21 @@ internal class DefaultOrchestratorRuntime(
             identityProvisioning = identityProvisioning,
             onboardingState = onboardingProvider.state,
         )
+
+        // Stateful in one field (the live localIsAdmin flag off the projector's
+        // stateChanges): needs start/stop like the room service.
+        _admin = DefaultAdminService(
+            projector = globalEventProjector,
+            identityResolver = identityResolver,
+            identityKeyRepository = identityKeyRepository,
+            onboardingState = onboardingProvider.state,
+        )
+        _admin.start(scope)
     }
 
     suspend fun stop() {
         _messaging.stop()
         _rooms.stop()
+        _admin.stop()
     }
 }

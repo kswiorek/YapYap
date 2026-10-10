@@ -207,6 +207,8 @@ internal class InMemoryIdentityKeyRepository(
         localRole = role
         accounts[identity.accountId.id] = identity
         accountRoles[identity.accountId.id] = role
+        // Mirrors the SQLDelight putAccount, which hardcodes ACTIVE.
+        identityStatuses[identity.accountId.id] = IdentityStatus.ACTIVE
         if (provisional) provisionalAccounts.add(identity.accountId.id) else provisionalAccounts.remove(identity.accountId.id)
     }
 

@@ -41,4 +41,16 @@ sealed interface GlobalEventRefusal {
     /** Removing the account's last confirmed device without proving possession of the
      * recovery key — the GUI gates this on `verifyRecoveryKey`. */
     data object RecoveryKeyRequired : GlobalEventRefusal
+
+    /** Target exists but its current state makes the op a fold no-op: a BANNED
+     *  account, an already-admin (or owner) grant target, a non-admin revoke
+     *  target. The fold stores these VERIFIED with no shadow effect — this
+     *  refusal is the GUI's only feedback. */
+    data object TargetNotEligible : GlobalEventRefusal
+
+    /** Admin op targeting the local account's own rows — the self-service paths
+     *  ([org.yapyap.orchestrator.runtime.account.AccountService]) own those and
+     *  carry gates the admin path cannot: the owner-handover successor and the
+     *  last-device recovery key. */
+    data object SelfServiceRequired : GlobalEventRefusal
 }
