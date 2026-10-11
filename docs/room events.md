@@ -767,7 +767,7 @@ discipline) plus room-specific cases:
   replies descending from hidden messages render normally (no collateral);
   never-member author → `VERIFIED` + no row → hidden by default (negative test:
   never rendered as normal);
-- local send refusal + typing: REMOVED local row → `sendTextMessage` refuses
+- local send refusal + typing: REMOVED local row → `sendMessage` refuses
   `NOT_A_MEMBER` before any write (nothing appended, no fan-out); no row keeps
   the previous behavior; typing indicators from removed or never-member senders
   are ignored inbound (outbound already fans out `ACTIVE`-only);

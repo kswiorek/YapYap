@@ -8,7 +8,7 @@ import kotlin.uuid.Uuid
 
 public interface MessagingService {
 
-    /** Max text length in bytes that [sendTextMessage] will accept. Derived from transport limits. */
+    /** Max text length in bytes that [sendMessage] will accept. Derived from transport limits. */
     public val maxTextMessageBytes: Int
 
     public val incomingMessageEvents: Flow<IncomingMessageEvent>
@@ -22,8 +22,8 @@ public interface MessagingService {
     public val typingState: StateFlow<Map<RoomId, Set<AccountId>>>
 
     /** Outbound: append to local DAG (refused up front on policy violations),
-     *  then fan out to room members. The message is durable once [SendTextResult.Sent] returns. */
-    public suspend fun sendTextMessage(roomId: RoomId, text: String): SendTextResult
+     *  then fan out to room members. The message is durable once [SendMessageResult.Sent] returns. */
+    public suspend fun sendMessage(roomId: RoomId, message: Message): SendMessageResult
 
     /** Lookup of a single message by id, mapped to its GUI display item (null when unknown or not displayable). */
     public suspend fun getMessage(messageId: Uuid): MessageDisplayItem?

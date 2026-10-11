@@ -105,9 +105,9 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
-        val result = service.sendTextMessage(roomId, "hello from local")
+        val result = service.sendMessage(roomId, Message("hello from local"))
 
-        val sent = assertIs<SendTextResult.Sent>(result)
+        val sent = assertIs<SendMessageResult.Sent>(result)
         // Report counts other members only — the self fan-out (multi-device push) is excluded.
         assertEquals(FanoutReport(membersTotal = 1, membersQueued = 1, membersPullOnly = 0), sent.fanout)
         // Fan-out still reaches all room members — no account-level self-filter (router handles device skip).
@@ -141,9 +141,9 @@ class DefaultMessagingServiceTest {
             val service = newService(this, pipeline)
             startStack(this, pipeline, service)
 
-            val result = service.sendTextMessage(roomId, "hello from local")
+            val result = service.sendMessage(roomId, Message("hello from local"))
 
-            val refused = assertIs<SendTextResult.Refused>(result)
+            val refused = assertIs<SendMessageResult.Refused>(result)
             assertEquals(SendRefusal.HistoryIncomplete, refused.reason)
             assertTrue(router.sentTargets.isEmpty())
             assertEquals(1, messageRepo.byId.size)
@@ -156,9 +156,9 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
-        val result = service.sendTextMessage(roomId, "no peers here")
+        val result = service.sendMessage(roomId, Message("no peers here"))
 
-        val sent = assertIs<SendTextResult.Sent>(result)
+        val sent = assertIs<SendMessageResult.Sent>(result)
         assertEquals(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0), sent.fanout)
         assertEquals(0, router.sentTargets.size)
     }
@@ -177,9 +177,9 @@ class DefaultMessagingServiceTest {
         )
         startStack(this, pipeline, service)
 
-        val result = service.sendTextMessage(roomId, "this text is too long")
+        val result = service.sendMessage(roomId, Message("this text is too long"))
 
-        val refused = assertIs<SendTextResult.Refused>(result)
+        val refused = assertIs<SendMessageResult.Refused>(result)
         assertEquals(SendRefusal.TooLarge, refused.reason)
         assertEquals(0, router.sentTargets.size)
         assertEquals(0, messageRepo.findAllInRoom(roomId).size)
@@ -219,7 +219,7 @@ class DefaultMessagingServiceTest {
         advanceUntilIdle()
         assertTrue(window.displayItems.value.isEmpty())
 
-        service.sendTextMessage(roomId, "window update")
+        service.sendMessage(roomId, Message("window update"))
         advanceUntilIdle()
 
         val items = window.displayItems.value
@@ -839,9 +839,9 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
-        val result = service.sendTextMessage(roomId, "hello")
+        val result = service.sendMessage(roomId, Message("hello"))
 
-        val sent = assertIs<SendTextResult.Sent>(result)
+        val sent = assertIs<SendMessageResult.Sent>(result)
         // The self fan-out (multi-device push) is excluded from the report.
         assertEquals(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0), sent.fanout)
         // REMOVED rows never receive fan-out: only the local account is targeted.
@@ -858,9 +858,9 @@ class DefaultMessagingServiceTest {
         val service = newService(this, pipeline)
         startStack(this, pipeline, service)
 
-        val result = service.sendTextMessage(roomId, "should not send")
+        val result = service.sendMessage(roomId, Message("should not send"))
 
-        val refused = assertIs<SendTextResult.Refused>(result)
+        val refused = assertIs<SendMessageResult.Refused>(result)
         assertEquals(SendRefusal.NotMember, refused.reason)
         assertTrue(router.sentTargets.isEmpty())
         assertTrue(messageRepo.byId.isEmpty())

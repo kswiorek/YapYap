@@ -227,10 +227,10 @@ internal class DefaultMessagingService(
         }
     }
 
-    override suspend fun sendTextMessage(
+    override suspend fun sendMessage(
         roomId: RoomId,
-        text: String,
-    ): SendTextResult {
+        message: Message,
+    ): SendMessageResult {
         // Removal refusal: a removed local account cannot append to the room — the
         // GUI banner gates compose, and this refusal is the backend feedback
         // (docs/room events.md §3). Only a committed REMOVED row refuses: no row
@@ -243,10 +243,10 @@ internal class DefaultMessagingService(
                 message = "Text message not sent — local account removed from room",
                 fields = mapOf("roomId" to roomId),
             )
-            return SendTextResult.Refused(SendRefusal.NotMember)
+            return SendMessageResult.Refused(SendRefusal.NotMember)
         }
 
-        val textBytes = text.encodeToByteArray()
+        val textBytes = message.content.encodeToByteArray()
         if (textBytes.size > maxTextMessageBytes) {
             AppLog.warn(
                 component = LogComponent.MESSAGING,
@@ -258,11 +258,11 @@ internal class DefaultMessagingService(
                     "maxTextMessageBytes" to maxTextMessageBytes,
                 ),
             )
-            return SendTextResult.Refused(SendRefusal.TooLarge)
+            return SendMessageResult.Refused(SendRefusal.TooLarge)
         }
 
         val payload = try {
-            dagEngine.append(roomId, MessageDraft.Text(text))
+            dagEngine.append(roomId, MessageDraft.Text(message.content))
         } catch (_: DagException.FrontierUnavailable) {
             AppLog.warn(
                 component = LogComponent.MESSAGING,
@@ -270,7 +270,7 @@ internal class DefaultMessagingService(
                 message = "Text message not sent — room holds messages but the chainable frontier is empty",
                 fields = mapOf("roomId" to roomId),
             )
-            return SendTextResult.Refused(SendRefusal.HistoryIncomplete)
+            return SendMessageResult.Refused(SendRefusal.HistoryIncomplete)
         }
 
         val members = roomRepository.membersOfRoom(roomId)
@@ -289,7 +289,7 @@ internal class DefaultMessagingService(
                     "messageId" to payload.messageId,
                 ),
             )
-            return SendTextResult.Sent(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0))
+            return SendMessageResult.Sent(FanoutReport(membersTotal = 0, membersQueued = 0, membersPullOnly = 0))
         }
 
         // Fan out to ALL members — the local account's own other devices get the
@@ -315,7 +315,7 @@ internal class DefaultMessagingService(
             ),
         )
 
-        return SendTextResult.Sent(
+        return SendMessageResult.Sent(
             aggregateFanout(reports.filter { it.first != localAccountId }.map { it.second }),
         )
     }

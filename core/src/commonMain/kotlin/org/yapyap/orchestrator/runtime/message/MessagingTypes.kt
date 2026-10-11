@@ -36,6 +36,10 @@ public sealed interface MessageDisplayItem {
     ) : MessageDisplayItem
 }
 
+public data class Message(
+    val content: String,
+)
+
 /**
  * "Something new in this room" signal carrying the policy-vetted
  * [MessageDisplayItem], unformatted — presentation (truncation, "sent a file"
@@ -90,13 +94,13 @@ public interface RoomMessageWindow {
 
 /** Outcome of the GUI-facing text-send flow. Domain refusals are values;
  *  infrastructure failures (transport, storage) still throw. */
-public sealed interface SendTextResult {
+public sealed interface SendMessageResult {
     /** Appended to the room DAG and fanned out. [fanout] is a send-time
      *  reachability snapshot — advisory, never an error state. */
-    public data class Sent(val fanout: FanoutReport) : SendTextResult
+    public data class Sent(val fanout: FanoutReport) : SendMessageResult
 
     /** Refused before any write — nothing appended, nothing sent. */
-    public data class Refused(val reason: SendRefusal) : SendTextResult
+    public data class Refused(val reason: SendRefusal) : SendMessageResult
 }
 
 public sealed interface SendRefusal {
