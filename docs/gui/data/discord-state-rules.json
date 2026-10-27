@@ -1,0 +1,247 @@
+[
+  {
+    "media": null,
+    "selector": ".button_a22cb0:hover",
+    "css": "transition: background-color 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, opacity 0.15s ease-out;"
+  },
+  {
+    "media": null,
+    "selector": ".button_a22cb0:disabled",
+    "css": "opacity: 0.5; pointer-events: none;"
+  },
+  {
+    "media": null,
+    "selector": ".enable-forced-colors .button_a22cb0:disabled",
+    "css": "background-color: canvas; border-color: graytext; color: graytext; opacity: 1;"
+  },
+  {
+    "media": null,
+    "selector": ".enable-forced-colors .disabled_c1e9c4 .checkbox_c1e9c4, .enable-forced-colors .disabled_c1e9c4 .radioSelection_c1e9c4, .enable-forced-colors .disabled_c1e9c4[aria-checked=\"true\"] ",
+    "css": "color: graytext;"
+  },
+  {
+    "media": "(hover: hover)",
+    "selector": ".channel__972a0:focus-within .callDuration__972a0, .channel__972a0:focus-within .favoriteIcon__972a0, .channel__972a0:hover .callDuration__972a0, .channel__972a0:hover .favoriteIco",
+    "css": "display: none;"
+  },
+  {
+    "media": "(hover: hover)",
+    "selector": ".channel__972a0:focus-within .closeButton__972a0, .channel__972a0:hover .closeButton__972a0",
+    "css": "display: flex;"
+  },
+  {
+    "media": null,
+    "selector": ".badgeSlot__6db38:hover",
+    "css": "background: var(--control-secondary-background-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".badgeSlot__6db38:active",
+    "css": "background: var(--control-secondary-background-active);"
+  },
+  {
+    "media": null,
+    "selector": ".badgeTileContainer_f18413.isInteracting_f18413 .badgeTile_f18413, .badgeTileContainer_f18413:has(:focus-visible) .badgeTile_f18413, .badgeTileContainer_f18413:hover .badgeTile_f18",
+    "css": "transform: scale(calc(1 + 4/var(--custom-badge-tile-size)));"
+  },
+  {
+    "media": null,
+    "selector": ".badgeTileContainer_f18413.isInteracting_f18413 .overflowButton_f18413, .badgeTileContainer_f18413:hover .overflowButton_f18413, .overflowButton_f18413:focus-visible",
+    "css": "opacity: 1; transition: opacity 0.15s ease-out;"
+  },
+  {
+    "media": null,
+    "selector": ".badge__8061a:active",
+    "css": "opacity: 0.8;"
+  },
+  {
+    "media": null,
+    "selector": ".channelTextArea__74017.error__74017:not(:hover):not(:focus-within)",
+    "css": "box-shadow: 0 0 0 2px var(--text-feedback-critical);"
+  },
+  {
+    "media": null,
+    "selector": ".channelTextArea__74017:focus-within",
+    "css": "border-color: var(--border-subtle); box-shadow: none;"
+  },
+  {
+    "media": null,
+    "selector": ".refresh-fast-follow-distinct-borders .channelTextArea__74017:focus-within",
+    "css": "border-color: var(--app-frame-border);"
+  },
+  {
+    "media": null,
+    "selector": ".full-motion .avatar_c19a55.clickable_c19a55:hover",
+    "css": "filter: drop-shadow(var(--elevation-medium));"
+  },
+  {
+    "media": null,
+    "selector": ".avatar_c19a55.clickable_c19a55:active",
+    "css": "transform: translateY(1px);"
+  },
+  {
+    "media": null,
+    "selector": ".avatar_c19a55.clickable_c19a55:active + .avatarDecoration_c19a55",
+    "css": "transform: translateY(1px);"
+  },
+  {
+    "media": null,
+    "selector": ".container__37e49 .avatar__37e49:hover",
+    "css": "opacity: 0.8;"
+  },
+  {
+    "media": null,
+    "selector": ".badge__86331:hover",
+    "css": "color: var(--interactive-text-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".theme-light .badge__86331:hover",
+    "css": "color: var(--interactive-text-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".badge__77c65:focus-visible .label__77c65, .badge__77c65:hover .label__77c65",
+    "css": "text-decoration: underline;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__radio_group__label:hover::before",
+    "css": "border-color: rgb(153, 163, 173); box-shadow: rgb(212, 217, 219) 0px 0px 0px 2px; cursor: pointer;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__radio_group__label:hover",
+    "css": "border-color: rgb(0, 117, 255); cursor: pointer;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__radio_group__input:checked + .adyen-checkout__radio_group__label::before, .adyen-checkout__radio_group__label--selected",
+    "css": "background-color: rgb(0, 117, 255); border: 0px; transition: 0.2s ease-out;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__radio_group__input:checked + .adyen-checkout__radio_group__label::after",
+    "css": "transform: scale(1);"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__radio_group__input:focus + .adyen-checkout__radio_group__label::before",
+    "css": "border-color: rgb(0, 117, 255); box-shadow: rgba(0, 102, 255, 0.4) 0px 0px 0px 2px;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__radio_group__input:checked + .adyen-checkout__radio_group__label:hover::before, .adyen-checkout__radio_group__input:checked:active + .adyen-checkout__radio_group__",
+    "css": "box-shadow: rgba(0, 102, 255, 0.4) 0px 0px 0px 2px;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__checkbox__input:checked + .adyen-checkout__checkbox__label::before",
+    "css": "opacity: 1;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__checkbox__input:checked + .adyen-checkout__checkbox__label::after",
+    "css": "background-color: rgb(0, 117, 255); border: 1px solid rgb(0, 117, 255);"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__checkbox__input:checked:hover + .adyen-checkout__checkbox__label::after",
+    "css": "border-color: rgb(0, 117, 255); box-shadow: rgba(0, 102, 255, 0.4) 0px 0px 0px 2px;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__checkbox__input:focus + .adyen-checkout__checkbox__label::after",
+    "css": "border: 1px solid rgb(0, 117, 255); box-shadow: rgb(48, 112, 237) 0px 0px 0px 2px;"
+  },
+  {
+    "media": null,
+    "selector": ".adyen-checkout__checkbox__input:hover:not(:focus) + .adyen-checkout__checkbox__label::after",
+    "css": "border-color: rgb(153, 163, 173); box-shadow: rgb(212, 217, 219) 0px 0px 0px 2px;"
+  },
+  {
+    "media": null,
+    "selector": ".theme-dark .message__5126c.selected__5126c, .theme-dark.mouse-mode.full-motion .message__5126c:hover",
+    "css": "background: var(--message-background-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".theme-light .message__5126c.selected__5126c, .theme-light.mouse-mode.full-motion .message__5126c:hover",
+    "css": "background: var(--message-background-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.mentioned__5126c.selected__5126c, .mouse-mode.full-motion .message__5126c.mentioned__5126c:hover",
+    "css": "background: var(--message-mentioned-background-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.highlighted__5126c.selected__5126c, .mouse-mode.full-motion .message__5126c.highlighted__5126c:hover",
+    "css": "background: var(--message-highlight-background-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.ephemeral__5126c.selected__5126c, .mouse-mode.full-motion .message__5126c.ephemeral__5126c:hover",
+    "css": "background: var(--brand-10a);"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.nitroMessage__5126c.selected__5126c, .mouse-mode.full-motion .message__5126c.nitroMessage__5126c:hover",
+    "css": "background: linear-gradient(to right,hsl(var(--premium-tier-2-purple-for-gradients-hsl)/.2),hsl(var(--premium-tier-2-pink-for-gradients-hsl)/.2));"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.automodMessage__5126c.selected__5126c, .mouse-mode.full-motion .message__5126c.automodMessage__5126c:hover",
+    "css": "background: var(--message-automod-background-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.guildOfficialMessage__5126c:not(.mentioned__5126c):not(.replying__5126c):not(.highlighted__5126c).selected__5126c, .mouse-mode.full-motion .message__5126c.guildOffi",
+    "css": "background: hsl(var(--custom-guild-official-message-hsl)/var(--custom-guild-official-message-alpha));"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.replying__5126c.selected__5126c, .mouse-mode.full-motion .message__5126c.replying__5126c:hover",
+    "css": "background: var(--brand-10a);"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.selected__5126c .buttons__5126c, .mouse-mode .message__5126c:hover .buttons__5126c",
+    "css": "opacity: 1;"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.selected__5126c .buttonsInner__5126c, .mouse-mode .message__5126c:hover .buttonsInner__5126c",
+    "css": "pointer-events: auto;"
+  },
+  {
+    "media": null,
+    "selector": ".message__5126c.selected__5126c .hideIfMessageNotFocused__5126c, .mouse-mode .message__5126c:hover .hideIfMessageNotFocused__5126c",
+    "css": "opacity: 1;"
+  },
+  {
+    "media": null,
+    "selector": ".checkbox_fb64c9:hover",
+    "css": "color: var(--interactive-text-hover);"
+  },
+  {
+    "media": null,
+    "selector": ".checkbox_fb64c9:active",
+    "css": "color: var(--interactive-text-active);"
+  },
+  {
+    "media": null,
+    "selector": ".item_caf372.active_caf372, .item_caf372:hover",
+    "css": "background-color: var(--background-mod-muted); color: var(--text-strong);"
+  },
+  {
+    "media": null,
+    "selector": ".item_caf372:hover:not(.active_caf372)",
+    "css": "transition: none;"
+  },
+  {
+    "media": null,
+    "selector": ".item_caf372.destructive_caf372:hover",
+    "css": "background-color: var(--background-feedback-critical);"
+  }
+]

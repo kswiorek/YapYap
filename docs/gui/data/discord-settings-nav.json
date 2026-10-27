@@ -1,0 +1,120 @@
+{
+  "capturedAt": "2026-10-27T14:42:16.223Z",
+  "sections": [
+    {
+      "section": null,
+      "items": [
+        {
+          "name": "Account",
+          "selected": true,
+          "badge": null
+        },
+        {
+          "name": "Data & Privacy",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Messaging Permissions",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Notifications",
+          "selected": false,
+          "badge": null
+        }
+      ]
+    },
+    {
+      "section": "Billing",
+      "items": [
+        {
+          "name": "Nitro",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Server Boost",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Subscriptions",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Gift Inventory",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Billing",
+          "selected": false,
+          "badge": null
+        }
+      ]
+    },
+    {
+      "section": "Experience",
+      "items": [
+        {
+          "name": "Voice & Video",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Appearance",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Accessibility",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "System",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Language & Time",
+          "selected": false,
+          "badge": null
+        }
+      ]
+    },
+    {
+      "section": "Games & Apps",
+      "items": [
+        {
+          "name": "Activity Privacy",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Connected Apps",
+          "selected": false,
+          "badge": null
+        }
+      ]
+    },
+    {
+      "section": null,
+      "items": [
+        {
+          "name": "Developer",
+          "selected": false,
+          "badge": null
+        },
+        {
+          "name": "Log Out",
+          "selected": false,
+          "badge": null
+        }
+      ]
+    }
+  ]
+}

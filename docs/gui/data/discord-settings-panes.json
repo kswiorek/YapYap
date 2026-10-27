@@ -1,0 +1,1214 @@
+{
+  "capturedAt": "2026-10-27T14:42:43.316Z",
+  "panes": [
+    {
+      "name": "Account",
+      "headings": [
+        "Account Info",
+        "Username",
+        "Email",
+        "Phone Number",
+        "Password & Security",
+        "Password",
+        "Multi-Factor Authentication",
+        "Logged-in Devices",
+        "Account Status",
+        "Age Group",
+        "Account Standing",
+        "Family Centre",
+        "Set up Family Centre",
+        "Disable your account",
+        "Close your account"
+      ],
+      "rows": []
+    },
+    {
+      "name": "Data & Privacy",
+      "headings": [
+        "How Discord Uses My Data",
+        "Use data to make Discord work",
+        "Request my data",
+        "Profile Privacy",
+        "Related Settings",
+        "Activity Privacy"
+      ],
+      "rows": [
+        {
+          "label": "Use data to improve Discord",
+          "description": "Allow Discord to use and process my information to understand and improve Discord's services. Learn more",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Use data to personalise my Discord experience",
+          "description": "Allows Discord to use information, such as who you talk to and what games you play, to personalise Discord for you. Lear",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Use my Discord activity to personalise Sponsored Content",
+          "description": "Allows Discord to personalise Sponsored Content, like Quests, using your Discord activity, such as the games you play. I",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Use third-party data to personalise Sponsored Content",
+          "description": "Allows Discord to personalise Sponsored Content, like Quests, using data Discord receives from advertisers and third-par",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Allow my voice to be recorded in Clips",
+          "description": "Allows your voice to be included when someone in the same voice channel uses Clips.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Share my full profile with",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Share when I update my profile",
+          "description": "Allow friends to receive a push notification when you update your profile.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    },
+    {
+      "name": "Messaging Permissions",
+      "headings": [
+        "Content Filters",
+        "Sensitive content filters",
+        "Related Settings",
+        "Appearance",
+        "Spam Filters",
+        "Direct Message (DM) Permissions",
+        "Friend Request Permissions",
+        "Messaging in Connected Games",
+        "Related Settings",
+        "Authorised Apps"
+      ],
+      "rows": [
+        {
+          "label": "Allow access to age-restricted commands from apps in DMs",
+          "description": "Allows people 18+ to access commands marked as age-restricted in DMs. Applies to all apps.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Allow access to age-restricted servers on iOS",
+          "description": "Access age-restricted servers (18+) on iOS devices, after joining them on desktop.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Automatically filter suspected spam messages",
+          "description": "Discord can filter out some messages that contain spam. These messages go to your Spam inbox.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Direct Messages",
+          "description": "Allow DMs from other server members",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Message requests",
+          "description": "Filter messages from server members you may not know. Learn more",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Everyone",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Friend of friends",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Server members",
+          "description": "Server members can only send you friend requests from servers where you also allow Direct Messages.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show personalised messages",
+          "description": "Show personalised messages on incoming friend requests. If you accept, the message will still appear in your DMs.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "headings": [
+        "Overview",
+        "Sounds",
+        "Related Settings",
+        "Voice & Video",
+        "Badges",
+        "Email",
+        "Unsubscribe from all marketing emails",
+        "Advanced",
+        "Show Advanced Notification Settings"
+      ],
+      "rows": [
+        {
+          "label": "Enable Desktop Notifications",
+          "description": "If you’re looking for per-channel or per-server notifications, right-click the desired server icon and select Notificati",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "People I know start streaming in small servers",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "A friend and I reach a friendship anniversary",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Friends come online",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "A server has an upcoming event",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Friends update their profile",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Someone reacts to my messages",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Enable 🎃 Halloween Sound Pack",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "New Message",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "New Message in the channel I’m currently reading",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Incoming Ring",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Disable All Notification Sounds",
+          "description": "Disables all notification sounds, including voice and video sound effects. Your individual sound preferences will be sav",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Enable Unread Message Badge",
+          "description": "Shows a red badge on the app icon when you have unread messages.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Communication Emails",
+          "description": "Receive emails for missed calls, messages and message digests.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Social Emails",
+          "description": "Receive emails for friend requests, new friend suggestions and events in your server.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Announcements and Update Emails",
+          "description": "Receive emails about product updates, our newest features, improvements and bug fixes.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Tip Emails",
+          "description": "Receive emails with helpful advice on how to use Discord and information on lesser-known features.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Recommendation Emails",
+          "description": "Receive emails with recommended servers and suggested events.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Mobile Notification Delay",
+          "description": "Discord won’t send push notifications to your mobile device while you’re active on your computer. Use this setting to ch",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Allow playback and usage of /tts command",
+          "description": "Using the /tts command speaks your message out loud. Turn this off if you prefer to see /tts messages as text only. You ",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Speak all messages out loud",
+          "description": "Speaks messages out loud, even if they weren’t using the /tts command.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    },
+    {
+      "name": "Voice & Video",
+      "headings": [
+        "Voice",
+        "Show Advanced Voice Settings",
+        "Streaming",
+        "Sounds",
+        "Show 18 more sounds",
+        "Related Settings",
+        "Notifications",
+        "Soundboard",
+        "Choose a Server",
+        "Choose a sound",
+        "Advanced",
+        "Reset all Voice & Video settings"
+      ],
+      "rows": [
+        {
+          "label": "Microphone",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Speaker",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Microphone Volume",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Speaker Volume",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Input Profile",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Input Sensitivity",
+          "description": "Controls how much sound Discord transmits from your mic.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Noise Suppression",
+          "description": "Reduces background noise from your mic. Powered by Krisp.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Echo Cancellation",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Push-to-talk (Limited)",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Automatic Gain Control",
+          "description": "Automatically adjust microphone volume to keep it clear and consistent.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Advanced Voice Activity",
+          "description": "Turning this off may help if your voice is not being detected by the automatic input sensitivity.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Switch Voice Channel Warning",
+          "description": "Show a confirmation prompt before switching to a different voice channel.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show Stream Previews",
+          "description": "Allows others to see a preview of your stream before they join.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Deafen",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Undeafen",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Mute",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Unmute",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Camera On",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Camera Off",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Voice Disconnected",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "PTT Activate",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "PTT Deactivate",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "User Join",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "User Leave",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "User Moved",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Outgoing Ring",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Stream Started",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Stream Stopped",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Viewer Join",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Viewer Leave",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Activity Start",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Activity End",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Activity User Join",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Activity User Leave",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Invited to Speak",
+          "description": "Preview Sound",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Soundboard Volume",
+          "description": "Control how loud sounds are for you personally. Learn more about Soundboard volume.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    },
+    {
+      "name": "Appearance",
+      "headings": [
+        "Theme",
+        "Default Themes",
+        "Make your Discord look *juuusst* right",
+        "Colour Themes",
+        "Unlock more themes with Nitro.",
+        "Related Settings",
+        "Accessibility",
+        "App Icon",
+        "Messages",
+        "Related Settings",
+        "Accessibility",
+        "Chat Box",
+        "Search",
+        "Streamer Mode"
+      ],
+      "rows": [
+        {
+          "label": "Same as Device Theme",
+          "description": "Match your device’s light or dark mode.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Sync theme across my devices",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Apply theme to other users’ profiles",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Default theme in servers",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "When posted as links to chat",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "When uploaded directly to Discord",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show embeds and link previews",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show emoji reactions",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show spoiler content",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Open threads in split view",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show user avatars",
+          "description": "To hide avatars, go to Accessibility and select Compact under Chat Message Display.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show Favourites serverBeta",
+          "description": "Your Favourites stay saved, even if you toggle this off. Learn more.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Preview emojis, mentions and markdown syntax as you type",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Automatically convert emoticons in your messages to emojis",
+          "description": "For example, when you type :) Discord will convert it to",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show stickers in autocomplete results",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show games in autocomplete results",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show send message button",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "By default, searching in DMs...",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Enable Streamer Mode",
+          "description": "Streamer Mode hides your personal info so others watching your stream can’t see it.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Hide my personal information, such as email, connected accounts and notes",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Hide invite links to my Discord servers",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Disable all sound effects",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Disable notifications",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    },
+    {
+      "name": "Accessibility",
+      "headings": [
+        "Preview",
+        "kswiorek_test — 15:42Tuesday, 27 October 2026 at 15:42",
+        "kswiorek_test — 15:42Tuesday, 27 October 2026 at 15:42",
+        "Text Readability",
+        "Visual Density",
+        "Colour & Contrast",
+        "Related Settings",
+        "Appearance",
+        "Reduced Motion",
+        "Audio & Screen Reader"
+      ],
+      "rows": [
+        {
+          "label": "Text size in chat",
+          "description": "Adjust the size of the chat font.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Always underline links",
+          "description": "Make links stand out more.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Display Name Styles",
+          "description": "Enable display name styles – including font, effect and colour – across Discord.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "UI Density",
+          "description": "Adjust the space between server, channel and member lists.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Chat Message Display",
+          "description": "Change the appearance of chat messages.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Space Between Message Groups",
+          "description": "Adjust the spacing between message groups.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Saturation",
+          "description": "Reduce the saturation of colours within the app, for those with colour sensitivities. This does not affect the saturatio",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Apply saturation setting to custom colours",
+          "description": "Apply the above setting to custom colour choices, like role colours.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Enable High Contrast Mode",
+          "description": "Enhance visibility with bold colours and sharp contrast.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Role Colours",
+          "description": "Choose how you would like role colours to be displayed.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Official Messages",
+          "description": "Choose how official developer messages look on verified servers that support it.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show on/off indicators",
+          "description": "On forms, menus and settings, on/off toggles will have icons.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Enable Reduced Motion",
+          "description": "Reduce the amount and intensity of animations, hover effects and other moving effects. Learn more.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Sync with computer setting",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Minimum notification duration",
+          "description": "Keep pop-up notifications on screen for at least this long. Notifications that already stay longer are unaffected.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Play GIFs when Discord is focused",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Play animated emojis",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Play sticker animations",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Text-to-speech rate",
+          "description": "Control the speed at which text is read aloud when using Speak Message or other text-to-speech features.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Show image descriptions",
+          "description": "Image descriptions are used to describe images for screen readers.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Use the legacy chat input",
+          "description": "Disables most chat features but may work better with screen readers.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "headings": [
+        "Custom Keybinds",
+        "Default Keybinds"
+      ],
+      "rows": []
+    },
+    {
+      "name": "Language & Time",
+      "headings": [],
+      "rows": [
+        {
+          "label": "Select a Language",
+          "description": "Choose the language you want Discord to display.",
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        },
+        {
+          "label": "Time format",
+          "description": null,
+          "switch": false,
+          "select": false,
+          "slider": false,
+          "radio": false,
+          "checkbox": false
+        }
+      ]
+    }
+  ]
+}

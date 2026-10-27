@@ -1,0 +1,5336 @@
+{
+  "screen": "home-dm-group-chat",
+  "viewport": {
+    "w": 1703,
+    "h": 1090,
+    "dpr": 1.649999976158142
+  },
+  "shell": [
+    {
+      "d": 0,
+      "tag": "div",
+      "cls": "container__5e434",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 0,
+      "w": 1703,
+      "h": 1090,
+      "cx": 852,
+      "cy": 545
+    },
+    {
+      "d": 1,
+      "tag": "div",
+      "cls": "base__5e434",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 0,
+      "w": 1703,
+      "h": 1090,
+      "cx": 852,
+      "cy": 545
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "bar_c38106 theme-dark images-dark",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 0,
+      "w": 1703,
+      "h": 32,
+      "cx": 852,
+      "cy": 16
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "title_c38106",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 0,
+      "w": 1703,
+      "h": 32,
+      "cx": 852,
+      "cy": 16
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "title_edbb22",
+      "role": null,
+      "label": "",
+      "x": 789,
+      "y": 7,
+      "w": 125,
+      "h": 18,
+      "cx": 852,
+      "cy": 16
+    },
+    {
+      "d": 5,
+      "tag": "svg",
+      "cls": "",
+      "role": "img",
+      "label": "",
+      "x": 789,
+      "y": 7,
+      "w": 18,
+      "h": 18,
+      "cx": 798,
+      "cy": 16
+    },
+    {
+      "d": 6,
+      "tag": "path",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 790,
+      "y": 10,
+      "w": 17,
+      "h": 13,
+      "cx": 798,
+      "cy": 16
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "defaultColor__4bd52 lineClamp1__4bd52 text-sm/medium_cf4812",
+      "role": null,
+      "label": "",
+      "x": 815,
+      "y": 7,
+      "w": 99,
+      "h": 18,
+      "cx": 865,
+      "cy": 16
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "trailing_c38106",
+      "role": null,
+      "label": "",
+      "x": 1631,
+      "y": 4,
+      "w": 60,
+      "h": 24,
+      "cx": 1661,
+      "cy": 16
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "iconWrapper__468db",
+      "role": null,
+      "label": "",
+      "x": 1631,
+      "y": 4,
+      "w": 24,
+      "h": 24,
+      "cx": 1643,
+      "cy": 16
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "pulse__468db",
+      "role": null,
+      "label": "",
+      "x": 1631,
+      "y": 4,
+      "w": 24,
+      "h": 24,
+      "cx": 1643,
+      "cy": 16
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "clickable__81391",
+      "role": "button",
+      "label": "Inbox",
+      "x": 1631,
+      "y": 4,
+      "w": 24,
+      "h": 24,
+      "cx": 1643,
+      "cy": 16
+    },
+    {
+      "d": 7,
+      "tag": "svg",
+      "cls": "",
+      "role": "img",
+      "label": "",
+      "x": 1634,
+      "y": 7,
+      "w": 18,
+      "h": 18,
+      "cx": 1643,
+      "cy": 16
+    },
+    {
+      "d": 8,
+      "tag": "path",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 1636,
+      "y": 8,
+      "w": 15,
+      "h": 15,
+      "cx": 1643,
+      "cy": 16
+    },
+    {
+      "d": 4,
+      "tag": "a",
+      "cls": "anchor__14d82 anchorUnderlineOnHover__14d82",
+      "role": null,
+      "label": "",
+      "x": 1667,
+      "y": 4,
+      "w": 24,
+      "h": 24,
+      "cx": 1679,
+      "cy": 16
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "clickable__81391",
+      "role": "button",
+      "label": "Help",
+      "x": 1667,
+      "y": 4,
+      "w": 24,
+      "h": 24,
+      "cx": 1679,
+      "cy": 16
+    },
+    {
+      "d": 6,
+      "tag": "svg",
+      "cls": "",
+      "role": "img",
+      "label": "",
+      "x": 1670,
+      "y": 7,
+      "w": 18,
+      "h": 18,
+      "cx": 1679,
+      "cy": 16
+    },
+    {
+      "d": 7,
+      "tag": "circle",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 1672,
+      "y": 8,
+      "w": 15,
+      "h": 15,
+      "cx": 1679,
+      "cy": 16
+    },
+    {
+      "d": 7,
+      "tag": "path",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 1671,
+      "y": 8,
+      "w": 16,
+      "h": 16,
+      "cx": 1679,
+      "cy": 16
+    },
+    {
+      "d": 2,
+      "tag": "div",
+      "cls": "content__5e434",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 1703,
+      "h": 1058,
+      "cx": 852,
+      "cy": 561
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "sidebar__5e434 theme-dark images-dark",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 375,
+      "h": 1058,
+      "cx": 187,
+      "cy": 561
+    },
+    {
+      "d": 4,
+      "tag": "nav",
+      "cls": "wrapper_ef3116 guilds__5e434 theme-dark images-dark",
+      "role": null,
+      "label": "Servers sidebar",
+      "x": 0,
+      "y": 32,
+      "w": 72,
+      "h": 1009,
+      "cx": 36,
+      "cy": 537
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "unreadMentionsIndicatorTop_ef3116",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 72,
+      "h": 41,
+      "cx": 36,
+      "cy": 53
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "bar__3b95d unreadMentionsBar_ef3116 unread__3b95d active__3b95d hidden__3b95d",
+      "role": null,
+      "label": "",
+      "x": 8,
+      "y": -5,
+      "w": 56,
+      "h": 25,
+      "cx": 36,
+      "cy": 7
+    },
+    {
+      "d": 7,
+      "tag": "span",
+      "cls": "text__3b95d",
+      "role": null,
+      "label": "",
+      "x": 23,
+      "y": -1,
+      "w": 26,
+      "h": 16,
+      "cx": 36,
+      "cy": 7
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "tree_ef3116",
+      "role": "tree",
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 72,
+      "h": 1009,
+      "cx": 36,
+      "cy": 537
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "stack_dbd263 scroller_ef3116 scrollbarGutterStable_d125d2 thin_d125d2 scrollerBase_d125d2 ",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 72,
+      "h": 225,
+      "cx": 36,
+      "cy": 144
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "tutorialContainer__1f388",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 64,
+      "h": 40,
+      "cx": 32,
+      "cy": 52
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "listItem__650eb",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 72,
+      "h": 40,
+      "cx": 36,
+      "cy": 52
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "wrapper__58105 overlay__58105",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 32,
+      "w": 8,
+      "h": 40,
+      "cx": 4,
+      "cy": 52
+    },
+    {
+      "d": 9,
+      "tag": "span",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 32,
+      "w": 40,
+      "h": 40,
+      "cx": 36,
+      "cy": 52
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "tutorialContainer__650eb",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 97,
+      "w": 64,
+      "h": 40,
+      "cx": 32,
+      "cy": 117
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "listItem__650eb",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 97,
+      "w": 72,
+      "h": 40,
+      "cx": 36,
+      "cy": 117
+    },
+    {
+      "d": 9,
+      "tag": "span",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 97,
+      "w": 40,
+      "h": 40,
+      "cx": 36,
+      "cy": 117
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "listItem__650eb",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 145,
+      "w": 72,
+      "h": 40,
+      "cx": 36,
+      "cy": 165
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "wrapper__58105 overlay__58105",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 145,
+      "w": 8,
+      "h": 40,
+      "cx": 4,
+      "cy": 165
+    },
+    {
+      "d": 9,
+      "tag": "span",
+      "cls": "item__58105",
+      "role": null,
+      "label": "",
+      "x": -8,
+      "y": 161,
+      "w": 8,
+      "h": 8,
+      "cx": -4,
+      "cy": 165
+    },
+    {
+      "d": 8,
+      "tag": "span",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 145,
+      "w": 40,
+      "h": 40,
+      "cx": 36,
+      "cy": 165
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "listItemWrapper__91816",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 145,
+      "w": 40,
+      "h": 40,
+      "cx": 36,
+      "cy": 165
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "listItem__650eb",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 193,
+      "w": 72,
+      "h": 40,
+      "cx": 36,
+      "cy": 213
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "wrapper__58105 overlay__58105",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 193,
+      "w": 8,
+      "h": 40,
+      "cx": 4,
+      "cy": 213
+    },
+    {
+      "d": 9,
+      "tag": "span",
+      "cls": "item__58105",
+      "role": null,
+      "label": "",
+      "x": -8,
+      "y": 209,
+      "w": 8,
+      "h": 8,
+      "cx": -4,
+      "cy": 213
+    },
+    {
+      "d": 8,
+      "tag": "span",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 193,
+      "w": 40,
+      "h": 40,
+      "cx": 36,
+      "cy": 213
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "listItemWrapper__91816",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 193,
+      "w": 40,
+      "h": 40,
+      "cx": 36,
+      "cy": 213
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "unreadMentionsIndicatorBottom_ef3116 unreadMentionsFixedFooter_ef3116",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 984,
+      "w": 72,
+      "h": 57,
+      "cx": 36,
+      "cy": 1013
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "bar__3b95d unreadMentionsBar_ef3116 unread__3b95d active__3b95d hidden__3b95d",
+      "role": null,
+      "label": "",
+      "x": 8,
+      "y": 1037,
+      "w": 56,
+      "h": 25,
+      "cx": 36,
+      "cy": 1050
+    },
+    {
+      "d": 7,
+      "tag": "span",
+      "cls": "text__3b95d",
+      "role": null,
+      "label": "",
+      "x": 23,
+      "y": 1042,
+      "w": 26,
+      "h": 16,
+      "cx": 36,
+      "cy": 1050
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "sidebarList__5e434 sidebarListRounded__5e434",
+      "role": null,
+      "label": "",
+      "x": 72,
+      "y": 32,
+      "w": 303,
+      "h": 1058,
+      "cx": 223,
+      "cy": 561
+    },
+    {
+      "d": 5,
+      "tag": "nav",
+      "cls": "privateChannels_e6b769",
+      "role": null,
+      "label": "Private channels",
+      "x": 73,
+      "y": 33,
+      "w": 302,
+      "h": 1058,
+      "cx": 224,
+      "cy": 561
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "searchBar_e6b769",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 33,
+      "w": 302,
+      "h": 49,
+      "cx": 224,
+      "cy": 57
+    },
+    {
+      "d": 7,
+      "tag": "button",
+      "cls": "button_a22cb0 sm_a22cb0 secondary_a22cb0 hasText_a22cb0 fullWidth_a22cb0",
+      "role": "button",
+      "label": "",
+      "x": 81,
+      "y": 41,
+      "w": 286,
+      "h": 31,
+      "cx": 224,
+      "cy": 57
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "buttonChildrenWrapper_a22cb0",
+      "role": null,
+      "label": "",
+      "x": 81,
+      "y": 42,
+      "w": 285,
+      "h": 30,
+      "cx": 224,
+      "cy": 57
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "buttonChildren_a22cb0",
+      "role": null,
+      "label": "",
+      "x": 141,
+      "y": 48,
+      "w": 166,
+      "h": 18,
+      "cx": 224,
+      "cy": 57
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "scroller__99e7c scrollbarGutterStable_d125d2 thin_d125d2 scrollerBase_d125d2 fade_d125d2",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 82,
+      "w": 302,
+      "h": 960,
+      "cx": 224,
+      "cy": 561
+    },
+    {
+      "d": 7,
+      "tag": "ul",
+      "cls": "content_d125d2",
+      "role": "list",
+      "label": "Direct Messages",
+      "x": 73,
+      "y": 82,
+      "w": 294,
+      "h": 357,
+      "cx": 220,
+      "cy": 260
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 82,
+      "w": 294,
+      "h": 8,
+      "cx": 220,
+      "cy": 86
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "friendsButtonContainer_e6b769",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 90,
+      "w": 294,
+      "h": 40,
+      "cx": 220,
+      "cy": 110
+    },
+    {
+      "d": 9,
+      "tag": "li",
+      "cls": "channel__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 90,
+      "w": 286,
+      "h": 40,
+      "cx": 224,
+      "cy": 110
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 130,
+      "w": 294,
+      "h": 40,
+      "cx": 220,
+      "cy": 150
+    },
+    {
+      "d": 9,
+      "tag": "li",
+      "cls": "channel__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 130,
+      "w": 286,
+      "h": 40,
+      "cx": 224,
+      "cy": 150
+    },
+    {
+      "d": 8,
+      "tag": "li",
+      "cls": "channel__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 170,
+      "w": 286,
+      "h": 40,
+      "cx": 224,
+      "cy": 189
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "interactive_f88cfd interactive__972a0 linkButton__972a0",
+      "role": null,
+      "label": "",
+      "x": 81,
+      "y": 171,
+      "w": 286,
+      "h": 38,
+      "cx": 224,
+      "cy": 189
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "wrapper__553bf",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 209,
+      "w": 294,
+      "h": 40,
+      "cx": 220,
+      "cy": 229
+    },
+    {
+      "d": 9,
+      "tag": "li",
+      "cls": "channel__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 209,
+      "w": 286,
+      "h": 40,
+      "cx": 224,
+      "cy": 229
+    },
+    {
+      "d": 8,
+      "tag": "h2",
+      "cls": "experimental/body-sm/medium_cf4812 defaultColor__5345c privateChannelsHeaderContainer__99e",
+      "role": null,
+      "label": "",
+      "x": 73,
+      "y": 274,
+      "w": 294,
+      "h": 24,
+      "cx": 220,
+      "cy": 286
+    },
+    {
+      "d": 9,
+      "tag": "span",
+      "cls": "headerText__99e7c",
+      "role": null,
+      "label": "",
+      "x": 89,
+      "y": 275,
+      "w": 222,
+      "h": 18,
+      "cx": 200,
+      "cy": 284
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "headerActions__99e7c",
+      "role": null,
+      "label": "",
+      "x": 319,
+      "y": 276,
+      "w": 40,
+      "h": 16,
+      "cx": 339,
+      "cy": 284
+    },
+    {
+      "d": 8,
+      "tag": "li",
+      "cls": "channel__972a0 dm__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 298,
+      "w": 286,
+      "h": 44,
+      "cx": 224,
+      "cy": 320
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "interactive_f88cfd interactive__972a0 interactiveSelected__972a0 selected_f88cfd",
+      "role": null,
+      "label": "",
+      "x": 81,
+      "y": 299,
+      "w": 286,
+      "h": 42,
+      "cx": 224,
+      "cy": 320
+    },
+    {
+      "d": 8,
+      "tag": "li",
+      "cls": "channel__972a0 dm__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 342,
+      "w": 286,
+      "h": 44,
+      "cx": 224,
+      "cy": 364
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "interactive_f88cfd interactive__972a0",
+      "role": null,
+      "label": "",
+      "x": 81,
+      "y": 343,
+      "w": 286,
+      "h": 42,
+      "cx": 224,
+      "cy": 364
+    },
+    {
+      "d": 8,
+      "tag": "li",
+      "cls": "channel__972a0 dm__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "x": 81,
+      "y": 386,
+      "w": 286,
+      "h": 44,
+      "cx": 224,
+      "cy": 408
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "interactive_f88cfd interactive__972a0",
+      "role": null,
+      "label": "",
+      "x": 81,
+      "y": 387,
+      "w": 286,
+      "h": 42,
+      "cx": 224,
+      "cy": 408
+    },
+    {
+      "d": 4,
+      "tag": "section",
+      "cls": "panels__5e434",
+      "role": null,
+      "label": "User status and settings",
+      "x": 8,
+      "y": 1025,
+      "w": 359,
+      "h": 57,
+      "cx": 187,
+      "cy": 1054
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "container__37e49",
+      "role": null,
+      "label": "",
+      "x": 8,
+      "y": 1026,
+      "w": 358,
+      "h": 56,
+      "cx": 187,
+      "cy": 1054
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "accountPopoutButtonWrapper__37e49",
+      "role": null,
+      "label": "",
+      "x": 16,
+      "y": 1033,
+      "w": 184,
+      "h": 42,
+      "cx": 108,
+      "cy": 1054
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "wrapper__44b0c avatar__37e49",
+      "role": "img",
+      "label": "",
+      "x": 20,
+      "y": 1038,
+      "w": 32,
+      "h": 32,
+      "cx": 36,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "svg",
+      "cls": "mask__44b0c svg__44b0c",
+      "role": null,
+      "label": "",
+      "x": 20,
+      "y": 1038,
+      "w": 40,
+      "h": 40,
+      "cx": 40,
+      "cy": 1058
+    },
+    {
+      "d": 9,
+      "tag": "foreignobject",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 20,
+      "y": 1038,
+      "w": 32,
+      "h": 32,
+      "cx": 36,
+      "cy": 1054
+    },
+    {
+      "d": 9,
+      "tag": "g",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 42,
+      "y": 1060,
+      "w": 10,
+      "h": 10,
+      "cx": 47,
+      "cy": 1065
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "nameTag__37e49",
+      "role": null,
+      "label": "",
+      "x": 60,
+      "y": 1038,
+      "w": 136,
+      "h": 32,
+      "cx": 128,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "panelTitleContainer__37e49",
+      "role": null,
+      "label": "",
+      "x": 60,
+      "y": 1037,
+      "w": 136,
+      "h": 18,
+      "cx": 128,
+      "cy": 1046
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "text-md/medium_cf4812 title_b6c092",
+      "role": null,
+      "label": "",
+      "x": 60,
+      "y": 1037,
+      "w": 136,
+      "h": 18,
+      "cx": 128,
+      "cy": 1046
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "panelSubtextContainer__37e49",
+      "role": null,
+      "label": "",
+      "x": 60,
+      "y": 1057,
+      "w": 136,
+      "h": 13,
+      "cx": 128,
+      "cy": 1063
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "text-xs/medium_cf4812 subtext__339d0",
+      "role": null,
+      "label": "",
+      "x": 60,
+      "y": 1057,
+      "w": 136,
+      "h": 13,
+      "cx": 128,
+      "cy": 1063
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "buttons__37e49",
+      "role": null,
+      "label": "",
+      "x": 208,
+      "y": 1038,
+      "w": 146,
+      "h": 32,
+      "cx": 281,
+      "cy": 1054
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "audioButtonParent__5e764 hasColorGlow__5e764",
+      "role": null,
+      "label": "",
+      "x": 208,
+      "y": 1038,
+      "w": 49,
+      "h": 32,
+      "cx": 233,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "button",
+      "cls": "button__67645 audioButtonWithMenu__5e764 redGlow__67645 enabled__67645 button__201d5 lookB",
+      "role": "switch",
+      "label": "Mute",
+      "x": 208,
+      "y": 1038,
+      "w": 32,
+      "h": 32,
+      "cx": 224,
+      "cy": 1054
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "contents__201d5",
+      "role": null,
+      "label": "",
+      "x": 214,
+      "y": 1044,
+      "w": 20,
+      "h": 20,
+      "cx": 224,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "button",
+      "cls": "button__67645 buttonChevron__5e764 redGlow__67645 enabled__67645 button__201d5 lookBlank__",
+      "role": null,
+      "label": "Input Options",
+      "x": 241,
+      "y": 1038,
+      "w": 16,
+      "h": 32,
+      "cx": 249,
+      "cy": 1054
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "contents__201d5",
+      "role": null,
+      "label": "",
+      "x": 241,
+      "y": 1046,
+      "w": 16,
+      "h": 16,
+      "cx": 249,
+      "cy": 1054
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "audioButtonParent__5e764",
+      "role": null,
+      "label": "",
+      "x": 265,
+      "y": 1038,
+      "w": 49,
+      "h": 32,
+      "cx": 290,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "button",
+      "cls": "button__67645 audioButtonWithMenu__5e764 enabled__67645 button__201d5 lookBlank__201d5 col",
+      "role": "switch",
+      "label": "Deafen",
+      "x": 265,
+      "y": 1038,
+      "w": 32,
+      "h": 32,
+      "cx": 281,
+      "cy": 1054
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "contents__201d5",
+      "role": null,
+      "label": "",
+      "x": 271,
+      "y": 1044,
+      "w": 20,
+      "h": 20,
+      "cx": 281,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "button",
+      "cls": "button__67645 buttonChevron__5e764 enabled__67645 button__201d5 lookBlank__201d5 colorBran",
+      "role": null,
+      "label": "Output Options",
+      "x": 298,
+      "y": 1038,
+      "w": 16,
+      "h": 32,
+      "cx": 306,
+      "cy": 1054
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "contents__201d5",
+      "role": null,
+      "label": "",
+      "x": 298,
+      "y": 1046,
+      "w": 16,
+      "h": 16,
+      "cx": 306,
+      "cy": 1054
+    },
+    {
+      "d": 7,
+      "tag": "button",
+      "cls": "button__67645 enabled__67645 button__201d5 lookBlank__201d5 colorBrand__201d5 grow__201d5 ",
+      "role": null,
+      "label": "User Settings",
+      "x": 322,
+      "y": 1038,
+      "w": 32,
+      "h": 32,
+      "cx": 338,
+      "cy": 1054
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "contents__201d5",
+      "role": null,
+      "label": "",
+      "x": 328,
+      "y": 1044,
+      "w": 20,
+      "h": 20,
+      "cx": 338,
+      "cy": 1054
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "role": null,
+      "label": "",
+      "x": 328,
+      "y": 1044,
+      "w": 20,
+      "h": 20,
+      "cx": 338,
+      "cy": 1054
+    },
+    {
+      "d": 3,
+      "tag": "div",
+      "cls": "page__5e434",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 32,
+      "w": 1328,
+      "h": 1058,
+      "cx": 1039,
+      "cy": 561
+    },
+    {
+      "d": 4,
+      "tag": "div",
+      "cls": "",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 32,
+      "w": 1328,
+      "h": 1058,
+      "cx": 1039,
+      "cy": 561
+    },
+    {
+      "d": 5,
+      "tag": "div",
+      "cls": "chat_f75fb0",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 32,
+      "w": 1328,
+      "h": 1058,
+      "cx": 1039,
+      "cy": 561
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "uploadArea_f75fb0 uploadArea_b78547",
+      "role": null,
+      "label": "",
+      "x": 0,
+      "y": 0,
+      "w": 1703,
+      "h": 1090,
+      "cx": 852,
+      "cy": 545
+    },
+    {
+      "d": 7,
+      "tag": "div",
+      "cls": "uploadDropModal_b78547",
+      "role": null,
+      "label": "",
+      "x": 697,
+      "y": 460,
+      "w": 310,
+      "h": 170,
+      "cx": 852,
+      "cy": 545
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "bgScale_b78547",
+      "role": null,
+      "label": "",
+      "x": 687,
+      "y": 450,
+      "w": 330,
+      "h": 190,
+      "cx": 852,
+      "cy": 545
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "inner_b78547",
+      "role": null,
+      "label": "",
+      "x": 697,
+      "y": 460,
+      "w": 310,
+      "h": 170,
+      "cx": 852,
+      "cy": 545
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "icons_b78547",
+      "role": null,
+      "label": "",
+      "x": 802,
+      "y": 486,
+      "w": 100,
+      "h": 60,
+      "cx": 852,
+      "cy": 516
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "title_b78547",
+      "role": null,
+      "label": "",
+      "x": 698,
+      "y": 546,
+      "w": 306,
+      "h": 22,
+      "cx": 852,
+      "cy": 557
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "instructions_b78547",
+      "role": null,
+      "label": "",
+      "x": 749,
+      "y": 572,
+      "w": 209,
+      "h": 32,
+      "cx": 854,
+      "cy": 588
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "subtitleContainer_f75fb0",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 33,
+      "w": 1328,
+      "h": 49,
+      "cx": 1039,
+      "cy": 57
+    },
+    {
+      "d": 7,
+      "tag": "section",
+      "cls": "title_f75fb0 theme-dark images-dark gdm_f75fb0 container__9293f themed__9293f",
+      "role": null,
+      "label": "Channel header",
+      "x": 375,
+      "y": 33,
+      "w": 1328,
+      "h": 49,
+      "cx": 1039,
+      "cy": 57
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "upperContainer__9293f",
+      "role": null,
+      "label": "",
+      "x": 383,
+      "y": 41,
+      "w": 1312,
+      "h": 32,
+      "cx": 1039,
+      "cy": 57
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "children__9293f",
+      "role": null,
+      "label": "",
+      "x": 383,
+      "y": 41,
+      "w": 857,
+      "h": 32,
+      "cx": 811,
+      "cy": 57
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "toolbar__9293f",
+      "role": null,
+      "label": "",
+      "x": 1239,
+      "y": 41,
+      "w": 456,
+      "h": 32,
+      "cx": 1467,
+      "cy": 57
+    },
+    {
+      "d": 6,
+      "tag": "div",
+      "cls": "content_f75fb0",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 82,
+      "w": 1328,
+      "h": 1009,
+      "cx": 1039,
+      "cy": 586
+    },
+    {
+      "d": 7,
+      "tag": "main",
+      "cls": "chatContent_f75fb0",
+      "role": null,
+      "label": "Group chat (channel)",
+      "x": 375,
+      "y": 82,
+      "w": 1328,
+      "h": 1009,
+      "cx": 1039,
+      "cy": 586
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "messagesWrapper__36d07 group-spacing-16",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 82,
+      "w": 1328,
+      "h": 959,
+      "cx": 1039,
+      "cy": 561
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "scroller__36d07 customTheme_d125d2 auto_d125d2 scrollerBase_d125d2 disableScrollAnchor_d12",
+      "role": "group",
+      "label": "",
+      "x": 375,
+      "y": 82,
+      "w": 1328,
+      "h": 959,
+      "cx": 1039,
+      "cy": 561
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "chatGradient__36d07 chatGradientBase__36d07",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 1025,
+      "w": 1312,
+      "h": 16,
+      "cx": 1031,
+      "cy": 1033
+    },
+    {
+      "d": 8,
+      "tag": "form",
+      "cls": "form_f75fb0 formWithLoadedChatInput_f75fb0",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 1025,
+      "w": 1328,
+      "h": 65,
+      "cx": 1039,
+      "cy": 1058
+    },
+    {
+      "d": 9,
+      "tag": "div",
+      "cls": "channelBottomBarArea_f75fb0",
+      "role": null,
+      "label": "",
+      "x": 383,
+      "y": 1025,
+      "w": 1312,
+      "h": 65,
+      "cx": 1039,
+      "cy": 1058
+    },
+    {
+      "d": 8,
+      "tag": "div",
+      "cls": "layerContainer__59d0d",
+      "role": null,
+      "label": "",
+      "x": 375,
+      "y": 82,
+      "w": 1328,
+      "h": 1009,
+      "cx": 1039,
+      "cy": 586
+    }
+  ],
+  "parts": {
+    "titlebar": {
+      "selector": ".bar_c38106",
+      "tag": "div",
+      "cls": "bar_c38106 theme-dark images-dark",
+      "role": null,
+      "label": "",
+      "text": "Direct Messages",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 1703,
+        "h": 32,
+        "cx": 852,
+        "cy": 16
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "space-between",
+        "alignItems": "center",
+        "gap": 8,
+        "rowGap": 8,
+        "columnGap": 8,
+        "paddingRight": 12,
+        "width": 1691.03,
+        "height": 31.9981,
+        "minHeight": 32,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 32,
+        "clientHeight": 32,
+        "scrollWidth": 1703,
+        "clientWidth": 1703
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "base__5e434"
+      }
+    },
+    "guildRail": {
+      "selector": "nav[aria-label]",
+      "tag": "nav",
+      "cls": "wrapper_ef3116 guilds__5e434 theme-dark images-dark",
+      "role": null,
+      "label": "Servers sidebar",
+      "text": "Direct Messages",
+      "box": {
+        "x": 0,
+        "y": 32,
+        "w": 72,
+        "h": 1009,
+        "cx": 36,
+        "cy": 537
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "column",
+        "flexWrap": "nowrap",
+        "marginBottom": 49.2031,
+        "width": 71.9981,
+        "height": 1009.11,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#2c2d32",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 1009,
+        "clientHeight": 1009,
+        "scrollWidth": 72,
+        "clientWidth": 72
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "sidebar__5e434 theme-dark images-dark"
+      }
+    },
+    "guildItem": {
+      "selector": ".listItem__650eb",
+      "tag": "div",
+      "cls": "listItem__650eb",
+      "role": null,
+      "label": "",
+      "text": "Direct Messages",
+      "box": {
+        "x": 0,
+        "y": 32,
+        "w": 72,
+        "h": 40,
+        "cx": 36,
+        "cy": 52
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "width": 71.9981,
+        "height": 40,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 44,
+        "clientHeight": 40,
+        "scrollWidth": 72,
+        "clientWidth": 72
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "tutorialContainer__1f388"
+      }
+    },
+    "sidebarList": {
+      "selector": ".sidebarList__5e434",
+      "tag": "div",
+      "cls": "sidebarList__5e434 sidebarListRounded__5e434",
+      "role": null,
+      "label": "",
+      "text": "Find or start a conversation Friends Nitro Shop Quests Direct Messages Group chat 3 Members Just A Bee In the snuggling club. Straight up \"nibbling it\". And by ",
+      "box": {
+        "x": 72,
+        "y": 32,
+        "w": 303,
+        "h": 1058,
+        "cx": 223,
+        "cy": 561
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "column",
+        "flexWrap": "nowrap",
+        "width": 301.998,
+        "height": 1057.7,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopWidth": 0.606061,
+        "borderLeftWidth": 0.606061,
+        "borderTopColor": "#94949c@0.12",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#94949c@0.12",
+        "borderTopLeftRadius": 12,
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 1058,
+        "clientHeight": 1058,
+        "scrollWidth": 302,
+        "clientWidth": 302
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "sidebar__5e434 theme-dark images-dark"
+      }
+    },
+    "sidebarNav": {
+      "selector": ".privateChannels_e6b769",
+      "tag": "nav",
+      "cls": "privateChannels_e6b769",
+      "role": null,
+      "label": "Private channels",
+      "text": "Find or start a conversation Friends Nitro Shop Quests Direct Messages Group chat 3 Members Just A Bee In the snuggling club. Straight up \"nibbling it\". And by ",
+      "box": {
+        "x": 73,
+        "y": 33,
+        "w": 302,
+        "h": 1058,
+        "cx": 224,
+        "cy": 561
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "column",
+        "flexWrap": "nowrap",
+        "width": 301.998,
+        "height": 1057.7,
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#2c2d32",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 1058,
+        "clientHeight": 1058,
+        "scrollWidth": 302,
+        "clientWidth": 302
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "sidebarList__5e434 sidebarListRounded__5e434"
+      }
+    },
+    "searchButton": {
+      "selector": ".searchBar_e6b769 button",
+      "tag": "button",
+      "cls": "button_a22cb0 sm_a22cb0 secondary_a22cb0 hasText_a22cb0 fullWidth_a22cb0",
+      "role": "button",
+      "label": "",
+      "text": "Find or start a conversation",
+      "box": {
+        "x": 81,
+        "y": 41,
+        "w": 286,
+        "h": 31,
+        "cx": 224,
+        "cy": 57
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "width": 286.013,
+        "height": 31.2121,
+        "minWidth": 60,
+        "maxWidth": "100%",
+        "maxHeight": "min-content",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "textAlign": "start",
+        "color": "#ffffff",
+        "caretColor": "#ffffff",
+        "backgroundColor": "#94949c@0.12",
+        "borderTopWidth": 0.606061,
+        "borderRightWidth": 0.606061,
+        "borderBottomWidth": 0.606061,
+        "borderLeftWidth": 0.606061,
+        "borderTopColor": "#999999@0.04",
+        "borderRightColor": "#999999@0.04",
+        "borderBottomColor": "#999999@0.04",
+        "borderLeftColor": "#999999@0.04",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#ffffff",
+        "opacity": "1",
+        "transitionProperty": "background-color, color, border-color, opacity",
+        "transitionDuration": "0.05s, 0.05s, 0.05s, 0.05s",
+        "transitionTimingFunction": "ease-in, ease-in, ease-in, ease-in",
+        "cursor": "pointer"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#ffffff",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 30,
+        "clientHeight": 30,
+        "scrollWidth": 285,
+        "clientWidth": 285
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "searchBar_e6b769"
+      }
+    },
+    "listSectionHeader": {
+      "selector": "[class*=\"privateChannelsHeaderContainer\"]",
+      "tag": "h2",
+      "cls": "experimental/body-sm/medium_cf4812 defaultColor__5345c privateChannelsHeaderContainer__99e7c container__13cf1",
+      "role": null,
+      "label": "",
+      "text": "Direct Messages",
+      "box": {
+        "x": 73,
+        "y": 274,
+        "w": 294,
+        "h": 24,
+        "cx": 220,
+        "cy": 286
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "space-between",
+        "alignItems": "center",
+        "paddingRight": 8,
+        "paddingBottom": 4,
+        "paddingLeft": 16,
+        "width": 294.119,
+        "height": 23.9962,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 14,
+        "fontWeight": "500",
+        "lineHeight": 18,
+        "textAlign": "start",
+        "whiteSpace": "nowrap",
+        "color": "#999aa1",
+        "caretColor": "#999aa1",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#999aa1",
+        "borderRightColor": "#999aa1",
+        "borderBottomColor": "#999aa1",
+        "borderLeftColor": "#999aa1",
+        "outlineColor": "#999aa1",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#999aa1",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 24,
+        "clientHeight": 24,
+        "scrollWidth": 294,
+        "clientWidth": 294
+      },
+      "parent": {
+        "tag": "ul",
+        "cls": "content_d125d2"
+      }
+    },
+    "channelItem": {
+      "selector": "li.channel__972a0",
+      "tag": "li",
+      "cls": "channel__972a0 container_e45859",
+      "role": "listitem",
+      "label": "",
+      "text": "Friends",
+      "box": {
+        "x": 81,
+        "y": 90,
+        "w": 286,
+        "h": 40,
+        "cx": 224,
+        "cy": 110
+      },
+      "style": {
+        "display": "block",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "paddingTop": 1,
+        "paddingBottom": 1,
+        "marginLeft": 8,
+        "width": 286.127,
+        "height": 39.9621,
+        "maxWidth": 375,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 40,
+        "clientHeight": 40,
+        "scrollWidth": 286,
+        "clientWidth": 286
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "friendsButtonContainer_e6b769"
+      }
+    },
+    "channelItemSelected": null,
+    "userPanel": {
+      "selector": ".panels__5e434",
+      "tag": "section",
+      "cls": "panels__5e434",
+      "role": null,
+      "label": "User status and settings",
+      "text": "kswiorek_test kswiorek_test Online Unmute",
+      "box": {
+        "x": 8,
+        "y": 1025,
+        "w": 359,
+        "h": 57,
+        "cx": 187,
+        "cy": 1054
+      },
+      "style": {
+        "display": "block",
+        "position": "absolute",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "space-between",
+        "width": 358.598,
+        "height": 57.2064,
+        "top": 993.106,
+        "right": 8.01136,
+        "bottom": 8,
+        "left": 8,
+        "zIndex": "10",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#36373e",
+        "borderTopWidth": 0.606061,
+        "borderRightWidth": 0.606061,
+        "borderBottomWidth": 0.606061,
+        "borderLeftWidth": 0.606061,
+        "borderTopColor": "#999999@0.04",
+        "borderRightColor": "#999999@0.04",
+        "borderBottomColor": "#999999@0.04",
+        "borderLeftColor": "#999999@0.04",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 56,
+        "clientHeight": 56,
+        "scrollWidth": 357,
+        "clientWidth": 357
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "sidebar__5e434 theme-dark images-dark"
+      }
+    },
+    "userPanelInner": {
+      "selector": ".container__37e49",
+      "tag": "div",
+      "cls": "container__37e49",
+      "role": null,
+      "label": "",
+      "text": "kswiorek_test kswiorek_test Online Unmute",
+      "box": {
+        "x": 8,
+        "y": 1026,
+        "w": 358,
+        "h": 56,
+        "cx": 187,
+        "cy": 1054
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "space-between",
+        "alignItems": "center",
+        "gap": 8,
+        "rowGap": 8,
+        "columnGap": 8,
+        "paddingTop": 12,
+        "paddingRight": 12,
+        "paddingBottom": 12,
+        "paddingLeft": 12,
+        "marginLeft": -1,
+        "width": 358.381,
+        "height": 55.9943,
+        "minHeight": 44,
+        "zIndex": "1",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 14,
+        "fontWeight": "500",
+        "lineHeight": 14,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "borderTopLeftRadius": 7,
+        "borderTopRightRadius": 7,
+        "borderBottomLeftRadius": 7,
+        "borderBottomRightRadius": 7,
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 56,
+        "clientHeight": 56,
+        "scrollWidth": 358,
+        "clientWidth": 358
+      },
+      "parent": {
+        "tag": "section",
+        "cls": "panels__5e434"
+      }
+    },
+    "avatar": {
+      "selector": ".wrapper__44b0c",
+      "tag": "div",
+      "cls": "wrapper__44b0c",
+      "role": "img",
+      "label": "justabee., Online",
+      "text": "",
+      "box": {
+        "x": 89,
+        "y": 348,
+        "w": 32,
+        "h": 32,
+        "cx": 105,
+        "cy": 364
+      },
+      "style": {
+        "display": "block",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "width": 31.9981,
+        "height": 31.9981,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "whiteSpace": "nowrap",
+        "color": "#abacb2",
+        "caretColor": "#abacb2",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#abacb2",
+        "borderRightColor": "#abacb2",
+        "borderBottomColor": "#abacb2",
+        "borderLeftColor": "#abacb2",
+        "borderTopLeftRadius": "50%",
+        "borderTopRightRadius": "50%",
+        "borderBottomLeftRadius": "50%",
+        "borderBottomRightRadius": "50%",
+        "outlineColor": "#abacb2",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease",
+        "cursor": "pointer"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#abacb2",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 40,
+        "clientHeight": 32,
+        "scrollWidth": 40,
+        "clientWidth": 32
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "avatar__20a53"
+      }
+    },
+    "channelHeader": {
+      "selector": "section[aria-label*=\"Channel header\"]",
+      "tag": "section",
+      "cls": "title_f75fb0 theme-dark images-dark gdm_f75fb0 container__9293f themed__9293f",
+      "role": null,
+      "label": "Channel header",
+      "text": "Group DM Group chat Edit Group Search Group chat",
+      "box": {
+        "x": 375,
+        "y": 33,
+        "w": 1328,
+        "h": 49,
+        "cx": 1039,
+        "cy": 57
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "column",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "paddingTop": 8,
+        "paddingRight": 8,
+        "paddingBottom": 8,
+        "paddingLeft": 8,
+        "width": 1328.43,
+        "height": 48.9962,
+        "zIndex": "100",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 20,
+        "textAlign": "start",
+        "color": "#f3f3f4",
+        "caretColor": "#f3f3f4",
+        "backgroundColor": "#323339",
+        "borderBottomWidth": 0.606061,
+        "borderTopColor": "#f3f3f4",
+        "borderRightColor": "#f3f3f4",
+        "borderBottomColor": "#94949c@0.12",
+        "borderLeftColor": "#f3f3f4",
+        "outlineColor": "#f3f3f4",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease",
+        "cursor": "default"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#f3f3f4",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "scrollWidth": 1328,
+        "clientWidth": 1328
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "subtitleContainer_f75fb0"
+      }
+    },
+    "chatMain": {
+      "selector": "main.chatContent_f75fb0",
+      "tag": "main",
+      "cls": "chatContent_f75fb0",
+      "role": null,
+      "label": "Group chat (channel)",
+      "text": "Group chat chat Edit Group Icon Group chat Welcome to the beginning of the Group chat group. Invite to Group DM Edit Group 27 October 2026 kswiorek_test changed",
+      "box": {
+        "x": 375,
+        "y": 82,
+        "w": 1328,
+        "h": 1009,
+        "cx": 1039,
+        "cy": 586
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "column",
+        "flexWrap": "nowrap",
+        "width": 1328.43,
+        "height": 1008.7,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#323339",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 1009,
+        "clientHeight": 1009,
+        "scrollWidth": 1328,
+        "clientWidth": 1328
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "content_f75fb0"
+      }
+    },
+    "messageList": {
+      "selector": "ol[role=\"list\"]",
+      "tag": "ol",
+      "cls": "scrollerInner__36d07",
+      "role": "list",
+      "label": "Messages in Group chat",
+      "text": "Edit Group Icon Group chat Welcome to the beginning of the Group chat group. Invite to Group DM Edit Group 27 October 2026 kswiorek_test changed the group name:",
+      "box": {
+        "x": 375,
+        "y": 702,
+        "w": 1313,
+        "h": 339,
+        "cx": 1031,
+        "cy": 872
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "width": 1312.67,
+        "height": 338.759,
+        "overflowX": "clip",
+        "overflowY": "clip",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 339,
+        "clientHeight": 339,
+        "scrollWidth": 1313,
+        "clientWidth": 1313
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "scrollerContent__36d07 content_d125d2"
+      }
+    },
+    "message": {
+      "selector": "div[role=\"article\"]",
+      "tag": "div",
+      "cls": "message__5126c cozyMessage__5126c systemMessage__5126c groupStart__5126c wrapper_c19a55 cozy_c19a55 zalgo_c19a55 isSystemMessage_c19a55",
+      "role": "article",
+      "label": "",
+      "text": "kswiorek_test changed the group name: Group chat. Edit Group — 15:23 Tuesday, 27 October 2026 at 15:23",
+      "box": {
+        "x": 375,
+        "y": 971,
+        "w": 1313,
+        "h": 30,
+        "cx": 1031,
+        "cy": 986
+      },
+      "style": {
+        "display": "block",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "paddingTop": 2,
+        "paddingRight": 24,
+        "paddingBottom": 2,
+        "paddingLeft": 72,
+        "marginTop": 17,
+        "width": 1216.68,
+        "height": 25.9943,
+        "minHeight": 22,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "borderTopRightRadius": 4,
+        "borderBottomRightRadius": 4,
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 30,
+        "clientHeight": 30,
+        "scrollWidth": 1313,
+        "clientWidth": 1313
+      },
+      "parent": {
+        "tag": "li",
+        "cls": "messageListItem__5126c"
+      }
+    },
+    "messageContents": {
+      "selector": ".contents_c19a55",
+      "tag": "div",
+      "cls": "contents_c19a55",
+      "role": null,
+      "label": "",
+      "text": "kswiorek_test changed the group name: Group chat. Edit Group — 15:23 Tuesday, 27 October 2026 at 15:23",
+      "box": {
+        "x": 447,
+        "y": 973,
+        "w": 1217,
+        "h": 26,
+        "cx": 1055,
+        "cy": 986
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "width": 1216.68,
+        "height": 25.9943,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 26,
+        "clientHeight": 26,
+        "scrollWidth": 1217,
+        "clientWidth": 1217
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "message__5126c cozyMessage__5126c systemMessage__5126c groupStart__5126c wrapper_c19a55 cozy_c19a55 zalgo_c19a55 isSyste"
+      }
+    },
+    "messageDivider": {
+      "selector": "[role=\"separator\"]",
+      "tag": "div",
+      "cls": "sidebarResizeHandle__5e434",
+      "role": "separator",
+      "label": "Resize Sidebar",
+      "text": "",
+      "box": {
+        "x": 371,
+        "y": 32,
+        "w": 4,
+        "h": 1058,
+        "cx": 373,
+        "cy": 561
+      },
+      "style": {
+        "display": "block",
+        "position": "absolute",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "width": 3.99621,
+        "height": 1058.3,
+        "left": 370.606,
+        "zIndex": "101",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transform": "matrix(1, 0, 0, 1, 0, 0)",
+        "transitionProperty": "background-color",
+        "transitionDuration": "0.2s",
+        "transitionTimingFunction": "ease",
+        "cursor": "ew-resize"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 1058,
+        "clientHeight": 1058,
+        "scrollWidth": 4,
+        "clientWidth": 4
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "sidebar__5e434 theme-dark images-dark"
+      }
+    },
+    "composerForm": {
+      "selector": "form.form_f75fb0",
+      "tag": "form",
+      "cls": "form_f75fb0 formWithLoadedChatInput_f75fb0",
+      "role": null,
+      "label": "",
+      "text": "Message Group chat Send GIF",
+      "box": {
+        "x": 375,
+        "y": 1025,
+        "w": 1328,
+        "h": 65,
+        "cx": 1039,
+        "cy": 1058
+      },
+      "style": {
+        "display": "block",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "paddingRight": 8,
+        "paddingLeft": 8,
+        "marginTop": -16,
+        "width": 1312.44,
+        "height": 65.1989,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "outlineColor": "#2c2d32",
+        "outlineWidth": 2.42424,
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::before",
+          "style": {
+            "display": "block",
+            "position": "absolute",
+            "flexDirection": "row",
+            "flexWrap": "nowrap",
+            "height": 7.99242,
+            "right": 1320.44,
+            "bottom": 57.2064,
+            "left": 7.99242,
+            "overflowX": "visible",
+            "overflowY": "visible",
+            "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+            "fontSize": 16,
+            "fontWeight": "400",
+            "lineHeight": 16,
+            "textAlign": "start",
+            "color": "#2c2d32",
+            "caretColor": "#2c2d32",
+            "backgroundColor": "#000000@0.00",
+            "backgroundImage": "linear-gradient(rgba(0, 0, 0, 0), oklab(0.338541 0.00199024 -0.012109) 100%)",
+            "borderTopColor": "#2c2d32",
+            "borderRightColor": "#2c2d32",
+            "borderBottomColor": "#2c2d32",
+            "borderLeftColor": "#2c2d32",
+            "outlineColor": "#2c2d32",
+            "outlineWidth": 2.42424,
+            "opacity": "1",
+            "transitionProperty": "all",
+            "transitionDuration": "0s",
+            "transitionTimingFunction": "ease"
+          },
+          "content": "\"\""
+        },
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 65,
+        "clientHeight": 65,
+        "scrollWidth": 1328,
+        "clientWidth": 1328
+      },
+      "parent": {
+        "tag": "main",
+        "cls": "chatContent_f75fb0"
+      }
+    },
+    "composerArea": {
+      "selector": ".channelTextArea_f75fb0",
+      "tag": "div",
+      "cls": "channelTextArea_f75fb0 channelTextArea__74017",
+      "role": null,
+      "label": "",
+      "text": "Message Group chat Send GIF",
+      "box": {
+        "x": 383,
+        "y": 1025,
+        "w": 1312,
+        "h": 57,
+        "cx": 1039,
+        "cy": 1054
+      },
+      "style": {
+        "display": "block",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "marginBottom": 8,
+        "width": 1311.23,
+        "height": 55.9943,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#393a41",
+        "borderTopWidth": 0.606061,
+        "borderRightWidth": 0.606061,
+        "borderBottomWidth": 0.606061,
+        "borderLeftWidth": 0.606061,
+        "borderTopColor": "#999999@0.04",
+        "borderRightColor": "#999999@0.04",
+        "borderBottomColor": "#999999@0.04",
+        "borderLeftColor": "#999999@0.04",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "box-shadow",
+        "transitionDuration": "0.2s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 56,
+        "clientHeight": 56,
+        "scrollWidth": 1311,
+        "clientWidth": 1311
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "channelBottomBarArea_f75fb0"
+      }
+    },
+    "composerBox": {
+      "selector": ".scrollableContainer__74017",
+      "tag": "div",
+      "cls": "scrollableContainer__74017 themedBackground__74017",
+      "role": null,
+      "label": "",
+      "text": "Message Group chat Send GIF",
+      "box": {
+        "x": 383,
+        "y": 1026,
+        "w": 1311,
+        "h": 56,
+        "cx": 1039,
+        "cy": 1054
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "width": 1299.72,
+        "height": 55.9943,
+        "maxHeight": 545.152,
+        "overflowX": "hidden",
+        "overflowY": "scroll",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#2c2d32",
+        "caretColor": "#2c2d32",
+        "backgroundColor": "#393a41",
+        "borderTopColor": "#2c2d32",
+        "borderRightColor": "#2c2d32",
+        "borderBottomColor": "#2c2d32",
+        "borderLeftColor": "#2c2d32",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#2c2d32",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "transitionTimingFunction": "ease"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#2c2d32",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 56,
+        "clientHeight": 56,
+        "scrollWidth": 1300,
+        "clientWidth": 1300
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "channelTextArea_f75fb0 channelTextArea__74017"
+      }
+    },
+    "attachButton": {
+      "selector": ".attachButton__0923f",
+      "tag": "div",
+      "cls": "attachButton__0923f attachButton__74017 button__24af7",
+      "role": "button",
+      "label": "More message options",
+      "text": "",
+      "box": {
+        "x": 394,
+        "y": 1038,
+        "w": 32,
+        "h": 32,
+        "cx": 410,
+        "cy": 1054
+      },
+      "style": {
+        "display": "flex",
+        "position": "sticky",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "marginRight": 10,
+        "marginLeft": -14,
+        "width": 31.9886,
+        "height": 31.9886,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 16,
+        "textAlign": "start",
+        "color": "#c5c6ca",
+        "caretColor": "#c5c6ca",
+        "backgroundColor": "#000000@0.00",
+        "borderTopColor": "#c5c6ca",
+        "borderRightColor": "#c5c6ca",
+        "borderBottomColor": "#c5c6ca",
+        "borderLeftColor": "#c5c6ca",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#c5c6ca",
+        "opacity": "1",
+        "transitionProperty": "all",
+        "transitionDuration": "0.2s",
+        "transitionTimingFunction": "ease",
+        "cursor": "pointer"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#c5c6ca",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 32,
+        "clientHeight": 32,
+        "scrollWidth": 32,
+        "clientWidth": 32
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "attachWrapper__0923f"
+      }
+    },
+    "primaryButton": {
+      "selector": "button[class*=\"primary_a22cb0\"]",
+      "tag": "button",
+      "cls": "button_a22cb0 md_a22cb0 primary_a22cb0 hasText_a22cb0",
+      "role": "button",
+      "label": "Invite to Group DM",
+      "text": "Invite to Group DM",
+      "box": {
+        "x": 391,
+        "y": 890,
+        "w": 185,
+        "h": 39,
+        "cx": 483,
+        "cy": 910
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "width": 184.811,
+        "height": 39.2045,
+        "minWidth": 100,
+        "maxWidth": "100%",
+        "maxHeight": "min-content",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "textAlign": "start",
+        "color": "#ffffff",
+        "caretColor": "#ffffff",
+        "backgroundColor": "#5865f2",
+        "borderTopWidth": 0.606061,
+        "borderRightWidth": 0.606061,
+        "borderBottomWidth": 0.606061,
+        "borderLeftWidth": 0.606061,
+        "borderTopColor": "#ffffff@0.08",
+        "borderRightColor": "#ffffff@0.08",
+        "borderBottomColor": "#ffffff@0.08",
+        "borderLeftColor": "#ffffff@0.08",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#ffffff",
+        "opacity": "1",
+        "transitionProperty": "background-color, color, border-color, opacity",
+        "transitionDuration": "0.05s, 0.05s, 0.05s, 0.05s",
+        "transitionTimingFunction": "ease-in, ease-in, ease-in, ease-in",
+        "cursor": "pointer"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#ffffff",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 38,
+        "clientHeight": 38,
+        "scrollWidth": 184,
+        "clientWidth": 184
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "stack_dbd263 buttonContainer__6ca73"
+      }
+    },
+    "secondaryButton": {
+      "selector": "button[class*=\"secondary_a22cb0\"]",
+      "tag": "button",
+      "cls": "button_a22cb0 sm_a22cb0 secondary_a22cb0 hasText_a22cb0 fullWidth_a22cb0",
+      "role": "button",
+      "label": "",
+      "text": "Find or start a conversation",
+      "box": {
+        "x": 81,
+        "y": 41,
+        "w": 286,
+        "h": 31,
+        "cx": 224,
+        "cy": 57
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "width": 286.013,
+        "height": 31.2121,
+        "minWidth": 60,
+        "maxWidth": "100%",
+        "maxHeight": "min-content",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "textAlign": "start",
+        "color": "#ffffff",
+        "caretColor": "#ffffff",
+        "backgroundColor": "#94949c@0.12",
+        "borderTopWidth": 0.606061,
+        "borderRightWidth": 0.606061,
+        "borderBottomWidth": 0.606061,
+        "borderLeftWidth": 0.606061,
+        "borderTopColor": "#999999@0.04",
+        "borderRightColor": "#999999@0.04",
+        "borderBottomColor": "#999999@0.04",
+        "borderLeftColor": "#999999@0.04",
+        "borderTopLeftRadius": 8,
+        "borderTopRightRadius": 8,
+        "borderBottomLeftRadius": 8,
+        "borderBottomRightRadius": 8,
+        "outlineColor": "#ffffff",
+        "opacity": "1",
+        "transitionProperty": "background-color, color, border-color, opacity",
+        "transitionDuration": "0.05s, 0.05s, 0.05s, 0.05s",
+        "transitionTimingFunction": "ease-in, ease-in, ease-in, ease-in",
+        "cursor": "pointer"
+      },
+      "pseudos": [
+        {
+          "pseudo": "::placeholder",
+          "color": "#ffffff",
+          "opacity": "1"
+        }
+      ],
+      "scroll": {
+        "scrollHeight": 30,
+        "clientHeight": 30,
+        "scrollWidth": 285,
+        "clientWidth": 285
+      },
+      "parent": {
+        "tag": "div",
+        "cls": "searchBar_e6b769"
+      }
+    }
+  },
+  "typeScale": [
+    {
+      "token": "text-sm/medium",
+      "fontSize": "14px",
+      "fontWeight": "500",
+      "lineHeight": "18px",
+      "letterSpacing": "normal",
+      "fontFamily": "\"gg sans\"",
+      "tag": "span",
+      "sample": "👋 Wave"
+    },
+    {
+      "token": "text-md/medium",
+      "fontSize": "16px",
+      "fontWeight": "500",
+      "lineHeight": "20px",
+      "letterSpacing": "normal",
+      "fontFamily": "\"gg sans\"",
+      "tag": "span",
+      "sample": "Edit Group"
+    },
+    {
+      "token": "text-xs/medium",
+      "fontSize": "12px",
+      "fontWeight": "500",
+      "lineHeight": "13px",
+      "letterSpacing": "normal",
+      "fontFamily": "\"gg sans\"",
+      "tag": "div",
+      "sample": "kswiorek_test\nOnline"
+    },
+    {
+      "token": "text-md/normal",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "lineHeight": "20px",
+      "letterSpacing": "normal",
+      "fontFamily": "\"gg sans\"",
+      "tag": "div",
+      "sample": "Welcome to the beginning of the Group ch"
+    }
+  ],
+  "icons": [
+    {
+      "name": "icon",
+      "viewBox": "0 0 1 1",
+      "w": 1,
+      "h": 1,
+      "color": "oklab(0.298136 0.00109468 -0.00903396)",
+      "near": "appMount__51fd7",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M0 0.464C0 0.301585 0 0.220377 0.0316081 0.158343C0.0594114 0.103776 0.103776 0.0594114 0.158343 0.0316081C0.220377 0 0.301585 0 0.464 0H0.536C0.698415 0 0.779623 0 0.841657 0.0316081C0.896224 0.0594114 0.940589 0.103776 0.968392 0.158343C1 0.220377 1 0.301585 1 0.464V0.536C1 0.698415 1 0.779623 0.968392 0.841657C0.940589 0.896224 0.896224 0.940589 0.841657 0.968392C0.779623 1 0.698415 1 0.536 1H0.464C0.301585 1 0.220377 1 0.158343 0.968392C0.103776 0.940589 0.0594114 0.896224 0.0316081 0.841657C0 0.779623 0 0.698415 0 0.536V0.464Z",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "1",
+          "height": "1",
+          "fill": "url(#svg-mask-vertical-fade-gradient)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.8125",
+          "cy": "0.8125",
+          "r": "0.3125",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.85",
+          "cy": "0.85",
+          "r": "0.25",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.8333333333333334",
+          "cy": "0.8333333333333334",
+          "r": "0.2916666666666667",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.84375",
+          "cy": "0.84375",
+          "r": "0.25",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.85",
+          "cy": "0.85",
+          "r": "0.25",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.875",
+          "cy": "0.875",
+          "r": "0.20833333333333334",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.85",
+          "cy": "0.85",
+          "r": "0.175",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.3333333333333333",
+          "cy": "0.3333333333333333",
+          "r": "0.3333333333333333",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.4583333333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.3333333333333333",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.3333333333333333",
+          "cy": "0.3333333333333333",
+          "r": "0.3333333333333333",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.4583333333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.3333333333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.3333333333333333",
+          "cy": "0.3333333333333333",
+          "r": "0.3333333333333333",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.4270833333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.3333333333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.3333333333333333",
+          "cy": "0.3333333333333333",
+          "r": "0.3333333333333333",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.4270833333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666666",
+          "cy": "0.6666666666666666",
+          "r": "0.3333333333333333",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.84375",
+          "cy": "0.84375",
+          "r": "0.25",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.33333333333333337",
+          "cy": "0.33333333333333337",
+          "r": "0.33333333333333337",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666667",
+          "cy": "0.6666666666666667",
+          "r": "0.37083333333333335",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666667",
+          "cy": "0.6666666666666667",
+          "r": "0.33333333333333337",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.33333333333333337",
+          "cy": "0.33333333333333337",
+          "r": "0.33333333333333337",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666667",
+          "cy": "0.6666666666666667",
+          "r": "0.37083333333333335",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.6666666666666667",
+          "cy": "0.6666666666666667",
+          "r": "0.33333333333333337",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "1",
+          "height": "1",
+          "rx": "0.1875",
+          "ry": "0.125",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "x": "0.125",
+          "y": "0.16666666666666666",
+          "width": "0.75",
+          "height": "0.5",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "ellipse",
+          "cx": "0.5",
+          "cy": "0.8333333333333334",
+          "rx": "0.125",
+          "ry": "0.08333333333333333",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M8.46 8.64a1 1 0 0 1 1 1c0 .44-.3.8-.72.92l-.11.07c-.08.06-.2.19-.2.41a.99.99 0 0 1-.98.86h-.06a1 1 0 0 1-.94-1.05l.02-.32c.05-1.06.92-1.9 1.99-1.9Z",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M15.55 5a5.5 5.5 0 0 1 5.15 3.67h.3a2 2 0 0 1 2 2v3.18a2 2 0 0 1-2 1.99h-.2A4.54 4.54 0 0 1 16.55 19a4.45 4.45 0 0 1-3.6-1.83 1.2 1.2 0 0 0-1.9 0 4.44 4.44 0 0 1-3.9 1.82 4.54 4.54 0 0 1-3.94-3.15H3a2 2 0 0 1-2-2v-3.18c0-1.1.9-1.99 2-1.99h.3A5.5 5.5 0 0 1 8.46 5h7.09Zm-7.1 2C6.6 7 5.06 8.5 4.97 10.41l-.02.66v3.18c0 1.43 1.05 2.66 2.34 2.74.85.06 1.63-.32 2.14-1.01a3.2 3.2 0 0 1 2.57-1.3c1 0 1.97.48 2.57 1.3.5.69 1.3 1.08 2.14 1.01 1.3-.08 2.34-1.31 2.34-2.74l-.02-3.84a3.54 3.54 0 0 0-3.49-3.43H8.45Z",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.25",
+          "cy": "0.25",
+          "r": "0.375",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "x": "0.125",
+          "y": "0.375",
+          "width": "0.75",
+          "height": "0.25",
+          "rx": "0.125",
+          "ry": "0.125",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.25",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "0.5",
+          "cy": "0.5",
+          "r": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "polygon",
+          "points": "0.35,0.25 0.78301275,0.5 0.35,0.75",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "cx": "0",
+          "cy": "0",
+          "width": "1",
+          "height": "1",
+          "rx": "0.2",
+          "ry": "0.5",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "width": "1",
+          "height": "1",
+          "fill": "white",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0.5 0.71875C0.5 0.649716 0.555966 0.59375 0.625 0.59375H1.0V1.0H0.5V0.71875Z",
+          "fill": "black",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "0 0 24 24",
+      "w": 18,
+      "h": 18,
+      "color": "oklab(0.298136 0.00109468 -0.00903396)",
+      "near": "title_edbb22",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M19.73 4.87a18.2 18.2 0 0 0-4.6-1.44c-.21.4-.4.8-.58 1.21-1.69-.25-3.4-.25-5.1 0-.18-.41-.37-.82-.59-1.2-1.6.27-3.14.75-4.6 1.43A19.04 19.04 0 0 0 .96 17.7a18.43 18.43 0 0 0 5.63 2.87c.46-.62.86-1.28 1.2-1.98-.65-.25-1.29-.55-1.9-.92.17-.12.32-.24.47-.37 3.58 1.7 7.7 1.7 11.28 0l.46.37c-.6.36-1.25.67-1.9.92.35.7.75 1.35 1.2 1.98 2.03-.63 3.94-1.6 5.64-2.87.47-4.87-.78-9.09-3.3-12.83ZM8.3 15.12c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.89 2.27-2 2.27Zm7.4 0c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.88 2.27-2 2.27Z",
+          "fill": "var(--interactive-icon-default)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Inbox",
+      "viewBox": "0 0 24 24",
+      "w": 18,
+      "h": 18,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "clickable__81391",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M5 2a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V5a3 3 0 0 0-3-3H5ZM4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-2.65c-.5 0-.85.5-.85 1a3 3 0 1 1-6 0c0-.5-.35-1-.85-1H5.5A1.5 1.5 0 0 1 4 11.5v-6Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "Help",
+      "viewBox": "0 0 24 24",
+      "w": 18,
+      "h": 18,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "clickable__81391",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "circle",
+          "cx": "12",
+          "cy": "12",
+          "r": "10",
+          "fill": "transparent",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm-.28-16c-.98 0-1.81.47-2.27 1.14A1 1 0 1 1 7.8 7.01 4.73 4.73 0 0 1 11.72 5c2.5 0 4.65 1.88 4.65 4.38 0 2.1-1.54 3.77-3.52 4.24l.14 1a1 1 0 0 1-1.98.27l-.28-2a1 1 0 0 1 .99-1.14c1.54 0 2.65-1.14 2.65-2.38 0-1.23-1.1-2.37-2.65-2.37ZM13 17.88a1.13 1.13 0 1 1-2.25 0 1.13 1.13 0 0 1 2.25 0Z",
+          "fill": "var(--green-360)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "-4 -4 48 48",
+      "w": 48,
+      "h": 48,
+      "color": "oklab(0.298136 0.00109468 -0.00903396)",
+      "near": "wrapper_cc5dd2",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M19.73 4.87a18.2 18.2 0 0 0-4.6-1.44c-.21.4-.4.8-.58 1.21-1.69-.25-3.4-.25-5.1 0-.18-.41-.37-.82-.59-1.2-1.6.27-3.14.75-4.6 1.43A19.04 19.04 0 0 0 .96 17.7a18.43 18.43 0 0 0 5.63 2.87c.46-.62.86-1.28 1.2-1.98-.65-.25-1.29-.55-1.9-.92.17-.12.32-.24.47-.37 3.58 1.7 7.7 1.7 11.28 0l.46.37c-.6.36-1.25.67-1.9.92.35.7.75 1.35 1.2 1.98 2.03-.63 3.94-1.6 5.64-2.87.47-4.87-.78-9.09-3.3-12.83ZM8.3 15.12c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.89 2.27-2 2.27Zm7.4 0c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.88 2.27-2 2.27Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "0 0 24 24",
+      "w": 24,
+      "h": 24,
+      "color": "rgb(255, 255, 255)",
+      "near": "childWrapper__6e9f8 childWrapperNoHoverBg__6e9f8",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M19.73 4.87a18.2 18.2 0 0 0-4.6-1.44c-.21.4-.4.8-.58 1.21-1.69-.25-3.4-.25-5.1 0-.18-.41-.37-.82-.59-1.2-1.6.27-3.14.75-4.6 1.43A19.04 19.04 0 0 0 .96 17.7a18.43 18.43 0 0 0 5.63 2.87c.46-.62.86-1.28 1.2-1.98-.65-.25-1.29-.55-1.9-.92.17-.12.32-.24.47-.37 3.58 1.7 7.7 1.7 11.28 0l.46.37c-.6.36-1.25.67-1.9.92.35.7.75 1.35 1.2 1.98 2.03-.63 3.94-1.6 5.64-2.87.47-4.87-.78-9.09-3.3-12.83ZM8.3 15.12c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.89 2.27-2 2.27Zm7.4 0c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.88 2.27-2 2.27Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "-4 -4 48 48",
+      "w": 48,
+      "h": 48,
+      "color": "oklab(0.298136 0.00109468 -0.00903396)",
+      "near": "wrapper_cc5dd2",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "circle",
+          "cx": "12",
+          "cy": "12",
+          "r": "10",
+          "fill": "transparent",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm0-17a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H7a1 1 0 1 1 0-2h4V7a1 1 0 0 1 1-1Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "Add_a_Server",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.964427 0.000418067 -0.00125384)",
+      "near": "circleIconButton__5bc7e",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "circle",
+          "cx": "12",
+          "cy": "12",
+          "r": "10",
+          "fill": "transparent",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm0-17a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H7a1 1 0 1 1 0-2h4V7a1 1 0 0 1 1-1Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "-4 -4 48 48",
+      "w": 48,
+      "h": 48,
+      "color": "oklab(0.298136 0.00109468 -0.00903396)",
+      "near": "wrapper_cc5dd2",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M23 12a11 11 0 1 1-22 0 11 11 0 0 1 22 0ZM7.74 9.3A2 2 0 0 1 9.3 7.75l7.22-1.45a1 1 0 0 1 1.18 1.18l-1.45 7.22a2 2 0 0 1-1.57 1.57l-7.22 1.45a1 1 0 0 1-1.18-1.18L7.74 9.3Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "Discover",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.964427 0.000418067 -0.00125384)",
+      "near": "circleIconButton__5bc7e discoveryIcon_ef3116",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M23 12a11 11 0 1 1-22 0 11 11 0 0 1 22 0ZM7.74 9.3A2 2 0 0 1 9.3 7.75l7.22-1.45a1 1 0 0 1 1.18 1.18l-1.45 7.22a2 2 0 0 1-1.57 1.57l-7.22 1.45a1 1 0 0 1-1.18-1.18L7.74 9.3Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "-4 -4 48 48",
+      "w": 48,
+      "h": 48,
+      "color": "oklab(0.298136 0.00109468 -0.00903396)",
+      "near": "wrapper_cc5dd2",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1ZM3 20a1 1 0 1 0 0 2h18a1 1 0 1 0 0-2H3Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Download_Apps",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.964427 0.000418067 -0.00125384)",
+      "near": "circleIconButton__5bc7e",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1ZM3 20a1 1 0 1 0 0 2h18a1 1 0 1 0 0-2H3Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "avatar__20a53",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M13 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M3 5v-.75C3 3.56 3.56 3 4.25 3s1.24.56 1.33 1.25C6.12 8.65 9.46 12 13 12h1a8 8 0 0 1 8 8 2 2 0 0 1-2 2 .21.21 0 0 1-.2-.15 7.65 7.65 0 0 0-1.32-2.3c-.15-.2-.42-.06-.39.17l.25 2c.02.15-.1.28-.25.28H9a2 2 0 0 1-2-2v-2.22c0-1.57-.67-3.05-1.53-4.37A15.85 15.85 0 0 1 3 5Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "avatar__20a53",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M16.23 12c0 1.29-.95 2.25-2.22 2.25A2.18 2.18 0 0 1 11.8 12c0-1.29.95-2.25 2.22-2.25 1.27 0 2.22.96 2.22 2.25ZM23 12c0 5.01-4 9-8.99 9a8.93 8.93 0 0 1-8.75-6.9H3.34l-.9-4.2H5.3c.26-.96.68-1.89 1.21-2.7H1.89L1 3h12.74C19.13 3 23 6.99 23 12Zm-4.26 0c0-2.67-2.1-4.8-4.73-4.8A4.74 4.74 0 0 0 9.28 12c0 2.67 2.1 4.8 4.73 4.8a4.74 4.74 0 0 0 4.73-4.8Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "avatar__20a53",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M2.63 4.19A3 3 0 0 1 5.53 2H7a1 1 0 0 1 1 1v3.98a3.07 3.07 0 0 1-.3 1.35A2.97 2.97 0 0 1 4.98 10c-2 0-3.44-1.9-2.9-3.83l.55-1.98ZM10 2a1 1 0 0 0-1 1v4a3 3 0 0 0 3 3 3 3 0 0 0 3-2.97V3a1 1 0 0 0-1-1h-4ZM17 2a1 1 0 0 0-1 1v3.98a3.65 3.65 0 0 0 0 .05A2.95 2.95 0 0 0 19.02 10c2 0 3.44-1.9 2.9-3.83l-.55-1.98A3 3 0 0 0 18.47 2H17Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M21 11.42V19a3 3 0 0 1-3 3h-2.75a.25.25 0 0 1-.25-.25V16a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v5.75c0 .14-.11.25-.25.25H6a3 3 0 0 1-3-3v-7.58c0-.18.2-.3.37-.24a4.46 4.46 0 0 0 4.94-1.1c.1-.12.3-.12.4 0a4.49 4.49 0 0 0 6.58 0c.1-.12.3-.12.4 0a4.45 4.45 0 0 0 4.94 1.1c.17-.07.37.06.37.24Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "avatar__20a53",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M7.5 21.7a8.95 8.95 0 0 1 9 0 1 1 0 0 0 1-1.73c-.6-.35-1.24-.64-1.9-.87.54-.3 1.05-.65 1.52-1.07a3.98 3.98 0 0 0 5.49-1.8.77.77 0 0 0-.24-.95 3.98 3.98 0 0 0-2.02-.76A4 4 0 0 0 23 10.47a.76.76 0 0 0-.71-.71 4.06 4.06 0 0 0-1.6.22 3.99 3.99 0 0 0 .54-5.35.77.77 0 0 0-.95-.24c-.75.36-1.37.95-1.77 1.67V6a4 4 0 0 0-4.9-3.9.77.77 0 0 0-.6.72 4 4 0 0 0 3.7 4.17c.89 1.3 1.3 2.95 1.3 4.51 0 3.66-2.75 6.5-6 6.5s-6-2.84-6-6.5c0-1.56.41-3.21 1.3-4.51A4 4 0 0 0 11 2.82a.77.77 0 0 0-.6-.72 4.01 4.01 0 0 0-4.9 3.96A4.02 4.02 0 0 0 3.73 4.4a.77.77 0 0 0-.95.24 3.98 3.98 0 0 0 .55 5.35 4 4 0 0 0-1.6-.22.76.76 0 0 0-.72.71l-.01.28a4 4 0 0 0 2.65 3.77c-.75.06-1.45.33-2.02.76-.3.22-.4.62-.24.95a4 4 0 0 0 5.49 1.8c.47.42.98.78 1.53 1.07-.67.23-1.3.52-1.91.87a1 1 0 1 0 1 1.73Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "More",
+      "viewBox": "0 0 24 24",
+      "w": 16,
+      "h": 16,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "privateChannelRecipientsInviteButtonIconContainer__99e7c mor",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10-2a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "Create_Message",
+      "viewBox": "0 0 24 24",
+      "w": 16,
+      "h": 16,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "privateChannelRecipientsInviteButtonIconContainer__99e7c ico",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M13 5a1 1 0 1 0-2 0v6H5a1 1 0 1 0 0 2h6v6a1 1 0 1 0 2 0v-6h6a1 1 0 1 0 0-2h-6V5Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "justabee_Online",
+      "viewBox": "0 0 40 40",
+      "w": 40,
+      "h": 40,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "wrapper__44b0c",
+      "uses": 3,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "22",
+          "y": "22",
+          "width": "10",
+          "height": "10",
+          "fill": "#45a366",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Mute",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "24",
+          "height": "24",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "width": "600",
+          "height": "600",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M681.219970703125,212.79600524902344 C681.219970703125,212.79600524902344 299.6969909667969,597.75 299.6969909667969,597.75 C299.6969909667969,597.75 235.75999450683594,665.2319946289062 285.1369934082031,714.8619995117188 C339,769 403.67999267578125,701.0560302734375 403.67999267578125,701.0560302734375 C403.67999267578125,701.0560302734375 785.2030029296875,316.10198974609375 785.2030029296875,316.10198974609375 C785.2030029296875,316.10198974609375 868,234 816.2150268554688,184.4459991455078 C764.781005859375,135.22799682617188 681.219970703125,212.79600524902344 681.219970703125,212.79600524902344",
+          "fill": "#000000",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": "nonzero"
+        },
+        {
+          "tag": "path",
+          "d": " M698,405 C698,405 642,405 642,405 C642,405 642,479 642,479 C642,479 698,479 698,479 C698,479 698,405 698,405",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": "nonzero"
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-4,-1.3799999952316284 C-4,-3.5889999866485596 -2.2090001106262207,-5.380000114440918 0,-5.380000114440918 C2.2090001106262207,-5.380000114440918 4,-3.5889999866485596 4,-1.3799999952316284 C4,-1.3799999952316284 4,2.509999990463257 4,2.509999990463257 C4,4.718999862670898 2.2090001106262207,6.5 0,6.5 C-2.2090001106262207,6.5 -4,4.718999862670898 -4,2.509999990463257 C-4,2.509999990463257 -4,-1.3799999952316284 -4,-1.3799999952316284z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-7,-2.990000009536743 C-7,0.8759999871253967 -3.865999937057495,4.010000228881836 0,4.010000228881836 C3.865999937057495,4.010000228881836 7,0.8759999871253967 7,-2.990000009536743",
+          "fill": null,
+          "stroke": "rgb(88,101,242)",
+          "strokeWidth": "2",
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-1,-2 C-1,-2.2760000228881836 -0.7760000228881836,-2.5 -0.5,-2.5 C-0.5,-2.5 0.5,-2.5 0.5,-2.5 C0.7760000228881836,-2.5 1,-2.2760000228881836 1,-2 C1,-2 1,2 1,2 C1,2.2760000228881836 0.7760000228881836,2.5 0.5,2.5 C0.5,2.5 -0.5,2.5 -0.5,2.5 C-0.7760000228881836,2.5 -1,2.2760000228881836 -1,2 C-1,2 -1,-2 -1,-2z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M3,-1 C3.552000045776367,-1 4,-0.5519999861717224 4,0 C4,0.5519999861717224 3.552000045776367,1 3,1 C3,1 -3,1 -3,1 C-3.552000045776367,1 -4,0.5519999861717224 -4,0 C-4,-0.5519999861717224 -3.552000045776367,-1 -3,-1 C-3,-1 3,-1 3,-1z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-10,10 C-10,10 10,-10 10,-10",
+          "fill": null,
+          "stroke": "rgb(88,101,242)",
+          "strokeWidth": "2",
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Input_Options",
+      "viewBox": "0 0 24 24",
+      "w": 16,
+      "h": 16,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "contents__201d5",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.29 5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.42Z",
+          "fill": "var(--icon-voice-muted)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Deafen",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "24",
+          "height": "24",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "width": "600",
+          "height": "600",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": "#000000",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": "nonzero"
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "width": "600",
+          "height": "600",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M67.22000122070312,823.7960205078125 C67.22000122070312,823.7960205078125 -126.3030014038086,1017.75 -126.3030014038086,1017.75 C-126.3030014038086,1017.75 -76.63800048828125,1067.092041015625 -76.63800048828125,1067.092041015625 C-76.63800048828125,1067.092041015625 -22.31999969482422,1121.0560302734375 -22.31999969482422,1121.0560302734375 C-22.31999969482422,1121.0560302734375 171.2030029296875,927.1019897460938 171.2030029296875,927.1019897460938 C171.2030029296875,927.1019897460938 239.677001953125,860.3419799804688 186.88099670410156,810.114013671875 C130,756 67.22000122070312,823.7960205078125 67.22000122070312,823.7960205078125",
+          "fill": "#000000",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": "nonzero"
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M0.5009999871253967,-0.10000000149011612 C0.5009999871253967,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 C-0.09300000220537186,-0.10000000149011612 -0.09300000220537186,1.0759999752044678 -0.09300000220537186,1.0759999752044678 C-0.09300000220537186,1.0759999752044678 0.5009999871253967,1.0759999752044678 0.5009999871253967,1.0759999752044678 C0.5009999871253967,1.0759999752044678 0.5009999871253967,-0.10000000149011612 0.5009999871253967,-0.10000000149011612",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-8,-0.2879999876022339 C-8,-4.705999851226807 -4.418000221252441,-8.288000106811523 0,-8.288000106811523 C4.418000221252441,-8.288000106811523 8,-4.705999851226807 8,-0.2879999876022339 C8,0.4050000011920929 7.953999996185303,1.0720000267028809 7.854000091552734,1.7120000123977661 C7.854000091552734,1.7120000123977661 6,1.7120000123977661 6,1.7120000123977661 C5.056000232696533,1.7120000123977661 4.166999816894531,2.1570000648498535 3.5999999046325684,2.9119999408721924 C3.5999999046325684,2.9119999408721924 1.6269999742507935,5.541999816894531 1.6269999742507935,5.541999816894531 C1.1579999923706055,6.168000221252441 1.0360000133514404,6.98799991607666 1.3040000200271606,7.7230000495910645 C1.8890000581741333,9.331999778747559 3.88700008392334,10.288000106811523 5.48199987411499,9.131999969482422 C8.83899974822998,6.701000213623047 10,3.380000114440918 10,-0.2879999876022339 C10,-5.810999870300293 5.5229997634887695,-10.288000106811523 0,-10.288000106811523 C-5.5229997634887695,-10.288000106811523 -10,-5.810999870300293 -10,-0.2879999876022339 C-10,3.380000114440918 -8.83899974822998,6.701000213623047 -5.48199987411499,9.131999969482422 C-3.88700008392334,10.288000106811523 -1.8890000581741333,9.331999778747559 -1.3040000200271606,7.7230000495910645 C-1.0360000133514404,6.98799991607666 -1.1579999923706055,6.168000221252441 -1.6269999742507935,5.541999816894531 C-1.6269999742507935,5.541999816894531 -3.5999999046325684,2.9119999408721924 -3.5999999046325684,2.9119999408721924 C-4.166999816894531,2.1570000648498535 -5.056000232696533,1.7120000123977661 -6,1.7120000123977661 C-6,1.7120000123977661 -7.854000091552734,1.7120000123977661 -7.854000091552734,1.7120000123977661 C-7.953999996185303,1.0720000267028809 -8,0.4050000011920929 -8,-0.2879999876022339z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Output_Options",
+      "viewBox": "0 0 24 24",
+      "w": 16,
+      "h": 16,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "contents__201d5",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.29 5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.42Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "User_Settings",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "24",
+          "height": "24",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-1.4420000314712524,-10.906000137329102 C-1.8949999809265137,-10.847000122070312 -2.1470000743865967,-10.375 -2.078000068664551,-9.92300033569336 C-1.899999976158142,-8.756999969482422 -2.265000104904175,-7.7210001945495605 -3.061000108718872,-7.390999794006348 C-3.8570001125335693,-7.060999870300293 -4.8480000495910645,-7.534999847412109 -5.546000003814697,-8.484999656677246 C-5.816999912261963,-8.852999687194824 -6.329999923706055,-9.008999824523926 -6.691999912261963,-8.730999946594238 C-7.458000183105469,-8.142999649047852 -8.142999649047852,-7.458000183105469 -8.730999946594238,-6.691999912261963 C-9.008999824523926,-6.329999923706055 -8.852999687194824,-5.816999912261963 -8.484999656677246,-5.546000003814697 C-7.534999847412109,-4.8480000495910645 -7.060999870300293,-3.8570001125335693 -7.390999794006348,-3.061000108718872 C-7.7210001945495605,-2.265000104904175 -8.756999969482422,-1.899999976158142 -9.92300033569336,-2.078000068664551 C-10.375,-2.1470000743865967 -10.847000122070312,-1.8949999809265137 -10.906000137329102,-1.4420000314712524 C-10.968000411987305,-0.9700000286102295 -11,-0.48899999260902405 -11,0 C-11,0.48899999260902405 -10.968000411987305,0.9700000286102295 -10.906000137329102,1.4420000314712524 C-10.847000122070312,1.8949999809265137 -10.375,2.1470000743865967 -9.92300033569336,2.078000068664551 C-8.756999969482422,1.899999976158142 -7.7210001945495605,2.265000104904175 -7.390999794006348,3.061000108718872 C-7.060999870300293,3.8570001125335693 -7.534999847412109,4.8470001220703125 -8.484999656677246,5.546000003814697 C-8.852999687194824,5.816999912261963 -9.008999824523926,6.328999996185303 -8.730999946594238,6.691999912261963 C-8.142999649047852,7.458000183105469 -7.458000183105469,8.142999649047852 -6.691999912261963,8.730999946594238 C-6.329999923706055,9.008999824523926 -5.816999912261963,8.852999687194824 -5.546000003814697,8.484999656677246 C-4.8480000495910645,7.534999847412109 -3.8570001125335693,7.060999870300293 -3.061000108718872,7.390999794006348 C-2.265000104904175,7.7210001945495605 -1.899999976158142,8.756999969482422 -2.078000068664551,9.92300033569336 C-2.1470000743865967,10.375 -1.8949999809265137,10.847000122070312 -1.4420000314712524,10.906000137329102 C-0.9700000286102295,10.968000411987305 -0.48899999260902405,11 0,11 C0.48899999260902405,11 0.9700000286102295,10.968000411987305 1.4420000314712524,10.906000137329102 C1.8949999809265137,10.847000122070312 2.1470000743865967,10.375 2.078000068664551,9.92300033569336 C1.899999976158142,8.756999969482422 2.2660000324249268,7.7210001945495605 3.062000036239624,7.390999794006348 C3.8580000400543213,7.060999870300293 4.8480000495910645,7.534999847412109 5.546000003814697,8.484999656677246 C5.816999912261963,8.852999687194824 6.328999996185303,9.008999824523926 6.691999912261963,8.730999946594238 C7.458000183105469,8.142999649047852 8.142999649047852,7.458000183105469 8.730999946594238,6.691999912261963 C9.008999824523926,6.328999996185303 8.852999687194824,5.816999912261963 8.484999656677246,5.546000003814697 C7.534999847412109,4.8480000495910645 7.060999870300293,3.8570001125335693 7.390999794006348,3.061000108718872 C7.7210001945495605,2.265000104904175 8.756999969482422,1.899999976158142 9.92300033569336,2.078000068664551 C10.375,2.1470000743865967 10.847000122070312,1.8949999809265137 10.906000137329102,1.4420000314712524 C10.968000411987305,0.9700000286102295 11,0.48899999260902405 11,0 C11,-0.48899999260902405 10.968000411987305,-0.9700000286102295 10.906000137329102,-1.4420000314712524 C10.847000122070312,-1.8949999809265137 10.375,-2.1470000743865967 9.92300033569336,-2.078000068664551 C8.756999969482422,-1.899999976158142 7.7210001945495605,-2.265000104904175 7.390999794006348,-3.061000108718872 C7.060999870300293,-3.8570001125335693 7.534999847412109,-4.8480000495910645 8.484999656677246,-5.546000003814697 C8.852999687194824,-5.816999912261963 9.008999824523926,-6.329999923706055 8.730999946594238,-6.691999912261963 C8.142999649047852,-7.458000183105469 7.458000183105469,-8.142999649047852 6.691999912261963,-8.730999946594238 C6.328999996185303,-9.008999824523926 5.817999839782715,-8.852999687194824 5.546999931335449,-8.484999656677246 C4.848999977111816,-7.534999847412109 3.8580000400543213,-7.060999870300293 3.062000036239624,-7.390999794006348 C2.2660000324249268,-7.7210001945495605 1.9010000228881836,-8.756999969482422 2.0789999961853027,-9.92300033569336 C2.1480000019073486,-10.375 1.8949999809265137,-10.847000122070312 1.4420000314712524,-10.906000137329102 C0.9700000286102295,-10.968000411987305 0.48899999260902405,-11 0,-11 C-0.48899999260902405,-11 -0.9700000286102295,-10.968000411987305 -1.4420000314712524,-10.906000137329102z M4,0 C4,2.2090001106262207 2.2090001106262207,4 0,4 C-2.2090001106262207,4 -4,2.2090001106262207 -4,0 C-4,-2.2090001106262207 -2.2090001106262207,-4 0,-4 C2.2090001106262207,-4 4,-2.2090001106262207 4,0z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Start_Voice_Call",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "iconWrapper__9293f clickable__9293f",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M2 7.4A5.4 5.4 0 0 1 7.4 2c.36 0 .7.22.83.55l1.93 4.64a1 1 0 0 1-.43 1.25L7 10a8.52 8.52 0 0 0 7 7l1.12-2.24a1 1 0 0 1 1.19-.51l5.06 1.56c.38.11.63.46.63.85C22 19.6 19.6 22 16.66 22h-.37C8.39 22 2 15.6 2 7.71V7.4ZM13 3a1 1 0 0 1 1-1 8 8 0 0 1 8 8 1 1 0 1 1-2 0 6 6 0 0 0-6-6 1 1 0 0 1-1-1Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M13 7a1 1 0 0 1 1-1 4 4 0 0 1 4 4 1 1 0 1 1-2 0 2 2 0 0 0-2-2 1 1 0 0 1-1-1Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Browser_Not_Supported",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.68759 0.00173888 -0.0100746)",
+      "near": "iconWrapper__9293f iconDisabled__9293f",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M4 4a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h11a3 3 0 0 0 3-3v-2.12a1 1 0 0 0 .55.9l3 1.5a1 1 0 0 0 1.45-.9V7.62a1 1 0 0 0-1.45-.9l-3 1.5a1 1 0 0 0-.55.9V7a3 3 0 0 0-3-3H4Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Pinned_Messages",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "iconWrapper__9293f clickable__9293f",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M19.38 11.38a3 3 0 0 0 4.24 0l.03-.03a.5.5 0 0 0 0-.7L13.35.35a.5.5 0 0 0-.7 0l-.03.03a3 3 0 0 0 0 4.24L13 5l-2.92 2.92-3.65-.34a2 2 0 0 0-1.6.58l-.62.63a1 1 0 0 0 0 1.42l9.58 9.58a1 1 0 0 0 1.42 0l.63-.63a2 2 0 0 0 .58-1.6l-.34-3.64L19 11l.38.38ZM9.07 17.07a.5.5 0 0 1-.08.77l-5.15 3.43a.5.5 0 0 1-.63-.06l-.42-.42a.5.5 0 0 1-.06-.63L6.16 15a.5.5 0 0 1 .77-.08l2.14 2.14Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Invite_to_Group_DM",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "iconWrapper__9293f clickable__9293f",
+      "uses": 2,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M14.5 8a3 3 0 1 0-2.7-4.3c-.2.4.06.86.44 1.12a5 5 0 0 1 2.14 3.08c.01.06.06.1.12.1ZM16.62 13.17c-.22.29-.65.37-.92.14-.34-.3-.7-.57-1.09-.82-.52-.33-.7-1.05-.47-1.63.11-.27.2-.57.26-.87.11-.54.55-1 1.1-.92 1.6.2 3.04.92 4.15 1.98.3.27-.25.95-.65.95a3 3 0 0 0-2.38 1.17ZM15.19 15.61c.13.16.02.39-.19.39a3 3 0 0 0-1.52 5.59c.2.12.26.41.02.41h-8a.5.5 0 0 1-.5-.5v-2.1c0-.25-.31-.33-.42-.1-.32.67-.67 1.58-.88 2.54a.2.2 0 0 1-.2.16A1.5 1.5 0 0 1 2 20.5a7.5 7.5 0 0 1 13.19-4.89ZM9.5 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM15.5 22Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M19 14a1 1 0 0 1 1 1v3h3a1 1 0 0 1 0 2h-3v3a1 1 0 0 1-2 0v-3h-3a1 1 0 1 1 0-2h3v-3a1 1 0 0 1 1-1Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Show_Member_List",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.745443 0.00131971 -0.00849813)",
+      "near": "iconWrapper__9293f clickable__9293f",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M14.5 8a3 3 0 1 0-2.7-4.3c-.2.4.06.86.44 1.12a5 5 0 0 1 2.14 3.08c.01.06.06.1.12.1ZM18.44 17.27c.15.43.54.73 1 .73h1.06c.83 0 1.5-.67 1.5-1.5a7.5 7.5 0 0 0-6.5-7.43c-.55-.08-.99.38-1.1.92-.06.3-.15.6-.26.87-.23.58-.05 1.3.47 1.63a9.53 9.53 0 0 1 3.83 4.78ZM12.5 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM2 20.5a7.5 7.5 0 0 1 15 0c0 .83-.67 1.5-1.5 1.5a.2.2 0 0 1-.2-.16c-.2-.96-.56-1.87-.88-2.54-.1-.23-.42-.15-.42.1v2.1a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-2.1c0-.25-.31-.33-.42-.1-.32.67-.67 1.58-.88 2.54a.2.2 0 0 1-.2.16A1.5 1.5 0 0 1 2 20.5Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "viewBox": "0 0 24 24",
+      "w": 16,
+      "h": 24,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "iconContainer__0c4c4",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": "evenodd",
+          "clipRule": "evenodd"
+        }
+      ]
+    },
+    {
+      "name": "Clear",
+      "viewBox": "0 0 24 24",
+      "w": 24,
+      "h": 16,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "iconContainer__0c4c4",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M17.3 18.7a1 1 0 0 0 1.4-1.4L13.42 12l5.3-5.3a1 1 0 0 0-1.42-1.4L12 10.58l-5.3-5.3a1 1 0 0 0-1.4 1.42L10.58 12l-5.3 5.3a1 1 0 1 0 1.42 1.4L12 13.42l5.3 5.3Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Edit_Group",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "rgb(255, 255, 255)",
+      "near": "buttonChildren_a22cb0",
+      "uses": 2,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "m13.96 5.46 4.58 4.58a1 1 0 0 0 1.42 0l1.38-1.38a2 2 0 0 0 0-2.82l-3.18-3.18a2 2 0 0 0-2.82 0l-1.38 1.38a1 1 0 0 0 0 1.42ZM2.11 20.16l.73-4.22a3 3 0 0 1 .83-1.61l7.87-7.87a1 1 0 0 1 1.42 0l4.58 4.58a1 1 0 0 1 0 1.42l-7.87 7.87a3 3 0 0 1-1.6.83l-4.23.73a1.5 1.5 0 0 1-1.73-1.73Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "More_message_options",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "buttonWrapper__24af7 attachButtonInner__0923f",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "path",
+          "d": "M13 3a1 1 0 1 0-2 0v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3Z",
+          "fill": "currentColor",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Send_a_gift",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 24,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b trinketsIcon__5287",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "24",
+          "height": "24",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-7,10 C-8.104999542236328,10 -9,9.104999542236328 -9,8 C-9,8 -9,2.5 -9,2.5 C-9,2.2239999771118164 -8.776000022888184,2 -8.5,2 C-8.5,2 -1.5,2 -1.5,2 C-1.2239999771118164,2 -1,2.2239999771118164 -1,2.5 C-1,2.5 -1,9.5 -1,9.5 C-1,9.776000022888184 -1.2239999771118164,10 -1.5,10 C-1.5,10 -7,10 -7,10z M1,9.5 C1,9.776000022888184 1.2239999771118164,10 1.5,10 C1.5,10 7,10 7,10 C8.104999542236328,10 9,9.104999542236328 9,8 C9,8 9,2.5 9,2.5 C9,2.2239999771118164 8.776000022888184,2 8.5,2 C8.5,2 1.5,2 1.5,2 C1.2239999771118164,2 1,2.2239999771118164 1,2.5 C1,2.5 1,9.5 1,9.5z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-10,-2 C-10,-3.1050000190734863 -9.104999542236328,-4 -8,-4 C-8,-4 8,-4 8,-4 C9.104999542236328,-4 10,-3.1050000190734863 10,-2 C10,-2 10,-0.5 10,-0.5 C10,-0.2240000069141388 9.776000022888184,0 9.5,0 C9.5,0 -9.5,0 -9.5,0 C-9.776000022888184,0 -10,-0.2240000069141388 -10,-0.5 C-10,-0.5 -10,-2 -10,-2z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M7,-6 C7,-7.6570000648498535 5.6570000648498535,-9 4,-9 C4,-9 3.9110000133514404,-9 3.9110000133514404,-9 C2.49399995803833,-9 1.2589999437332153,-8.03600025177002 0.9150000214576721,-6.660999774932861 C0.9150000214576721,-6.660999774932861 0,-3 0,-3 C0,-3 4,-3 4,-3 C5.6570000648498535,-3 7,-4.3429999351501465 7,-6 C7,-6 7,-6 7,-6z",
+          "fill": null,
+          "stroke": "rgb(88,101,242)",
+          "strokeWidth": "2",
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-7,-6 C-7,-7.6570000648498535 -5.6570000648498535,-9 -4,-9 C-4,-9 -3.9110000133514404,-9 -3.9110000133514404,-9 C-2.49399995803833,-9 -1.2589999437332153,-8.03600025177002 -0.9150000214576721,-6.660999774932861 C-0.9150000214576721,-6.660999774932861 0,-3 0,-3 C0,-3 -4,-3 -4,-3 C-5.6570000648498535,-3 -7,-4.3429999351501465 -7,-6 C-7,-6 -7,-6 -7,-6z",
+          "fill": null,
+          "stroke": "rgb(88,101,242)",
+          "strokeWidth": "2",
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Open_GIF_picker",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "24",
+          "height": "24",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M3.0299999713897705,3.7190001010894775 C3.0299999713897705,3.7190001010894775 4.604000091552734,3.7190001010894775 4.604000091552734,3.7190001010894775 C4.604000091552734,3.7190001010894775 4.604000091552734,0.8949999809265137 4.604000091552734,0.8949999809265137 C4.604000091552734,0.8949999809265137 7.363999843597412,0.8949999809265137 7.363999843597412,0.8949999809265137 C7.363999843597412,0.8949999809265137 7.363999843597412,-0.5289999842643738 7.363999843597412,-0.5289999842643738 C7.363999843597412,-0.5289999842643738 4.604000091552734,-0.5289999842643738 4.604000091552734,-0.5289999842643738 C4.604000091552734,-0.5289999842643738 4.604000091552734,-2.2960000038146973 4.604000091552734,-2.2960000038146973 C4.604000091552734,-2.2960000038146973 8,-2.2960000038146973 8,-2.2960000038146973 C8,-2.2960000038146973 8,-3.7190001010894775 8,-3.7190001010894775 C8,-3.7190001010894775 3.0299999713897705,-3.7190001010894775 3.0299999713897705,-3.7190001010894775 C3.0299999713897705,-3.7190001010894775 3.0299999713897705,3.7190001010894775 3.0299999713897705,3.7190001010894775z",
+          "fill": "rgb(255,255,255)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M1.5199999809265137,3.7190001010894775 C1.5199999809265137,3.7190001010894775 -0.05400000140070915,3.7190001010894775 -0.05400000140070915,3.7190001010894775 C-0.05400000140070915,3.7190001010894775 -0.05400000140070915,-3.7190001010894775 -0.05400000140070915,-3.7190001010894775 C-0.05400000140070915,-3.7190001010894775 1.5199999809265137,-3.7190001010894775 1.5199999809265137,-3.7190001010894775 C1.5199999809265137,-3.7190001010894775 1.5199999809265137,3.7190001010894775 1.5199999809265137,3.7190001010894775z",
+          "fill": "rgb(255,255,255)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-4.820000171661377,3.869999885559082 C-5.445000171661377,3.869999885559082 -5.998000144958496,3.7079999446868896 -6.480000019073486,3.384999990463257 C-6.961999893188477,3.062000036239624 -7.335000038146973,2.6080000400543213 -7.60099983215332,2.0260000228881836 C-7.867000102996826,1.437000036239624 -8,0.7620000243186951 -8,0 C-8,-0.7549999952316284 -7.860000133514404,-1.4229999780654907 -7.579999923706055,-2.005000114440918 C-7.293000221252441,-2.5869998931884766 -6.879000186920166,-3.0429999828338623 -6.340000152587891,-3.374000072479248 C-5.794000148773193,-3.7049999237060547 -5.144000053405762,-3.869999885559082 -4.388999938964844,-3.869999885559082 C-3.749000072479248,-3.869999885559082 -3.177999973297119,-3.7339999675750732 -2.674999952316284,-3.4609999656677246 C-2.1649999618530273,-3.187999963760376 -1.7799999713897705,-2.802999973297119 -1.5210000276565552,-2.306999921798706 C-1.5210000276565552,-2.306999921798706 -2.739000082015991,-1.434000015258789 -2.739000082015991,-1.434000015258789 C-3.1059999465942383,-2.109999895095825 -3.6519999504089355,-2.447000026702881 -4.377999782562256,-2.447000026702881 C-5.039000034332275,-2.447000026702881 -5.546000003814697,-2.2320001125335693 -5.8979997634887695,-1.8009999990463257 C-6.25,-1.3769999742507935 -6.426000118255615,-0.7760000228881836 -6.426000118255615,0 C-6.426000118255615,0.7829999923706055 -6.25,1.3869999647140503 -5.8979997634887695,1.8109999895095825 C-5.546000003814697,2.234999895095825 -5.039000034332275,2.447000026702881 -4.377999782562256,2.447000026702881 C-4.083000183105469,2.447000026702881 -3.812999963760376,2.3929998874664307 -3.569000005722046,2.2850000858306885 C-3.316999912261963,2.1700000762939453 -3.124000072479248,2.0160000324249268 -2.986999988555908,1.8220000267028809 C-2.986999988555908,1.8220000267028809 -2.986999988555908,0.8949999809265137 -2.986999988555908,0.8949999809265137 C-2.986999988555908,0.8949999809265137 -4.701000213623047,0.8949999809265137 -4.701000213623047,0.8949999809265137 C-4.701000213623047,0.8949999809265137 -4.701000213623047,-0.5070000290870667 -4.701000213623047,-0.5070000290870667 C-4.701000213623047,-0.5070000290870667 -1.4559999704360962,-0.5070000290870667 -1.4559999704360962,-0.5070000290870667 C-1.4559999704360962,-0.5070000290870667 -1.4559999704360962,3.7190001010894775 -1.4559999704360962,3.7190001010894775 C-1.4559999704360962,3.7190001010894775 -2.7279999256134033,3.7190001010894775 -2.7279999256134033,3.7190001010894775 C-2.7279999256134033,3.7190001010894775 -2.933000087738037,3.006999969482422 -2.933000087738037,3.006999969482422 C-3.3570001125335693,3.5820000171661377 -3.9860000610351562,3.869999885559082 -4.820000171661377,3.869999885559082z",
+          "fill": "rgb(255,255,255)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "600",
+          "height": "600",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-7,-10 C-8.656999588012695,-10 -10,-8.656999588012695 -10,-7 C-10,-7 -10,7 -10,7 C-10,8.656999588012695 -8.656999588012695,10 -7,10 C-7,10 7,10 7,10 C8.656999588012695,10 10,8.656999588012695 10,7 C10,7 10,-7 10,-7 C10,-8.656999588012695 8.656999588012695,-10 7,-10 C7,-10 -7,-10 -7,-10z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Open_sticker_picker",
+      "viewBox": "0 0 24 24",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "24",
+          "height": "24",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L600,0 L600,600 L0,600z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": "nonzero"
+        },
+        {
+          "tag": "path",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": "nonzero"
+        },
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "600",
+          "height": "600",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "600",
+          "height": "600",
+          "fill": "#ffffff",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-6,-10 C-6,-10 6,-10 6,-10 C8.208999633789062,-10 10,-8.208999633789062 10,-6 C10,-6 10,1.5 10,1.5 C10,1.7760000228881836 9.776000022888184,2 9.5,2 C9.5,2 7,2 7,2 C4.238999843597412,2 2,4.238999843597412 2,7 C2,7 2,9.5 2,9.5 C2,9.776000022888184 1.7760000228881836,10 1.5,10 C1.5,10 -6,10 -6,10 C-8.208999633789062,10 -10,8.208999633789062 -10,6 C-10,6 -10,-6 -10,-6 C-10,-8.208999633789062 -8.208999633789062,-10 -6,-10z M9.659000396728516,4 C9.692000389099121,4 9.71399974822998,4.033999919891357 9.699999809265137,4.064000129699707 C9.555000305175781,4.36299991607666 9.359999656677246,4.639999866485596 9.121000289916992,4.879000186920166 C9.121000289916992,4.879000186920166 4.879000186920166,9.121000289916992 4.879000186920166,9.121000289916992 C4.639999866485596,9.359999656677246 4.36299991607666,9.555000305175781 4.064000129699707,9.699999809265137 C4.033999919891357,9.71399974822998 4,9.692000389099121 4,9.659000396728516 C4,9.659000396728516 4,9.17199993133545 4,9.17199993133545 C4,9.17199993133545 4,7 4,7 C4,5.3429999351501465 5.3429999351501465,4 7,4 C7,4 9.17199993133545,4 9.17199993133545,4 C9.17199993133545,4 9.659000396728516,4 9.659000396728516,4z M-5.5,-2 C-4.671999931335449,-2 -4,-2.671999931335449 -4,-3.5 C-4,-4.328000068664551 -4.671999931335449,-5 -5.5,-5 C-6.328000068664551,-5 -7,-4.328000068664551 -7,-3.5 C-7,-2.671999931335449 -6.328000068664551,-2 -5.5,-2z M7,-3.5 C7,-4.328000068664551 6.328000068664551,-5 5.5,-5 C4.671999931335449,-5 4,-4.328000068664551 4,-3.5 C4,-2.671999931335449 4.671999931335449,-2 5.5,-2 C6.328000068664551,-2 7,-2.671999931335449 7,-3.5z M-2.9110000133514404,-0.5559999942779541 C-3.2179999351501465,-1.0149999856948853 -3.8399999141693115,-1.1380000114440918 -4.298999786376953,-0.8309999704360962 C-4.757999897003174,-0.5239999890327454 -4.880000114440918,0.09700000286102295 -4.572999954223633,0.5559999942779541 C-3.5880000591278076,2.0269999504089355 -1.9079999923706055,3 0,3 C1.9079999923706055,3 3.5880000591278076,2.0269999504089355 4.572999954223633,0.5559999942779541 C4.880000114440918,0.09700000286102295 4.756999969482422,-0.5239999890327454 4.297999858856201,-0.8309999704360962 C3.8389999866485596,-1.1380000114440918 3.2179999351501465,-1.0149999856948853 2.9110000133514404,-0.5559999942779541 C2.2809998989105225,0.38499999046325684 1.2120000123977661,1 0,1 C-1.2120000123977661,1 -2.2809998989105225,0.38499999046325684 -2.9110000133514404,-0.5559999942779541z",
+          "fill": "rgb(88,101,242)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    },
+    {
+      "name": "Apps",
+      "viewBox": "0 0 96 96",
+      "w": 20,
+      "h": 20,
+      "color": "oklab(0.826944 0.000525266 -0.00561434)",
+      "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+      "uses": 1,
+      "paths": [
+        {
+          "tag": "rect",
+          "x": "0",
+          "y": "0",
+          "width": "96",
+          "height": "96",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": "M0,0 L96,0 L96,96 L0,96z",
+          "fill": null,
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-6.554999828338623,1.6410000324249268 C-6.929999828338623,3.0420000553131104 -6.099999904632568,4.480999946594238 -4.698999881744385,4.85699987411499 C-4.698999881744385,4.85699987411499 1.6410000324249268,6.554999828338623 1.6410000324249268,6.554999828338623 C3.0409998893737793,6.931000232696533 4.48199987411499,6.098999977111816 4.85699987411499,4.698999881744385 C4.85699987411499,4.698999881744385 6.554999828338623,-1.6410000324249268 6.554999828338623,-1.6410000324249268 C6.929999828338623,-3.0420000553131104 6.098999977111816,-4.480999946594238 4.698999881744385,-4.85699987411499 C4.698999881744385,-4.85699987411499 -1.6410000324249268,-6.556000232696533 -1.6410000324249268,-6.556000232696533 C-3.0409998893737793,-6.931000232696533 -4.48199987411499,-6.099999904632568 -4.85699987411499,-4.698999881744385 C-4.85699987411499,-4.698999881744385 -6.554999828338623,1.6410000324249268 -6.554999828338623,1.6410000324249268z",
+          "fill": "rgb(199,200,206)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-6.478000164031982,2.4040000438690186 C-7.552000045776367,4.372000217437744 -6.126999855041504,6.771999835968018 -3.884999990463257,6.771999835968018 C-3.884999990463257,6.771999835968018 3.885999917984009,6.771999835968018 3.885999917984009,6.771999835968018 C6.127999782562256,6.771999835968018 7.552000045776367,4.372000217437744 6.479000091552734,2.4040000438690186 C6.479000091552734,2.4040000438690186 2.5929999351501465,-4.718999862670898 2.5929999351501465,-4.718999862670898 C1.4739999771118164,-6.771999835968018 -1.4730000495910645,-6.771999835968018 -2.5929999351501465,-4.718999862670898 C-2.5929999351501465,-4.718999862670898 -6.478000164031982,2.4040000438690186 -6.478000164031982,2.4040000438690186z",
+          "fill": "rgb(199,200,206)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M-0.9409999847412109,-6.26800012588501 C-0.42100000381469727,-6.796999931335449 0.41999998688697815,-6.796999931335449 0.9409999847412109,-6.26800012588501 C0.9409999847412109,-6.26800012588501 2.056999921798706,-5.132999897003174 2.056999921798706,-5.132999897003174 C2.2699999809265137,-4.916999816894531 2.5480000972747803,-4.78000020980835 2.8459999561309814,-4.744999885559082 C2.8459999561309814,-4.744999885559082 4.4120001792907715,-4.561999797821045 4.4120001792907715,-4.561999797821045 C5.140999794006348,-4.4770002365112305 5.665999889373779,-3.805999994277954 5.585000038146973,-3.061000108718872 C5.585000038146973,-3.061000108718872 5.410999774932861,-1.4630000591278076 5.410999774932861,-1.4630000591278076 C5.377999782562256,-1.1579999923706055 5.447000026702881,-0.8510000109672546 5.605999946594238,-0.5910000205039978 C5.605999946594238,-0.5910000205039978 6.441999912261963,0.7720000147819519 6.441999912261963,0.7720000147819519 C6.831999778747559,1.406999945640564 6.644999980926514,2.24399995803833 6.0229997634887695,2.6440000534057617 C6.0229997634887695,2.6440000534057617 4.690999984741211,3.502000093460083 4.690999984741211,3.502000093460083 C4.436999797821045,3.6649999618530273 4.24399995803833,3.9119999408721924 4.144000053405762,4.201000213623047 C4.144000053405762,4.201000213623047 3.621000051498413,5.7179999351501465 3.621000051498413,5.7179999351501465 C3.378000020980835,6.423999786376953 2.619999885559082,6.796999931335449 1.9259999990463257,6.551000118255615 C1.9259999990463257,6.551000118255615 0.43799999356269836,6.021999835968018 0.43799999356269836,6.021999835968018 C0.15399999916553497,5.921999931335449 -0.1550000011920929,5.921999931335449 -0.43799999356269836,6.021999835968018 C-0.43799999356269836,6.021999835968018 -1.9270000457763672,6.551000118255615 -1.9270000457763672,6.551000118255615 C-2.619999885559082,6.796999931335449 -3.378000020980835,6.423999786376953 -3.621999979019165,5.7179999351501465 C-3.621999979019165,5.7179999351501465 -4.144999980926514,4.201000213623047 -4.144999980926514,4.201000213623047 C-4.24399995803833,3.9119999408721924 -4.436999797821045,3.6649999618530273 -4.690999984741211,3.502000093460083 C-4.690999984741211,3.502000093460083 -6.02400016784668,2.6440000534057617 -6.02400016784668,2.6440000534057617 C-6.644999980926514,2.24399995803833 -6.831999778747559,1.406999945640564 -6.442999839782715,0.7720000147819519 C-6.442999839782715,0.7720000147819519 -5.605999946594238,-0.5910000205039978 -5.605999946594238,-0.5910000205039978 C-5.447000026702881,-0.8510000109672546 -5.377999782562256,-1.1579999923706055 -5.4120001792907715,-1.4630000591278076 C-5.4120001792907715,-1.4630000591278076 -5.585000038146973,-3.061000108718872 -5.585000038146973,-3.061000108718872 C-5.665999889373779,-3.805999994277954 -5.142000198364258,-4.4770002365112305 -4.4120001792907715,-4.561999797821045 C-4.4120001792907715,-4.561999797821045 -2.8469998836517334,-4.744999885559082 -2.8469998836517334,-4.744999885559082 C-2.5480000972747803,-4.78000020980835 -2.2699999809265137,-4.916999816894531 -2.056999921798706,-5.132999897003174 C-2.056999921798706,-5.132999897003174 -0.9409999847412109,-6.26800012588501 -0.9409999847412109,-6.26800012588501z",
+          "fill": "rgb(199,200,206)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        },
+        {
+          "tag": "path",
+          "d": " M1.5130000114440918,-5.5920000076293945 C0.9929999709129333,-6.997000217437744 -0.9940000176429749,-6.997000217437744 -1.5140000581741333,-5.5920000076293945 C-1.5140000581741333,-5.5920000076293945 -2.190999984741211,-3.760999917984009 -2.190999984741211,-3.760999917984009 C-2.4600000381469727,-3.0339999198913574 -3.0339999198913574,-2.4600000381469727 -3.76200008392334,-2.190999984741211 C-3.76200008392334,-2.190999984741211 -5.5920000076293945,-1.5130000114440918 -5.5920000076293945,-1.5130000114440918 C-6.997000217437744,-0.9940000176429749 -6.997000217437744,0.9929999709129333 -5.5920000076293945,1.5130000114440918 C-5.5920000076293945,1.5130000114440918 -3.76200008392334,2.190999984741211 -3.76200008392334,2.190999984741211 C-3.0339999198913574,2.4600000381469727 -2.4600000381469727,3.0339999198913574 -2.190999984741211,3.760999917984009 C-2.190999984741211,3.760999917984009 -1.5140000581741333,5.5920000076293945 -1.5140000581741333,5.5920000076293945 C-0.9940000176429749,6.997000217437744 0.9929999709129333,6.997000217437744 1.5130000114440918,5.5920000076293945 C1.5130000114440918,5.5920000076293945 2.190000057220459,3.760999917984009 2.190000057220459,3.760999917984009 C2.4600000381469727,3.0339999198913574 3.0329999923706055,2.4600000381469727 3.760999917984009,2.190999984741211 C3.760999917984009,2.190999984741211 5.5920000076293945,1.5130000114440918 5.5920000076293945,1.5130000114440918 C6.997000217437744,0.9929999709129333 6.997000217437744,-0.9940000176429749 5.5920000076293945,-1.5130000114440918 C5.5920000076293945,-1.5130000114440918 3.760999917984009,-2.190999984741211 3.760999917984009,-2.190999984741211 C3.0329999923706055,-2.4600000381469727 2.4600000381469727,-3.0339999198913574 2.190000057220459,-3.760999917984009 C2.190000057220459,-3.760999917984009 1.5130000114440918,-5.5920000076293945 1.5130000114440918,-5.5920000076293945z",
+          "fill": "rgb(199,200,206)",
+          "stroke": null,
+          "strokeWidth": null,
+          "fillRule": null,
+          "clipRule": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "root": {
+    "selector": null,
+    "tag": "div",
+    "cls": "contentWrapper__08434",
+    "role": null,
+    "label": "",
+    "text": "GIFs Stickers Emoji Frequently Used :100: Alt+Click to ⭐ :thumbsup: :+1: :thumbup: :thumbs_up: Alt+Click to ⭐ :eyes: Alt+Click to ⭐ :laughing: :satisfied: Alt+C",
+    "box": {
+      "x": 853,
+      "y": 531,
+      "w": 498,
+      "h": 486,
+      "cx": 1102,
+      "cy": 774
+    },
+    "style": {
+      "display": "grid",
+      "position": "relative",
+      "flexDirection": "row",
+      "flexWrap": "nowrap",
+      "gap": "12px normal",
+      "rowGap": 12,
+      "gridTemplateColumns": 496.78,
+      "gridTemplateRows": "30px 426.79px",
+      "paddingTop": 16,
+      "width": 497.992,
+      "height": 485.994,
+      "zIndex": "1",
+      "overflowX": "visible",
+      "overflowY": "visible",
+      "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "fontSize": 16,
+      "fontWeight": "400",
+      "lineHeight": 16,
+      "textAlign": "start",
+      "color": "#2c2d32",
+      "caretColor": "#2c2d32",
+      "backgroundColor": "#393a41",
+      "borderTopWidth": 0.606061,
+      "borderRightWidth": 0.606061,
+      "borderBottomWidth": 0.606061,
+      "borderLeftWidth": 0.606061,
+      "borderTopColor": "#94949c@0.12",
+      "borderRightColor": "#94949c@0.12",
+      "borderBottomColor": "#94949c@0.12",
+      "borderLeftColor": "#94949c@0.12",
+      "borderTopLeftRadius": 8,
+      "borderTopRightRadius": 8,
+      "borderBottomLeftRadius": 8,
+      "borderBottomRightRadius": 8,
+      "boxShadow": "#000000@0.00",
+      "outlineColor": "#2c2d32",
+      "opacity": "1",
+      "transitionProperty": "all",
+      "transitionDuration": "0s",
+      "transitionTimingFunction": "ease",
+      "pointerEvents": "all"
+    },
+    "pseudos": [
+      {
+        "pseudo": "::placeholder",
+        "color": "#2c2d32",
+        "opacity": "1"
+      }
+    ],
+    "scroll": {
+      "scrollHeight": 485,
+      "clientHeight": 485,
+      "scrollWidth": 497,
+      "clientWidth": 497
+    },
+    "parent": {
+      "tag": "div",
+      "cls": "drawerSizingWrapper__08434"
+    }
+  },
+  "tabs": [
+    {
+      "label": "GIFs",
+      "w": 51,
+      "h": 30,
+      "color": "#f3f3f4",
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Stickers",
+      "w": 74,
+      "h": 30,
+      "color": "#f3f3f4",
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Emoji",
+      "w": 58,
+      "h": 30,
+      "color": "#ffffff",
+      "bg": "#9595a2@0.16"
+    }
+  ],
+  "cells": [
+    {
+      "w": 48,
+      "h": 48
+    },
+    {
+      "w": 48,
+      "h": 48
+    },
+    {
+      "w": 48,
+      "h": 48
+    },
+    {
+      "w": 48,
+      "h": 48
+    }
+  ],
+  "search": {
+    "cls": "input__75098",
+    "w": 376,
+    "h": 39,
+    "y": 591,
+    "bg": "#000000@0.00",
+    "radius": "0px",
+    "fontSize": "16px"
+  },
+  "categoryBar": {
+    "cls": "nav__08434",
+    "w": 497,
+    "h": 30,
+    "y": 548,
+    "bg": "#000000@0.00",
+    "radius": "0px",
+    "fontSize": "16px"
+  },
+  "body": {
+    "cls": "bodyWrapper_c0e32c",
+    "w": 449,
+    "h": 326,
+    "y": 643,
+    "bg": "#000000@0.00",
+    "radius": "0px",
+    "fontSize": "16px"
+  }
+}

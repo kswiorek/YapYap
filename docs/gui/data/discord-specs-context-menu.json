@@ -1,0 +1,332 @@
+{
+  "menu": {
+    "selector": null,
+    "tag": "div",
+    "cls": "menu_c1e9c4 flexible_c1e9c4",
+    "role": "menu",
+    "label": "Message Actions",
+    "text": ":100: :thumbsup: :+1: :thumbup: :thumbs_up: :thumbsdown: :-1: :thumbdown: :thumbs_down: :heart: :red_heart: Add Reaction Reply Forward Copy Text Pin Message Boo",
+    "box": {
+      "x": 667,
+      "y": 523,
+      "w": 221,
+      "h": 559,
+      "cx": 778,
+      "cy": 802
+    },
+    "style": {
+      "display": "flex",
+      "position": "static",
+      "flexDirection": "row",
+      "flexWrap": "nowrap",
+      "width": 221.042,
+      "height": 558.769,
+      "minWidth": 144,
+      "maxWidth": 320,
+      "maxHeight": 994.303,
+      "zIndex": "1",
+      "overflowX": "visible",
+      "overflowY": "visible",
+      "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "fontSize": 16,
+      "fontWeight": "400",
+      "lineHeight": 16,
+      "textAlign": "start",
+      "color": "#2c2d32",
+      "caretColor": "#2c2d32",
+      "backgroundColor": "#3c3d45",
+      "borderTopWidth": 0.606061,
+      "borderRightWidth": 0.606061,
+      "borderBottomWidth": 0.606061,
+      "borderLeftWidth": 0.606061,
+      "borderTopColor": "#94949c@0.12",
+      "borderRightColor": "#94949c@0.12",
+      "borderBottomColor": "#94949c@0.12",
+      "borderLeftColor": "#94949c@0.12",
+      "borderTopLeftRadius": 8,
+      "borderTopRightRadius": 8,
+      "borderBottomLeftRadius": 8,
+      "borderBottomRightRadius": 8,
+      "boxShadow": "#000000@0.00",
+      "outlineColor": "#2c2d32",
+      "opacity": "1",
+      "transitionProperty": "all",
+      "transitionDuration": "0s",
+      "transitionTimingFunction": "ease",
+      "cursor": "default"
+    },
+    "pseudos": [
+      {
+        "pseudo": "::placeholder",
+        "color": "#2c2d32",
+        "opacity": "1"
+      }
+    ],
+    "scroll": {
+      "scrollHeight": 558,
+      "clientHeight": 558,
+      "scrollWidth": 220,
+      "clientWidth": 220
+    },
+    "parent": {
+      "tag": "div",
+      "cls": "layer__529b0"
+    }
+  },
+  "items": [
+    {
+      "text": ":100:",
+      "h": 44,
+      "pad": "0px 0px 0px 0px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "0px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": null
+    },
+    {
+      "text": ":thumbsup: :+1: :thumbup: :thumbs_up:",
+      "h": 44,
+      "pad": "0px 0px 0px 0px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "0px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": null
+    },
+    {
+      "text": ":thumbsdown: :-1: :thumbdown: :thumbs_do",
+      "h": 44,
+      "pad": "0px 0px 0px 0px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "0px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": null
+    },
+    {
+      "text": ":heart: :red_heart:",
+      "h": 44,
+      "pad": "0px 0px 0px 0px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "0px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": null
+    },
+    {
+      "text": "Add Reaction",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Reply",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Forward",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Copy Text",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Pin Message",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Bookmark Message",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Create Reminder",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Apps",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Mark Unread",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Copy Message Link",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Speak Message",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#c5c6ca",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": false,
+      "icon": 20
+    },
+    {
+      "text": "Report Message",
+      "h": 36,
+      "pad": "8px 8px 8px 8px",
+      "color": "#ffa09b",
+      "bg": "#000000@0.00",
+      "radius": "2px",
+      "fontSize": "14px",
+      "destructive": true,
+      "icon": 20
+    }
+  ],
+  "seps": [
+    {
+      "h": 1,
+      "bg": "#000000@0.00"
+    },
+    {
+      "h": 1,
+      "bg": "#000000@0.00"
+    },
+    {
+      "h": 1,
+      "bg": "#000000@0.00"
+    }
+  ],
+  "outer": {
+    "selector": null,
+    "tag": "div",
+    "cls": "layer__529b0",
+    "role": null,
+    "label": "",
+    "text": ":100: :thumbsup: :+1: :thumbup: :thumbs_up: :thumbsdown: :-1: :thumbdown: :thumbs_down: :heart: :red_heart: Add Reaction Reply Forward Copy Text Pin Message Boo",
+    "box": {
+      "x": 667,
+      "y": 523,
+      "w": 221,
+      "h": 559,
+      "cx": 778,
+      "cy": 802
+    },
+    "style": {
+      "display": "block",
+      "position": "fixed",
+      "flexDirection": "row",
+      "flexWrap": "nowrap",
+      "width": 221.042,
+      "height": 558.769,
+      "right": 1481.99,
+      "bottom": 531.534,
+      "zIndex": "9999",
+      "overflowX": "visible",
+      "overflowY": "visible",
+      "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "fontSize": 16,
+      "fontWeight": "400",
+      "lineHeight": 16,
+      "textAlign": "start",
+      "color": "#2c2d32",
+      "caretColor": "#2c2d32",
+      "backgroundColor": "#000000@0.00",
+      "borderTopColor": "#2c2d32",
+      "borderRightColor": "#2c2d32",
+      "borderBottomColor": "#2c2d32",
+      "borderLeftColor": "#2c2d32",
+      "outlineColor": "#2c2d32",
+      "opacity": "1",
+      "transform": "matrix(1, 0, 0, 1, 667.273, 523.03)",
+      "transitionProperty": "all",
+      "transitionDuration": "0s",
+      "transitionTimingFunction": "ease"
+    },
+    "pseudos": [
+      {
+        "pseudo": "::placeholder",
+        "color": "#2c2d32",
+        "opacity": "1"
+      }
+    ],
+    "scroll": {
+      "scrollHeight": 559,
+      "clientHeight": 559,
+      "scrollWidth": 221,
+      "clientWidth": 221
+    },
+    "parent": {
+      "tag": "div",
+      "cls": ""
+    }
+  }
+}

@@ -1,0 +1,298 @@
+{
+  "message": {
+    "selector": null,
+    "tag": "div",
+    "cls": "message__5126c cozyMessage__5126c wrapper_c19a55 cozy_c19a55 zalgo_c19a55",
+    "role": "article",
+    "label": "",
+    "text": "[ 15:22 ] Tuesday, 27 October 2026 at 15:22 test test :100: Click to react :thumbsup: Click to react :thumbsdown: Click to react Add Reaction Reply Forward More",
+    "box": {
+      "x": 375,
+      "y": 907,
+      "w": 993,
+      "h": 26,
+      "cx": 871,
+      "cy": 920
+    },
+    "style": {
+      "display": "block",
+      "position": "relative",
+      "flexDirection": "row",
+      "flexWrap": "nowrap",
+      "paddingTop": 2,
+      "paddingRight": 24,
+      "paddingBottom": 2,
+      "paddingLeft": 72,
+      "width": 896.695,
+      "height": 21.9981,
+      "minHeight": 22,
+      "overflowX": "visible",
+      "overflowY": "visible",
+      "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "fontSize": 16,
+      "fontWeight": "400",
+      "lineHeight": 16,
+      "textAlign": "start",
+      "color": "#2c2d32",
+      "caretColor": "#2c2d32",
+      "backgroundColor": "#94949c@0.12",
+      "borderTopColor": "#2c2d32",
+      "borderRightColor": "#2c2d32",
+      "borderBottomColor": "#2c2d32",
+      "borderLeftColor": "#2c2d32",
+      "borderTopRightRadius": 4,
+      "borderBottomRightRadius": 4,
+      "outlineColor": "#2c2d32",
+      "opacity": "1",
+      "transitionProperty": "all",
+      "transitionDuration": "0s",
+      "transitionTimingFunction": "ease"
+    },
+    "pseudos": [
+      {
+        "pseudo": "::placeholder",
+        "color": "#2c2d32",
+        "opacity": "1"
+      }
+    ],
+    "scroll": {
+      "scrollHeight": 26,
+      "clientHeight": 26,
+      "scrollWidth": 993,
+      "clientWidth": 993
+    },
+    "parent": {
+      "tag": "li",
+      "cls": "messageListItem__5126c"
+    }
+  },
+  "buttonsWrapper": {
+    "selector": null,
+    "tag": "div",
+    "cls": "buttons__5126c container__040f0",
+    "role": "group",
+    "label": "Message Actions",
+    "text": ":100: Click to react :thumbsup: Click to react :thumbsdown: Click to react Add Reaction Reply Forward More",
+    "box": {
+      "x": 1111,
+      "y": 882,
+      "w": 256,
+      "h": 33,
+      "cx": 1239,
+      "cy": 899
+    },
+    "style": {
+      "display": "block",
+      "position": "absolute",
+      "flexDirection": "row",
+      "flexWrap": "nowrap",
+      "paddingRight": 14,
+      "paddingLeft": 32,
+      "width": 210.142,
+      "height": 33.2008,
+      "top": -25,
+      "bottom": -8.20076,
+      "left": -256.136,
+      "zIndex": "1",
+      "overflowX": "visible",
+      "overflowY": "visible",
+      "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "fontSize": 16,
+      "fontWeight": "400",
+      "lineHeight": 16,
+      "textAlign": "start",
+      "color": "#2c2d32",
+      "caretColor": "#2c2d32",
+      "backgroundColor": "#000000@0.00",
+      "borderTopColor": "#2c2d32",
+      "borderRightColor": "#2c2d32",
+      "borderBottomColor": "#2c2d32",
+      "borderLeftColor": "#2c2d32",
+      "outlineColor": "#2c2d32",
+      "opacity": "1",
+      "transitionProperty": "all",
+      "transitionDuration": "0s",
+      "transitionTimingFunction": "ease"
+    },
+    "pseudos": [
+      {
+        "pseudo": "::placeholder",
+        "color": "#2c2d32",
+        "opacity": "1"
+      }
+    ],
+    "scroll": {
+      "scrollHeight": 33,
+      "clientHeight": 33,
+      "scrollWidth": 256,
+      "clientWidth": 256
+    },
+    "parent": {
+      "tag": "div",
+      "cls": "buttonContainer_c19a55"
+    }
+  },
+  "buttonsInner": {
+    "selector": null,
+    "tag": "div",
+    "cls": "buttonsInner__5126c popover_f84418 wrapper_f7ecac",
+    "role": null,
+    "label": "",
+    "text": ":100: Click to react :thumbsup: Click to react :thumbsdown: Click to react Add Reaction Reply Forward More",
+    "box": {
+      "x": 1143,
+      "y": 882,
+      "w": 210,
+      "h": 33,
+      "cx": 1248,
+      "cy": 899
+    },
+    "style": {
+      "display": "grid",
+      "position": "relative",
+      "flexDirection": "row",
+      "flexWrap": "nowrap",
+      "justifyContent": "flex-start",
+      "alignItems": "center",
+      "gridTemplateColumns": "27.9924px 27.9924px 27.9924px 8.98674px 27.9924px 27.9924px 27.9924px 27.9924px",
+      "gridTemplateRows": 27.9924,
+      "paddingTop": 2,
+      "paddingRight": 2,
+      "paddingBottom": 2,
+      "paddingLeft": 2,
+      "width": 210.142,
+      "height": 33.2008,
+      "overflowX": "visible",
+      "overflowY": "visible",
+      "fontFamily": "\"gg sans\", \"Noto Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+      "fontSize": 16,
+      "fontWeight": "400",
+      "lineHeight": 16,
+      "textAlign": "start",
+      "color": "#2c2d32",
+      "caretColor": "#2c2d32",
+      "backgroundColor": "#393a41",
+      "borderTopWidth": 0.606061,
+      "borderRightWidth": 0.606061,
+      "borderBottomWidth": 0.606061,
+      "borderLeftWidth": 0.606061,
+      "borderTopColor": "#999999@0.04",
+      "borderRightColor": "#999999@0.04",
+      "borderBottomColor": "#999999@0.04",
+      "borderLeftColor": "#999999@0.04",
+      "borderTopLeftRadius": 8,
+      "borderTopRightRadius": 8,
+      "borderBottomLeftRadius": 8,
+      "borderBottomRightRadius": 8,
+      "boxShadow": "#000000@0.00",
+      "outlineColor": "#2c2d32",
+      "opacity": "1",
+      "transitionProperty": "box-shadow",
+      "transitionDuration": "0.1s",
+      "transitionTimingFunction": "ease-out"
+    },
+    "pseudos": [
+      {
+        "pseudo": "::placeholder",
+        "color": "#2c2d32",
+        "opacity": "1"
+      }
+    ],
+    "scroll": {
+      "scrollHeight": 32,
+      "clientHeight": 32,
+      "scrollWidth": 209,
+      "clientWidth": 209
+    },
+    "parent": {
+      "tag": "div",
+      "cls": "buttons__5126c container__040f0"
+    }
+  },
+  "buttons": [
+    {
+      "label": "Click to react with 100",
+      "box": {
+        "x": 1146,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1160,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Click to react with thumbsup",
+      "box": {
+        "x": 1174,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1188,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Click to react with thumbsdown",
+      "box": {
+        "x": 1202,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1216,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Add Reaction",
+      "box": {
+        "x": 1239,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1253,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Reply",
+      "box": {
+        "x": 1267,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1281,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "Forward",
+      "box": {
+        "x": 1295,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1309,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    },
+    {
+      "label": "More",
+      "box": {
+        "x": 1323,
+        "y": 885,
+        "w": 28,
+        "h": 28,
+        "cx": 1337,
+        "cy": 899
+      },
+      "bg": "#000000@0.00"
+    }
+  ]
+}

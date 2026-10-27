@@ -1,0 +1,3764 @@
+[
+  {
+    "name": "icon",
+    "viewBox": "0 0 1 1",
+    "w": 1,
+    "h": 1,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "appMount__51fd7",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 0.464C0 0.301585 0 0.220377 0.0316081 0.158343C0.0594114 0.103776 0.103776 0.0594114 0.158343 0.0316081C0.220377 0 0.301585 0 0.464 0H0.536C0.698415 0 0.779623 0 0.841657 0.0316081C0.896224 0.0594114 0.940589 0.103776 0.968392 0.158343C1 0.220377 1 0.301585 1 0.464V0.536C1 0.698415 1 0.779623 0.968392 0.841657C0.940589 0.896224 0.896224 0.940589 0.841657 0.968392C0.779623 1 0.698415 1 0.536 1H0.464C0.301585 1 0.220377 1 0.158343 0.968392C0.103776 0.940589 0.0594114 0.896224 0.0316081 0.841657C0 0.779623 0 0.698415 0 0.536V0.464Z",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "1",
+        "height": "1",
+        "fill": "url(#svg-mask-vertical-fade-gradient)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.8125",
+        "cy": "0.8125",
+        "r": "0.3125",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.85",
+        "cy": "0.85",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.8333333333333334",
+        "cy": "0.8333333333333334",
+        "r": "0.2916666666666667",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.84375",
+        "cy": "0.84375",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.85",
+        "cy": "0.85",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.875",
+        "cy": "0.875",
+        "r": "0.20833333333333334",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.85",
+        "cy": "0.85",
+        "r": "0.175",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4583333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4583333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4270833333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4270833333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.84375",
+        "cy": "0.84375",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.33333333333333337",
+        "cy": "0.33333333333333337",
+        "r": "0.33333333333333337",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.37083333333333335",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.33333333333333337",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.33333333333333337",
+        "cy": "0.33333333333333337",
+        "r": "0.33333333333333337",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.37083333333333335",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.33333333333333337",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "1",
+        "height": "1",
+        "rx": "0.1875",
+        "ry": "0.125",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0.125",
+        "y": "0.16666666666666666",
+        "width": "0.75",
+        "height": "0.5",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "ellipse",
+        "cx": "0.5",
+        "cy": "0.8333333333333334",
+        "rx": "0.125",
+        "ry": "0.08333333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M8.46 8.64a1 1 0 0 1 1 1c0 .44-.3.8-.72.92l-.11.07c-.08.06-.2.19-.2.41a.99.99 0 0 1-.98.86h-.06a1 1 0 0 1-.94-1.05l.02-.32c.05-1.06.92-1.9 1.99-1.9Z",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M15.55 5a5.5 5.5 0 0 1 5.15 3.67h.3a2 2 0 0 1 2 2v3.18a2 2 0 0 1-2 1.99h-.2A4.54 4.54 0 0 1 16.55 19a4.45 4.45 0 0 1-3.6-1.83 1.2 1.2 0 0 0-1.9 0 4.44 4.44 0 0 1-3.9 1.82 4.54 4.54 0 0 1-3.94-3.15H3a2 2 0 0 1-2-2v-3.18c0-1.1.9-1.99 2-1.99h.3A5.5 5.5 0 0 1 8.46 5h7.09Zm-7.1 2C6.6 7 5.06 8.5 4.97 10.41l-.02.66v3.18c0 1.43 1.05 2.66 2.34 2.74.85.06 1.63-.32 2.14-1.01a3.2 3.2 0 0 1 2.57-1.3c1 0 1.97.48 2.57 1.3.5.69 1.3 1.08 2.14 1.01 1.3-.08 2.34-1.31 2.34-2.74l-.02-3.84a3.54 3.54 0 0 0-3.49-3.43H8.45Z",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.25",
+        "cy": "0.25",
+        "r": "0.375",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0.125",
+        "y": "0.375",
+        "width": "0.75",
+        "height": "0.25",
+        "rx": "0.125",
+        "ry": "0.125",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "polygon",
+        "points": "0.35,0.25 0.78301275,0.5 0.35,0.75",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "cx": "0",
+        "cy": "0",
+        "width": "1",
+        "height": "1",
+        "rx": "0.2",
+        "ry": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "1",
+        "height": "1",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0.5 0.71875C0.5 0.649716 0.555966 0.59375 0.625 0.59375H1.0V1.0H0.5V0.71875Z",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 18,
+    "h": 18,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "title_edbb22",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M19.73 4.87a18.2 18.2 0 0 0-4.6-1.44c-.21.4-.4.8-.58 1.21-1.69-.25-3.4-.25-5.1 0-.18-.41-.37-.82-.59-1.2-1.6.27-3.14.75-4.6 1.43A19.04 19.04 0 0 0 .96 17.7a18.43 18.43 0 0 0 5.63 2.87c.46-.62.86-1.28 1.2-1.98-.65-.25-1.29-.55-1.9-.92.17-.12.32-.24.47-.37 3.58 1.7 7.7 1.7 11.28 0l.46.37c-.6.36-1.25.67-1.9.92.35.7.75 1.35 1.2 1.98 2.03-.63 3.94-1.6 5.64-2.87.47-4.87-.78-9.09-3.3-12.83ZM8.3 15.12c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.89 2.27-2 2.27Zm7.4 0c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.88 2.27-2 2.27Z",
+        "fill": "var(--interactive-icon-default)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Inbox",
+    "viewBox": "0 0 24 24",
+    "w": 18,
+    "h": 18,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "clickable__81391",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M5 2a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V5a3 3 0 0 0-3-3H5ZM4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-2.65c-.5 0-.85.5-.85 1a3 3 0 1 1-6 0c0-.5-.35-1-.85-1H5.5A1.5 1.5 0 0 1 4 11.5v-6Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "Help",
+    "viewBox": "0 0 24 24",
+    "w": 18,
+    "h": 18,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "clickable__81391",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "circle",
+        "cx": "12",
+        "cy": "12",
+        "r": "10",
+        "fill": "transparent",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm-.28-16c-.98 0-1.81.47-2.27 1.14A1 1 0 1 1 7.8 7.01 4.73 4.73 0 0 1 11.72 5c2.5 0 4.65 1.88 4.65 4.38 0 2.1-1.54 3.77-3.52 4.24l.14 1a1 1 0 0 1-1.98.27l-.28-2a1 1 0 0 1 .99-1.14c1.54 0 2.65-1.14 2.65-2.38 0-1.23-1.1-2.37-2.65-2.37ZM13 17.88a1.13 1.13 0 1 1-2.25 0 1.13 1.13 0 0 1 2.25 0Z",
+        "fill": "var(--green-360)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "-4 -4 48 48",
+    "w": 48,
+    "h": 48,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "wrapper_cc5dd2",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M19.73 4.87a18.2 18.2 0 0 0-4.6-1.44c-.21.4-.4.8-.58 1.21-1.69-.25-3.4-.25-5.1 0-.18-.41-.37-.82-.59-1.2-1.6.27-3.14.75-4.6 1.43A19.04 19.04 0 0 0 .96 17.7a18.43 18.43 0 0 0 5.63 2.87c.46-.62.86-1.28 1.2-1.98-.65-.25-1.29-.55-1.9-.92.17-.12.32-.24.47-.37 3.58 1.7 7.7 1.7 11.28 0l.46.37c-.6.36-1.25.67-1.9.92.35.7.75 1.35 1.2 1.98 2.03-.63 3.94-1.6 5.64-2.87.47-4.87-.78-9.09-3.3-12.83ZM8.3 15.12c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.89 2.27-2 2.27Zm7.4 0c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.88 2.27-2 2.27Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 24,
+    "h": 24,
+    "color": "rgb(255, 255, 255)",
+    "near": "childWrapper__6e9f8 childWrapperNoHoverBg__6e9f8",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M19.73 4.87a18.2 18.2 0 0 0-4.6-1.44c-.21.4-.4.8-.58 1.21-1.69-.25-3.4-.25-5.1 0-.18-.41-.37-.82-.59-1.2-1.6.27-3.14.75-4.6 1.43A19.04 19.04 0 0 0 .96 17.7a18.43 18.43 0 0 0 5.63 2.87c.46-.62.86-1.28 1.2-1.98-.65-.25-1.29-.55-1.9-.92.17-.12.32-.24.47-.37 3.58 1.7 7.7 1.7 11.28 0l.46.37c-.6.36-1.25.67-1.9.92.35.7.75 1.35 1.2 1.98 2.03-.63 3.94-1.6 5.64-2.87.47-4.87-.78-9.09-3.3-12.83ZM8.3 15.12c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.89 2.27-2 2.27Zm7.4 0c-1.1 0-2-1.02-2-2.27 0-1.24.88-2.26 2-2.26s2.02 1.02 2 2.26c0 1.25-.88 2.27-2 2.27Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "-4 -4 48 48",
+    "w": 48,
+    "h": 48,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "wrapper_cc5dd2",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "12",
+        "cy": "12",
+        "r": "10",
+        "fill": "transparent",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm0-17a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H7a1 1 0 1 1 0-2h4V7a1 1 0 0 1 1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "Add_a_Server",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.964427 0.000418067 -0.00125384)",
+    "near": "circleIconButton__5bc7e",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "circle",
+        "cx": "12",
+        "cy": "12",
+        "r": "10",
+        "fill": "transparent",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm0-17a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H7a1 1 0 1 1 0-2h4V7a1 1 0 0 1 1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "-4 -4 48 48",
+    "w": 48,
+    "h": 48,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "wrapper_cc5dd2",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M23 12a11 11 0 1 1-22 0 11 11 0 0 1 22 0ZM7.74 9.3A2 2 0 0 1 9.3 7.75l7.22-1.45a1 1 0 0 1 1.18 1.18l-1.45 7.22a2 2 0 0 1-1.57 1.57l-7.22 1.45a1 1 0 0 1-1.18-1.18L7.74 9.3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "Discover",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.964427 0.000418067 -0.00125384)",
+    "near": "circleIconButton__5bc7e discoveryIcon_ef3116",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M23 12a11 11 0 1 1-22 0 11 11 0 0 1 22 0ZM7.74 9.3A2 2 0 0 1 9.3 7.75l7.22-1.45a1 1 0 0 1 1.18 1.18l-1.45 7.22a2 2 0 0 1-1.57 1.57l-7.22 1.45a1 1 0 0 1-1.18-1.18L7.74 9.3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "-4 -4 48 48",
+    "w": 48,
+    "h": 48,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "wrapper_cc5dd2",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 17.4545C0 11.3449 0 8.29005 1.18902 5.95647C2.23491 3.90379 3.90379 2.23491 5.95647 1.18902C8.29005 0 11.3449 0 17.4545 0H22.5455C28.6551 0 31.71 0 34.0435 1.18902C36.0962 2.23491 37.7651 3.90379 38.811 5.95647C40 8.29005 40 11.3449 40 17.4545V22.5455C40 28.6551 40 31.71 38.811 34.0435C37.7651 36.0962 36.0962 37.7651 34.0435 38.811C31.71 40 28.6551 40 22.5455 40H17.4545C11.3449 40 8.29005 40 5.95647 38.811C3.90379 37.7651 2.23491 36.0962 1.18902 34.0435C0 31.71 0 28.6551 0 22.5455V17.4545Z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1ZM3 20a1 1 0 1 0 0 2h18a1 1 0 1 0 0-2H3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Download_Apps",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.964427 0.000418067 -0.00125384)",
+    "near": "circleIconButton__5bc7e",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1ZM3 20a1 1 0 1 0 0 2h18a1 1 0 1 0 0-2H3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "avatar__20a53",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M13 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M3 5v-.75C3 3.56 3.56 3 4.25 3s1.24.56 1.33 1.25C6.12 8.65 9.46 12 13 12h1a8 8 0 0 1 8 8 2 2 0 0 1-2 2 .21.21 0 0 1-.2-.15 7.65 7.65 0 0 0-1.32-2.3c-.15-.2-.42-.06-.39.17l.25 2c.02.15-.1.28-.25.28H9a2 2 0 0 1-2-2v-2.22c0-1.57-.67-3.05-1.53-4.37A15.85 15.85 0 0 1 3 5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "avatar__20a53",
+    "uses": 3,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M16.23 12c0 1.29-.95 2.25-2.22 2.25A2.18 2.18 0 0 1 11.8 12c0-1.29.95-2.25 2.22-2.25 1.27 0 2.22.96 2.22 2.25ZM23 12c0 5.01-4 9-8.99 9a8.93 8.93 0 0 1-8.75-6.9H3.34l-.9-4.2H5.3c.26-.96.68-1.89 1.21-2.7H1.89L1 3h12.74C19.13 3 23 6.99 23 12Zm-4.26 0c0-2.67-2.1-4.8-4.73-4.8A4.74 4.74 0 0 0 9.28 12c0 2.67 2.1 4.8 4.73 4.8a4.74 4.74 0 0 0 4.73-4.8Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "avatar__20a53",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M2.63 4.19A3 3 0 0 1 5.53 2H7a1 1 0 0 1 1 1v3.98a3.07 3.07 0 0 1-.3 1.35A2.97 2.97 0 0 1 4.98 10c-2 0-3.44-1.9-2.9-3.83l.55-1.98ZM10 2a1 1 0 0 0-1 1v4a3 3 0 0 0 3 3 3 3 0 0 0 3-2.97V3a1 1 0 0 0-1-1h-4ZM17 2a1 1 0 0 0-1 1v3.98a3.65 3.65 0 0 0 0 .05A2.95 2.95 0 0 0 19.02 10c2 0 3.44-1.9 2.9-3.83l-.55-1.98A3 3 0 0 0 18.47 2H17Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M21 11.42V19a3 3 0 0 1-3 3h-2.75a.25.25 0 0 1-.25-.25V16a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v5.75c0 .14-.11.25-.25.25H6a3 3 0 0 1-3-3v-7.58c0-.18.2-.3.37-.24a4.46 4.46 0 0 0 4.94-1.1c.1-.12.3-.12.4 0a4.49 4.49 0 0 0 6.58 0c.1-.12.3-.12.4 0a4.45 4.45 0 0 0 4.94 1.1c.17-.07.37.06.37.24Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "avatar__20a53",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M7.5 21.7a8.95 8.95 0 0 1 9 0 1 1 0 0 0 1-1.73c-.6-.35-1.24-.64-1.9-.87.54-.3 1.05-.65 1.52-1.07a3.98 3.98 0 0 0 5.49-1.8.77.77 0 0 0-.24-.95 3.98 3.98 0 0 0-2.02-.76A4 4 0 0 0 23 10.47a.76.76 0 0 0-.71-.71 4.06 4.06 0 0 0-1.6.22 3.99 3.99 0 0 0 .54-5.35.77.77 0 0 0-.95-.24c-.75.36-1.37.95-1.77 1.67V6a4 4 0 0 0-4.9-3.9.77.77 0 0 0-.6.72 4 4 0 0 0 3.7 4.17c.89 1.3 1.3 2.95 1.3 4.51 0 3.66-2.75 6.5-6 6.5s-6-2.84-6-6.5c0-1.56.41-3.21 1.3-4.51A4 4 0 0 0 11 2.82a.77.77 0 0 0-.6-.72 4.01 4.01 0 0 0-4.9 3.96A4.02 4.02 0 0 0 3.73 4.4a.77.77 0 0 0-.95.24 3.98 3.98 0 0 0 .55 5.35 4 4 0 0 0-1.6-.22.76.76 0 0 0-.72.71l-.01.28a4 4 0 0 0 2.65 3.77c-.75.06-1.45.33-2.02.76-.3.22-.4.62-.24.95a4 4 0 0 0 5.49 1.8c.47.42.98.78 1.53 1.07-.67.23-1.3.52-1.91.87a1 1 0 1 0 1 1.73Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "More",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "privateChannelRecipientsInviteButtonIconContainer__99e7c mor",
+    "uses": 6,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10-2a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "Create_Message",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "privateChannelRecipientsInviteButtonIconContainer__99e7c ico",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M13 5a1 1 0 1 0-2 0v6H5a1 1 0 1 0 0 2h6v6a1 1 0 1 0 2 0v-6h6a1 1 0 1 0 0-2h-6V5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "justabee_Online",
+    "viewBox": "0 0 40 40",
+    "w": 40,
+    "h": 40,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "wrapper__44b0c",
+    "uses": 6,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "22",
+        "y": "22",
+        "width": "10",
+        "height": "10",
+        "fill": "#45a366",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Mute",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M681.219970703125,212.79600524902344 C681.219970703125,212.79600524902344 299.6969909667969,597.75 299.6969909667969,597.75 C299.6969909667969,597.75 235.75999450683594,665.2319946289062 285.1369934082031,714.8619995117188 C339,769 403.67999267578125,701.0560302734375 403.67999267578125,701.0560302734375 C403.67999267578125,701.0560302734375 785.2030029296875,316.10198974609375 785.2030029296875,316.10198974609375 C785.2030029296875,316.10198974609375 868,234 816.2150268554688,184.4459991455078 C764.781005859375,135.22799682617188 681.219970703125,212.79600524902344 681.219970703125,212.79600524902344",
+        "fill": "#000000",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "d": " M698,405 C698,405 642,405 642,405 C642,405 642,479 642,479 C642,479 698,479 698,479 C698,479 698,405 698,405",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-4,-1.3799999952316284 C-4,-3.5889999866485596 -2.2090001106262207,-5.380000114440918 0,-5.380000114440918 C2.2090001106262207,-5.380000114440918 4,-3.5889999866485596 4,-1.3799999952316284 C4,-1.3799999952316284 4,2.509999990463257 4,2.509999990463257 C4,4.718999862670898 2.2090001106262207,6.5 0,6.5 C-2.2090001106262207,6.5 -4,4.718999862670898 -4,2.509999990463257 C-4,2.509999990463257 -4,-1.3799999952316284 -4,-1.3799999952316284z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-7,-2.990000009536743 C-7,0.8759999871253967 -3.865999937057495,4.010000228881836 0,4.010000228881836 C3.865999937057495,4.010000228881836 7,0.8759999871253967 7,-2.990000009536743",
+        "fill": null,
+        "stroke": "rgb(88,101,242)",
+        "strokeWidth": "2",
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-1,-2 C-1,-2.2760000228881836 -0.7760000228881836,-2.5 -0.5,-2.5 C-0.5,-2.5 0.5,-2.5 0.5,-2.5 C0.7760000228881836,-2.5 1,-2.2760000228881836 1,-2 C1,-2 1,2 1,2 C1,2.2760000228881836 0.7760000228881836,2.5 0.5,2.5 C0.5,2.5 -0.5,2.5 -0.5,2.5 C-0.7760000228881836,2.5 -1,2.2760000228881836 -1,2 C-1,2 -1,-2 -1,-2z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M3,-1 C3.552000045776367,-1 4,-0.5519999861717224 4,0 C4,0.5519999861717224 3.552000045776367,1 3,1 C3,1 -3,1 -3,1 C-3.552000045776367,1 -4,0.5519999861717224 -4,0 C-4,-0.5519999861717224 -3.552000045776367,-1 -3,-1 C-3,-1 3,-1 3,-1z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-10,10 C-10,10 10,-10 10,-10",
+        "fill": null,
+        "stroke": "rgb(88,101,242)",
+        "strokeWidth": "2",
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Input_Options",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "contents__201d5",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.29 5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.42Z",
+        "fill": "var(--icon-voice-muted)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Deafen",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": "#000000",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M67.22000122070312,823.7960205078125 C67.22000122070312,823.7960205078125 -126.3030014038086,1017.75 -126.3030014038086,1017.75 C-126.3030014038086,1017.75 -76.63800048828125,1067.092041015625 -76.63800048828125,1067.092041015625 C-76.63800048828125,1067.092041015625 -22.31999969482422,1121.0560302734375 -22.31999969482422,1121.0560302734375 C-22.31999969482422,1121.0560302734375 171.2030029296875,927.1019897460938 171.2030029296875,927.1019897460938 C171.2030029296875,927.1019897460938 239.677001953125,860.3419799804688 186.88099670410156,810.114013671875 C130,756 67.22000122070312,823.7960205078125 67.22000122070312,823.7960205078125",
+        "fill": "#000000",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M0.5009999871253967,-0.10000000149011612 C0.5009999871253967,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 C-0.09300000220537186,-0.10000000149011612 -0.09300000220537186,1.0759999752044678 -0.09300000220537186,1.0759999752044678 C-0.09300000220537186,1.0759999752044678 0.5009999871253967,1.0759999752044678 0.5009999871253967,1.0759999752044678 C0.5009999871253967,1.0759999752044678 0.5009999871253967,-0.10000000149011612 0.5009999871253967,-0.10000000149011612",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-8,-0.2879999876022339 C-8,-4.705999851226807 -4.418000221252441,-8.288000106811523 0,-8.288000106811523 C4.418000221252441,-8.288000106811523 8,-4.705999851226807 8,-0.2879999876022339 C8,0.4050000011920929 7.953999996185303,1.0720000267028809 7.854000091552734,1.7120000123977661 C7.854000091552734,1.7120000123977661 6,1.7120000123977661 6,1.7120000123977661 C5.056000232696533,1.7120000123977661 4.166999816894531,2.1570000648498535 3.5999999046325684,2.9119999408721924 C3.5999999046325684,2.9119999408721924 1.6269999742507935,5.541999816894531 1.6269999742507935,5.541999816894531 C1.1579999923706055,6.168000221252441 1.0360000133514404,6.98799991607666 1.3040000200271606,7.7230000495910645 C1.8890000581741333,9.331999778747559 3.88700008392334,10.288000106811523 5.48199987411499,9.131999969482422 C8.83899974822998,6.701000213623047 10,3.380000114440918 10,-0.2879999876022339 C10,-5.810999870300293 5.5229997634887695,-10.288000106811523 0,-10.288000106811523 C-5.5229997634887695,-10.288000106811523 -10,-5.810999870300293 -10,-0.2879999876022339 C-10,3.380000114440918 -8.83899974822998,6.701000213623047 -5.48199987411499,9.131999969482422 C-3.88700008392334,10.288000106811523 -1.8890000581741333,9.331999778747559 -1.3040000200271606,7.7230000495910645 C-1.0360000133514404,6.98799991607666 -1.1579999923706055,6.168000221252441 -1.6269999742507935,5.541999816894531 C-1.6269999742507935,5.541999816894531 -3.5999999046325684,2.9119999408721924 -3.5999999046325684,2.9119999408721924 C-4.166999816894531,2.1570000648498535 -5.056000232696533,1.7120000123977661 -6,1.7120000123977661 C-6,1.7120000123977661 -7.854000091552734,1.7120000123977661 -7.854000091552734,1.7120000123977661 C-7.953999996185303,1.0720000267028809 -8,0.4050000011920929 -8,-0.2879999876022339z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Output_Options",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "contents__201d5",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.29 5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.42Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "User_Settings",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-1.4420000314712524,-10.906000137329102 C-1.8949999809265137,-10.847000122070312 -2.1470000743865967,-10.375 -2.078000068664551,-9.92300033569336 C-1.899999976158142,-8.756999969482422 -2.265000104904175,-7.7210001945495605 -3.061000108718872,-7.390999794006348 C-3.8570001125335693,-7.060999870300293 -4.8480000495910645,-7.534999847412109 -5.546000003814697,-8.484999656677246 C-5.816999912261963,-8.852999687194824 -6.329999923706055,-9.008999824523926 -6.691999912261963,-8.730999946594238 C-7.458000183105469,-8.142999649047852 -8.142999649047852,-7.458000183105469 -8.730999946594238,-6.691999912261963 C-9.008999824523926,-6.329999923706055 -8.852999687194824,-5.816999912261963 -8.484999656677246,-5.546000003814697 C-7.534999847412109,-4.8480000495910645 -7.060999870300293,-3.8570001125335693 -7.390999794006348,-3.061000108718872 C-7.7210001945495605,-2.265000104904175 -8.756999969482422,-1.899999976158142 -9.92300033569336,-2.078000068664551 C-10.375,-2.1470000743865967 -10.847000122070312,-1.8949999809265137 -10.906000137329102,-1.4420000314712524 C-10.968000411987305,-0.9700000286102295 -11,-0.48899999260902405 -11,0 C-11,0.48899999260902405 -10.968000411987305,0.9700000286102295 -10.906000137329102,1.4420000314712524 C-10.847000122070312,1.8949999809265137 -10.375,2.1470000743865967 -9.92300033569336,2.078000068664551 C-8.756999969482422,1.899999976158142 -7.7210001945495605,2.265000104904175 -7.390999794006348,3.061000108718872 C-7.060999870300293,3.8570001125335693 -7.534999847412109,4.8470001220703125 -8.484999656677246,5.546000003814697 C-8.852999687194824,5.816999912261963 -9.008999824523926,6.328999996185303 -8.730999946594238,6.691999912261963 C-8.142999649047852,7.458000183105469 -7.458000183105469,8.142999649047852 -6.691999912261963,8.730999946594238 C-6.329999923706055,9.008999824523926 -5.816999912261963,8.852999687194824 -5.546000003814697,8.484999656677246 C-4.8480000495910645,7.534999847412109 -3.8570001125335693,7.060999870300293 -3.061000108718872,7.390999794006348 C-2.265000104904175,7.7210001945495605 -1.899999976158142,8.756999969482422 -2.078000068664551,9.92300033569336 C-2.1470000743865967,10.375 -1.8949999809265137,10.847000122070312 -1.4420000314712524,10.906000137329102 C-0.9700000286102295,10.968000411987305 -0.48899999260902405,11 0,11 C0.48899999260902405,11 0.9700000286102295,10.968000411987305 1.4420000314712524,10.906000137329102 C1.8949999809265137,10.847000122070312 2.1470000743865967,10.375 2.078000068664551,9.92300033569336 C1.899999976158142,8.756999969482422 2.2660000324249268,7.7210001945495605 3.062000036239624,7.390999794006348 C3.8580000400543213,7.060999870300293 4.8480000495910645,7.534999847412109 5.546000003814697,8.484999656677246 C5.816999912261963,8.852999687194824 6.328999996185303,9.008999824523926 6.691999912261963,8.730999946594238 C7.458000183105469,8.142999649047852 8.142999649047852,7.458000183105469 8.730999946594238,6.691999912261963 C9.008999824523926,6.328999996185303 8.852999687194824,5.816999912261963 8.484999656677246,5.546000003814697 C7.534999847412109,4.8480000495910645 7.060999870300293,3.8570001125335693 7.390999794006348,3.061000108718872 C7.7210001945495605,2.265000104904175 8.756999969482422,1.899999976158142 9.92300033569336,2.078000068664551 C10.375,2.1470000743865967 10.847000122070312,1.8949999809265137 10.906000137329102,1.4420000314712524 C10.968000411987305,0.9700000286102295 11,0.48899999260902405 11,0 C11,-0.48899999260902405 10.968000411987305,-0.9700000286102295 10.906000137329102,-1.4420000314712524 C10.847000122070312,-1.8949999809265137 10.375,-2.1470000743865967 9.92300033569336,-2.078000068664551 C8.756999969482422,-1.899999976158142 7.7210001945495605,-2.265000104904175 7.390999794006348,-3.061000108718872 C7.060999870300293,-3.8570001125335693 7.534999847412109,-4.8480000495910645 8.484999656677246,-5.546000003814697 C8.852999687194824,-5.816999912261963 9.008999824523926,-6.329999923706055 8.730999946594238,-6.691999912261963 C8.142999649047852,-7.458000183105469 7.458000183105469,-8.142999649047852 6.691999912261963,-8.730999946594238 C6.328999996185303,-9.008999824523926 5.817999839782715,-8.852999687194824 5.546999931335449,-8.484999656677246 C4.848999977111816,-7.534999847412109 3.8580000400543213,-7.060999870300293 3.062000036239624,-7.390999794006348 C2.2660000324249268,-7.7210001945495605 1.9010000228881836,-8.756999969482422 2.0789999961853027,-9.92300033569336 C2.1480000019073486,-10.375 1.8949999809265137,-10.847000122070312 1.4420000314712524,-10.906000137329102 C0.9700000286102295,-10.968000411987305 0.48899999260902405,-11 0,-11 C-0.48899999260902405,-11 -0.9700000286102295,-10.968000411987305 -1.4420000314712524,-10.906000137329102z M4,0 C4,2.2090001106262207 2.2090001106262207,4 0,4 C-2.2090001106262207,4 -4,2.2090001106262207 -4,0 C-4,-2.2090001106262207 -2.2090001106262207,-4 0,-4 C2.2090001106262207,-4 4,-2.2090001106262207 4,0z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Start_Voice_Call",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "iconWrapper__9293f clickable__9293f",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M2 7.4A5.4 5.4 0 0 1 7.4 2c.36 0 .7.22.83.55l1.93 4.64a1 1 0 0 1-.43 1.25L7 10a8.52 8.52 0 0 0 7 7l1.12-2.24a1 1 0 0 1 1.19-.51l5.06 1.56c.38.11.63.46.63.85C22 19.6 19.6 22 16.66 22h-.37C8.39 22 2 15.6 2 7.71V7.4ZM13 3a1 1 0 0 1 1-1 8 8 0 0 1 8 8 1 1 0 1 1-2 0 6 6 0 0 0-6-6 1 1 0 0 1-1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M13 7a1 1 0 0 1 1-1 4 4 0 0 1 4 4 1 1 0 1 1-2 0 2 2 0 0 0-2-2 1 1 0 0 1-1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Browser_Not_Supported",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.68759 0.00173888 -0.0100746)",
+    "near": "iconWrapper__9293f iconDisabled__9293f",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M4 4a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h11a3 3 0 0 0 3-3v-2.12a1 1 0 0 0 .55.9l3 1.5a1 1 0 0 0 1.45-.9V7.62a1 1 0 0 0-1.45-.9l-3 1.5a1 1 0 0 0-.55.9V7a3 3 0 0 0-3-3H4Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Pinned_Messages",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "iconWrapper__9293f clickable__9293f",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M19.38 11.38a3 3 0 0 0 4.24 0l.03-.03a.5.5 0 0 0 0-.7L13.35.35a.5.5 0 0 0-.7 0l-.03.03a3 3 0 0 0 0 4.24L13 5l-2.92 2.92-3.65-.34a2 2 0 0 0-1.6.58l-.62.63a1 1 0 0 0 0 1.42l9.58 9.58a1 1 0 0 0 1.42 0l.63-.63a2 2 0 0 0 .58-1.6l-.34-3.64L19 11l.38.38ZM9.07 17.07a.5.5 0 0 1-.08.77l-5.15 3.43a.5.5 0 0 1-.63-.06l-.42-.42a.5.5 0 0 1-.06-.63L6.16 15a.5.5 0 0 1 .77-.08l2.14 2.14Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Invite_to_Group_DM",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "iconWrapper__9293f clickable__9293f",
+    "uses": 3,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M14.5 8a3 3 0 1 0-2.7-4.3c-.2.4.06.86.44 1.12a5 5 0 0 1 2.14 3.08c.01.06.06.1.12.1ZM16.62 13.17c-.22.29-.65.37-.92.14-.34-.3-.7-.57-1.09-.82-.52-.33-.7-1.05-.47-1.63.11-.27.2-.57.26-.87.11-.54.55-1 1.1-.92 1.6.2 3.04.92 4.15 1.98.3.27-.25.95-.65.95a3 3 0 0 0-2.38 1.17ZM15.19 15.61c.13.16.02.39-.19.39a3 3 0 0 0-1.52 5.59c.2.12.26.41.02.41h-8a.5.5 0 0 1-.5-.5v-2.1c0-.25-.31-.33-.42-.1-.32.67-.67 1.58-.88 2.54a.2.2 0 0 1-.2.16A1.5 1.5 0 0 1 2 20.5a7.5 7.5 0 0 1 13.19-4.89ZM9.5 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM15.5 22Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M19 14a1 1 0 0 1 1 1v3h3a1 1 0 0 1 0 2h-3v3a1 1 0 0 1-2 0v-3h-3a1 1 0 1 1 0-2h3v-3a1 1 0 0 1 1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Show_Member_List",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "iconWrapper__9293f clickable__9293f",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M14.5 8a3 3 0 1 0-2.7-4.3c-.2.4.06.86.44 1.12a5 5 0 0 1 2.14 3.08c.01.06.06.1.12.1ZM18.44 17.27c.15.43.54.73 1 .73h1.06c.83 0 1.5-.67 1.5-1.5a7.5 7.5 0 0 0-6.5-7.43c-.55-.08-.99.38-1.1.92-.06.3-.15.6-.26.87-.23.58-.05 1.3.47 1.63a9.53 9.53 0 0 1 3.83 4.78ZM12.5 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM2 20.5a7.5 7.5 0 0 1 15 0c0 .83-.67 1.5-1.5 1.5a.2.2 0 0 1-.2-.16c-.2-.96-.56-1.87-.88-2.54-.1-.23-.42-.15-.42.1v2.1a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-2.1c0-.25-.31-.33-.42-.1-.32.67-.67 1.58-.88 2.54a.2.2 0 0 1-.2.16A1.5 1.5 0 0 1 2 20.5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Search",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 24,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "iconContainer__0c4c4",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "Clear",
+    "viewBox": "0 0 24 24",
+    "w": 24,
+    "h": 16,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "iconContainer__0c4c4",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M17.3 18.7a1 1 0 0 0 1.4-1.4L13.42 12l5.3-5.3a1 1 0 0 0-1.42-1.4L12 10.58l-5.3-5.3a1 1 0 0 0-1.4 1.42L10.58 12l-5.3 5.3a1 1 0 1 0 1.42 1.4L12 13.42l5.3 5.3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Edit_Group",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "rgb(255, 255, 255)",
+    "near": "buttonChildren_a22cb0",
+    "uses": 3,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "m13.96 5.46 4.58 4.58a1 1 0 0 0 1.42 0l1.38-1.38a2 2 0 0 0 0-2.82l-3.18-3.18a2 2 0 0 0-2.82 0l-1.38 1.38a1 1 0 0 0 0 1.42ZM2.11 20.16l.73-4.22a3 3 0 0 1 .83-1.61l7.87-7.87a1 1 0 0 1 1.42 0l4.58 4.58a1 1 0 0 1 0 1.42l-7.87 7.87a3 3 0 0 1-1.6.83l-4.23.73a1.5 1.5 0 0 1-1.73-1.73Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "More_message_options",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "buttonWrapper__24af7 attachButtonInner__0923f",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M13 3a1 1 0 1 0-2 0v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Send_a_gift",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 24,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b trinketsIcon__5287",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-7,10 C-8.104999542236328,10 -9,9.104999542236328 -9,8 C-9,8 -9,2.5 -9,2.5 C-9,2.2239999771118164 -8.776000022888184,2 -8.5,2 C-8.5,2 -1.5,2 -1.5,2 C-1.2239999771118164,2 -1,2.2239999771118164 -1,2.5 C-1,2.5 -1,9.5 -1,9.5 C-1,9.776000022888184 -1.2239999771118164,10 -1.5,10 C-1.5,10 -7,10 -7,10z M1,9.5 C1,9.776000022888184 1.2239999771118164,10 1.5,10 C1.5,10 7,10 7,10 C8.104999542236328,10 9,9.104999542236328 9,8 C9,8 9,2.5 9,2.5 C9,2.2239999771118164 8.776000022888184,2 8.5,2 C8.5,2 1.5,2 1.5,2 C1.2239999771118164,2 1,2.2239999771118164 1,2.5 C1,2.5 1,9.5 1,9.5z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-10,-2 C-10,-3.1050000190734863 -9.104999542236328,-4 -8,-4 C-8,-4 8,-4 8,-4 C9.104999542236328,-4 10,-3.1050000190734863 10,-2 C10,-2 10,-0.5 10,-0.5 C10,-0.2240000069141388 9.776000022888184,0 9.5,0 C9.5,0 -9.5,0 -9.5,0 C-9.776000022888184,0 -10,-0.2240000069141388 -10,-0.5 C-10,-0.5 -10,-2 -10,-2z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M7,-6 C7,-7.6570000648498535 5.6570000648498535,-9 4,-9 C4,-9 3.9110000133514404,-9 3.9110000133514404,-9 C2.49399995803833,-9 1.2589999437332153,-8.03600025177002 0.9150000214576721,-6.660999774932861 C0.9150000214576721,-6.660999774932861 0,-3 0,-3 C0,-3 4,-3 4,-3 C5.6570000648498535,-3 7,-4.3429999351501465 7,-6 C7,-6 7,-6 7,-6z",
+        "fill": null,
+        "stroke": "rgb(88,101,242)",
+        "strokeWidth": "2",
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-7,-6 C-7,-7.6570000648498535 -5.6570000648498535,-9 -4,-9 C-4,-9 -3.9110000133514404,-9 -3.9110000133514404,-9 C-2.49399995803833,-9 -1.2589999437332153,-8.03600025177002 -0.9150000214576721,-6.660999774932861 C-0.9150000214576721,-6.660999774932861 0,-3 0,-3 C0,-3 -4,-3 -4,-3 C-5.6570000648498535,-3 -7,-4.3429999351501465 -7,-6 C-7,-6 -7,-6 -7,-6z",
+        "fill": null,
+        "stroke": "rgb(88,101,242)",
+        "strokeWidth": "2",
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Open_GIF_picker",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M3.0299999713897705,3.7190001010894775 C3.0299999713897705,3.7190001010894775 4.604000091552734,3.7190001010894775 4.604000091552734,3.7190001010894775 C4.604000091552734,3.7190001010894775 4.604000091552734,0.8949999809265137 4.604000091552734,0.8949999809265137 C4.604000091552734,0.8949999809265137 7.363999843597412,0.8949999809265137 7.363999843597412,0.8949999809265137 C7.363999843597412,0.8949999809265137 7.363999843597412,-0.5289999842643738 7.363999843597412,-0.5289999842643738 C7.363999843597412,-0.5289999842643738 4.604000091552734,-0.5289999842643738 4.604000091552734,-0.5289999842643738 C4.604000091552734,-0.5289999842643738 4.604000091552734,-2.2960000038146973 4.604000091552734,-2.2960000038146973 C4.604000091552734,-2.2960000038146973 8,-2.2960000038146973 8,-2.2960000038146973 C8,-2.2960000038146973 8,-3.7190001010894775 8,-3.7190001010894775 C8,-3.7190001010894775 3.0299999713897705,-3.7190001010894775 3.0299999713897705,-3.7190001010894775 C3.0299999713897705,-3.7190001010894775 3.0299999713897705,3.7190001010894775 3.0299999713897705,3.7190001010894775z",
+        "fill": "rgb(255,255,255)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M1.5199999809265137,3.7190001010894775 C1.5199999809265137,3.7190001010894775 -0.05400000140070915,3.7190001010894775 -0.05400000140070915,3.7190001010894775 C-0.05400000140070915,3.7190001010894775 -0.05400000140070915,-3.7190001010894775 -0.05400000140070915,-3.7190001010894775 C-0.05400000140070915,-3.7190001010894775 1.5199999809265137,-3.7190001010894775 1.5199999809265137,-3.7190001010894775 C1.5199999809265137,-3.7190001010894775 1.5199999809265137,3.7190001010894775 1.5199999809265137,3.7190001010894775z",
+        "fill": "rgb(255,255,255)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-4.820000171661377,3.869999885559082 C-5.445000171661377,3.869999885559082 -5.998000144958496,3.7079999446868896 -6.480000019073486,3.384999990463257 C-6.961999893188477,3.062000036239624 -7.335000038146973,2.6080000400543213 -7.60099983215332,2.0260000228881836 C-7.867000102996826,1.437000036239624 -8,0.7620000243186951 -8,0 C-8,-0.7549999952316284 -7.860000133514404,-1.4229999780654907 -7.579999923706055,-2.005000114440918 C-7.293000221252441,-2.5869998931884766 -6.879000186920166,-3.0429999828338623 -6.340000152587891,-3.374000072479248 C-5.794000148773193,-3.7049999237060547 -5.144000053405762,-3.869999885559082 -4.388999938964844,-3.869999885559082 C-3.749000072479248,-3.869999885559082 -3.177999973297119,-3.7339999675750732 -2.674999952316284,-3.4609999656677246 C-2.1649999618530273,-3.187999963760376 -1.7799999713897705,-2.802999973297119 -1.5210000276565552,-2.306999921798706 C-1.5210000276565552,-2.306999921798706 -2.739000082015991,-1.434000015258789 -2.739000082015991,-1.434000015258789 C-3.1059999465942383,-2.109999895095825 -3.6519999504089355,-2.447000026702881 -4.377999782562256,-2.447000026702881 C-5.039000034332275,-2.447000026702881 -5.546000003814697,-2.2320001125335693 -5.8979997634887695,-1.8009999990463257 C-6.25,-1.3769999742507935 -6.426000118255615,-0.7760000228881836 -6.426000118255615,0 C-6.426000118255615,0.7829999923706055 -6.25,1.3869999647140503 -5.8979997634887695,1.8109999895095825 C-5.546000003814697,2.234999895095825 -5.039000034332275,2.447000026702881 -4.377999782562256,2.447000026702881 C-4.083000183105469,2.447000026702881 -3.812999963760376,2.3929998874664307 -3.569000005722046,2.2850000858306885 C-3.316999912261963,2.1700000762939453 -3.124000072479248,2.0160000324249268 -2.986999988555908,1.8220000267028809 C-2.986999988555908,1.8220000267028809 -2.986999988555908,0.8949999809265137 -2.986999988555908,0.8949999809265137 C-2.986999988555908,0.8949999809265137 -4.701000213623047,0.8949999809265137 -4.701000213623047,0.8949999809265137 C-4.701000213623047,0.8949999809265137 -4.701000213623047,-0.5070000290870667 -4.701000213623047,-0.5070000290870667 C-4.701000213623047,-0.5070000290870667 -1.4559999704360962,-0.5070000290870667 -1.4559999704360962,-0.5070000290870667 C-1.4559999704360962,-0.5070000290870667 -1.4559999704360962,3.7190001010894775 -1.4559999704360962,3.7190001010894775 C-1.4559999704360962,3.7190001010894775 -2.7279999256134033,3.7190001010894775 -2.7279999256134033,3.7190001010894775 C-2.7279999256134033,3.7190001010894775 -2.933000087738037,3.006999969482422 -2.933000087738037,3.006999969482422 C-3.3570001125335693,3.5820000171661377 -3.9860000610351562,3.869999885559082 -4.820000171661377,3.869999885559082z",
+        "fill": "rgb(255,255,255)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-7,-10 C-8.656999588012695,-10 -10,-8.656999588012695 -10,-7 C-10,-7 -10,7 -10,7 C-10,8.656999588012695 -8.656999588012695,10 -7,10 C-7,10 7,10 7,10 C8.656999588012695,10 10,8.656999588012695 10,7 C10,7 10,-7 10,-7 C10,-8.656999588012695 8.656999588012695,-10 7,-10 C7,-10 -7,-10 -7,-10z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Open_sticker_picker",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-6,-10 C-6,-10 6,-10 6,-10 C8.208999633789062,-10 10,-8.208999633789062 10,-6 C10,-6 10,1.5 10,1.5 C10,1.7760000228881836 9.776000022888184,2 9.5,2 C9.5,2 7,2 7,2 C4.238999843597412,2 2,4.238999843597412 2,7 C2,7 2,9.5 2,9.5 C2,9.776000022888184 1.7760000228881836,10 1.5,10 C1.5,10 -6,10 -6,10 C-8.208999633789062,10 -10,8.208999633789062 -10,6 C-10,6 -10,-6 -10,-6 C-10,-8.208999633789062 -8.208999633789062,-10 -6,-10z M9.659000396728516,4 C9.692000389099121,4 9.71399974822998,4.033999919891357 9.699999809265137,4.064000129699707 C9.555000305175781,4.36299991607666 9.359999656677246,4.639999866485596 9.121000289916992,4.879000186920166 C9.121000289916992,4.879000186920166 4.879000186920166,9.121000289916992 4.879000186920166,9.121000289916992 C4.639999866485596,9.359999656677246 4.36299991607666,9.555000305175781 4.064000129699707,9.699999809265137 C4.033999919891357,9.71399974822998 4,9.692000389099121 4,9.659000396728516 C4,9.659000396728516 4,9.17199993133545 4,9.17199993133545 C4,9.17199993133545 4,7 4,7 C4,5.3429999351501465 5.3429999351501465,4 7,4 C7,4 9.17199993133545,4 9.17199993133545,4 C9.17199993133545,4 9.659000396728516,4 9.659000396728516,4z M-5.5,-2 C-4.671999931335449,-2 -4,-2.671999931335449 -4,-3.5 C-4,-4.328000068664551 -4.671999931335449,-5 -5.5,-5 C-6.328000068664551,-5 -7,-4.328000068664551 -7,-3.5 C-7,-2.671999931335449 -6.328000068664551,-2 -5.5,-2z M7,-3.5 C7,-4.328000068664551 6.328000068664551,-5 5.5,-5 C4.671999931335449,-5 4,-4.328000068664551 4,-3.5 C4,-2.671999931335449 4.671999931335449,-2 5.5,-2 C6.328000068664551,-2 7,-2.671999931335449 7,-3.5z M-2.9110000133514404,-0.5559999942779541 C-3.2179999351501465,-1.0149999856948853 -3.8399999141693115,-1.1380000114440918 -4.298999786376953,-0.8309999704360962 C-4.757999897003174,-0.5239999890327454 -4.880000114440918,0.09700000286102295 -4.572999954223633,0.5559999942779541 C-3.5880000591278076,2.0269999504089355 -1.9079999923706055,3 0,3 C1.9079999923706055,3 3.5880000591278076,2.0269999504089355 4.572999954223633,0.5559999942779541 C4.880000114440918,0.09700000286102295 4.756999969482422,-0.5239999890327454 4.297999858856201,-0.8309999704360962 C3.8389999866485596,-1.1380000114440918 3.2179999351501465,-1.0149999856948853 2.9110000133514404,-0.5559999942779541 C2.2809998989105225,0.38499999046325684 1.2120000123977661,1 0,1 C-1.2120000123977661,1 -2.2809998989105225,0.38499999046325684 -2.9110000133514404,-0.5559999942779541z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Apps",
+    "viewBox": "0 0 96 96",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "96",
+        "height": "96",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L96,0 L96,96 L0,96z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-6.554999828338623,1.6410000324249268 C-6.929999828338623,3.0420000553131104 -6.099999904632568,4.480999946594238 -4.698999881744385,4.85699987411499 C-4.698999881744385,4.85699987411499 1.6410000324249268,6.554999828338623 1.6410000324249268,6.554999828338623 C3.0409998893737793,6.931000232696533 4.48199987411499,6.098999977111816 4.85699987411499,4.698999881744385 C4.85699987411499,4.698999881744385 6.554999828338623,-1.6410000324249268 6.554999828338623,-1.6410000324249268 C6.929999828338623,-3.0420000553131104 6.098999977111816,-4.480999946594238 4.698999881744385,-4.85699987411499 C4.698999881744385,-4.85699987411499 -1.6410000324249268,-6.556000232696533 -1.6410000324249268,-6.556000232696533 C-3.0409998893737793,-6.931000232696533 -4.48199987411499,-6.099999904632568 -4.85699987411499,-4.698999881744385 C-4.85699987411499,-4.698999881744385 -6.554999828338623,1.6410000324249268 -6.554999828338623,1.6410000324249268z",
+        "fill": "rgb(199,200,206)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-6.478000164031982,2.4040000438690186 C-7.552000045776367,4.372000217437744 -6.126999855041504,6.771999835968018 -3.884999990463257,6.771999835968018 C-3.884999990463257,6.771999835968018 3.885999917984009,6.771999835968018 3.885999917984009,6.771999835968018 C6.127999782562256,6.771999835968018 7.552000045776367,4.372000217437744 6.479000091552734,2.4040000438690186 C6.479000091552734,2.4040000438690186 2.5929999351501465,-4.718999862670898 2.5929999351501465,-4.718999862670898 C1.4739999771118164,-6.771999835968018 -1.4730000495910645,-6.771999835968018 -2.5929999351501465,-4.718999862670898 C-2.5929999351501465,-4.718999862670898 -6.478000164031982,2.4040000438690186 -6.478000164031982,2.4040000438690186z",
+        "fill": "rgb(199,200,206)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-0.9409999847412109,-6.26800012588501 C-0.42100000381469727,-6.796999931335449 0.41999998688697815,-6.796999931335449 0.9409999847412109,-6.26800012588501 C0.9409999847412109,-6.26800012588501 2.056999921798706,-5.132999897003174 2.056999921798706,-5.132999897003174 C2.2699999809265137,-4.916999816894531 2.5480000972747803,-4.78000020980835 2.8459999561309814,-4.744999885559082 C2.8459999561309814,-4.744999885559082 4.4120001792907715,-4.561999797821045 4.4120001792907715,-4.561999797821045 C5.140999794006348,-4.4770002365112305 5.665999889373779,-3.805999994277954 5.585000038146973,-3.061000108718872 C5.585000038146973,-3.061000108718872 5.410999774932861,-1.4630000591278076 5.410999774932861,-1.4630000591278076 C5.377999782562256,-1.1579999923706055 5.447000026702881,-0.8510000109672546 5.605999946594238,-0.5910000205039978 C5.605999946594238,-0.5910000205039978 6.441999912261963,0.7720000147819519 6.441999912261963,0.7720000147819519 C6.831999778747559,1.406999945640564 6.644999980926514,2.24399995803833 6.0229997634887695,2.6440000534057617 C6.0229997634887695,2.6440000534057617 4.690999984741211,3.502000093460083 4.690999984741211,3.502000093460083 C4.436999797821045,3.6649999618530273 4.24399995803833,3.9119999408721924 4.144000053405762,4.201000213623047 C4.144000053405762,4.201000213623047 3.621000051498413,5.7179999351501465 3.621000051498413,5.7179999351501465 C3.378000020980835,6.423999786376953 2.619999885559082,6.796999931335449 1.9259999990463257,6.551000118255615 C1.9259999990463257,6.551000118255615 0.43799999356269836,6.021999835968018 0.43799999356269836,6.021999835968018 C0.15399999916553497,5.921999931335449 -0.1550000011920929,5.921999931335449 -0.43799999356269836,6.021999835968018 C-0.43799999356269836,6.021999835968018 -1.9270000457763672,6.551000118255615 -1.9270000457763672,6.551000118255615 C-2.619999885559082,6.796999931335449 -3.378000020980835,6.423999786376953 -3.621999979019165,5.7179999351501465 C-3.621999979019165,5.7179999351501465 -4.144999980926514,4.201000213623047 -4.144999980926514,4.201000213623047 C-4.24399995803833,3.9119999408721924 -4.436999797821045,3.6649999618530273 -4.690999984741211,3.502000093460083 C-4.690999984741211,3.502000093460083 -6.02400016784668,2.6440000534057617 -6.02400016784668,2.6440000534057617 C-6.644999980926514,2.24399995803833 -6.831999778747559,1.406999945640564 -6.442999839782715,0.7720000147819519 C-6.442999839782715,0.7720000147819519 -5.605999946594238,-0.5910000205039978 -5.605999946594238,-0.5910000205039978 C-5.447000026702881,-0.8510000109672546 -5.377999782562256,-1.1579999923706055 -5.4120001792907715,-1.4630000591278076 C-5.4120001792907715,-1.4630000591278076 -5.585000038146973,-3.061000108718872 -5.585000038146973,-3.061000108718872 C-5.665999889373779,-3.805999994277954 -5.142000198364258,-4.4770002365112305 -4.4120001792907715,-4.561999797821045 C-4.4120001792907715,-4.561999797821045 -2.8469998836517334,-4.744999885559082 -2.8469998836517334,-4.744999885559082 C-2.5480000972747803,-4.78000020980835 -2.2699999809265137,-4.916999816894531 -2.056999921798706,-5.132999897003174 C-2.056999921798706,-5.132999897003174 -0.9409999847412109,-6.26800012588501 -0.9409999847412109,-6.26800012588501z",
+        "fill": "rgb(199,200,206)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M1.5130000114440918,-5.5920000076293945 C0.9929999709129333,-6.997000217437744 -0.9940000176429749,-6.997000217437744 -1.5140000581741333,-5.5920000076293945 C-1.5140000581741333,-5.5920000076293945 -2.190999984741211,-3.760999917984009 -2.190999984741211,-3.760999917984009 C-2.4600000381469727,-3.0339999198913574 -3.0339999198913574,-2.4600000381469727 -3.76200008392334,-2.190999984741211 C-3.76200008392334,-2.190999984741211 -5.5920000076293945,-1.5130000114440918 -5.5920000076293945,-1.5130000114440918 C-6.997000217437744,-0.9940000176429749 -6.997000217437744,0.9929999709129333 -5.5920000076293945,1.5130000114440918 C-5.5920000076293945,1.5130000114440918 -3.76200008392334,2.190999984741211 -3.76200008392334,2.190999984741211 C-3.0339999198913574,2.4600000381469727 -2.4600000381469727,3.0339999198913574 -2.190999984741211,3.760999917984009 C-2.190999984741211,3.760999917984009 -1.5140000581741333,5.5920000076293945 -1.5140000581741333,5.5920000076293945 C-0.9940000176429749,6.997000217437744 0.9929999709129333,6.997000217437744 1.5130000114440918,5.5920000076293945 C1.5130000114440918,5.5920000076293945 2.190000057220459,3.760999917984009 2.190000057220459,3.760999917984009 C2.4600000381469727,3.0339999198913574 3.0329999923706055,2.4600000381469727 3.760999917984009,2.190999984741211 C3.760999917984009,2.190999984741211 5.5920000076293945,1.5130000114440918 5.5920000076293945,1.5130000114440918 C6.997000217437744,0.9929999709129333 6.997000217437744,-0.9940000176429749 5.5920000076293945,-1.5130000114440918 C5.5920000076293945,-1.5130000114440918 3.760999917984009,-2.190999984741211 3.760999917984009,-2.190999984741211 C3.0329999923706055,-2.4600000381469727 2.4600000381469727,-3.0339999198913574 2.190000057220459,-3.760999917984009 C2.190000057220459,-3.760999917984009 1.5130000114440918,-5.5920000076293945 1.5130000114440918,-5.5920000076293945z",
+        "fill": "rgb(199,200,206)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 1 1",
+    "w": 1,
+    "h": 1,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "appMount__51fd7",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 0.464C0 0.301585 0 0.220377 0.0316081 0.158343C0.0594114 0.103776 0.103776 0.0594114 0.158343 0.0316081C0.220377 0 0.301585 0 0.464 0H0.536C0.698415 0 0.779623 0 0.841657 0.0316081C0.896224 0.0594114 0.940589 0.103776 0.968392 0.158343C1 0.220377 1 0.301585 1 0.464V0.536C1 0.698415 1 0.779623 0.968392 0.841657C0.940589 0.896224 0.896224 0.940589 0.841657 0.968392C0.779623 1 0.698415 1 0.536 1H0.464C0.301585 1 0.220377 1 0.158343 0.968392C0.103776 0.940589 0.0594114 0.896224 0.0316081 0.841657C0 0.779623 0 0.698415 0 0.536V0.464Z",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "1",
+        "height": "1",
+        "fill": "url(#svg-mask-vertical-fade-gradient)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.8125",
+        "cy": "0.8125",
+        "r": "0.3125",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.85",
+        "cy": "0.85",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.8333333333333334",
+        "cy": "0.8333333333333334",
+        "r": "0.2916666666666667",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.84375",
+        "cy": "0.84375",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0.59375",
+        "y": "0.4375",
+        "width": "0.5",
+        "height": "0.65625",
+        "rx": "0.13125",
+        "ry": "0.13125",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.85",
+        "cy": "0.85",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.875",
+        "cy": "0.875",
+        "r": "0.20833333333333334",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.85",
+        "cy": "0.85",
+        "r": "0.175",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4583333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4583333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4270833333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.3333333333333333",
+        "cy": "0.3333333333333333",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.4270833333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666666",
+        "cy": "0.6666666666666666",
+        "r": "0.3333333333333333",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.84375",
+        "cy": "0.84375",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.33333333333333337",
+        "cy": "0.33333333333333337",
+        "r": "0.33333333333333337",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.37083333333333335",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.33333333333333337",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.33333333333333337",
+        "cy": "0.33333333333333337",
+        "r": "0.33333333333333337",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.37083333333333335",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.6666666666666667",
+        "cy": "0.6666666666666667",
+        "r": "0.33333333333333337",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "1",
+        "height": "1",
+        "rx": "0.1875",
+        "ry": "0.125",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0.125",
+        "y": "0.16666666666666666",
+        "width": "0.75",
+        "height": "0.5",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "ellipse",
+        "cx": "0.5",
+        "cy": "0.8333333333333334",
+        "rx": "0.125",
+        "ry": "0.08333333333333333",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M8.46 8.64a1 1 0 0 1 1 1c0 .44-.3.8-.72.92l-.11.07c-.08.06-.2.19-.2.41a.99.99 0 0 1-.98.86h-.06a1 1 0 0 1-.94-1.05l.02-.32c.05-1.06.92-1.9 1.99-1.9Z",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M15.55 5a5.5 5.5 0 0 1 5.15 3.67h.3a2 2 0 0 1 2 2v3.18a2 2 0 0 1-2 1.99h-.2A4.54 4.54 0 0 1 16.55 19a4.45 4.45 0 0 1-3.6-1.83 1.2 1.2 0 0 0-1.9 0 4.44 4.44 0 0 1-3.9 1.82 4.54 4.54 0 0 1-3.94-3.15H3a2 2 0 0 1-2-2v-3.18c0-1.1.9-1.99 2-1.99h.3A5.5 5.5 0 0 1 8.46 5h7.09Zm-7.1 2C6.6 7 5.06 8.5 4.97 10.41l-.02.66v3.18c0 1.43 1.05 2.66 2.34 2.74.85.06 1.63-.32 2.14-1.01a3.2 3.2 0 0 1 2.57-1.3c1 0 1.97.48 2.57 1.3.5.69 1.3 1.08 2.14 1.01 1.3-.08 2.34-1.31 2.34-2.74l-.02-3.84a3.54 3.54 0 0 0-3.49-3.43H8.45Z",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.25",
+        "cy": "0.25",
+        "r": "0.375",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "x": "0.125",
+        "y": "0.375",
+        "width": "0.75",
+        "height": "0.25",
+        "rx": "0.125",
+        "ry": "0.125",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.25",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "0.5",
+        "cy": "0.5",
+        "r": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "polygon",
+        "points": "0.35,0.25 0.78301275,0.5 0.35,0.75",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "cx": "0",
+        "cy": "0",
+        "width": "1",
+        "height": "1",
+        "rx": "0.2",
+        "ry": "0.5",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "1",
+        "height": "1",
+        "fill": "white",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0.5 0.71875C0.5 0.649716 0.555966 0.59375 0.625 0.59375H1.0V1.0H0.5V0.71875Z",
+        "fill": "black",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Deafen",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "lottieIcon__5eb9b lottieIconColors__5eb9b",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "0",
+        "y": "0",
+        "width": "24",
+        "height": "24",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L600,0 L600,600 L0,600z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M67.22000122070312,823.7960205078125 C67.22000122070312,823.7960205078125 -126.3030014038086,1017.75 -126.3030014038086,1017.75 C-126.3030014038086,1017.75 -76.63800048828125,1067.092041015625 -76.63800048828125,1067.092041015625 C-76.63800048828125,1067.092041015625 -22.31999969482422,1121.0560302734375 -22.31999969482422,1121.0560302734375 C-22.31999969482422,1121.0560302734375 171.2030029296875,927.1019897460938 171.2030029296875,927.1019897460938 C171.2030029296875,927.1019897460938 239.677001953125,860.3419799804688 186.88099670410156,810.114013671875 C130,756 67.22000122070312,823.7960205078125 67.22000122070312,823.7960205078125",
+        "fill": "#000000",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M0.5009999871253967,-0.10000000149011612 C0.5009999871253967,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 C-0.09300000220537186,-0.10000000149011612 -0.09300000220537186,1.0759999752044678 -0.09300000220537186,1.0759999752044678 C-0.09300000220537186,1.0759999752044678 0.5009999871253967,1.0759999752044678 0.5009999871253967,1.0759999752044678 C0.5009999871253967,1.0759999752044678 0.5009999871253967,-0.10000000149011612 0.5009999871253967,-0.10000000149011612",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "rect",
+        "width": "600",
+        "height": "600",
+        "fill": "#ffffff",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M67.44400024414062,823.5819702148438 C67.44400024414062,823.5819702148438 -126.11100006103516,1017.5659790039062 -126.11100006103516,1017.5659790039062 C-126.11100006103516,1017.5659790039062 -76.44599914550781,1066.907958984375 -76.44599914550781,1066.907958984375 C-76.44599914550781,1066.907958984375 -22.128000259399414,1120.8719482421875 -22.128000259399414,1120.8719482421875 C-22.128000259399414,1120.8719482421875 171.427001953125,926.8880004882812 171.427001953125,926.8880004882812 C171.427001953125,926.8880004882812 239.9010009765625,860.1279907226562 187.10499572753906,809.9000244140625 C130.2239990234375,755.7860107421875 67.44400024414062,823.5819702148438 67.44400024414062,823.5819702148438",
+        "fill": "#000000",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": "nonzero"
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M0,0 L1000,0 L1000,1000 L0,1000z",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M0.5009999871253967,-0.10000000149011612 C0.5009999871253967,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 -0.09300000220537186,-0.10000000149011612 C-0.09300000220537186,-0.10000000149011612 -0.09300000220537186,1.0759999752044678 -0.09300000220537186,1.0759999752044678 C-0.09300000220537186,1.0759999752044678 0.5009999871253967,1.0759999752044678 0.5009999871253967,1.0759999752044678 C0.5009999871253967,1.0759999752044678 0.5009999871253967,-0.10000000149011612 0.5009999871253967,-0.10000000149011612",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-8.000072479248047,-0.2881828546524048 C-7.999939918518066,-4.706087589263916 -4.418000221252441,-8.288000106811523 0,-8.288000106811523 C4.418000221252441,-8.288000106811523 7.999929904937744,-4.706122875213623 8.000077247619629,-0.2881803512573242 C8.000102043151855,0.40481603145599365 7.954133987426758,1.0718117952346802 7.854161262512207,1.7118114233016968 C7.854161262512207,1.7118114233016968 6.000174522399902,1.7118886709213257 6.000174522399902,1.7118886709213257 C5.05618143081665,1.7119280099868774 4.167206287384033,2.156961679458618 3.6002418994903564,2.911979913711548 C3.6002418994903564,2.911979913711548 1.6273654699325562,5.542043209075928 1.6273654699325562,5.542043209075928 C1.1583948135375977,6.168058395385742 1.03643000125885,6.988057613372803 1.3044586181640625,7.72304105758667 C1.8895213603973389,9.332005500793457 3.8875467777252197,10.287915229797363 5.482487678527832,9.131856918334961 C8.839362144470215,6.700735092163086 10.00019359588623,3.3797173500061035 10.000062942504883,-0.28826361894607544 C9.999899864196777,-5.811119556427002 5.5229997634887695,-10.288000106811523 0,-10.288000106811523 C-5.5229997634887695,-10.288000106811523 -9.99986457824707,-5.81110954284668 -10.000057220458984,-0.2882695198059082 C-10.000213623046875,3.3797030448913574 -8.83936882019043,6.700726509094238 -5.482500076293945,9.131853103637695 C-3.8875625133514404,10.28791332244873 -1.8895366191864014,9.33200740814209 -1.304471492767334,7.7230448722839355 C-1.036441683769226,6.988062381744385 -1.1584053039550781,6.168063640594482 -1.627374529838562,5.54204797744751 C-1.627374529838562,5.54204797744751 -3.600245475769043,2.911982774734497 -3.600245475769043,2.911982774734497 C-4.167208194732666,2.156964063644409 -5.056182384490967,1.7119290828704834 -6.0001749992370605,1.7118881940841675 C-6.0001749992370605,1.7118881940841675 -7.854179859161377,1.7118425369262695 -7.854179859161377,1.7118425369262695 C-7.954162120819092,1.071841835975647 -8.000097274780273,0.40481364727020264 -8.000072479248047,-0.2881828546524048z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": " M-8,-0.2879999876022339 C-8,-4.705999851226807 -4.418000221252441,-8.288000106811523 0,-8.288000106811523 C4.418000221252441,-8.288000106811523 8,-4.705999851226807 8,-0.2879999876022339 C8,0.4050000011920929 7.953999996185303,1.0720000267028809 7.854000091552734,1.7120000123977661 C7.854000091552734,1.7120000123977661 6,1.7120000123977661 6,1.7120000123977661 C5.056000232696533,1.7120000123977661 4.166999816894531,2.1570000648498535 3.5999999046325684,2.9119999408721924 C3.5999999046325684,2.9119999408721924 1.6269999742507935,5.541999816894531 1.6269999742507935,5.541999816894531 C1.1579999923706055,6.168000221252441 1.0360000133514404,6.98799991607666 1.3040000200271606,7.7230000495910645 C1.8890000581741333,9.331999778747559 3.88700008392334,10.288000106811523 5.48199987411499,9.131999969482422 C8.83899974822998,6.701000213623047 10,3.380000114440918 10,-0.2879999876022339 C10,-5.810999870300293 5.5229997634887695,-10.288000106811523 0,-10.288000106811523 C-5.5229997634887695,-10.288000106811523 -10,-5.810999870300293 -10,-0.2879999876022339 C-10,3.380000114440918 -8.83899974822998,6.701000213623047 -5.48199987411499,9.131999969482422 C-3.88700008392334,10.288000106811523 -1.8890000581741333,9.331999778747559 -1.3040000200271606,7.7230000495910645 C-1.0360000133514404,6.98799991607666 -1.1579999923706055,6.168000221252441 -1.6269999742507935,5.541999816894531 C-1.6269999742507935,5.541999816894531 -3.5999999046325684,2.9119999408721924 -3.5999999046325684,2.9119999408721924 C-4.166999816894531,2.1570000648498535 -5.056000232696533,1.7120000123977661 -6,1.7120000123977661 C-6,1.7120000123977661 -7.854000091552734,1.7120000123977661 -7.854000091552734,1.7120000123977661 C-7.953999996185303,1.0720000267028809 -8,0.4050000011920929 -8,-0.2879999876022339z",
+        "fill": "rgb(88,101,242)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "kswiorek_Online",
+    "viewBox": "0 0 25 25",
+    "w": 25,
+    "h": 25,
+    "color": "oklab(0.964427 0.000418067 -0.00125384)",
+    "near": "wrapper__44b0c",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "14",
+        "y": "14",
+        "width": "6",
+        "height": "6",
+        "fill": "#45a366",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Hide_User_Profile",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.999994 0.0000455678 0.0000200868)",
+    "near": "iconWrapper__9293f clickable__9293f selected__9293f",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M23 12.38c-.02.38-.45.58-.78.4a6.97 6.97 0 0 0-6.27-.08.54.54 0 0 1-.44 0 8.97 8.97 0 0 0-11.16 3.55c-.1.15-.1.35 0 .5.37.58.8 1.13 1.28 1.61.24.24.64.15.8-.15.19-.38.39-.73.58-1.02.14-.21.43-.1.4.15l-.19 1.96c-.02.19.07.37.23.47A8.96 8.96 0 0 0 12 21a.4.4 0 0 1 .38.27c.1.33.25.65.4.95.18.34-.02.76-.4.77L12 23a11 11 0 1 1 11-10.62ZM15.5 7.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M24 19a5 5 0 1 1-10 0 5 5 0 0 1 10 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 18,
+    "h": 18,
+    "color": "oklab(0.68759 0.00173888 -0.0100746)",
+    "near": "iconContainer__235ca",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM11.53 11A9.53 9.53 0 0 0 2 20.53c0 .81.66 1.47 1.47 1.47h.22c.24 0 .44-.17.5-.4.29-1.12.84-2.17 1.32-2.91.14-.21.43-.1.4.15l-.26 2.61c-.02.3.2.55.5.55h6.4a.5.5 0 0 0 .35-.85l-.02-.03a3 3 0 1 1 4.24-4.24l.53.52c.2.2.5.2.7 0l1.8-1.8c.17-.17.2-.43.06-.62A9.52 9.52 0 0 0 12.47 11h-.94Z",
+        "fill": "var(--status-positive)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M23.7 17.7a1 1 0 1 0-1.4-1.4L18 20.58l-2.3-2.3a1 1 0 0 0-1.4 1.42l3 3a1 1 0 0 0 1.4 0l5-5Z",
+        "fill": "var(--status-positive)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Add_Reaction",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "hoverBarButton_f84418 button_f7ecac",
+    "uses": 3,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22ZM6.5 13a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm11 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm-9.8 1.17a1 1 0 0 1 1.39.27 3.5 3.5 0 0 0 5.82 0 1 1 0 0 1 1.66 1.12 5.5 5.5 0 0 1-9.14 0 1 1 0 0 1 .27-1.4Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "stickerName_abd7a8",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M7 3h10a4 4 0 0 1 4 4v6.5a.5.5 0 0 1-.5.5H19a5 5 0 0 0-5 5v1.5a.5.5 0 0 1-.5.5H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm-.5 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM19 8.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm-9.91 2.94a1 1 0 0 0-1.66 1.12 5.5 5.5 0 0 0 9.14 0 1 1 0 0 0-1.66-1.12 3.5 3.5 0 0 1-5.82 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M19 16h1.73a3 3 0 0 1-.6.88l-3.25 3.24a3 3 0 0 1-.88.61V19a3 3 0 0 1 3-3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Reply",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "hoverBarButton_f84418 button_f7ecac",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M2.3 7.3a1 1 0 0 0 0 1.4l5 5a1 1 0 0 0 1.4-1.4L5.42 9H11a7 7 0 0 1 7 7v4a1 1 0 1 0 2 0v-4a9 9 0 0 0-9-9H5.41l3.3-3.3a1 1 0 0 0-1.42-1.4l-5 5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Forward",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "hoverBarButton_f84418 button_f7ecac",
+    "uses": 2,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M21.7 7.3a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L18.58 9H13a7 7 0 0 0-7 7v4a1 1 0 1 1-2 0v-4a9 9 0 0 1 9-9h5.59l-3.3-3.3a1 1 0 0 1 1.42-1.4l5 5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Friend",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "rgb(255, 255, 255)",
+    "near": "bannerButton_fb7f94",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM11.53 11A9.53 9.53 0 0 0 2 20.53c0 .81.66 1.47 1.47 1.47h.22c.24 0 .44-.17.5-.4.29-1.12.84-2.17 1.32-2.91.14-.21.43-.1.4.15l-.26 2.61c-.02.3.2.55.5.55h6.4a.5.5 0 0 0 .35-.85l-.02-.03a3 3 0 1 1 4.24-4.24l.53.52c.2.2.5.2.7 0l1.8-1.8c.17-.17.2-.43.06-.62A9.52 9.52 0 0 0 12.47 11h-.94Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M23.7 17.7a1 1 0 1 0-1.4-1.4L18 20.58l-2.3-2.3a1 1 0 0 0-1.4 1.42l3 3a1 1 0 0 0 1.4 0l5-5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "kswiorek_Online",
+    "viewBox": "0 0 92 92",
+    "w": 92,
+    "h": 92,
+    "color": "oklab(0.298136 0.00109468 -0.00903396)",
+    "near": "wrapper__44b0c",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "rect",
+        "x": "60",
+        "y": "60",
+        "width": "16",
+        "height": "16",
+        "fill": "#45a366",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Add_Note_only_visible_to_you_",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.826944 0.000525266 -0.00561434)",
+    "near": "button__0f074",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M5 2a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h9c.1 0 .12-.11.04-.15a3 3 0 0 1-2.03-3.16c.04-.34-.2-.69-.55-.69H6a1 1 0 1 1 0-2h9.5a.5.5 0 0 0 .5-.5V15a3 3 0 0 1 .19-1.05c.15-.4-.11-.95-.54-.95H6a1 1 0 1 1 0-2h12a1 1 0 0 1 .88.52c.13.24.35.48.62.52A3 3 0 0 1 21.83 14v.02c.02.06.17.05.17-.02V5a3 3 0 0 0-3-3H5Zm1 4a1 1 0 0 0 0 2h5a1 1 0 1 0 0-2H6Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M19 14a1 1 0 0 1 1 1v3h3a1 1 0 1 1 0 2h-3v3a1 1 0 1 1-2 0v-3h-3a1 1 0 1 1 0-2h3v-3a1 1 0 0 1 1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "oklab(0.964427 0.000418067 -0.00125384)",
+    "near": "icon__75098",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z",
+        "fill": "var(--icon-strong)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM11.53 11A9.53 9.53 0 0 0 2 20.53c0 .81.66 1.47 1.47 1.47h.22c.24 0 .44-.17.5-.4.29-1.12.84-2.17 1.32-2.91.14-.21.43-.1.4.15l-.26 2.61c-.02.3.2.55.5.55h11.7a.5.5 0 0 0 .5-.55l-.27-2.6c-.02-.26.27-.37.41-.16.48.74 1.03 1.8 1.32 2.9.06.24.26.41.5.41h.22c.81 0 1.47-.66 1.47-1.47A9.53 9.53 0 0 0 12.47 11h-.94Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M20.3 5.41h-.39c-.84 0-1.52-.65-1.52-1.46v-.3c0-.9-.77-1.65-1.71-1.65H7.31c-.94 0-1.71.74-1.71 1.65v.3c0 .81-.68 1.46-1.52 1.46H3.7c-.94 0-1.7.73-1.7 1.64v3.52l.01.49c.05 3.11.94 4.69 2.92 6.63C6.72 19.46 11.58 22 11.99 22c.41 0 5.27-2.54 7.06-4.31 1.98-1.95 2.92-3.53 2.92-6.63L22 7.05c0-.9-.76-1.64-1.7-1.64Zm-7.48 5.03c-.18.07-.29.25-.23.44l.6 4.65a.46.46 0 0 1-.45.51h-1.45a.46.46 0 0 1-.45-.51l.6-4.65c.05-.17-.02-.37-.19-.44a2.08 2.08 0 1 1 1.57 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M19.33 13.01c.28-.03.58.02.84.15l3.05 1.52c.48.24.78.73.78 1.27v1.51a7.1 7.1 0 0 1-4.21 6.49.71.71 0 0 1-.58 0A7.1 7.1 0 0 1 15 17.46v-1.51c0-.54.3-1.03.78-1.27l3.05-1.52a1.49 1.49 0 0 1 .33-.12l.17-.03Zm.17 8.73c.06 0 .12-.01.17-.03a4.18 4.18 0 0 0 2.48-3.82v-.9c0-.31-.18-.6-.46-.74l-1.8-.9a.88.88 0 0 0-.39-.09v6.48Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M11.8 2a10 10 0 0 1 9.94 8.92c.04.37-.34.61-.67.45l-.2-.09a3.5 3.5 0 0 0-2.75 0l-.19.09-3.04 1.52A3.42 3.42 0 0 0 13 15.95v1.51c0 1.3.28 2.55.78 3.7.14.3-.03.65-.35.7-.53.1-1.07.14-1.63.14H2a1 1 0 0 1-.75-1.66l2.07-2.37a.52.52 0 0 0 .04-.61A10 10 0 0 1 11.8 2Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M9.7 2.89c.18-.07.32-.24.37-.43a2 2 0 0 1 3.86 0c.05.2.19.36.38.43A7 7 0 0 1 19 9.5v2.09c0 .12.05.24.13.33l1.1 1.22a3 3 0 0 1 .77 2.01v.28c0 .67-.34 1.29-.95 1.56-1.31.6-4 1.51-8.05 1.51-4.05 0-6.74-.91-8.05-1.5-.61-.28-.95-.9-.95-1.57v-.28a3 3 0 0 1 .77-2l1.1-1.23a.5.5 0 0 0 .13-.33V9.5a7 7 0 0 1 4.7-6.61ZM9.18 19.84A.16.16 0 0 0 9 20a3 3 0 1 0 6 0c0-.1-.09-.17-.18-.16a24.86 24.86 0 0 1-5.64 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M11.02 1.36c.56-.48 1.4-.48 1.96 0l6.48 5.45c.34.29.54.71.54 1.16v8.23c-.05.38-.24.74-.54 1l-6.48 5.44c-.53.45-1.3.48-1.86.09l-.1-.09-6.48-5.45c-.3-.25-.49-.6-.53-1L4 16.04V7.97c0-.45.2-.87.54-1.16l6.48-5.45ZM6.36 7.89a1 1 0 0 0-.36.76v6.7c0 .29.13.57.36.76l5 4.2a1 1 0 0 0 1.28 0l5-4.2a1 1 0 0 0 .36-.77V8.65a1 1 0 0 0-.36-.76l-5-4.2a1 1 0 0 0-1.28 0l-5 4.2Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M11.36 6.3a1 1 0 0 1 1.28 0l3 2.52a1 1 0 0 1 .36.76v4.84a1 1 0 0 1-.36.76l-3 2.53a1 1 0 0 1-1.28 0l-3-2.53a1 1 0 0 1-.36-.76V9.58a1 1 0 0 1 .36-.76l3-2.53Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M22.95 11.05a1 1 0 0 1 1 1 11.5 11.5 0 0 1-19.43 8.33l-.08.08v2.2a1.1 1.1 0 0 1-.68 1 1.1 1.1 0 0 1-1.19-.23 1.1 1.1 0 0 1-.32-.78v-4.8a1.1 1.1 0 0 1 .52-.94l.03-.01c.08-.05.17-.09.25-.11l.05-.01.24-.03h4.82a1.09 1.09 0 0 1 .2.02h.02a1.1 1.1 0 0 1 .18.06l.03.01.07.03.02.02.06.03.03.02.04.03a1.1 1.1 0 0 1 .44.88l-.01.15V18a1.1 1.1 0 0 1-.3.61l-.12.1-.03.02a1.09 1.09 0 0 1-.63.2l-2.18-.02-.04.04a9.5 9.5 0 0 0 16.01-6.91 1 1 0 0 1 1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M13.41 7.2c1.1.15 1.96.72 2.59 1.7l-1.35 1.09c-.38-.6-.8-1-1.24-1.18v2.24c.86.16 1.53.45 2.02.86.5.4.74 1.02.74 1.84 0 .81-.25 1.48-.77 1.98-.5.5-1.17.81-1.99.94v1.2h-1.38v-1.18a4.39 4.39 0 0 1-1.83-.58c-.5-.31-.9-.71-1.2-1.2l1.41-1.22c.44.7.98 1.12 1.62 1.28v-2.4a4.19 4.19 0 0 1-1.91-.9 2.32 2.32 0 0 1-.79-1.83c0-.72.25-1.31.75-1.77a3.4 3.4 0 0 1 1.95-.87V6h1.38v1.2Zm0 7.75c.56-.15.84-.48.84-1.02a.97.97 0 0 0-.2-.64c-.12-.16-.33-.29-.64-.4v2.06ZM12.03 8.8c-.27.08-.48.2-.63.39a.84.84 0 0 0-.23.57c0 .25.07.45.19.6.13.15.36.28.67.39V8.8Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M21.16 0a1.1 1.1 0 0 1 1.09 1.1v4.8c0 .3-.12.57-.32.78l-.08.07-.08.06-.02.01-.07.05-.03.01-.05.02-.06.03h-.03a1.12 1.12 0 0 1-.11.04l-.04.01h-.05l-.06.02H16.35a1.1 1.1 0 0 1-1.02-1.52 1.1 1.1 0 0 1 .35-.45l.02-.02a1.1 1.1 0 0 1 .64-.2l2.18.02.07-.07A9.5 9.5 0 0 0 3 12.05a1 1 0 1 1-2 0 11.5 11.5 0 0 1 19-8.71l.06-.05v-2.2a1.1 1.1 0 0 1 .68-1c.13-.06.27-.1.42-.09Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M4 6a4 4 0 0 1 4-4h.09c1.8 0 3.39 1.18 3.91 2.9A4.09 4.09 0 0 1 15.91 2H16a4 4 0 0 1 3.46 6H20a2 2 0 0 1 2 2v1.5a.5.5 0 0 1-.5.5h-19a.5.5 0 0 1-.5-.5V10c0-1.1.9-2 2-2h.54A3.98 3.98 0 0 1 4 6Zm12 2a2 2 0 1 0 0-4h-.09c-.96 0-1.8.65-2.02 1.58L13.29 8H16Zm-5.89-2.42.6 2.42H8a2 2 0 1 1 0-4h.09c.96 0 1.8.65 2.02 1.58Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M3 20c0 1.1.9 2 2 2h5.5a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V20ZM13.5 22a.5.5 0 0 1-.5-.5v-7c0-.28.22-.5.5-.5h7c.28 0 .5.22.5.5V20a2 2 0 0 1-2 2h-5.5Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M0 6c0-1.1 1.07-2 2.4-2h19.2c1.32 0 2.4.9 2.4 2v1H0V6ZM2.4 20C1.07 20 0 19.1 0 18v-8h24v8c0 1.1-1.08 2-2.4 2H2.4ZM18 12a1 1 0 1 0 0 2h2a1 1 0 1 0 0-2h-2ZM3 13a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Zm0 3a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 2a4 4 0 0 0-4 4v4a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.94V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.06A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-12 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M19 16h-5a2 2 0 0 0-2 2v2c0 1.66-1.37 3.04-2.96 2.6A11 11 0 1 1 23 12c0 2.2-2 4-4 4ZM13.5 4.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0ZM17.25 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm-9-1.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm-3.75 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm-2.06-3.65a1 1 0 0 1-1.88-.7l1.9-5.08a.5.5 0 0 0 .04-.18v-2.22a.5.5 0 0 0-.38-.48l-2.86-.72a1 1 0 0 1 .48-1.94l3.55.89a5 5 0 0 0 2.42 0l3.55-.89a1 1 0 1 1 .48 1.94l-2.86.72a.5.5 0 0 0-.38.48v2.22l.03.18 1.9 5.08a1 1 0 0 1-1.87.7l-1.6-4.25a.5.5 0 0 0-.93 0l-1.6 4.25ZM14 6a2 2 0 0 0-2-2 2 2 0 0 0-2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M4 4a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h16a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3H4Zm-.5 3a.5.5 0 0 0-.5.5v1c0 .28.22.5.5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1Zm4 0a.5.5 0 0 0-.5.5v1c0 .28.22.5.5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM7 11.5c0-.28.22-.5.5-.5h1c.28 0 .5.22.5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1ZM3.5 11a.5.5 0 0 0-.5.5v1c0 .28.22.5.5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM11 7.5c0-.28.22-.5.5-.5h1c.28 0 .5.22.5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm.5 3.5a.5.5 0 0 0-.5.5v1c0 .28.22.5.5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM15 7.5c0-.28.22-.5.5-.5h1c.28 0 .5.22.5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm.5 3.5a.5.5 0 0 0-.5.5v1c0 .28.22.5.5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM19 7.5c0-.28.22-.5.5-.5h1c.28 0 .5.22.5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm.5 3.5a.5.5 0 0 0-.5.5v1c0 .28.22.5.5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM7 15.5c0-.28.22-.5.5-.5h9c.28 0 .5.22.5.5v1a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-1Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.999994 0.0000455678 0.0000200868)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M11 2a1 1 0 1 0-2 0v1H3a1 1 0 0 0 0 2h9.94a8.04 8.04 0 0 1-2.76 5.11l-.14.12-.2-.16a7.9 7.9 0 0 1-2.38-3.4 1 1 0 1 0-1.88.67 9.9 9.9 0 0 0 2.92 4.21l-3.15 2.69a1 1 0 0 0 1.3 1.52l3.4-2.91 1.31 1.08a1 1 0 1 0 1.28-1.53l-1.04-.87c1.9-1.68 3.1-4.02 3.35-6.53H17a1 1 0 1 0 0-2h-6V2Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M22.77 22H20.5l-.99-2.77H14.3L13.3 22h-2.27l4.72-12.42h2.3L22.77 22ZM16.9 11.87l-1.92 5.43h3.85l-1.93-5.43Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M15.02 13.43c-.25.1-.5.2-.75.35a3.92 3.92 0 0 0-1.87 2.56c-.17.7-.4 1.97-.4 3.69V21a1 1 0 0 1-1 1H6.15a.5.5 0 0 1-.5-.55l.27-2.6c.02-.26-.27-.37-.41-.16a10.3 10.3 0 0 0-1.32 2.9.53.53 0 0 1-.5.41h-.22C2.67 22 2 21.38 2 20.59A9.53 9.53 0 0 1 11.53 11h.94c1.38 0 2.7.3 3.9.83.65.3.3 1.22-.4 1.34-.32.06-.64.14-.95.26ZM12 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M23.66 16.47c.13.57.34 1.69.34 3.23v2.23a1.4 1.4 0 0 1-2.66.63l-.8-1.6a.5.5 0 0 0-.56-.25c-.26.06-.62.12-.98.12s-.72-.06-.98-.12a.5.5 0 0 0-.56.25l-.8 1.6a1.4 1.4 0 0 1-2.66-.63V19.7c0-1.54.2-2.66.34-3.23.31-1.3 1.36-1.55 2.46-1.79.23-.05.46.03.61.18.17.16.36.33.59.32a19.34 19.34 0 0 1 2 0c.23 0 .42-.16.58-.32a.68.68 0 0 1 .62-.18c1.1.24 2.15.5 2.46 1.8Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M16.32 14.72a1 1 0 0 1 0-1.41l2.51-2.51a3.98 3.98 0 0 0-5.62-5.63l-2.52 2.51a1 1 0 0 1-1.41-1.41l2.52-2.52a5.98 5.98 0 0 1 8.45 8.46l-2.52 2.51a1 1 0 0 1-1.41 0ZM7.68 9.29a1 1 0 0 1 0 1.41l-2.52 2.51a3.98 3.98 0 1 0 5.63 5.63l2.51-2.52a1 1 0 0 1 1.42 1.42l-2.52 2.51a5.98 5.98 0 0 1-8.45-8.45l2.51-2.51a1 1 0 0 1 1.42 0Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M14.7 10.7a1 1 0 0 0-1.4-1.4l-4 4a1 1 0 1 0 1.4 1.4l4-4Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M9.6 7.8 4 12l5.6 4.2a1 1 0 0 1 .4.8v1.98c0 .21-.24.33-.4.2l-8.1-6.4a1 1 0 0 1 0-1.56l8.1-6.4c.16-.13.4-.01.4.2V7a1 1 0 0 1-.4.8ZM14.4 7.8 20 12l-5.6 4.2a1 1 0 0 0-.4.8v1.98c0 .21.24.33.4.2l8.1-6.4a1 1 0 0 0 0-1.56l-8.1-6.4a.25.25 0 0 0-.4.2V7a1 1 0 0 0 .4.8Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.745443 0.00131971 -0.00849813)",
+    "near": "itemContent_caf372",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M9 12a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Z",
+        "fill": "var(--icon-feedback-critical)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "path",
+        "d": "M2.75 3.02A3 3 0 0 1 5 2h10a3 3 0 0 1 3 3v7.64c0 .44-.55.7-.95.55a3 3 0 0 0-3.17 4.93l.02.03a.5.5 0 0 1-.35.85h-.05a.5.5 0 0 0-.5.5 2.5 2.5 0 0 1-3.68 2.2l-5.8-3.09A3 3 0 0 1 2 16V5a3 3 0 0 1 .76-1.98Zm1.3 1.95A.04.04 0 0 0 4 5v11c0 .36.2.68.49.86l5.77 3.08a.5.5 0 0 0 .74-.44V8.02a.5.5 0 0 0-.32-.46l-6.63-2.6Z",
+        "fill": "var(--icon-feedback-critical)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": "evenodd",
+        "clipRule": "evenodd"
+      },
+      {
+        "tag": "path",
+        "d": "M15.3 16.7a1 1 0 0 1 1.4-1.4l4.3 4.29V16a1 1 0 1 1 2 0v6a1 1 0 0 1-1 1h-6a1 1 0 1 1 0-2h3.59l-4.3-4.3Z",
+        "fill": "var(--icon-feedback-critical)",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "Close",
+    "viewBox": "0 0 24 24",
+    "w": 16,
+    "h": 16,
+    "color": "rgb(197, 198, 202)",
+    "near": "buttonChildren_a22cb0",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M19.3 20.7a1 1 0 0 0 1.4-1.4L13.42 12l7.3-7.3a1 1 0 0 0-1.42-1.4L12 10.58l-7.3-7.3a1 1 0 0 0-1.4 1.42L10.58 12l-7.3 7.3a1 1 0 1 0 1.42 1.4L12 13.42l7.3 7.3Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 24 24",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.999994 0.0000455678 0.0000200868)",
+    "near": "chevronIcon__0edde",
+    "uses": 1,
+    "paths": [
+      {
+        "tag": "path",
+        "d": "M3.3 8.3a1 1 0 0 1 1.4 0l7.3 7.29 7.3-7.3a1 1 0 1 1 1.4 1.42l-8 8a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1 0-1.42Z",
+        "fill": "currentColor",
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  },
+  {
+    "name": "icon",
+    "viewBox": "0 0 40 40",
+    "w": 20,
+    "h": 20,
+    "color": "oklab(0.964427 0.000418067 -0.00125384)",
+    "near": "radioGroupOption__64e61 text-md/normal_cf4812",
+    "uses": 3,
+    "paths": [
+      {
+        "tag": "circle",
+        "cx": "20",
+        "cy": "20",
+        "r": "20",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "20",
+        "cy": "20",
+        "r": "20",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      },
+      {
+        "tag": "circle",
+        "cx": "20",
+        "cy": "20",
+        "r": "8",
+        "fill": null,
+        "stroke": null,
+        "strokeWidth": null,
+        "fillRule": null,
+        "clipRule": null
+      }
+    ]
+  }
+]
