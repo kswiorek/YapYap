@@ -26,6 +26,7 @@ kmpTorResource = "409.5.0"
 kotlinxIoCore = "0.8.1"
 tomlktVersion = "0.5.0"
 kotlinxSerialization = "1.11.0"
+kotlinxDatetime = "0.7.1"
 
 [libraries]
 android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "androidDriver" }
@@ -66,6 +67,8 @@ tor-resource-noexec-tor = { module = "io.matthewnelson.kmp-tor:resource-noexec-t
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinxIoCore" }
 tomlkt = { module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlktVersion" }
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 
 
 [plugins]
