@@ -40,10 +40,15 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
             YapButton(
                 "Reset app",
                 onClick = {
-                    // Process lifetime: reset navigates away from this screen.
+                    // New core flow: resetApp() lands in Stopped, so boot straight
+                    // back into SetupRequired (navigates away from this screen).
                     session.scope.launch {
                         runCatching { session.orchestrator?.resetApp() }
                             .onFailure { error = it.message }
+                            .onSuccess {
+                                runCatching { session.orchestrator?.start() }
+                                    .onFailure { error = it.message }
+                            }
                     }
                 },
                 variant = YapButtonVariant.Danger,
@@ -100,10 +105,15 @@ fun FailureScreen(session: YapSession, cause: Throwable) {
             YapButton(
                 "Reset",
                 onClick = {
-                    // Process lifetime: reset navigates away from this screen.
+                    // New core flow: resetApp() lands in Stopped, so boot straight
+                    // back into SetupRequired (navigates away from this screen).
                     session.scope.launch {
                         runCatching { session.orchestrator?.resetApp() }
                             .onFailure { error = it.message }
+                            .onSuccess {
+                                runCatching { session.orchestrator?.start() }
+                                    .onFailure { error = it.message }
+                            }
                     }
                 },
                 variant = YapButtonVariant.Danger,

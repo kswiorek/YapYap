@@ -48,9 +48,18 @@ class YapSession(
         _toast.value = null
     }
 
-    /** Create the orchestrator and boot. Safe to call once; later calls no-op. */
+    /** Create the orchestrator and boot. Safe to call repeatedly; re-calls re-run start(). */
     fun start() {
-        if (orchestrator != null) return
+        val existing = orchestrator
+        if (existing != null) {
+            // New core flow: resetApp() lands in Stopped, so Restart must re-run
+            // start() on the same instance (it reopens vault.db and re-diagnoses
+            // into SetupRequired). Core start() is idempotent.
+            scope.launch {
+                runCatching { existing.start() }.onFailure { showToast("Startup failed: ${it.message}") }
+            }
+            return
+        }
         val orch = OrchestratorFactory(dataDirectory, NodeMode.FULL_CLIENT, loopback, keyringNamespace).create()
         orchestrator = orch
         _orchestratorFlow.value = orch
