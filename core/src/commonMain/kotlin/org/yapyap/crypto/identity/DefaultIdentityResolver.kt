@@ -357,7 +357,7 @@ internal class DefaultIdentityResolver(
         require(stored.deviceId == device) {
             "Signed prekey $signedPreKeyId does not belong to local device $device"
         }
-        privateKeyStore.getKey(
+        val privateKey = privateKeyStore.getKey(
             ref = KeyReference(
                 keyId = signedPreKeyId,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
@@ -373,7 +373,9 @@ internal class DefaultIdentityResolver(
             )
         }
 
-        return stored
+        // The DB row never carries private material — attach the keystore key so
+        // responder paths (X3DH bootstrap) can actually sign/decrypt with it.
+        return stored.copy(privateKey = privateKey)
     }
 
     override suspend fun getAllPeers(): List<PeerId> {

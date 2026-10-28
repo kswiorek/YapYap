@@ -47,6 +47,12 @@ class DefaultIdentityOrchestrationTest {
         val localSpk = resolver.getCurrentLocalSignedPreKey()
         assertEquals(resolvedDevice.signedPreKey.keyId, localSpk.keyId)
         assertContentEquals(resolvedDevice.signedPreKey.publicKey, localSpk.publicKey)
+        // Responder paths (X3DH bootstrap) sign/decrypt with this key: the DB row
+        // never carries private material, so the resolver must attach the keystore key.
+        assertNotNull(localSpk.privateKey)
+        assertContentEquals(device.signedPreKey!!.privateKey, localSpk.privateKey)
+        val direct = resolver.resolveLocalSignedPreKey(localSpk.keyId)
+        assertContentEquals(localSpk.privateKey, direct.privateKey)
 
         assertEquals(fixedTor, resolver.resolveTorEndpointForDevice(device.deviceId))
     }
