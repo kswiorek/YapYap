@@ -145,6 +145,12 @@ compose.desktop {
             )
             packageName = "YapYap"
             packageVersion = "0.0.2"
+            // Ship the full JDK runtime instead of a jdeps-stripped image.
+            // Stripped images break libraries that load JDK classes reflectively
+            // (dbus-java SASL needs jdk.security.auth, sqlite needs java.sql, ...):
+            // works in dev (full JDK) but fails only in the packaged app.
+            // Costs some download size; revisit with a curated module list later.
+            includeAllModules = true
             // dbus-java SASL auth needs UnixSystem, which lives in jdk.security.auth.
             // jdeps doesn't detect it (loaded reflectively), so without this the
             // packaged runtime throws BackendNotSupportedException for every keyring.

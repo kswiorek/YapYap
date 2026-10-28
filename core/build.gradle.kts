@@ -30,6 +30,14 @@ val enableAndroid = providers.gradleProperty("enableAndroid")
     .orElse(hasAndroidSdkConfigured())
     .get()
 
+// sqlite-driver transitively pulls org.xerial:sqlite-jdbc, but we ship the
+// io.github.willena fork instead (libs.sqlite.jdbc). Two jars with the same
+// org.sqlite classes on the classpath makes DriverManager pick one depending
+// on classpath order, so keep exactly one.
+configurations.configureEach {
+    exclude(group = "org.xerial", module = "sqlite-jdbc")
+}
+
 if (enableAndroid) {
     apply(plugin = "com.android.library")
 }
