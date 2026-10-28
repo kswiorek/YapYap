@@ -21,6 +21,9 @@ import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.YapTheme
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
+import org.yapyap.orchestrator.BootPhase
+import org.yapyap.orchestrator.BootProgress
+import org.yapyap.orchestrator.Orchestrator
 import org.yapyap.orchestrator.OrchestratorState
 
 @Composable
@@ -39,7 +42,7 @@ fun App(session: YapSession?) {
                     SplashScreen("Starting…")
                 } else {
                     val state by orch.state.collectAsState()
-                    AppRoot(session, state)
+                    AppRoot(session, orch, state)
                 }
             }
         }
@@ -47,13 +50,16 @@ fun App(session: YapSession?) {
 }
 
 @Composable
-private fun AppRoot(session: YapSession, state: OrchestratorState) {
+private fun AppRoot(session: YapSession, orch: Orchestrator, state: OrchestratorState) {
     // Global overlay: reset/start failures must be visible in every state,
     // not just Running (MainShell is not composed elsewhere).
     Box(Modifier.fillMaxSize()) {
         when (state) {
             OrchestratorState.Created -> SplashScreen("YapYap")
-            OrchestratorState.Starting -> SplashScreen("Starting network…")
+            OrchestratorState.Starting -> {
+                val progress by orch.bootProgress.collectAsState()
+                BootSplash(progress)
+            }
             OrchestratorState.SetupRequired -> SetupScreen(session)
             OrchestratorState.Running -> {
                 val runtime = remember(state) { runCatching { session.orchestrator?.runtime() }.getOrNull() }
@@ -96,6 +102,53 @@ fun SplashScreen(line: String) {
             BasicText("YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
             Spacer(Modifier.height(8.dp))
             BasicText(line, style = yapType.bodySm.copy(color = colors.textMuted))
+        }
+    }
+}
+
+@Composable
+private fun BootSplash(progress: BootProgress) {
+    val colors = yapColors
+    val detail = when (progress.phase) {
+        BootPhase.STARTING -> "Starting…"
+        BootPhase.TRANSPORTS -> "Opening transports…"
+        BootPhase.DATABASE -> "Opening database…"
+        BootPhase.ROUTER -> "Starting router…"
+        BootPhase.FOLDS ->
+            if (progress.roomsTotal > 0) {
+                "Folding rooms ${progress.roomsDone}/${progress.roomsTotal}…"
+            } else {
+                "Folding…"
+            }
+
+        BootPhase.READY -> "Almost there…"
+    }
+    Box(
+        Modifier.fillMaxSize().background(colors.bgApp).padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            BasicText("✦", style = yapType.headingXxl.copy(color = colors.brand))
+            Spacer(Modifier.height(12.dp))
+            BasicText("YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
+            Spacer(Modifier.height(8.dp))
+            BasicText("Starting network…", style = yapType.bodySm.copy(color = colors.textMuted))
+            Spacer(Modifier.height(4.dp))
+            BasicText(detail, style = yapType.bodySm.copy(color = colors.textMuted))
+            if (progress.roomsTotal > 0) {
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    Modifier.widthIn(max = 280.dp).fillMaxWidth().height(4.dp)
+                        .background(colors.bgSurfaceHigh),
+                ) {
+                    val fraction =
+                        progress.roomsDone.toFloat() / progress.roomsTotal.toFloat().coerceAtLeast(1f)
+                    Box(
+                        Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f))
+                            .background(colors.brand),
+                    )
+                }
+            }
         }
     }
 }

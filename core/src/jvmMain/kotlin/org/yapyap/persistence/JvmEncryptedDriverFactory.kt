@@ -1,7 +1,6 @@
 package org.yapyap.persistence
 
 import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import kotlinx.io.files.Path
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -23,7 +22,9 @@ internal class JvmEncryptedDriverFactory(
             message = "Creating encrypted JDBC SQLite driver",
             fields = mapOf("databaseFile" to databaseFile),
         )
-        return JdbcSqliteDriver(url)
+        // Single persistent connection: per-query open/close would re-run the full
+        // SQLCipher key derivation on every statement (~90ms measured).
+        return SingleConnectionJdbcDriver(url)
     }
 }
 

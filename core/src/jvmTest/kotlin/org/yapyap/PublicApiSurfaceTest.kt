@@ -32,6 +32,8 @@ class PublicApiSurfaceTest {
         "org.yapyap.orchestrator.Orchestrator",
         "org.yapyap.orchestrator.OrchestratorFactory",
         "org.yapyap.orchestrator.OrchestratorState",
+        "org.yapyap.orchestrator.BootProgress",
+        "org.yapyap.orchestrator.BootPhase",
         "org.yapyap.orchestrator.NodeMode",
         "org.yapyap.orchestrator.SetupIntent",
         "org.yapyap.orchestrator.SetupResult",

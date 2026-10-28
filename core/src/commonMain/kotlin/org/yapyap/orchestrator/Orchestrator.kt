@@ -15,6 +15,14 @@ public interface Orchestrator {
      */
     public val onboardingState: StateFlow<OnboardingState>
 
+    /**
+     * Coarse boot progress, for progress UX while [state] is `Starting`.
+     * Updated as `start()`/`completeSetup()` move through [BootPhase]s; the room
+     * sweep additionally reports [BootProgress.roomsDone]/[BootProgress.roomsTotal].
+     * Ignore unless [state] is `Starting`.
+     */
+    public val bootProgress: StateFlow<BootProgress>
+
     /** Boot recovery → start router → start domain loops. */
     public suspend fun start()
 

@@ -65,7 +65,14 @@ internal sealed interface RoomStateChange {
 internal interface RoomEventProjector {
     val stateChanges: Flow<RoomStateChange>
 
-    fun start(scope: CoroutineScope)
+    /**
+     * Starts the boot sweep + collectors. [onBootProgress] reports the boot sweep
+     * as (roomsDone, roomsTotal); later triggers don't report.
+     */
+    fun start(
+        scope: CoroutineScope,
+        onBootProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    )
     suspend fun stop()
 
     /**
@@ -109,12 +116,19 @@ internal class DefaultRoomEventProjector(
     private var collectJob: Job? = null
     private var scope: CoroutineScope? = null
 
-    override fun start(scope: CoroutineScope) {
+    override fun start(
+        scope: CoroutineScope,
+        onBootProgress: (done: Int, total: Int) -> Unit,
+    ) {
         this.scope = scope
         if (collectJob?.isActive == true) return
         // Boot fold: sweep all chat rooms (idempotent full re-fold per room).
         scope.launch {
-            for (roomId in roomRepository.allChatRoomIds()) foldAndCommit(roomId, "boot")
+            val rooms = roomRepository.allChatRoomIds()
+            rooms.forEachIndexed { index, roomId ->
+                foldAndCommit(roomId, "boot")
+                onBootProgress(index + 1, rooms.size)
+            }
         }
         collectJob = scope.launch {
             launch {

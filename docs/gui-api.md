@@ -24,7 +24,14 @@ val runtime: OrchestratorRuntime = orchestrator.runtime()
   (suffixed per `keyringNamespace` when set) — never in the data directory.
 - `orchestrator.state: StateFlow<OrchestratorState>` drives top-level UI:
   `Created → SetupRequired → Starting → Running`, plus `Stopping/Stopped`,
-  `ResetRequired(reason)` and `Failed(cause)`.
+  `ResetRequired(reason)` and `Failed(cause)`. While `Starting`,
+  `orchestrator.bootProgress: StateFlow<BootProgress>` reports the phase (`BootPhase`: transports → database → router →
+  folds → ready) plus
+  `roomsDone/roomsTotal` during the room-fold sweep — render it instead of a
+  static spinner. A second process on the same `dataDirectory` fails fast
+  into `Failed` with "already using this data directory" (single-instance
+  file lock, held until `resetApp()` wipes); `resetApp()` refuses while held
+  elsewhere.
 - First launch lands in `SetupRequired`: call
   `completeSetup(intent): SetupResult` with one of `SetupIntent.Genesis`
   (new standalone network), `.NewAccountFirstDevice` (join with a new account),
@@ -100,7 +107,7 @@ leak its dependencies).
 ### Vocabulary types (importable)
 
 Orchestrator entry points and companions: `Orchestrator`, `OrchestratorFactory`,
-`OrchestratorState`, `NodeMode`, `LoopbackTransport`, `SetupIntent`, `SetupResult`,
+`OrchestratorState`, `BootProgress`, `BootPhase`, `NodeMode`, `LoopbackTransport`, `SetupIntent`, `SetupResult`,
 `BootstrapEndpoint`, `OnboardingState`, `ResetReason`, the `runtime.*` service
 interfaces, and the shared identifiers/enums: `PeerId`, `RoomId`, `TorEndpoint`,
 `AccountId`, `DeviceType`, `RoomType`, `RoomMemberRole`, `RoomMemberStatus`,

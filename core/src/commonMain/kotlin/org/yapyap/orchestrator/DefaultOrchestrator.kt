@@ -21,10 +21,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.boot.BootDiagnoser
-import org.yapyap.orchestrator.boot.BootDiagnosis
-import org.yapyap.orchestrator.boot.LocalStoreReset
-import org.yapyap.orchestrator.boot.ResetReason
+import org.yapyap.orchestrator.boot.*
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
@@ -90,6 +87,9 @@ internal class DefaultOrchestrator(
     private val _onboardingState = MutableStateFlow(OnboardingState.IDLE)
     override val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
 
+    private val _bootProgress = MutableStateFlow(BootProgress(BootPhase.STARTING, 0, 0))
+    override val bootProgress: StateFlow<BootProgress> = _bootProgress.asStateFlow()
+
     private lateinit var configStore: ConfigStore
     private lateinit var router: DefaultRouter
     private lateinit var torBackend: TorBackend
@@ -122,6 +122,19 @@ internal class DefaultOrchestrator(
 
     private lateinit var roomEventProjector: DefaultRoomEventProjector
 
+    /**
+     * The data-directory lock, held from the first successful [start] until [resetApp]
+     * wipes the directory (deliberately *not* released by [stop]: the data is still
+     * ours while Stopped, and a second process must stay out).
+     */
+    private var dataDirLock: DataDirLock? = null
+
+    /** Entering Starting: reset the boot-progress flow alongside the state. */
+    private fun markStarting() {
+        _bootProgress.value = BootProgress(BootPhase.STARTING, 0, 0)
+        _state.value = OrchestratorState.Starting
+    }
+
 
     override suspend fun start() {
         if (_state.value is OrchestratorState.Running || _state.value is OrchestratorState.Starting) return
@@ -135,7 +148,7 @@ internal class DefaultOrchestrator(
         runCatching { dbDriver?.close() }
         dbDriver = null
         orchestratorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        _state.value = OrchestratorState.Starting
+        markStarting()
         try {
             // 1. paths (kotlinx.io.files.Path, resolve via Path(parent, child))
             val databaseFile = Path(dataDirectory, "vault.db")
@@ -152,6 +165,15 @@ internal class DefaultOrchestrator(
             // 3. logging first
             AppLog.init(createLogger(logDirectory))
 
+            // 3b. single-instance guard: a held lock means a *live* holder (the OS
+            // releases it on process death), so fail fast — through the standard
+            // catch below, which logs and lands in Failed — instead of contending
+            // on vault.db with it.
+            if (dataDirLock == null) {
+                dataDirLock = acquireDataDirLock(dataDirectory)
+                    ?: throw DataDirectoryInUseException(dataDirectory.toString())
+            }
+
             // 4. config store (loads userSettings.toml + state.toml cache → derive)
             configStore = ConfigStore(userSettingsFile, stateFile)
 
@@ -165,11 +187,13 @@ internal class DefaultOrchestrator(
             //   configStore.applyNetwork(fetched) before backends read the derived config.
 
 
+            _bootProgress.value = BootProgress(BootPhase.TRANSPORTS, 0, 0)
             torBackend = createTorBackend(configStore.torConfig, torStateRoot)
             webRtcBackend = createWebRtcBackend(configStore.webRtcConfig)
 
             keyStore = DefaultKeyStore(keyringSessionFactory)
             cryptoProvider = DefaultCryptoProvider()
+            _bootProgress.value = BootProgress(BootPhase.DATABASE, 0, 0)
             val masterKey = DefaultMasterKeyProvider(keyStore, cryptoProvider).getOrCreate()
             val dbConnection = DatabaseFactory(createDriverFactory(masterKey, databaseFile)).createConnection()
             identityRepo = DefaultIdentityKeyRepository(dbConnection.database, bootConfig.localDeviceType)
@@ -189,7 +213,7 @@ internal class DefaultOrchestrator(
             // Boot diagnosis owns the Healthy/SetupRequired/ResetRequired decision.
             when (val diagnosis = BootDiagnoser(identityRepo, keyStore, cryptoProvider, bootstrapSessionStore, Clock.System).diagnose()) {
                 is BootDiagnosis.Healthy -> {
-                    _state.value = OrchestratorState.Starting
+                    markStarting()
                     init()
                     _state.value = OrchestratorState.Running
                 }
@@ -223,7 +247,7 @@ internal class DefaultOrchestrator(
                     identityProvisioning.createNewAccountIdentity(intent.accountName, role = AccountRole.OWNER)
                 val device = identityProvisioning.createNewDeviceIdentity()
                 val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
-                _state.value = OrchestratorState.Starting
+                markStarting()
                 init()
                 onboardingProvider.cancelOnboarding()
                 roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
@@ -263,7 +287,7 @@ internal class DefaultOrchestrator(
                 val account = identityProvisioning.createNewAccountIdentity(intent.accountName)
                 val device = identityProvisioning.createNewDeviceIdentity()
                 val recoveryKey = identityProvisioning.exportLocalAccountRecoveryKey()
-                _state.value = OrchestratorState.Starting
+                markStarting()
                 init()
                 onboardingProvider.cancelOnboarding()
                 roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
@@ -305,7 +329,7 @@ internal class DefaultOrchestrator(
             is SetupIntent.ImportAccountRecoveryKey -> {
                 val account = identityProvisioning.importLocalAccountFromRecovery(intent.recoveryKey)
                 val device = identityProvisioning.createNewDeviceIdentity()
-                _state.value = OrchestratorState.Starting
+                markStarting()
                 init()
                 onboardingProvider.cancelOnboarding()
                 roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
@@ -348,7 +372,7 @@ internal class DefaultOrchestrator(
                 //TODO: [Finishing Touches] if device is headless and belongs to an account, exclude from message fanount but not global room?
                 val account = identityProvisioning.createPlaceholderAccountIdentity()
                 val device = identityProvisioning.createNewDeviceIdentity()
-                _state.value = OrchestratorState.Starting
+                markStarting()
                 init()
                 onboardingProvider.cancelOnboarding()
                 roomRepository.upsertMember(RoomId.GLOBAL, account.accountId, RoomMemberRole.MEMBER)
@@ -374,6 +398,7 @@ internal class DefaultOrchestrator(
     }
 
     private suspend fun init() {
+        _bootProgress.value = BootProgress(BootPhase.ROUTER, 0, 0)
         torTransport = DefaultTorTransport(torBackend)
         webRtcTransport = DefaultWebRtcTransport(webRtcBackend)
         AppLog.info(
@@ -529,6 +554,7 @@ internal class DefaultOrchestrator(
         // (rooms merge + room_members recompute per room, boot + ingest/reverify/
         // GLOBAL-commit triggers). Started after the global projector so the boot
         // sweep sees committed identity; deferred rows land on GLOBAL-commit anyway.
+        _bootProgress.value = BootProgress(BootPhase.FOLDS, 0, 0)
         roomEventProjector = DefaultRoomEventProjector(
             pipeline = pipeline,
             dagEngine = dagEngine,
@@ -538,7 +564,9 @@ internal class DefaultOrchestrator(
             identityKeyRepository = identityRepo,
             router = router,
         )
-        roomEventProjector.start(orchestratorScope)
+        roomEventProjector.start(orchestratorScope) { done, total ->
+            _bootProgress.value = BootProgress(BootPhase.FOLDS, done, total)
+        }
 
         // Sync-candidate freshness (docs/room events.md §6): rows freeze their
         // candidates at mint time, so every room-fold commit re-appends the
@@ -671,8 +699,15 @@ internal class DefaultOrchestrator(
         }
 
         // Announce presence + exchange room frontiers now that the subsystems consuming
-        // pingPayloads (sync coordinator) are up and subscribed.
-        router.announceOnline()
+        // pingPayloads (sync coordinator) are up and subscribed. Fire-and-forget: the
+        // fan-out awaits one send per known peer, and a send to a not-yet-ready peer
+        // can take minutes on real Tor — it must never gate boot completion (the
+        // periodic ping loop re-announces anyway). Per-peer failures stay swallowed
+        // inside the fan-out, as before.
+        orchestratorScope.launch {
+            runCatching { router.announceOnline() }
+        }
+        _bootProgress.value = BootProgress(BootPhase.READY, 0, 0)
     }
 
     override suspend fun stop() {
@@ -732,6 +767,13 @@ internal class DefaultOrchestrator(
                     _state.value is OrchestratorState.Failed ||
                     _state.value is OrchestratorState.SetupRequired
         ) { "resetApp() requires ResetRequired, Stopped, Failed or SetupRequired (was ${_state.value})" }
+        // Never wipe under a live holder: without a self-held lock, a failed
+        // acquire means another live instance owns the directory — refuse instead
+        // of deleting its vault out from under it.
+        if (dataDirLock == null) {
+            dataDirLock = acquireDataDirLock(dataDirectory)
+                ?: throw DataDirectoryInUseException(dataDirectory.toString())
+        }
         if (::orchestratorScope.isInitialized) {
             runCatching { orchestratorScope.cancel() }
         }
@@ -759,6 +801,10 @@ internal class DefaultOrchestrator(
         )
         reset.wipe()
         dbDriver = null
+        // The wipe deletes app.lock itself: release first, then forget the handle so
+        // the next start() re-acquires on the fresh directory.
+        runCatching { dataDirLock?.close() }
+        dataDirLock = null
         _onboardingState.value = OnboardingState.IDLE
         // Wipe deleted vault.db + closed its driver, but the lateinit
         // database/identityRepo/etc. still reference the dead connection — so
