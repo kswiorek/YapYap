@@ -721,7 +721,10 @@ internal class DefaultIdentityKeyRepository(
             public_key = spk.publicKey,
             signature = spk.signature,
             is_active = spk.isActive,
-            created_at_epoch_seconds = spk.createdAt!!,
+            // Chain-derived SPKs carry no timestamp (AddDevice has none) — same
+            // sentinel as insertSignedPreKey's null branch. Nothing reads peer
+            // SPK age; local rotation is clock-driven on its own rows.
+            created_at_epoch_seconds = spk.createdAt ?: Instant.DISTANT_PAST,
         )
         if (activateOnDevice && spk.isActive) {
             database.identityQueries.updateDeviceCurrentSignedPreKey(

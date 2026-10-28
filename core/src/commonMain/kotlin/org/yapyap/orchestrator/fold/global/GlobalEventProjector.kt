@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.SignedPreKeyRecord
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -188,6 +189,7 @@ internal class DefaultGlobalEventProjector(
         }
         val accountKey = requireNotNull(account.key) { "genesis requires the account public key" }
         require(accountKeySignature.isNotEmpty()) { "genesis requires the account signature over the device binding" }
+        val spk = devicePreKey(device)
         publish(
             listOf(
                 GlobalEventPayload.AddAccount(
@@ -203,6 +205,9 @@ internal class DefaultGlobalEventProjector(
                     torEndpoint = torEndpoint,
                     deviceType = deviceType,
                     keySignature = accountKeySignature,
+                    signedPreKeyId = spk?.first,
+                    signedPreKeyPublicKey = spk?.second,
+                    signedPreKeySignature = spk?.third,
                 ),
             ),
         )
@@ -222,6 +227,7 @@ internal class DefaultGlobalEventProjector(
         check(!grantAdmin || identityResolver.isLocalAccountAdmin()) {
             "local account is not an admin"
         }
+        val spk = devicePreKey(invite.device)
         val events = mutableListOf(
             GlobalEventPayload.AddAccount(
                 accountId = account.accountId,
@@ -236,6 +242,9 @@ internal class DefaultGlobalEventProjector(
                 torEndpoint = invite.torEndpoint,
                 deviceType = invite.deviceType,
                 keySignature = keySignature,
+                signedPreKeyId = spk?.first,
+                signedPreKeyPublicKey = spk?.second,
+                signedPreKeySignature = spk?.third,
             ),
         )
         // GrantAdmin is a separate event, never a field of AddAccount (admin status is
@@ -247,6 +256,7 @@ internal class DefaultGlobalEventProjector(
     override suspend fun publishOwnAccountDevice(invite: Invite) {
         require(invite.account == null) { "own-account device publish takes an account-less invite" }
         val localAccount = identityResolver.getLocalAccountIdentityRecord()
+        val spk = devicePreKey(invite.device)
         publish(
             listOf(
                 GlobalEventPayload.AddDevice(
@@ -259,6 +269,9 @@ internal class DefaultGlobalEventProjector(
                     // Branch 1: the sponsor's own authorship is the authorization — a sibling
                     // device does not hold the account private key, so no keySignature exists.
                     keySignature = null,
+                    signedPreKeyId = spk?.first,
+                    signedPreKeyPublicKey = spk?.second,
+                    signedPreKeySignature = spk?.third,
                 ),
             ),
         )
@@ -267,6 +280,7 @@ internal class DefaultGlobalEventProjector(
     override suspend fun publishRelayedDevice(request: RecoveryRequest) {
         requireNotNull(request.account.key) { "relayed device publish requires the account public key" }
         require(request.accountSignature.isNotEmpty()) { "relayed device publish requires request.accountSignature" }
+        val spk = devicePreKey(request.device)
         publish(
             listOf(
                 GlobalEventPayload.AddDevice(
@@ -277,6 +291,9 @@ internal class DefaultGlobalEventProjector(
                     torEndpoint = request.torEndpoint,
                     deviceType = request.deviceType,
                     keySignature = request.accountSignature,
+                    signedPreKeyId = spk?.first,
+                    signedPreKeyPublicKey = spk?.second,
+                    signedPreKeySignature = spk?.third,
                 ),
             ),
         )
@@ -303,6 +320,15 @@ internal class DefaultGlobalEventProjector(
             .filter { it.branch1 && it.addedBy == authorDeviceId && it.status == IdentityStatus.ACTIVE }
             .map { it.deviceId }
             .sortedBy { it.id }
+
+    /**
+     * The device's current signed prekey as AddDevice material (id + public key + signature),
+     * or null when the record carries none. The fold verifies the signature against the
+     * device signing key from the same event and commits it as the device's SPK, so any
+     * member can initiate E2EE straight from the fold.
+     */
+    private fun devicePreKey(device: DeviceIdentityRecord): Triple<String, ByteArray, ByteArray>? =
+        device.signedPreKey?.let { Triple(it.keyId, it.publicKey, it.signature) }
 
     /**
      * Shared writer path: append (DagEngine signs with the local device key and chains off the
@@ -537,6 +563,27 @@ internal class DefaultGlobalEventProjector(
                 encryptionPublicKey = add.encryptionPublicKey,
                 status = IdentityStatus.ACTIVE,
             )
+            // First-write-wins SPK seeding from the defining Add event: later commits must
+            // not clobber a rotated SPK (rotation has no chain event yet — see the ping
+            // follow-up). The fold verified the signature above.
+            val spkId = add.signedPreKeyId
+            val spkPub = add.signedPreKeyPublicKey
+            val spkSig = add.signedPreKeySignature
+            if (spkId != null && spkPub != null && spkSig != null &&
+                identityKeyRepository.getActiveSignedPreKeyForDevice(dev.deviceId) == null
+            ) {
+                identityKeyRepository.upsertDeviceSignedPreKey(
+                    SignedPreKeyRecord(
+                        deviceId = dev.deviceId,
+                        keyId = spkId,
+                        publicKey = spkPub,
+                        signature = spkSig,
+                        privateKey = null,
+                        isActive = true,
+                        createdAt = null,
+                    ),
+                )
+            }
         }
         for (accountId in result.tombstonedAccounts) {
             identityKeyRepository.tombstoneAccount(accountId)

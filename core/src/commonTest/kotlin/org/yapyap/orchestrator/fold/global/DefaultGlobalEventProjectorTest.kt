@@ -17,6 +17,7 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
@@ -396,6 +397,91 @@ class DefaultGlobalEventProjectorTest {
             h.seen,
             IdentityStateChange.DeviceAdded(newcomerAccount.accountId, newcomer.deviceId),
         )
+    }
+
+    private suspend fun spkFor(crypto: CryptoProvider, device: TestDevice): SignedPreKeyRecord {
+        val spk = crypto.generateEncryptionKeyPair()
+        return SignedPreKeyRecord(
+            deviceId = device.deviceId,
+            keyId = "spk-${device.deviceId.id.take(8)}",
+            publicKey = spk.publicKey,
+            signature = crypto.signDetached(device.signingPrivate, spk.publicKey),
+            privateKey = null,
+        )
+    }
+
+    private fun inviteWithSpk(
+        device: TestDevice,
+        account: TestAccount,
+        spk: SignedPreKeyRecord,
+        accountKeySignature: ByteArray,
+    ): Invite = Invite(
+        account = toAccountRecord(account),
+        device = toDeviceRecord(device).copy(signedPreKey = spk),
+        deviceType = device.deviceType,
+        torEndpoint = device.torEndpoint,
+        sharedSecret = byteArrayOf(0x01),
+        accountKeySignature = accountKeySignature,
+    )
+
+    @Test
+    fun sponsored_new_account_advertised_spk_enables_e2ee() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        val newcomerAccount = newAccount(h.crypto, "newcomer")
+        val newcomer = newDevice(h.crypto, newcomerAccount, "newcomer-device")
+        val spk = spkFor(h.crypto, newcomer)
+        h.tickTo(11_000L)
+        h.projector.publishSponsoredNewAccount(
+            inviteWithSpk(newcomer, newcomerAccount, spk, bindingSig(h.crypto, newcomerAccount, newcomer)),
+            grantAdmin = false,
+        )
+        runCurrent()
+
+        assertContains(
+            h.seen,
+            IdentityStateChange.DeviceAdded(newcomerAccount.accountId, newcomer.deviceId),
+        )
+        val stored = h.identityRepo.getActiveSignedPreKeyForDevice(newcomer.deviceId)
+        assertNotNull(stored)
+        assertEquals(spk.keyId, stored.keyId)
+        assertContentEquals(spk.publicKey, stored.publicKey)
+        val resolver = DefaultIdentityResolver(h.crypto, h.identityRepo, InMemoryKeyStore())
+        val remote = resolver.resolvePeerX3dhRemoteKeys(newcomer.deviceId)
+        assertContentEquals(newcomer.encryptionPublic, remote.identityEncryptionPublicKey)
+        assertContentEquals(spk.publicKey, remote.signedPreKeyPublicKey)
+        assertEquals(spk.keyId, remote.signedPreKeyId)
+    }
+
+    @Test
+    fun sponsored_new_account_with_tampered_spk_is_ignored() = runTest {
+        val h = newHarness()
+        h.startIn(backgroundScope)
+        h.genesis()
+        runCurrent()
+
+        val newcomerAccount = newAccount(h.crypto, "newcomer")
+        val newcomer = newDevice(h.crypto, newcomerAccount, "newcomer-device")
+        val spk = spkFor(h.crypto, newcomer).copy(
+            signature = spkFor(h.crypto, newcomer).signature.copyOf().also {
+                it[0] = (it[0].toInt() xor 0xff).toByte()
+            },
+        )
+        h.tickTo(11_000L)
+        h.projector.publishSponsoredNewAccount(
+            inviteWithSpk(newcomer, newcomerAccount, spk, bindingSig(h.crypto, newcomerAccount, newcomer)),
+            grantAdmin = false,
+        )
+        runCurrent()
+
+        // The account half still lands (valid AddAccount); only the device add is ignored.
+        assertContains(h.seen, IdentityStateChange.AccountAdded(newcomerAccount.accountId))
+        assertTrue(h.seen.none { it is IdentityStateChange.DeviceAdded && it.deviceId == newcomer.deviceId })
+        assertNull(h.identityRepo.getDeviceStatus(newcomer.deviceId))
+        assertNull(h.identityRepo.getActiveSignedPreKeyForDevice(newcomer.deviceId))
     }
 
     @Test
