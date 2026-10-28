@@ -124,7 +124,16 @@ internal class DefaultOrchestrator(
 
 
     override suspend fun start() {
-        if (_state.value is OrchestratorState.Running) return
+        if (_state.value is OrchestratorState.Running || _state.value is OrchestratorState.Starting) return
+        // Idempotent restart: a previous start() (SetupRequired/Stopped/Failed)
+        // left a DB driver + scope behind. Close them before reopening so a
+        // second start() never leaks a JDBC/SQLCipher handle or double-opens
+        // vault.db (WAL lock / half-initialized schema on re-entry).
+        if (::orchestratorScope.isInitialized) {
+            runCatching { orchestratorScope.cancel() }
+        }
+        runCatching { dbDriver?.close() }
+        dbDriver = null
         orchestratorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         _state.value = OrchestratorState.Starting
         try {
@@ -731,7 +740,15 @@ internal class DefaultOrchestrator(
         reset.wipe()
         dbDriver = null
         _onboardingState.value = OnboardingState.IDLE
-        _state.value = OrchestratorState.SetupRequired
+        // Wipe deleted vault.db + closed its driver, but the lateinit
+        // database/identityRepo/etc. still reference the dead connection — so
+        // SetupRequired here would be a lie: completeSetup() would query the
+        // stale handle ("no such table: accounts"). Land in Stopped instead
+        // and drop the dead logger; the GUI must call start() next, which
+        // reopens the driver, recreates the schema, and re-diagnoses into
+        // SetupRequired on the fresh empty directory.
+        AppLog.reset()
+        _state.value = OrchestratorState.Stopped
     }
 
     override fun runtime(): OrchestratorRuntime {

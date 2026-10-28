@@ -25,9 +25,14 @@ val runtime: OrchestratorRuntime = orchestrator.runtime()
   `.AddDeviceToExistingAccount`, or `.ImportAccountRecoveryKey` (recovery).
   The result carries the `Invite?` to render as a sponsor QR (null where there is
   no sponsor) and the account `recoveryKey` (show once, tell the user to store it).
-- `resetApp()` wipes local persistence and returns to `SetupRequired`. Callable from
+- `resetApp()` wipes local persistence and lands in `Stopped`. Callable from
   `ResetRequired`, `Stopped`, `Failed` or `SetupRequired` only — never from
-  `Running`/`Starting`. After a self-removal or self-ban the fold flips state to
+  `Running`/`Starting`. Call `start()` next: it reopens the database,
+  recreates `vault.db`/schema + `logs/`/`tor/`, and re-diagnoses into
+  `SetupRequired` on the fresh directory — only then call `completeSetup()`.
+  (Calling `completeSetup()` directly after `resetApp()` on the same instance
+  fails fast: the in-memory DB handle is dead after the wipe.)
+  After a self-removal or self-ban the fold flips state to
   `ResetRequired`; observe `state` until `resetApp()`.
 - `orchestrator.onboardingState: StateFlow<OnboardingState>` mirrors newcomer progress
   on every node (also headless relays, which have no runtime).

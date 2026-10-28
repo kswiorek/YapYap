@@ -14,8 +14,11 @@ import org.yapyap.persistence.key.KeyStore
  * ([KeyStore.deleteAll] for well-known refs + each enumerated ref), then deletes
  * everything under [dataDirectory] (PoC: `vault.db*`, `tor/`, `state.toml`,
  * `userSettings.toml`, `logs/` — the user copies out anything worth keeping
- * beforehand). Next `start()` recreates the directories, landing in
- * `SetupRequired`: wiped and fresh are indistinguishable by design.
+ * beforehand). Next `start()` recreates the directories and reopens the
+ * database, landing in `SetupRequired` via the boot diagnoser: wiped and
+ * fresh are indistinguishable by design. The orchestrator therefore lands in
+ * `Stopped` (never `SetupRequired` directly) — its in-memory DB handle is
+ * dead after the wipe and only `start()` can rebuild it.
  *
  * Entries orphaned from their DB rows (crash between `putKey` and `insert`, or a
  * previous partial wipe) are unfindable and linger — harmless, as fresh

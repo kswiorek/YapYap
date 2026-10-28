@@ -9,7 +9,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 internal class JvmAppLogger(
-    logDirectory: Path,
+    private val logDirectory: Path,
     fileName: String = "yapyap.log",
     private val minLevel: LogLevel = LogLevel.DEBUG,
 ) : AppLogger {
@@ -74,12 +74,27 @@ internal class JvmAppLogger(
 
         synchronized(writeLock) {
             println(output)
-            val buffer = Buffer()
-            buffer.writeString(output)
-            buffer.writeByte('\n'.code.toByte())
-            SystemFileSystem.sink(logFile, append = true).use { sink ->
-                sink.write(buffer, buffer.size)
-                sink.flush()
+            // The logs dir may have been wiped (resetApp) or deleted externally
+            // since init. Recreate it on every write so logging never fails
+            // on a missing dir/file — sink(append=true) recreates the file.
+            runCatching {
+                SystemFileSystem.createDirectories(logDirectory)
+                if (!SystemFileSystem.exists(logFile)) {
+                    SystemFileSystem.sink(logFile).close()
+                }
+            }
+            try {
+                val buffer = Buffer()
+                buffer.writeString(output)
+                buffer.writeByte('\n'.code.toByte())
+                SystemFileSystem.sink(logFile, append = true).use { sink ->
+                    sink.write(buffer, buffer.size)
+                    sink.flush()
+                }
+            } catch (e: Exception) {
+                // Logging must never crash the app: stdout above already
+                // preserved the line; stay on Noop-equivalent behaviour.
+                println("[JvmAppLogger] dropped log line (sink failed): ${e.message}")
             }
         }
     }

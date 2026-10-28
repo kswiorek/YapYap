@@ -24,10 +24,12 @@ public interface Orchestrator {
 
     /**
      * Terminal offline wipe: deletes local persistence (`vault.db*`, keyring
-     * entries, `tor/`, `state.toml`) and returns to
-     * [OrchestratorState.SetupRequired]. Callable only from
+     * entries, `tor/`, `state.toml`, `logs/`) and lands in
+     * [OrchestratorState.Stopped]. Callable only from
      * [OrchestratorState.ResetRequired], `Stopped`, `Failed` or `SetupRequired`;
-     * refuses in `Running`/`Starting`.
+     * refuses in `Running`/`Starting`. Call [start] next: it reopens the
+     * database, recreates the schema/directories, and re-diagnoses into
+     * `SetupRequired` on the fresh empty directory.
      */
     public suspend fun resetApp()
 
