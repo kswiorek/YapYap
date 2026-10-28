@@ -111,7 +111,7 @@ if (enableAndroid) {
             minSdk = libs.versions.android.minSdk.get().toInt()
             targetSdk = libs.versions.android.targetSdk.get().toInt()
             versionCode = 1
-            versionName = "0.0.1"
+            versionName = "0.0.2"
         }
         packaging {
             resources {
@@ -144,7 +144,7 @@ compose.desktop {
                 TargetFormat.Exe
             )
             packageName = "YapYap"
-            packageVersion = "0.0.1"
+            packageVersion = "0.0.2"
             // dbus-java SASL auth needs UnixSystem, which lives in jdk.security.auth.
             // jdeps doesn't detect it (loaded reflectively), so without this the
             // packaged runtime throws BackendNotSupportedException for every keyring.
