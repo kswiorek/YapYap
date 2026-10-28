@@ -139,7 +139,10 @@ compose.desktop {
         mainClass = "org.yapyap.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(
+                TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.AppImage,
+                TargetFormat.Exe
+            )
             packageName = "org.yapyap"
             packageVersion = "1.0.0"
         }
