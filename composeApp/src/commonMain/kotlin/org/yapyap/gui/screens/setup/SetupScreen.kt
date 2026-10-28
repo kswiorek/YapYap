@@ -246,22 +246,3 @@ private fun InviteResult(result: SetupResult) {
 expect fun copyToClipboard(text: String)
 
 private fun ByteArray.encodeBase64Stable(): String = Base64Encoder.encode(this)
-
-object Base64Encoder {
-    private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    fun encode(bytes: ByteArray): String {
-        val out = StringBuilder()
-        var i = 0
-        while (i < bytes.size) {
-            val b0 = bytes[i].toInt() and 0xFF
-            val b1 = if (i + 1 < bytes.size) bytes[i + 1].toInt() and 0xFF else 0
-            val b2 = if (i + 2 < bytes.size) bytes[i + 2].toInt() and 0xFF else 0
-            out.append(ALPHABET[(b0 shr 2) and 0x3F])
-            out.append(ALPHABET[((b0 shl 4) or (b1 shr 4)) and 0x3F])
-            out.append(if (i + 1 < bytes.size) ALPHABET[((b1 shl 2) or (b2 shr 6)) and 0x3F] else '=')
-            out.append(if (i + 2 < bytes.size) ALPHABET[b2 and 0x3F] else '=')
-            i += 3
-        }
-        return out.toString()
-    }
-}

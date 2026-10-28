@@ -13,18 +13,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import org.yapyap.gui.components.ScrimOverlay
-import org.yapyap.gui.components.StubPage
-import org.yapyap.gui.components.YapButton
-import org.yapyap.gui.components.YapButtonVariant
+import org.yapyap.gui.components.*
 import org.yapyap.gui.copy.RefusalText
 import org.yapyap.gui.screens.createroom.CreateRoomDialog
 import org.yapyap.gui.screens.quickswitcher.QuickSwitcher
 import org.yapyap.gui.screens.settings.SettingsModal
 import org.yapyap.gui.screens.setup.Base64Encoder
+import org.yapyap.gui.screens.setup.NewcomerStatusBanner
+import org.yapyap.gui.screens.setup.SponsorDialog
 import org.yapyap.gui.screens.setup.copyToClipboard
+import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.state.ReadStateStore
 import org.yapyap.gui.state.RoomsController
@@ -32,6 +33,7 @@ import org.yapyap.gui.state.roomKey
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
+import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
 import org.yapyap.protocol.RoomId
@@ -60,6 +62,7 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
     var showCreate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
+    var showSponsor by remember { mutableStateOf(false) }
     var leaveTarget by remember { mutableStateOf<RoomId?>(null) }
 
     val store = remember(session) { ReadStateStore(session) }
@@ -71,7 +74,29 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
         selectedId?.let { store.markRead(it, Clock.System.now().toEpochMilliseconds()) }
     }
 
-    val stubToast = { session.showToast(RefusalText.STUB_TOAST) }
+    val newcomerState by runtime.onboarding.newcomerState.collectAsState()
+    val cancelOnboarding = {
+        scope.launch {
+            runCatching { runtime.onboarding.newcomerCancelOnboarding() }
+            session.showToast(
+                "Onboarding cancelled — reset the app and set up again with a fresh code.",
+                ToastKind.Info,
+            )
+        }
+    }
+    // Staged join invite (new-account / add-device paths): SetupScreen is gone by
+    // the time the result arrives. Bytes stay staged while onboarding is active so
+    // the banner can reopen the overlay after Done; cleared once it completes.
+    val pendingInvite by session.pendingInviteBytes.collectAsState()
+    var showInvite by remember { mutableStateOf(false) }
+    LaunchedEffect(pendingInvite) {
+        if (pendingInvite != null) showInvite = true
+    }
+    LaunchedEffect(newcomerState) {
+        if (newcomerState == OnboardingState.COMPLETE || newcomerState == OnboardingState.IDLE) {
+            if (pendingInvite != null) session.clearPendingInvite()
+        }
+    }
 
     // Flex shell (web equivalent: `display: flex; height: 100vh`).
     // Rail + room list are fixed widths, chat is `flex: 1` (weight(1f)), the right
@@ -84,13 +109,19 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
     // into Dialogs — those are separate OS windows. Settings is therefore an
     // in-window overlay (see SettingsModal), not a Dialog.
     BoxWithConstraints(modifier.fillMaxSize().background(colors.bgApp)) {
-        Row(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            NewcomerStatusBanner(
+                state = newcomerState,
+                onShowCode = pendingInvite?.let { { showInvite = true } },
+                onCancel = { cancelOnboarding() },
+            )
+            Row(Modifier.weight(1f).fillMaxWidth()) {
             // Rail (72, fixed)
             Rail(
                 destination = destination,
                 onHome = { destination = RailDestination.Home },
                 onFriends = { destination = RailDestination.Friends },
-                onAddServer = stubToast,
+                onSponsor = { showSponsor = true },
                 onNewRoom = { showCreate = true },
             )
             when (destination) {
@@ -180,7 +211,8 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
                     }
                 }
             }
-        }
+            } // Row
+        } // Column (banner + shell row)
 
         // Overlay right panel (Expanded and below): floats over chat, top-end anchored.
         if (destination == RailDestination.Home && showRight && selectedId != null) {
@@ -250,13 +282,20 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
             onClose = { showSwitcher = false },
         )
     }
-    // Staged join invite (new-account / add-device paths): SetupScreen is gone by
-    // the time the result arrives, so it renders here until explicitly dismissed.
-    val pendingInvite by session.pendingInviteBytes.collectAsState()
-    pendingInvite?.let { bytes ->
+    val inviteBytes = pendingInvite
+    if (showInvite && inviteBytes != null) {
         PendingInviteOverlay(
-            inviteCode = remember(bytes) { Base64Encoder.encode(bytes) },
-            onDismiss = { session.clearPendingInvite() },
+            inviteCode = remember(inviteBytes) { Base64Encoder.encode(inviteBytes) },
+            newcomerState = newcomerState,
+            onCancelOnboarding = { cancelOnboarding() },
+            onDismiss = { showInvite = false },
+        )
+    }
+    if (showSponsor) {
+        SponsorDialog(
+            runtime = runtime,
+            session = session,
+            onDismiss = { showSponsor = false },
         )
     }
     leaveTarget?.let { target ->
@@ -293,26 +332,63 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
 }
 
 @Composable
-private fun PendingInviteOverlay(inviteCode: String, onDismiss: () -> Unit) {
+private fun PendingInviteOverlay(
+    inviteCode: String,
+    newcomerState: OnboardingState,
+    onCancelOnboarding: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val colors = yapColors
-    // Explicit buttons only: losing the code strands the join (no re-show path),
-    // so neither scrim-click nor Esc dismisses.
+    // Explicit buttons only: Done merely hides (the banner reopens), so neither
+    // scrim-click nor Esc dismisses.
     ScrimOverlay(onDismiss = null, maxContentWidth = 480.dp) {
         Column(
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(YapRadius.md))
                 .background(colors.bgSurface)
                 .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             BasicText(
                 "Invite code",
                 style = yapType.headingXl.copy(color = colors.textStrong),
+                modifier = Modifier.fillMaxWidth(),
             )
             BasicText(
                 "Your sponsor scans or pastes this to add you to the network.",
                 style = yapType.bodySm.copy(color = colors.textSubtle),
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
+            // QR slot (M1 follow-up): qrose renders these same bytes here side by
+            // side with the text. Placeholder keeps the geometry honest meanwhile.
+            Box(
+                Modifier.padding(top = 12.dp).size(240.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    SoonChip()
+                    BasicText(
+                        "QR coming soon",
+                        style = yapType.bodySm.copy(color = colors.textMuted),
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+            if (newcomerState == OnboardingState.AWAITING_INTRO) {
+                BasicText(
+                    "Status: waiting for a sponsor…",
+                    style = yapType.bodySmMedium.copy(color = colors.info),
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            } else if (newcomerState == OnboardingState.SYNCING) {
+                BasicText(
+                    "Status: sponsor found — syncing…",
+                    style = yapType.bodySmMedium.copy(color = colors.positive),
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             SelectionContainer(Modifier.padding(top = 12.dp)) {
                 BasicText(
                     inviteCode,
@@ -324,6 +400,15 @@ private fun PendingInviteOverlay(inviteCode: String, onDismiss: () -> Unit) {
                 )
             }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                if (newcomerState == OnboardingState.AWAITING_INTRO ||
+                    newcomerState == OnboardingState.SYNCING
+                ) {
+                    YapButton(
+                        "Cancel onboarding",
+                        onClick = onCancelOnboarding,
+                        variant = YapButtonVariant.Danger,
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 YapButton(
                     "Copy invite",
@@ -342,7 +427,7 @@ private fun Rail(
     destination: RailDestination,
     onHome: () -> Unit,
     onFriends: () -> Unit,
-    onAddServer: () -> Unit,
+    onSponsor: () -> Unit,
     onNewRoom: () -> Unit,
 ) {
     val colors = yapColors
@@ -358,7 +443,7 @@ private fun Rail(
         RailItem("☺", destination == RailDestination.Friends, onFriends)
         Spacer(Modifier.height(16.dp))
         RailItem("+", false, onNewRoom)
-        RailItem("⊕", false, onAddServer)
+        RailItem("⊕", false, onSponsor)
         Spacer(Modifier.weight(1f))
     }
 }

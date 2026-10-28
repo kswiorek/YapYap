@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+    <configuration default="false" name="YapYap dev-a+b (local)" type="CompoundRunConfigurationType"
+                   factoryName="Compound" allow-running-in-parallel="true">
+        <toRun name="YapYap dev-a (local)" type="GradleRunConfiguration"/>
+        <toRun name="YapYap dev-b (local)" type="GradleRunConfiguration"/>
+        <method v="2"/>
+    </configuration>
+</component>
