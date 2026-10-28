@@ -5,20 +5,25 @@ package org.yapyap.persistence.key
  */
 internal class MapBackedKeyringSessionFactory(
     val storage: MutableMap<Pair<String, String>, String> = mutableMapOf(),
+    private val keyringNamespace: String? = null,
 ) : KeyringSessionFactory {
+
+    init {
+        validateKeyringNamespace(keyringNamespace)
+    }
 
     override fun open(): KeyringSession =
         object : KeyringSession {
             override fun setPassword(serviceName: String, accountName: String, secret: String) {
-                storage[serviceName to accountName] = secret
+                storage[keyringServiceName(serviceName, keyringNamespace) to accountName] = secret
             }
 
             override fun getPassword(serviceName: String, accountName: String): String =
-                storage[serviceName to accountName]
+                storage[keyringServiceName(serviceName, keyringNamespace) to accountName]
                     ?: error("no password")
 
             override fun deletePassword(serviceName: String, accountName: String) {
-                storage.remove(serviceName to accountName)
+                storage.remove(keyringServiceName(serviceName, keyringNamespace) to accountName)
             }
 
             override fun close() {}

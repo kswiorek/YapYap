@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.runtime.identity
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,7 +81,7 @@ private class FakeProjector : GlobalEventProjector {
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = Unit
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = emptyList()
 }
-
+@OptIn(ExperimentalCoroutinesApi::class)
 class DefaultIdentityServiceTest {
 
     private val localAccount = AccountId("local-account")

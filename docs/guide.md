@@ -69,9 +69,12 @@
   - SQLDelight-backed `DefaultIdentityPublicKeyRepository` storing per-device signing/encryption key metadata.
   - SQLDelight-backed `DefaultCryptoSessionStore` for ratchet session persistence.
   - JVM key stores:
-    - `JvmMasterKeyProvider` (OS keyring-backed DB master key retrieval/creation),
-    - `JvmPrivateKeyStore` for local private key persistence.
-  - Encrypted DB initialization and reopen path validated by sprint integration test (`Sprint0IntegrationTest`).
+    - `DefaultMasterKeyProvider` over `DefaultKeyStore` (OS keyring-backed DB master key
+      retrieval/creation; the keyring service is `org.yapyap`, suffixed per `keyringNamespace`
+      when the factory sets one),
+    - `DefaultKeyStore` for local private key persistence (same keyring, well-known refs).
+  - Encrypted DB initialization and reopen path validated by `JvmEncryptedDriverFactoryIntegrationTest`
+    (opt-in via `-PintegrationTests=true`).
 - Not yet implemented / in progress:
   - SPK rotation and handshake edge cases during key rollover.
   - Epoch lifecycle management (`SUPERSEDED` sessions, handshake-until-acked).

@@ -35,7 +35,7 @@ import kotlin.uuid.Uuid
  * Two [org.yapyap.routing.router.DefaultRouter] instances over real [DefaultTorTransport]/[KmpTorBackend] and real WebRTC stacks.
  * Verifies a text message from Alice → Bob over **Tor** through the full router encode/decode path.
  *
- * Opt-in: `./gradlew :composeApp:jvmTest -PintegrationTests=true`
+ * Opt-in: `./gradlew :core:jvmTest -PintegrationTests=true`
  */
 class DefaultRouterLiveIntegrationTest {
 

@@ -15,6 +15,7 @@ public actual class OrchestratorFactory actual constructor(
     private val dataDirectory: Path,
     private val mode: NodeMode,
     private val loopback: LoopbackTransport,
+    private val keyringNamespace: String?,
 ) {
 
     public actual fun create(): Orchestrator =
@@ -24,7 +25,7 @@ public actual class OrchestratorFactory actual constructor(
                 mode = mode,
                 localDeviceType = if (mode == NodeMode.HEADLESS_RELAY) DeviceType.HEADLESS else DeviceType.DESKTOP,
             ),
-            keyringSessionFactory = JavaKeyringSessionFactory,
+            keyringSessionFactory = JavaKeyringSessionFactory(keyringNamespace),
             createDriverFactory = { masterKey, databaseFile -> JvmEncryptedDriverFactory(databaseFile, masterKey) },
             createTorBackend = { torConfig, torStateRoot ->
                 when (loopback) {
