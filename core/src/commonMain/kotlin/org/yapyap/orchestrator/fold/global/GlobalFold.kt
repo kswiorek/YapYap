@@ -429,6 +429,20 @@ internal suspend fun replayFold(
                         }
                     }
                 }
+                // Advertised signed prekey: verified against the device signing key from
+                // this same event (same layout as provisioning signs). Present-but-invalid
+                // fails the add like a bad binding; absent means no E2EE-initiation
+                // material for this device yet (sync/requester side must already hold it).
+                val spkId = event.signedPreKeyId
+                val spkPub = event.signedPreKeyPublicKey
+                val spkSig = event.signedPreKeySignature
+                if ((spkId == null) != (spkPub == null) || (spkPub == null) != (spkSig == null) ||
+                    (spkPub != null && spkSig != null &&
+                            !crypto.verifyBinding(event.signingPublicKey, spkPub, spkSig))
+                ) {
+                    ignoreAdd()
+                    continue
+                }
                 devices[event.deviceId] = FoldDevice(
                     deviceId = event.deviceId,
                     accountId = event.accountId,

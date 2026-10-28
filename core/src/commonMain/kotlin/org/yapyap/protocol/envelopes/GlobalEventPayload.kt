@@ -108,6 +108,15 @@ internal sealed interface GlobalEventPayload {
         /** Target account key over [accountSignedDeviceBindingBytes] — the binding consent.
          *  Absent only for branch-1 own-device adds (see above). */
         val keySignature: ByteArray?,
+        /**
+         * The added device's current signed prekey (id + public key + device-key signature
+         * over the public key). Lets any member initiate E2EE to the device straight from
+         * the fold, without a prior intro carrying the SPK. All three are present or all
+         * absent; a present-but-invalid signature fails the add like a bad binding.
+         */
+        val signedPreKeyId: String? = null,
+        val signedPreKeyPublicKey: ByteArray? = null,
+        val signedPreKeySignature: ByteArray? = null,
     ) : GlobalEventPayload {
         override val kind: GlobalEventKind = GlobalEventKind.ADD_DEVICE
 
@@ -117,6 +126,17 @@ internal sealed interface GlobalEventPayload {
             require(torEndpoint.onionAddress.isNotBlank()) { "torEndpoint.onionAddress must not be blank" }
             if (keySignature != null) {
                 require(keySignature.isNotEmpty()) { "keySignature must not be empty" }
+            }
+            val spkCount = listOf(
+                signedPreKeyId,
+                signedPreKeyPublicKey?.takeIf { it.isNotEmpty() },
+                signedPreKeySignature?.takeIf { it.isNotEmpty() },
+            ).count { it != null }
+            require(spkCount == 0 || spkCount == 3) {
+                "signed prekey id, public key and signature must be all present or all absent"
+            }
+            if (signedPreKeyId != null) {
+                require(signedPreKeyId.isNotBlank()) { "signedPreKeyId must not be blank" }
             }
         }
 
@@ -144,6 +164,9 @@ internal sealed interface GlobalEventPayload {
             writer.writeInt(torEndpoint.port)
             writer.writeByte(deviceType.wireValue)
             writer.writeNullableByteArray(keySignature)
+            writer.writeNullableString(signedPreKeyId)
+            writer.writeNullableByteArray(signedPreKeyPublicKey)
+            writer.writeNullableByteArray(signedPreKeySignature)
             return writer.toByteArray()
         }
 
@@ -158,7 +181,10 @@ internal sealed interface GlobalEventPayload {
                     encryptionPublicKey.contentEquals(other.encryptionPublicKey) &&
                     torEndpoint == other.torEndpoint &&
                     deviceType == other.deviceType &&
-                    keySignature.contentEquals(other.keySignature)
+                    keySignature.contentEquals(other.keySignature) &&
+                    signedPreKeyId == other.signedPreKeyId &&
+                    signedPreKeyPublicKey.contentEquals(other.signedPreKeyPublicKey) &&
+                    signedPreKeySignature.contentEquals(other.signedPreKeySignature)
         }
 
         override fun hashCode(): Int {
@@ -170,6 +196,9 @@ internal sealed interface GlobalEventPayload {
             result = 31 * result + torEndpoint.hashCode()
             result = 31 * result + deviceType.hashCode()
             result = 31 * result + keySignature.contentHashCode()
+            result = 31 * result + (signedPreKeyId?.hashCode() ?: 0)
+            result = 31 * result + (signedPreKeyPublicKey?.contentHashCode() ?: 0)
+            result = 31 * result + (signedPreKeySignature?.contentHashCode() ?: 0)
             return result
         }
 
@@ -187,6 +216,9 @@ internal sealed interface GlobalEventPayload {
                 val port = reader.readInt()
                 val deviceType = DeviceType.fromWireValue(reader.readByte())
                 val keySignature = reader.readNullableByteArray()
+                val signedPreKeyId = reader.readNullableString()
+                val signedPreKeyPublicKey = reader.readNullableByteArray()
+                val signedPreKeySignature = reader.readNullableByteArray()
                 reader.requireFullyRead()
                 return AddDevice(
                     accountId = accountId,
@@ -196,6 +228,9 @@ internal sealed interface GlobalEventPayload {
                     torEndpoint = TorEndpoint(onionAddress, port),
                     deviceType = deviceType,
                     keySignature = keySignature,
+                    signedPreKeyId = signedPreKeyId,
+                    signedPreKeyPublicKey = signedPreKeyPublicKey,
+                    signedPreKeySignature = signedPreKeySignature,
                 )
             }
         }
