@@ -5,10 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -65,12 +62,18 @@ fun SettingsRow(
     modifier: Modifier = Modifier,
     control: @Composable () -> Unit,
 ) {
+    // Flex row (`label flex:1 + control auto`), like Discord's 48 dp rows.
+    // fillMaxWidth is load-bearing: without it the Row wraps content and the
+    // control overlaps the label — one source of the "text overlaps itself" bug.
     Row(
-        modifier = modifier.padding(vertical = 12.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-            BasicText(title, style = yapType.bodySmMedium.copy(color = yapColors.textDefault))
+            BasicText(
+                title,
+                style = yapType.bodySmMedium.copy(color = yapColors.textDefault),
+            )
             if (description.isNotBlank()) {
                 BasicText(
                     description,
@@ -79,6 +82,7 @@ fun SettingsRow(
                 )
             }
         }
+        androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 12.dp))
         control()
     }
 }

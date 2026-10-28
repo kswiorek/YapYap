@@ -22,6 +22,8 @@ fun UserPanel(
     modifier: Modifier = Modifier,
 ) {
     val colors = yapColors
+    // Fixed 56 dp footer row: avatar fixed, names flex (weight 1f + ellipsis),
+    // one settings gear (the only one — the rail no longer has its own).
     Row(
         modifier.background(colors.bgRaised).fillMaxWidth().height(56.dp)
             .padding(horizontal = 8.dp),
@@ -41,11 +43,13 @@ fun UserPanel(
                     local.displayName,
                     style = yapType.bodySmMedium.copy(color = colors.textDefault),
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 BasicText(
                     local.availability.label.name.lowercase(),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
         } else {

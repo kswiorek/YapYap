@@ -219,28 +219,25 @@ private fun TitleButton(label: String, onClick: () -> Unit, hoverDanger: Boolean
     val colors = yapColors
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    // 46x32 hit targets per 10-windows.md §0: neutral hover, red close.
     Box(
         Modifier.width(46.dp).height(32.dp)
-            .background(if (hoverDanger) colors.bgApp else colors.bgApp)
-            .clickableNoRipple(onClick),
+            .background(
+                when {
+                    hovered && hoverDanger -> colors.danger
+                    hovered -> colors.modHover
+                    else -> colors.bgApp
+                },
+            )
+            .clickable(interactionSource = interaction, indication = null) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(label, style = yapType.bodySm.copy(color = colors.textSubtle))
+        BasicText(
+            label,
+            style = yapType.bodySm.copy(color = if (hovered) colors.textStrong else colors.textSubtle),
+        )
     }
-    @Suppress("UNUSED_EXPRESSION")
-    hoverDanger
-    @Suppress("UNUSED_EXPRESSION")
-    hovered
 }
-
-@Composable
-private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
-    this.then(
-        clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-        ) { onClick() },
-    )
 
 /** 6 px resize borders around the window content. */
 @Composable

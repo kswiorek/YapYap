@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
@@ -57,13 +58,19 @@ fun YapTextField(
         keyboardOptions = keyboardOptions,
         interactionSource = interaction,
         decorationBox = { inner ->
-            if (value.isEmpty()) {
-                androidx.compose.foundation.text.BasicText(
-                    placeholder,
-                    style = yapType.bodyMd.copy(color = colors.textPlaceholder),
-                )
+            // Placeholder must overlay the input (like CSS position:absolute),
+            // not sit above it: wrap both in one Box so they share the same frame.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) {
+                    androidx.compose.foundation.text.BasicText(
+                        placeholder,
+                        style = yapType.bodyMd.copy(color = colors.textPlaceholder),
+                        maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+                inner()
             }
-            inner()
         },
     )
 }

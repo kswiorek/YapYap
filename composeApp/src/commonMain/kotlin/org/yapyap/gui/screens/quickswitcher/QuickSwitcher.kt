@@ -2,8 +2,10 @@ package org.yapyap.gui.screens.quickswitcher
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -12,11 +14,13 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import org.yapyap.gui.components.ScrimOverlay
 import org.yapyap.gui.state.RoomListItem
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
@@ -36,11 +40,18 @@ fun QuickSwitcher(
         if (query.isBlank()) items.take(5)
         else items.filter { it.title.contains(query, ignoreCase = true) }.take(10)
     }
-    Dialog(onDismissRequest = onClose) {
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { searchFocus.requestFocus() }
+    // In-window overlay (W6): scrim-click/Esc dismiss, search field takes focus.
+    ScrimOverlay(onDismiss = onClose, maxContentWidth = 680.dp) {
         Column(
-            Modifier.fillMaxWidth(0.6f)
+            Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(YapRadius.md))
                 .background(colors.bgSurfaceHigh)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { }
                 .padding(16.dp)
                 .onPreviewKeyEvent { ev ->
                     when (ev.key) {
@@ -72,9 +83,9 @@ fun QuickSwitcher(
                 query,
                 { query = it; index = 0 },
                 placeholder = "Search rooms…",
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp).focusRequester(searchFocus),
             )
-            LazyColumn(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp).padding(top = 8.dp)) {
                 itemsIndexed(filtered, key = { _, it -> it.details.roomId.value.toString() }) { i, item ->
                     BasicText(
                         item.title,

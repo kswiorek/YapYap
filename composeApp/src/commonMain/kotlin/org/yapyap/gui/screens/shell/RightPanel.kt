@@ -36,6 +36,9 @@ fun RightPanel(
 ) {
     val colors = yapColors
     val isGroup = details.members.size > 2 || details.name.isNotBlank()
+    // Fixed 264 dp pane, flex column: fixed header, weight(1f) list.
+    // Previously the LazyColumns had no weight, so they measured unbounded
+    // inside the Column and content overlapped / failed to scroll.
     Column(
         modifier.background(colors.bgApp).fillMaxHeight().width(264.dp).padding(12.dp),
     ) {
@@ -44,6 +47,8 @@ fun RightPanel(
                 if (isGroup) "Members — ${details.members.size}" else "Profile",
                 style = yapType.bodyMdMedium.copy(color = colors.textStrong),
                 modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             BasicText(
                 "✕",
@@ -52,16 +57,19 @@ fun RightPanel(
             )
         }
         Spacer(Modifier.height(8.dp))
-        if (isGroup) {
-            MemberList(details, accounts, localId)
-        } else {
-            val other = details.members.firstOrNull { it.accountId != localId }?.accountId
-                ?: details.members.firstOrNull()?.accountId
-            val view = other?.let { accounts[it] }
-            if (view != null) ProfileBody(view) else BasicText(
-                "Unknown user",
-                style = yapType.bodySm.copy(color = colors.textMuted),
-            )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (isGroup) {
+                MemberList(details, accounts, localId, modifier = Modifier.fillMaxSize())
+            } else {
+                val other = details.members.firstOrNull { it.accountId != localId }?.accountId
+                    ?: details.members.firstOrNull()?.accountId
+                val view = other?.let { accounts[it] }
+                if (view != null) ProfileBody(view, modifier = Modifier.fillMaxSize())
+                else BasicText(
+                    "Unknown user",
+                    style = yapType.bodySm.copy(color = colors.textMuted),
+                )
+            }
         }
     }
 }
@@ -71,6 +79,7 @@ private fun MemberList(
     details: RoomDetails,
     accounts: Map<AccountId, AccountView>,
     localId: AccountId?,
+    modifier: Modifier = Modifier,
 ) {
     val online = details.members.filter {
         accounts[it.accountId]?.availability?.label == AvailabilityLabel.ONLINE
@@ -78,7 +87,7 @@ private fun MemberList(
     val offline = details.members.filterNot {
         accounts[it.accountId]?.availability?.label == AvailabilityLabel.ONLINE
     }
-    LazyColumn(Modifier.fillMaxWidth()) {
+    LazyColumn(modifier.fillMaxSize()) {
         if (online.isNotEmpty()) {
             item(key = "h-online") {
                 SectionHeader("ONLINE — ${online.size}")
@@ -153,9 +162,9 @@ private fun MemberRow(view: AccountView?, id: AccountId, role: String, isLocal: 
 }
 
 @Composable
-fun ProfileBody(view: AccountView) {
+fun ProfileBody(view: AccountView, modifier: Modifier = Modifier) {
     val colors = yapColors
-    LazyColumn(Modifier.fillMaxWidth()) {
+    LazyColumn(modifier.fillMaxSize()) {
         item {
             // Banner 105 dp deterministic gradient
             Box(

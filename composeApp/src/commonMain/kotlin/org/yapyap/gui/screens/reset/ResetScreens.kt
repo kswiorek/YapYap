@@ -6,8 +6,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import org.yapyap.gui.components.*
+import org.yapyap.gui.components.CenterColumn
+import org.yapyap.gui.components.YapButton
+import org.yapyap.gui.components.YapButtonVariant
+import org.yapyap.gui.components.YapTextField
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
@@ -17,7 +19,6 @@ import org.yapyap.orchestrator.boot.ResetReason
 fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
     val colors = yapColors
     var typed by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
     CenterColumn {
         androidx.compose.foundation.layout.Column(
             Modifier.widthIn(max = 480.dp).fillMaxWidth(),
@@ -40,22 +41,14 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
             YapButton(
                 "Reset app",
                 onClick = {
-                    // New core flow: resetApp() lands in Stopped, so boot straight
-                    // back into SetupRequired (navigates away from this screen).
-                    session.scope.launch {
-                        runCatching { session.orchestrator?.resetApp() }
-                            .onFailure { error = it.message }
-                            .onSuccess {
-                                runCatching { session.orchestrator?.start() }
-                                    .onFailure { error = it.message }
-                            }
-                    }
+                    // Stops first (reset refuses Running), wipes, then boots
+                    // back into SetupRequired. Failures surface as toasts.
+                    session.resetAndReboot()
                 },
                 variant = YapButtonVariant.Danger,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = typed == "reset",
             )
-            error?.let { InlineError(it) }
         }
     }
 }
@@ -64,7 +57,6 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
 fun FailureScreen(session: YapSession, cause: Throwable) {
     val colors = yapColors
     var showDetails by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
     CenterColumn {
         androidx.compose.foundation.layout.Column(
             Modifier.widthIn(max = 480.dp).fillMaxWidth(),
@@ -105,21 +97,13 @@ fun FailureScreen(session: YapSession, cause: Throwable) {
             YapButton(
                 "Reset",
                 onClick = {
-                    // New core flow: resetApp() lands in Stopped, so boot straight
-                    // back into SetupRequired (navigates away from this screen).
-                    session.scope.launch {
-                        runCatching { session.orchestrator?.resetApp() }
-                            .onFailure { error = it.message }
-                            .onSuccess {
-                                runCatching { session.orchestrator?.start() }
-                                    .onFailure { error = it.message }
-                            }
-                    }
+                    // Stops first (reset refuses Running), wipes, then boots
+                    // back into SetupRequired. Failures surface as toasts.
+                    session.resetAndReboot()
                 },
                 variant = YapButtonVariant.Danger,
                 modifier = Modifier.fillMaxWidth(),
             )
-            error?.let { InlineError(it) }
         }
     }
 }

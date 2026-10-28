@@ -2,6 +2,7 @@ package org.yapyap.gui.screens.createroom
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,11 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import org.yapyap.gui.components.Avatar
-import org.yapyap.gui.components.YapButton
-import org.yapyap.gui.components.YapButtonVariant
-import org.yapyap.gui.components.YapTextField
+import org.yapyap.gui.components.*
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
@@ -37,11 +34,17 @@ fun CreateRoomDialog(
         if (query.isBlank()) accounts
         else accounts.filter { it.displayName.contains(query, ignoreCase = true) }
     }
-    Dialog(onDismissRequest = onDismiss) {
+    // In-window overlay (W7): scrim-click/Esc dismiss, window stays resizable.
+    // Card: max 480 wide, shrinking with 16 dp margins on narrow windows.
+    ScrimOverlay(onDismiss = onDismiss, maxContentWidth = 480.dp) {
         Column(
-            Modifier.width(480.dp)
+            Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(YapRadius.md))
                 .background(colors.bgSurface)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { }
                 .padding(20.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

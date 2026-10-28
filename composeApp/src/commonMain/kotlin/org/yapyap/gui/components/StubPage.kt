@@ -23,18 +23,36 @@ fun StubPage(
         modifier.fillMaxSize().background(colors.bgChat).padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier.fillMaxWidth().widthIn(max = 480.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                BasicText(title, style = yapType.headingXl.copy(color = colors.textStrong))
-                Spacer(Modifier.padding(4.dp))
+                BasicText(
+                    title,
+                    style = yapType.headingXl.copy(
+                        color = colors.textStrong,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    ),
+                )
+                Spacer(Modifier.width(8.dp))
                 SoonChip()
             }
             Spacer(Modifier.height(16.dp))
-            BasicText(headline, style = yapType.headingSm.copy(color = colors.textDefault))
+            BasicText(
+                headline,
+                style = yapType.headingSm.copy(
+                    color = colors.textDefault,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                ),
+            )
             Spacer(Modifier.height(8.dp))
             BasicText(
                 explanation,
-                style = yapType.bodySm.copy(color = colors.textMuted),
+                style = yapType.bodySm.copy(
+                    color = colors.textMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                ),
             )
         }
     }

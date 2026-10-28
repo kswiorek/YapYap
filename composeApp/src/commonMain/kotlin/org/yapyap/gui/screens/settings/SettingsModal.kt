@@ -1,7 +1,6 @@
 package org.yapyap.gui.screens.settings
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -10,8 +9,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 import org.yapyap.config.*
 import org.yapyap.gui.components.*
@@ -30,67 +33,208 @@ private enum class Section {
 }
 
 @Composable
-fun SettingsModal(session: YapSession, runtime: OrchestratorRuntime, onClose: () -> Unit) {
+fun SettingsModal(
+    session: YapSession,
+    runtime: OrchestratorRuntime,
+    onClose: () -> Unit,
+) {
     val colors = yapColors
     var section by remember { mutableStateOf(Section.Account) }
-    Dialog(onDismissRequest = onClose) {
-        Column(
-            Modifier.fillMaxSize(0.92f)
+    // Compact (<600): single pane per W9 — nav list, tap pushes content with a back bar.
+    var pushed by remember { mutableStateOf(false) }
+    // Reset confirm lives here, not in AdvancedPane: overlays need a bounded scope
+    // and the pane sits inside scrollable content (unbounded height).
+    var showReset by remember { mutableStateOf(false) }
+    var resetTyped by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // In-window overlay, NOT a Dialog. Dialog opens a blocking OS window: the parent
+    // can't resize while it's open and the panel sizes itself once. This Box lives in
+    // the main window, so BoxWithConstraints measures the live window every
+    // recomposition and the panel tracks resizes automatically.
+    BoxWithConstraints(
+        Modifier.fillMaxSize()
+            .background(colors.scrim)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { ev ->
+                if (ev.key == Key.Escape) {
+                    onClose()
+                    true
+                } else false
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        // W8 geometry, re-evaluated on every resize: min(1400, width-80).
+        // Short windows (<600 high) go full-bleed instead of a centred card.
+        val fullBleed = maxHeight < 600.dp
+        val panelWidth = (maxWidth - 80.dp).coerceIn(320.dp, 1400.dp)
+        val panelHeight = (maxHeight - 80.dp).coerceIn(400.dp, 945.dp)
+        val panelModifier = if (fullBleed) {
+            Modifier.fillMaxSize().background(colors.bgChat)
+        } else {
+            Modifier.width(panelWidth).height(panelHeight)
                 .clip(RoundedCornerShape(YapRadius.md))
                 .background(colors.bgChat)
-                .padding(0.dp),
-        ) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText(
-                    "Settings",
-                    style = yapType.headingXl.copy(color = colors.textStrong),
-                    modifier = Modifier.weight(1f),
-                )
-                BasicText(
-                    "✕",
-                    style = yapType.headingMd.copy(color = colors.textMuted),
-                    modifier = Modifier.clickable { onClose() }.padding(8.dp),
-                )
-            }
-            Row(Modifier.weight(1f).fillMaxWidth()) {
-                // Nav (253)
-                Column(
-                    Modifier.width(253.dp).fillMaxHeight().background(colors.bgApp)
-                        .padding(12.dp),
-                ) {
-                    NavLabel("Account")
-                    NavItem("Account", section == Section.Account) { section = Section.Account }
-                    NavItem("Devices", section == Section.Devices) { section = Section.Devices }
-                    NavLabel("App")
-                    NavItem("Appearance", section == Section.Appearance) { section = Section.Appearance }
-                    NavItem("Chat", section == Section.Chat) { section = Section.Chat }
-                    NavItem("Notifications", section == Section.Notifications) { section = Section.Notifications }
-                    NavItem("Keybinds", section == Section.Keybinds) { section = Section.Keybinds }
-                    NavLabel("Network")
-                    NavItem("Members", section == Section.Members) { section = Section.Members }
-                    NavItem("Advanced", section == Section.Advanced) { section = Section.Advanced }
-                }
-                // Content
-                Box2(Modifier.weight(1f).fillMaxHeight()) {
-                    when (section) {
-                        Section.Account -> AccountPane(runtime)
-                        Section.Devices -> DevicesPane(session, runtime)
-                        Section.Appearance -> AppearancePane(session)
-                        Section.Chat -> ChatPane(session)
-                        Section.Notifications -> NotificationsPane(session)
-                        Section.Keybinds -> KeybindsPane()
-                        Section.Members -> MembersPane(session, runtime)
-                        Section.Advanced -> AdvancedPane(session, runtime)
+        }
+        if (maxWidth < 600.dp) {
+            Column(panelModifier) {
+                if (!pushed) {
+                    SettingsNav(
+                        selected = section,
+                        onSelect = {
+                            section = it
+                            pushed = true
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        BasicText(
+                            "‹",
+                            style = yapType.headingLg.copy(color = colors.textDefault),
+                            modifier = Modifier.clickable { pushed = false }.padding(8.dp),
+                        )
+                        BasicText(
+                            section.name,
+                            style = yapType.headingSm.copy(color = colors.textStrong),
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                        BasicText(
+                            "✕",
+                            style = yapType.headingMd.copy(color = colors.textMuted),
+                            modifier = Modifier.clickable { onClose() }.padding(8.dp),
+                        )
+                    }
+                    Box(
+                        Modifier.fillMaxWidth().height(1.dp)
+                            .background(colors.borderNormal),
+                    )
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        SettingsPane(
+                            section,
+                            session,
+                            runtime,
+                            onResetRequest = { showReset = true },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
             }
+        } else {
+            // Full-window modal (W8): fixed header, weight(1f) body row.
+            Column(panelModifier) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText(
+                        "Settings",
+                        style = yapType.headingXl.copy(color = colors.textStrong),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    BasicText(
+                        "✕",
+                        style = yapType.headingMd.copy(color = colors.textMuted),
+                        modifier = Modifier.clickable { onClose() }.padding(8.dp),
+                    )
+                }
+                // Body row: fixed nav + flex content (`display: flex`).
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    SettingsNav(
+                        selected = section,
+                        onSelect = { section = it },
+                        modifier = Modifier.width(253.dp).fillMaxHeight(),
+                    )
+                    // Content (`flex: 1`, scrolls). Max-width 740 centred like the web.
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        SettingsPane(
+                            section,
+                            session,
+                            runtime,
+                            onResetRequest = { showReset = true },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+        // Reset confirm at overlay level (bounded scope, above the panel).
+        if (showReset) {
+            ConfirmDialog(
+                title = "Reset the app?",
+                body = "This wipes local data and returns to setup. Type \"reset\" to confirm.",
+                confirmLabel = "Reset",
+                onConfirm = {
+                    showReset = false
+                    // Stops first (reset refuses Running), wipes, then boots
+                    // back into SetupRequired. Failures surface as toasts.
+                    session.resetAndReboot()
+                },
+                onCancel = { showReset = false },
+                requireTypedText = "reset",
+                typedText = resetTyped,
+                onTypedTextChange = { resetTyped = it },
+            )
         }
     }
 }
 
 @Composable
-private fun Box2(modifier: Modifier, content: @Composable () -> Unit) {
-    androidx.compose.foundation.layout.Box(modifier.padding(24.dp)) { content() }
+private fun SettingsNav(
+    selected: Section,
+    onSelect: (Section) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Fixed-width nav with its own scroll so short windows don't clip.
+    Column(
+        modifier.background(yapColors.bgApp)
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+    ) {
+        NavLabel("Account")
+        NavItem("Account", selected == Section.Account) { onSelect(Section.Account) }
+        NavItem("Devices", selected == Section.Devices) { onSelect(Section.Devices) }
+        NavLabel("App")
+        NavItem("Appearance", selected == Section.Appearance) { onSelect(Section.Appearance) }
+        NavItem("Chat", selected == Section.Chat) { onSelect(Section.Chat) }
+        NavItem("Notifications", selected == Section.Notifications) { onSelect(Section.Notifications) }
+        NavItem("Keybinds", selected == Section.Keybinds) { onSelect(Section.Keybinds) }
+        NavLabel("Network")
+        NavItem("Members", selected == Section.Members) { onSelect(Section.Members) }
+        NavItem("Advanced", selected == Section.Advanced) { onSelect(Section.Advanced) }
+    }
+}
+
+@Composable
+private fun SettingsPane(
+    section: Section,
+    session: YapSession,
+    runtime: OrchestratorRuntime,
+    onResetRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.verticalScroll(rememberScrollState())
+            .padding(24.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().widthIn(max = 740.dp)) {
+            when (section) {
+                Section.Account -> AccountPane(runtime)
+                Section.Devices -> DevicesPane(session, runtime)
+                Section.Appearance -> AppearancePane(session)
+                Section.Chat -> ChatPane(session)
+                Section.Notifications -> NotificationsPane(session)
+                Section.Keybinds -> KeybindsPane()
+                Section.Members -> MembersPane(session, runtime)
+                Section.Advanced -> AdvancedPane(session, runtime, onResetRequest)
+            }
+        }
+    }
 }
 
 @Composable
@@ -105,15 +249,20 @@ private fun NavLabel(text: String) {
 @Composable
 private fun NavItem(text: String, selected: Boolean, onClick: () -> Unit) {
     val colors = yapColors
-    BasicText(
-        text,
-        style = yapType.bodySmMedium.copy(color = if (selected) colors.textStrong else colors.textSubtle),
-        modifier = Modifier.fillMaxWidth()
+    Box(
+        Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(YapRadius.sm))
             .background(if (selected) colors.modActive else colors.bgApp.copy(alpha = 0f))
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 8.dp),
-    )
+    ) {
+        BasicText(
+            text,
+            style = yapType.bodySmMedium.copy(color = if (selected) colors.textStrong else colors.textSubtle),
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+    }
 }
 
 // ---- Panes ----
@@ -129,14 +278,21 @@ private fun AccountPane(runtime: OrchestratorRuntime) {
     }
     val a = local!!
     AccountRow("Display name", a.displayName)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            BasicText("Account ID", style = yapType.bodySmMedium.copy(color = colors.textDefault))
-        }
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        BasicText(
+            "Account ID",
+            style = yapType.bodySmMedium.copy(color = colors.textDefault),
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.width(12.dp))
         SelectionContainer {
             BasicText(
                 a.accountId.id.take(20) + "…",
                 style = yapType.bodyXs.copy(color = colors.textMuted),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
     }
@@ -148,13 +304,21 @@ private fun AccountPane(runtime: OrchestratorRuntime) {
 @Composable
 private fun AccountRow(label: String, value: String) {
     val colors = yapColors
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(
             label,
             style = yapType.bodySmMedium.copy(color = colors.textDefault),
             modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
-        BasicText(value, style = yapType.bodySm.copy(color = colors.textSubtle))
+        Spacer(Modifier.width(12.dp))
+        BasicText(
+            value,
+            style = yapType.bodySm.copy(color = colors.textSubtle),
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -352,11 +516,10 @@ private fun MembersPane(session: YapSession, runtime: OrchestratorRuntime) {
 }
 
 @Composable
-private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime) {
+private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime, onResetRequest: () -> Unit) {
     val colors = yapColors
     val scope = rememberCoroutineScope()
     val settings by runtime.config.settings.collectAsState(initial = emptyList())
-    var showReset by remember { mutableStateOf(false) }
     PaneTitle("Advanced")
     AccountRow("Data directory", session.dataDirectory.toString())
     if (settings.isEmpty()) {
@@ -383,28 +546,7 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime) {
         }
     }
     Spacer(Modifier.height(16.dp))
-    YapButton("Reset app…", onClick = { showReset = true }, variant = YapButtonVariant.Danger)
-    if (showReset) {
-        var typed by remember { mutableStateOf("") }
-        ConfirmDialog(
-            title = "Reset the app?",
-            body = "This wipes local data and returns to setup. Type \"reset\" to confirm.",
-            confirmLabel = "Reset",
-            onConfirm = {
-                showReset = false
-                // New core flow: resetApp() lands in Stopped, so boot straight
-                // back into SetupRequired (navigates away from settings).
-                session.scope.launch {
-                    runCatching { session.orchestrator?.resetApp() }
-                        .onSuccess { runCatching { session.orchestrator?.start() } }
-                }
-            },
-            onCancel = { showReset = false },
-            requireTypedText = "reset",
-            typedText = typed,
-            onTypedTextChange = { typed = it },
-        )
-    }
+    YapButton("Reset app…", onClick = onResetRequest, variant = YapButtonVariant.Danger)
 }
 
 @Composable
@@ -453,19 +595,19 @@ private fun BackendRow(setting: Setting, onUpdate: (ConfigValue?) -> Unit) {
 
 @Composable
 private fun SoonRow(title: String, description: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            SettingsRow(title, description) { SoonChip() }
-        }
-    }
+    // Previously Row { Column(weight(1f)) { SettingsRow(...) } }: the extra nesting
+    // gave the inner Row zero width so title and chip overlapped. One flex row is enough.
+    SettingsRow(title, description, modifier = Modifier.fillMaxWidth()) { SoonChip() }
 }
 
 @Composable
 private fun PaneTitle(text: String) {
     BasicText(
         text,
-        style = yapType.bodySmMedium.copy(color = yapColors.textStrong),
-        modifier = Modifier.padding(bottom = 8.dp),
+        style = yapType.headingXs.copy(color = yapColors.textStrong),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        maxLines = 1,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
     )
 }
 

@@ -97,13 +97,18 @@ fun ChatView(
     val rows = remember(ui.items) { groupItems(ui.items) }
 
     Column(modifier.fillMaxSize().background(colors.bgChat)) {
-        // Header (49 dp)
+        // Header (49 dp, fixed)
         Row(
             Modifier.fillMaxWidth().height(49.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicText(title, style = yapType.bodyMdMedium.copy(color = colors.textStrong), maxLines = 1)
-            Spacer(Modifier.weight(1f))
+            BasicText(
+                title,
+                style = yapType.bodyMdMedium.copy(color = colors.textStrong),
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
             HeaderButton("☰", "Members") { onOpenMembers() }
             HeaderButton("⎘", "Copy room ID") { copyToClipboard(roomId.value.toString()) }
             HeaderButton("✕", "Leave") { onLeave() }
@@ -226,13 +231,19 @@ fun ChatView(
                 textStyle = yapType.bodyMd.copy(color = colors.textDefault),
                 cursorBrush = SolidColor(colors.textDefault),
                 decorationBox = { inner ->
-                    if (composer.isEmpty()) {
-                        BasicText(
-                            "Message $title",
-                            style = yapType.bodyMd.copy(color = colors.textPlaceholder),
-                        )
+                    // Same overlay rule as YapTextField: placeholder and input share
+                    // one Box frame instead of stacking vertically.
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                        if (composer.isEmpty()) {
+                            BasicText(
+                                "Message $title",
+                                style = yapType.bodyMd.copy(color = colors.textPlaceholder),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                        }
+                        inner()
                     }
-                    inner()
                 },
             )
             val used = composer.encodeToByteArray().size
@@ -369,17 +380,20 @@ private fun MessageGroup(
             }
         }
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 BasicText(
                     name,
                     style = yapType.bodyMdMedium.copy(
                         color = if (names[first.accountId] == null) colors.textMuted else colors.textStrong,
                     ),
-                    modifier = Modifier.clickable { }.padding(end = 8.dp),
+                    modifier = Modifier.weight(1f).clickable { }.padding(end = 8.dp),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 BasicText(
                     timeLabel(first.timestamp),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
+                    maxLines = 1,
                 )
             }
             row.items.forEach { item ->

@@ -73,6 +73,9 @@ class SetupController(
                 return@launch
             }
             _state.value = SetupUiState.Invite(result)
+            // The orchestrator is already Running here, so SetupScreen is gone:
+            // park the outputs in the session for the App-root overlays.
+            session.stageSetupResult(result.recoveryKey, result.inviteBytes)
         }
     }
 

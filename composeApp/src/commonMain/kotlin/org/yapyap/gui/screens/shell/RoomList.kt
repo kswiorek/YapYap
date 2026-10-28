@@ -41,8 +41,11 @@ fun RoomList(
     modifier: Modifier = Modifier,
 ) {
     val colors = yapColors
+    // Flex column (fills the 300 dp pane): fixed search, fixed section header,
+    // weight(1f) list. Previously the root was fillMaxHeight-only, so short
+    // content left the pane unsized and rows measured oddly.
     Column(
-        modifier.background(colors.bgApp).fillMaxHeight().padding(horizontal = 8.dp),
+        modifier.fillMaxSize().background(colors.bgApp).padding(horizontal = 8.dp),
     ) {
         // Search entry (this is the search entry → quick switcher).
         Box(
@@ -160,6 +163,7 @@ private fun RoomRow(
                     },
                 ),
                 maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             val previewText = when (val p = item.preview?.item) {
                 is MessageDisplayItem.Text -> DiscordMarkdownTransformer.stripToPlain(p.text)
@@ -175,6 +179,7 @@ private fun RoomRow(
                         color = if (item.unread) colors.textDefault else colors.textMuted,
                     ),
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 1.dp),
                 )
             }

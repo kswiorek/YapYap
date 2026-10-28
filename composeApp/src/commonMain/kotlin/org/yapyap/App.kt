@@ -7,13 +7,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import org.yapyap.gui.capabilities.Capabilities
 import org.yapyap.gui.capabilities.LocalCapabilities
+import org.yapyap.gui.components.ToastHost
 import org.yapyap.gui.components.YapButton
 import org.yapyap.gui.components.YapButtonVariant
 import org.yapyap.gui.screens.reset.FailureScreen
 import org.yapyap.gui.screens.reset.ResetScreen
+import org.yapyap.gui.screens.setup.RecoveryKeyModal
 import org.yapyap.gui.screens.setup.SetupScreen
 import org.yapyap.gui.screens.shell.MainShell
 import org.yapyap.gui.session.YapSession
@@ -47,19 +48,38 @@ fun App(session: YapSession?) {
 
 @Composable
 private fun AppRoot(session: YapSession, state: OrchestratorState) {
-    when (state) {
-        OrchestratorState.Created -> SplashScreen("YapYap")
-        OrchestratorState.Starting -> SplashScreen("Starting network…")
-        OrchestratorState.SetupRequired -> SetupScreen(session)
-        OrchestratorState.Running -> {
-            val runtime = remember(state) { runCatching { session.orchestrator?.runtime() }.getOrNull() }
-            if (runtime != null) MainShell(session, runtime) else SplashScreen("Loading…")
-        }
+    // Global overlay: reset/start failures must be visible in every state,
+    // not just Running (MainShell is not composed elsewhere).
+    Box(Modifier.fillMaxSize()) {
+        when (state) {
+            OrchestratorState.Created -> SplashScreen("YapYap")
+            OrchestratorState.Starting -> SplashScreen("Starting network…")
+            OrchestratorState.SetupRequired -> SetupScreen(session)
+            OrchestratorState.Running -> {
+                val runtime = remember(state) { runCatching { session.orchestrator?.runtime() }.getOrNull() }
+                if (runtime != null) MainShell(session, runtime) else SplashScreen("Loading…")
+            }
 
-        is OrchestratorState.ResetRequired -> ResetScreen(session, state.reason, state.details)
-        is OrchestratorState.Failed -> FailureScreen(session, state.cause)
-        OrchestratorState.Stopping -> SplashScreen("Stopping…")
-        OrchestratorState.Stopped -> StoppedScreen(session)
+            is OrchestratorState.ResetRequired -> ResetScreen(session, state.reason, state.details)
+            is OrchestratorState.Failed -> FailureScreen(session, state.cause)
+            OrchestratorState.Stopping -> SplashScreen("Stopping…")
+            OrchestratorState.Stopped -> StoppedScreen(session)
+        }
+        val toast by session.toast.collectAsState()
+        // W4 recovery key: staged by SetupController, survives the setup → shell
+        // navigation. Above content, below toasts.
+        val pendingKey by session.pendingRecoveryKey.collectAsState()
+        pendingKey?.let { key ->
+            RecoveryKeyModal(
+                recoveryKey = key,
+                onAcknowledge = { session.acknowledgeRecoveryKey() },
+            )
+        }
+        ToastHost(
+            toast,
+            onDismiss = { session.clearToast() },
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+        )
     }
 }
 
@@ -83,7 +103,6 @@ fun SplashScreen(line: String) {
 @Composable
 private fun StoppedScreen(session: YapSession) {
     val colors = yapColors
-    val scope = rememberCoroutineScope()
     Box(
         Modifier.fillMaxSize().background(colors.bgApp).padding(32.dp),
         contentAlignment = Alignment.Center,
@@ -95,9 +114,7 @@ private fun StoppedScreen(session: YapSession) {
             Spacer(Modifier.height(8.dp))
             YapButton(
                 "Reset app",
-                onClick = {
-                    scope.launch { runCatching { session.orchestrator?.resetApp() } }
-                },
+                onClick = { session.resetAndReboot() },
                 variant = YapButtonVariant.Danger,
             )
         }
