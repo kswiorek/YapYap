@@ -333,8 +333,18 @@ internal class Invite(
     }
 
     internal companion object {
-        /** Decode scanned invite bytes; throws on malformed input (callers map to MalformedInvite). */
-        internal fun decode(bytes: ByteArray): Invite = decode(ByteReader(bytes))
+        /**
+         * Decode scanned invite bytes (the exact sponsor path:
+         * `SetupResult.inviteBytes` → [Invite.encode] → paste/QR → here).
+         * Routes through [BootstrapPayload.decode] so the leading kind byte is consumed
+         * and validated — decoding the prefix directly would misread the kind as the version.
+         * Throws on malformed input (callers map to MalformedInvite).
+         */
+        internal fun decode(bytes: ByteArray): Invite {
+            val payload = BootstrapPayload.decode(bytes)
+            require(payload is Invite) { "Expected INVITE payload, got ${payload.kind}" }
+            return payload
+        }
 
         internal fun decode(reader: ByteReader): Invite {
             val prefix = reader.readBootstrapPayloadPrefix()

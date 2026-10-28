@@ -147,4 +147,94 @@ class BootstrapEnvelopeCodecTest {
         val tampered = bytes.copyOf().also { it[1] = 0x02 }
         assertFailsWith<IllegalArgumentException> { BootstrapPayload.decode(tampered) }
     }
+
+    private suspend fun sampleInvitePayload(newAccount: Boolean): Invite {
+        val signing = crypto.generateSigningKeyPair()
+        val encryption = crypto.generateEncryptionKeyPair()
+        val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
+        val device = DeviceIdentityRecord(
+            deviceId = deviceId,
+            signing = IdentityPublicKeyRecord(
+                keyId = "device-signing",
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.SIGNING,
+                publicKey = signing.publicKey,
+            ),
+            encryption = IdentityPublicKeyRecord(
+                keyId = "device-encryption",
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.ENCRYPTION,
+                publicKey = encryption.publicKey,
+            ),
+            signedPreKey = null,
+            keySignature = null,
+        )
+        val torEndpoint = TorEndpoint("newcomer.onion", 80)
+        val deviceType = DeviceType.DESKTOP
+        if (!newAccount) {
+            return Invite(
+                account = null,
+                device = device,
+                deviceType = deviceType,
+                torEndpoint = torEndpoint,
+                sharedSecret = byteArrayOf(0x01, 0x02, 0x03),
+                accountKeySignature = null,
+            )
+        }
+        val accountSigning = crypto.generateSigningKeyPair()
+        val accountPublic = crypto.privateSigningKeyToPublicKey(accountSigning.privateKey)
+        val accountId = crypto.accountIdFromPublicKey(accountPublic)
+        val account = AccountIdentityRecord(
+            accountId = accountId,
+            displayName = "Newcomer",
+            key = IdentityPublicKeyRecord(
+                keyId = "account-signing",
+                keyVersion = 0,
+                purpose = IdentityKeyPurpose.SIGNING,
+                publicKey = accountPublic,
+            ),
+        )
+        val binding = accountSignedDeviceBindingBytes(
+            accountId = accountId,
+            deviceId = deviceId,
+            signingPublicKey = signing.publicKey,
+            encryptionPublicKey = encryption.publicKey,
+            torEndpoint = torEndpoint,
+            deviceType = deviceType,
+        )
+        return Invite(
+            account = account,
+            device = device,
+            deviceType = deviceType,
+            torEndpoint = torEndpoint,
+            sharedSecret = byteArrayOf(0x01, 0x02, 0x03),
+            accountKeySignature = crypto.signDetached(accountSigning.privateKey, binding),
+        )
+    }
+
+    @Test
+    fun bootstrapInvite_directDecode_roundTrip_newAccount() = runTest {
+        val original = sampleInvitePayload(newAccount = true)
+        // Exact sponsor path: DefaultOnboardingService.sponsorNewcomer calls Invite.decode(bytes).
+        val decoded = Invite.decode(original.encode())
+        assertTrue(original.encode().contentEquals(decoded.encode()))
+    }
+
+    @Test
+    fun bootstrapInvite_directDecode_roundTrip_addDevice() = runTest {
+        val original = sampleInvitePayload(newAccount = false)
+        // Exact sponsor path: DefaultOnboardingService.sponsorNewcomer calls Invite.decode(bytes).
+        val decoded = Invite.decode(original.encode())
+        assertTrue(original.encode().contentEquals(decoded.encode()))
+    }
+
+    @Test
+    fun bootstrapInvite_payloadDecode_roundTrip() = runTest {
+        for (newAccount in listOf(false, true)) {
+            val original = sampleInvitePayload(newAccount = newAccount)
+            val decoded = BootstrapPayload.decode(original.encode())
+            assertTrue(decoded is Invite)
+            assertTrue(original.encode().contentEquals(decoded.encode()))
+        }
+    }
 }
