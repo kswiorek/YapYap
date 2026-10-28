@@ -74,3 +74,35 @@ jobs:
             composeApp/build/compose/binaries/main/msi/**
             composeApp/build/compose/binaries/main/exe/**
           if-no-files-found: warn
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Zip portables (installers stay straight)
+        run: |
+          ls -R dist
+          cd dist
+          for d in YapYap-portable-*; do
+            [ -d "$d" ] && zip -r "$d.zip" "$d"
+          done
+          ls -lh *.zip */*.rpm */*.msi */*.exe 2>/dev/null || true
+        shell: bash
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/**/*.rpm
+            dist/**/*.msi
+            dist/**/*.exe
+          generate_release_notes: true
