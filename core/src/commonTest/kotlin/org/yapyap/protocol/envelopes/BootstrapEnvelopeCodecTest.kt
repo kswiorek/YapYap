@@ -32,8 +32,6 @@ class BootstrapEnvelopeCodecTest {
                 accountId = AccountId("sponsor-account"),
                 displayName = "Sponsor Name",
                 key = IdentityPublicKeyRecord(
-                    keyId = "account-signing",
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNING,
                     publicKey = crypto.privateSigningKeyToPublicKey(signing.privateKey),
                 ),
@@ -41,14 +39,10 @@ class BootstrapEnvelopeCodecTest {
             device = DeviceIdentityRecord(
                 deviceId = deviceId,
                 signing = IdentityPublicKeyRecord(
-                    keyId = "device-signing",
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNING,
                     publicKey = signing.publicKey,
                 ),
                 encryption = IdentityPublicKeyRecord(
-                    keyId = "device-encryption",
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = encryption.publicKey,
                 ),
@@ -60,10 +54,6 @@ class BootstrapEnvelopeCodecTest {
                     privateKey = null,
                     isActive = true,
                     createdAt = now,
-                ),
-                keySignature = crypto.signDetached(
-                    signing.privateKey,
-                    encryption.publicKey + "device-encryption".encodeToByteArray(),
                 ),
             ),
             deviceType = DeviceType.DESKTOP,
@@ -126,7 +116,6 @@ class BootstrapEnvelopeCodecTest {
         // Re-encoding after decode must be byte-identical (stronger than field equality for
         // records whose ByteArray fields compare by reference).
         assertTrue(original.encode().contentEquals(decoded.encode()))
-        assertTrue(original.device.keySignature.contentEquals(decoded.device.keySignature!!))
         assertTrue(original.device.signedPreKey!!.signature.contentEquals(decoded.device.signedPreKey!!.signature))
     }
 
@@ -155,19 +144,14 @@ class BootstrapEnvelopeCodecTest {
         val device = DeviceIdentityRecord(
             deviceId = deviceId,
             signing = IdentityPublicKeyRecord(
-                keyId = "device-signing",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signing.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "device-encryption",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryption.publicKey,
             ),
             signedPreKey = null,
-            keySignature = null,
         )
         val torEndpoint = TorEndpoint("newcomer.onion", 80)
         val deviceType = DeviceType.DESKTOP
@@ -188,8 +172,6 @@ class BootstrapEnvelopeCodecTest {
             accountId = accountId,
             displayName = "Newcomer",
             key = IdentityPublicKeyRecord(
-                keyId = "account-signing",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = accountPublic,
             ),

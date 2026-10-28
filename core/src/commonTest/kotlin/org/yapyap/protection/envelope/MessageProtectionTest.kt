@@ -6,8 +6,6 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
 import org.yapyap.persistence.key.InMemoryKeyStore
-import org.yapyap.persistence.key.KeyReference
-import org.yapyap.persistence.key.KeyType
 import org.yapyap.protection.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
@@ -192,7 +190,7 @@ class MessageProtectionTest {
     }
 
     @Test
-    fun signed_open_failsWhenPeerEncryptionKeyAttestationInvalid() = runTest {
+    fun signed_open_succeedsWithoutPeerKeyAttestation() = runTest {
         val crypto = DefaultCryptoProvider()
         val repo = InMemoryIdentityKeyRepository()
         val store = InMemoryKeyStore()
@@ -201,32 +199,13 @@ class MessageProtectionTest {
         val senderSigning = crypto.generateSigningKeyPair()
         val senderEncryption = crypto.generateEncryptionKeyPair()
         val senderPeer = crypto.peerIdFromPublicKey(senderSigning.publicKey)
-        val encryptionKeyId = "${LOCAL_DEVICE_KEY_PREFIX}encryption"
-        val signingKeyId = "${LOCAL_DEVICE_KEY_PREFIX}signing"
-
-        store.putKey(
-            KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PRIVATE),
-            senderSigning.privateKey,
-        )
-        store.putKey(
-            KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PUBLIC),
-            senderSigning.publicKey,
-        )
-
-        val validKeySignature = crypto.signDetached(
-            senderSigning.privateKey,
-            senderEncryption.publicKey + encryptionKeyId.encodeToByteArray(),
-        )
-        val invalidKeySignature = validKeySignature.copyOf().also {
-            it[0] = (it[0].toInt() xor 0xff).toByte()
-        }
 
         val accountId = AccountId("protection-attest-account")
         repo.insertLocalAccount(
             identity = AccountIdentityRecord(
                 accountId = accountId,
                 displayName = "Protection Attest",
-                key = IdentityPublicKeyRecord("acc-k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
+                key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
             ),
         )
         repo.insertPeerDevice(
@@ -235,18 +214,13 @@ class MessageProtectionTest {
             identity = DeviceIdentityRecord(
                 deviceId = senderPeer,
                 signing = IdentityPublicKeyRecord(
-                    keyId = signingKeyId,
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNING,
                     publicKey = senderSigning.publicKey,
                 ),
                 encryption = IdentityPublicKeyRecord(
-                    keyId = encryptionKeyId,
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = senderEncryption.publicKey,
                 ),
-                keySignature = invalidKeySignature,
             ),
             torEndpoint = TorEndpoint(onionAddress = "sender-attest.onion", port = 443),
         )
@@ -273,8 +247,8 @@ class MessageProtectionTest {
             ),
         )
 
-        assertFailsWith<ProtectionException.IdentityNotReady> {
-            receiverProtection.open(envelope)
-        }
+        // Peer records carry raw keys only — chain/fold authenticity, not per-record
+        // device attestation, is what the resolver trusts.
+        assertEquals(payload, receiverProtection.open(envelope))
     }
 }

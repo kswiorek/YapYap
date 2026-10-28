@@ -18,12 +18,6 @@ internal class DefaultIdentityKeyRepository(
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : IdentityKeyRepository {
 
-    private companion object {
-        /** Locally-minted key id/version for fold-derived rows (the chain carries raw keys only). */
-        const val CHAIN_KEY_ID = "chain"
-        const val CHAIN_KEY_VERSION = 0L
-    }
-
     override suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
         withContext(dbDispatcher) {
             val queries = database.identityQueries
@@ -37,7 +31,7 @@ internal class DefaultIdentityKeyRepository(
                     fields = mapOf("accountId" to accountId, "found" to false),
                 )
                 null
-            } else if (account.pub_key_id == null || account.pub_key_version == null || account.account_pub_key == null) {
+            } else if (account.account_pub_key == null) {
                 AccountIdentityRecord(
                     accountId = account.account_id,
                     displayName = account.display_name,
@@ -54,8 +48,6 @@ internal class DefaultIdentityKeyRepository(
                     accountId = account.account_id,
                     displayName = account.display_name,
                     key = IdentityPublicKeyRecord(
-                        keyId = account.pub_key_id,
-                        keyVersion = account.pub_key_version,
                         purpose = IdentityKeyPurpose.SIGNING,
                         publicKey = account.account_pub_key,
                     )
@@ -88,8 +80,6 @@ internal class DefaultIdentityKeyRepository(
                     account_id = accountId,
                     account_pub_key = accountSigningPublicKey,
                     is_local_account = existing?.is_local_account ?: false,
-                    pub_key_version = existing?.pub_key_version ?: CHAIN_KEY_VERSION,
-                    pub_key_id = existing?.pub_key_id ?: CHAIN_KEY_ID,
                     role = role,
                     status = status,
                     display_name = displayName,
@@ -112,7 +102,6 @@ internal class DefaultIdentityKeyRepository(
         torEndpoint: TorEndpoint,
         signingPublicKey: ByteArray,
         encryptionPublicKey: ByteArray,
-        keySignature: ByteArray?,
         status: IdentityStatus,
     ) {
         withContext(dbDispatcher) {
@@ -131,12 +120,7 @@ internal class DefaultIdentityKeyRepository(
                     onion_address = if (confirmed) existing.onion_address else torEndpoint.onionAddress,
                     onion_port = if (confirmed) existing.onion_port else torEndpoint.port.toLong(),
                     signing_pub_key = signingPublicKey,
-                    signing_key_id = existing?.signing_key_id ?: CHAIN_KEY_ID,
-                    signing_key_version = existing?.signing_key_version ?: CHAIN_KEY_VERSION,
                     encryption_pub_key = encryptionPublicKey,
-                    encryption_key_id = existing?.encryption_key_id ?: CHAIN_KEY_ID,
-                    encryption_key_version = existing?.encryption_key_version ?: CHAIN_KEY_VERSION,
-                    key_signature = keySignature,
                     status = status,
                     current_signed_prekey_id = existing?.current_signed_prekey_id,
                     push_token = existing?.push_token,
@@ -163,8 +147,6 @@ internal class DefaultIdentityKeyRepository(
                     account_id = existing.account_id,
                     account_pub_key = existing.account_pub_key,
                     is_local_account = existing.is_local_account,
-                    pub_key_version = existing.pub_key_version,
-                    pub_key_id = existing.pub_key_id,
                     role = AccountRole.MEMBER,
                     status = IdentityStatus.BANNED,
                     display_name = existing.display_name,
@@ -193,12 +175,7 @@ internal class DefaultIdentityKeyRepository(
                     onion_address = existing.onion_address,
                     onion_port = existing.onion_port,
                     signing_pub_key = existing.signing_pub_key,
-                    signing_key_id = existing.signing_key_id,
-                    signing_key_version = existing.signing_key_version,
                     encryption_pub_key = existing.encryption_pub_key,
-                    encryption_key_id = existing.encryption_key_id,
-                    encryption_key_version = existing.encryption_key_version,
-                    key_signature = existing.key_signature,
                     status = IdentityStatus.BANNED,
                     current_signed_prekey_id = existing.current_signed_prekey_id,
                     push_token = existing.push_token,
@@ -239,19 +216,14 @@ internal class DefaultIdentityKeyRepository(
                 DeviceIdentityRecord(
                     deviceId = device.device_id,
                     signing = IdentityPublicKeyRecord(
-                        keyId = device.signing_key_id,
-                        keyVersion = device.signing_key_version,
                         purpose = IdentityKeyPurpose.SIGNING,
                         publicKey = device.signing_pub_key,
                     ),
                     encryption = IdentityPublicKeyRecord(
-                        keyId = device.encryption_key_id,
-                        keyVersion = device.encryption_key_version,
                         purpose = IdentityKeyPurpose.ENCRYPTION,
                         publicKey = device.encryption_pub_key,
                     ),
                     signedPreKey = getActiveSignedPreKeyForDevice(deviceId),
-                    keySignature = device.key_signature,
                 )
             }
         }
@@ -277,19 +249,14 @@ internal class DefaultIdentityKeyRepository(
                 DeviceIdentityRecord(
                     deviceId = device.device_id,
                     signing = IdentityPublicKeyRecord(
-                        keyId = device.signing_key_id,
-                        keyVersion = device.signing_key_version,
                         purpose = IdentityKeyPurpose.SIGNING,
                         publicKey = device.signing_pub_key,
                     ),
                     encryption = IdentityPublicKeyRecord(
-                        keyId = device.encryption_key_id,
-                        keyVersion = device.encryption_key_version,
                         purpose = IdentityKeyPurpose.ENCRYPTION,
                         publicKey = device.encryption_pub_key,
                     ),
                     signedPreKey = getActiveSignedPreKeyForDevice(device.device_id),
-                    keySignature = device.key_signature,
                 )
             }
         }
@@ -306,7 +273,7 @@ internal class DefaultIdentityKeyRepository(
                     message = "Account local identity record not found",
                 )
                 null
-            } else if (account.pub_key_id == null || account.pub_key_version == null || account.account_pub_key == null) {
+            } else if (account.account_pub_key == null) {
                 AppLog.debug(
                     component = LogComponent.DATABASE,
                     event = LogEvent.IDENTITY_ACCOUNT_RECORD_FOUND,
@@ -327,8 +294,6 @@ internal class DefaultIdentityKeyRepository(
                     accountId = account.account_id,
                     displayName = account.display_name,
                     key = IdentityPublicKeyRecord(
-                        keyId = account.pub_key_id,
-                        keyVersion = account.pub_key_version,
                         purpose = IdentityKeyPurpose.SIGNING,
                         publicKey = account.account_pub_key,
                     )
@@ -352,12 +317,7 @@ internal class DefaultIdentityKeyRepository(
                     onion_address = defaults.onionAddress,
                     onion_port = defaults.onionPort,
                     signing_pub_key = identity.signing.publicKey,
-                    signing_key_id = identity.signing.keyId,
-                    signing_key_version = identity.signing.keyVersion,
                     encryption_pub_key = identity.encryption.publicKey,
-                    encryption_key_id = identity.encryption.keyId,
-                    encryption_key_version = identity.encryption.keyVersion,
-                    key_signature = identity.keySignature,
                     status = IdentityStatus.ACTIVE,
                     current_signed_prekey_id = identity.signedPreKey?.keyId,
                     push_token = defaults.pushToken,
@@ -392,8 +352,6 @@ internal class DefaultIdentityKeyRepository(
                 account_id = identity.accountId,
                 account_pub_key = identity.key?.publicKey,
                 is_local_account = true,
-                pub_key_version = identity.key?.keyVersion,
-                pub_key_id = identity.key?.keyId,
                 role = role,
                 status = IdentityStatus.ACTIVE,
                 display_name = identity.displayName,
@@ -444,20 +402,16 @@ internal class DefaultIdentityKeyRepository(
                 database.identityQueries.selectDeviceById(deviceId).executeAsOneOrNull() ?: return@withContext null
             when (purpose) {
                 IdentityKeyPurpose.SIGNING -> {
-                    if (device.signing_key_id.isBlank() || device.signing_pub_key.isEmpty()) return@withContext null
+                    if (device.signing_pub_key.isEmpty()) return@withContext null
                     IdentityPublicKeyRecord(
-                        keyId = device.signing_key_id,
-                        keyVersion = device.signing_key_version,
                         purpose = IdentityKeyPurpose.SIGNING,
                         publicKey = device.signing_pub_key,
                     )
                 }
 
                 IdentityKeyPurpose.ENCRYPTION -> {
-                    if (device.encryption_key_id.isBlank() || device.encryption_pub_key.isEmpty()) return@withContext null
+                    if (device.encryption_pub_key.isEmpty()) return@withContext null
                     IdentityPublicKeyRecord(
-                        keyId = device.encryption_key_id,
-                        keyVersion = device.encryption_key_version,
                         purpose = IdentityKeyPurpose.ENCRYPTION,
                         publicKey = device.encryption_pub_key,
                     )
@@ -466,8 +420,6 @@ internal class DefaultIdentityKeyRepository(
                 IdentityKeyPurpose.SIGNED_PREKEY -> {
                     val active = getActiveSignedPreKeyForDevice(deviceId) ?: return@withContext null
                     IdentityPublicKeyRecord(
-                        keyId = active.keyId,
-                        keyVersion = 0,
                         purpose = IdentityKeyPurpose.SIGNED_PREKEY,
                         publicKey = active.publicKey,
                     )
@@ -505,8 +457,6 @@ internal class DefaultIdentityKeyRepository(
                 account_id = identity.accountId,
                 account_pub_key = identity.key?.publicKey,
                 is_local_account = false,
-                pub_key_version = identity.key?.keyVersion,
-                pub_key_id = identity.key?.keyId,
                 role = role,
                 status = status,
                 display_name = displayName,
@@ -529,8 +479,6 @@ internal class DefaultIdentityKeyRepository(
                     account_id = identity.accountId,
                     account_pub_key = identity.key?.publicKey,
                     is_local_account = false,
-                    pub_key_version = identity.key?.keyVersion,
-                    pub_key_id = identity.key?.keyId,
                     role = role,
                     status = IdentityStatus.ACTIVE,
                     display_name = displayName,
@@ -564,12 +512,7 @@ internal class DefaultIdentityKeyRepository(
                     onion_address = torEndpoint.onionAddress,
                     onion_port = torEndpoint.port.toLong(),
                     signing_pub_key = identity.signing.publicKey,
-                    signing_key_id = identity.signing.keyId,
-                    signing_key_version = identity.signing.keyVersion,
                     encryption_pub_key = identity.encryption.publicKey,
-                    encryption_key_id = identity.encryption.keyId,
-                    encryption_key_version = identity.encryption.keyVersion,
-                    key_signature = identity.keySignature,
                     status = IdentityStatus.ACTIVE,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,
@@ -606,12 +549,7 @@ internal class DefaultIdentityKeyRepository(
                     onion_address = torEndpoint.onionAddress,
                     onion_port = torEndpoint.port.toLong(),
                     signing_pub_key = identity.signing.publicKey,
-                    signing_key_id = identity.signing.keyId,
-                    signing_key_version = identity.signing.keyVersion,
                     encryption_pub_key = identity.encryption.publicKey,
-                    encryption_key_id = identity.encryption.keyId,
-                    encryption_key_version = identity.encryption.keyVersion,
-                    key_signature = identity.keySignature,
                     status = IdentityStatus.ACTIVE,
                     current_signed_prekey_id = null,
                     push_token = defaults.pushToken,

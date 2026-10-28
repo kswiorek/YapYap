@@ -72,14 +72,14 @@ private fun toAccountRecord(account: TestAccount): AccountIdentityRecord =
     AccountIdentityRecord(
         accountId = account.accountId,
         displayName = account.displayName,
-        key = IdentityPublicKeyRecord("test-acct", 0, IdentityKeyPurpose.SIGNING, account.signingPublic),
+        key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, account.signingPublic),
     )
 
 private fun toDeviceRecord(device: TestDevice): DeviceIdentityRecord =
     DeviceIdentityRecord(
         deviceId = device.deviceId,
-        signing = IdentityPublicKeyRecord("test-sign", 0, IdentityKeyPurpose.SIGNING, device.signingPublic),
-        encryption = IdentityPublicKeyRecord("test-enc", 0, IdentityKeyPurpose.ENCRYPTION, device.encryptionPublic),
+        signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, device.signingPublic),
+        encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, device.encryptionPublic),
     )
 
 private suspend fun bindingSig(crypto: CryptoProvider, account: TestAccount, device: TestDevice): ByteArray =

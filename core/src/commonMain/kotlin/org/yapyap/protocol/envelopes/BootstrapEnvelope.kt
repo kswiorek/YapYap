@@ -268,8 +268,7 @@ internal class Invite(
      * consent). Required when [account] != null — the sponsor relays it as the back-to-back
      * AddDevice's `key_signature`. Null for the add-device-to-sponsor's-own-account case, where
      * the sponsor's own authorship (branch 1) is the authorization and no account key of the
-     * newcomer exists. Distinct from [DeviceIdentityRecord.keySignature], which is the
-     * device-internal signing→encryption binding.
+     * newcomer exists.
      */
     internal val accountKeySignature: ByteArray? = null,
 ) : BootstrapPayload {
@@ -538,7 +537,6 @@ private fun ByteWriter.writeDeviceIdentity(device: DeviceIdentityRecord) {
     writeIdentityPublicKey(device.signing)
     writeIdentityPublicKey(device.encryption)
     writeNullableSignedPreKey(device.signedPreKey)
-    writeNullableByteArray(device.keySignature)
 }
 
 private fun ByteReader.readDeviceIdentity(): DeviceIdentityRecord {
@@ -546,31 +544,25 @@ private fun ByteReader.readDeviceIdentity(): DeviceIdentityRecord {
     val signing = readIdentityPublicKey()
     val encryption = readIdentityPublicKey()
     val signedPreKey = readNullableSignedPreKey()
-    val keySignature = readNullableByteArray()
     return DeviceIdentityRecord(
         deviceId = deviceId,
         signing = signing,
         encryption = encryption,
         signedPreKey = signedPreKey,
-        keySignature = keySignature,
     )
 }
 
 private fun ByteWriter.writeIdentityPublicKey(record: IdentityPublicKeyRecord) {
-    writeString(record.keyId)
-    writeLong(record.keyVersion)
     writeByte(record.purpose.ordinal)
     writeByteArray(record.publicKey)
 }
 
 private fun ByteReader.readIdentityPublicKey(): IdentityPublicKeyRecord {
-    val keyId = readString()
-    val keyVersion = readLong()
     val purposeOrdinal = readUnsignedByte()
     val purpose = IdentityKeyPurpose.entries.firstOrNull { it.ordinal == purposeOrdinal }
         ?: error("Unsupported identity key purpose: $purposeOrdinal")
     val publicKey = readByteArray()
-    return IdentityPublicKeyRecord(keyId, keyVersion, purpose, publicKey)
+    return IdentityPublicKeyRecord(purpose, publicKey)
 }
 
 private fun ByteWriter.writeNullableIdentityPublicKey(record: IdentityPublicKeyRecord?) {
@@ -665,9 +657,7 @@ private fun bootstrapPayloadAccountEquals(a: AccountIdentityRecord?, b: AccountI
 private fun identityPublicKeyEquals(a: IdentityPublicKeyRecord?, b: IdentityPublicKeyRecord?): Boolean {
     if (a === b) return true
     if (a == null || b == null) return false
-    return a.keyId == b.keyId &&
-            a.keyVersion == b.keyVersion &&
-            a.purpose == b.purpose &&
+    return a.purpose == b.purpose &&
             a.publicKey.contentEquals(b.publicKey)
 }
 
@@ -675,8 +665,7 @@ private fun bootstrapPayloadDeviceEquals(a: DeviceIdentityRecord, b: DeviceIdent
     return a === b || a.deviceId == b.deviceId &&
             identityPublicKeyEquals(a.signing, b.signing) &&
             identityPublicKeyEquals(a.encryption, b.encryption) &&
-            signedPreKeyEquals(a.signedPreKey, b.signedPreKey) &&
-            a.keySignature.contentEquals(b.keySignature)
+            signedPreKeyEquals(a.signedPreKey, b.signedPreKey)
 }
 
 private fun signedPreKeyEquals(a: SignedPreKeyRecord?, b: SignedPreKeyRecord?): Boolean {
@@ -701,9 +690,7 @@ private fun bootstrapPayloadAccountHashCode(account: AccountIdentityRecord?): In
 
 private fun identityPublicKeyHashCode(key: IdentityPublicKeyRecord?): Int {
     if (key == null) return 0
-    var result = key.keyId.hashCode()
-    result = 31 * result + key.keyVersion.hashCode()
-    result = 31 * result + key.purpose.hashCode()
+    var result = key.purpose.hashCode()
     result = 31 * result + key.publicKey.contentHashCode()
     return result
 }
@@ -713,7 +700,6 @@ private fun bootstrapPayloadDeviceHashCode(device: DeviceIdentityRecord): Int {
     result = 31 * result + identityPublicKeyHashCode(device.signing)
     result = 31 * result + identityPublicKeyHashCode(device.encryption)
     result = 31 * result + signedPreKeyHashCode(device.signedPreKey)
-    result = 31 * result + (device.keySignature?.contentHashCode() ?: 0)
     return result
 }
 

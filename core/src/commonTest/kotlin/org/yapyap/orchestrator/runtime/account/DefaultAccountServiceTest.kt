@@ -128,7 +128,7 @@ class DefaultAccountServiceTest {
                 identity = AccountIdentityRecord(
                     accountId = account,
                     displayName = account.id,
-                    key = IdentityPublicKeyRecord("k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+                    key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
                 ),
                 role = AccountRole.MEMBER,
                 status = IdentityStatus.ACTIVE,
@@ -148,8 +148,8 @@ class DefaultAccountServiceTest {
 
         private fun dummyDevice(id: PeerId) = DeviceIdentityRecord(
             deviceId = id,
-            signing = IdentityPublicKeyRecord("k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord("k", 0, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
     }
 

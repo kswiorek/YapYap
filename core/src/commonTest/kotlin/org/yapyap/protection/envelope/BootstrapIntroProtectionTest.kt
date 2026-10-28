@@ -33,15 +33,12 @@ class BootstrapIntroProtectionTest {
         val encryption = crypto.generateEncryptionKeyPair()
         val spk = crypto.generateEncryptionKeyPair()
         val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
-        val encryptionKeyId = "device-encryption"
         return Intro(
             version = 1,
             account = AccountIdentityRecord(
                 accountId = AccountId("sponsor-account"),
                 displayName = "Sponsor Name",
                 key = IdentityPublicKeyRecord(
-                    keyId = "account-signing",
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNING,
                     publicKey = crypto.privateSigningKeyToPublicKey(signing.privateKey),
                 ),
@@ -49,14 +46,10 @@ class BootstrapIntroProtectionTest {
             device = DeviceIdentityRecord(
                 deviceId = deviceId,
                 signing = IdentityPublicKeyRecord(
-                    keyId = "device-signing",
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNING,
                     publicKey = signing.publicKey,
                 ),
                 encryption = IdentityPublicKeyRecord(
-                    keyId = encryptionKeyId,
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.ENCRYPTION,
                     publicKey = encryption.publicKey,
                 ),
@@ -68,10 +61,6 @@ class BootstrapIntroProtectionTest {
                     privateKey = null,
                     isActive = true,
                     createdAt = now,
-                ),
-                keySignature = crypto.signDetached(
-                    signing.privateKey,
-                    encryption.publicKey + encryptionKeyId.encodeToByteArray(),
                 ),
             ),
             deviceType = DeviceType.DESKTOP,

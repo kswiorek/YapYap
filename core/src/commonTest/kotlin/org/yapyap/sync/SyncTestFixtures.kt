@@ -248,8 +248,8 @@ internal class FixedSyncPeerPolicy(
 internal fun testDeviceIdentity(deviceId: PeerId): DeviceIdentityRecord =
     DeviceIdentityRecord(
         deviceId = deviceId,
-        signing = IdentityPublicKeyRecord("signing", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-        encryption = IdentityPublicKeyRecord("encryption", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+        signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+        encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
     )
 
 /** Wires a real router-internal send path against recording transports + in-memory outbox. */

@@ -73,8 +73,6 @@ internal class InMemoryIdentityKeyRepository(
     ) {
         val key = accountSigningPublicKey?.let {
             IdentityPublicKeyRecord(
-                keyId = "chain",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = it,
             )
@@ -93,7 +91,6 @@ internal class InMemoryIdentityKeyRepository(
         torEndpoint: TorEndpoint,
         signingPublicKey: ByteArray,
         encryptionPublicKey: ByteArray,
-        keySignature: ByteArray?,
         status: IdentityStatus,
     ) {
         val existing = devices[deviceId.id]
@@ -102,19 +99,14 @@ internal class InMemoryIdentityKeyRepository(
         val merged = DeviceIdentityRecord(
             deviceId = deviceId,
             signing = IdentityPublicKeyRecord(
-                keyId = "chain",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingPublicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "chain",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryptionPublicKey,
             ),
             signedPreKey = existing?.signedPreKey,
-            keySignature = keySignature,
         )
         devices[deviceId.id] = merged
         deviceStatuses[deviceId.id] = status
@@ -234,8 +226,6 @@ internal class InMemoryIdentityKeyRepository(
             IdentityKeyPurpose.ENCRYPTION -> d.encryption
             IdentityKeyPurpose.SIGNED_PREKEY -> getActiveSignedPreKeyForDevice(deviceId)?.let { spk ->
                 IdentityPublicKeyRecord(
-                    keyId = spk.keyId,
-                    keyVersion = 0,
                     purpose = IdentityKeyPurpose.SIGNED_PREKEY,
                     publicKey = spk.publicKey,
                 )

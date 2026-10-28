@@ -37,8 +37,7 @@ internal interface IdentityKeyRepository {
     /**
      * Projector commit write: upserts the chain-derived account columns (pub key, role, status,
      * display name) and clears `provisional` (the fold now carries the Add event). Preserves
-     * local-only columns (`is_local_account`, key id/version bookkeeping — minted as chain
-     * placeholders when the row is fresh).
+     * the local-only `is_local_account` flag.
      */
     suspend fun upsertChainAccount(
         accountId: AccountId,
@@ -50,8 +49,8 @@ internal interface IdentityKeyRepository {
 
     /**
      * Projector commit write: upserts the chain-derived device columns (binding, keys, type,
-     * key signature, status) and clears `provisional`. Preserves local-only columns
-     * (`is_local_device`, key id bookkeeping, SPK pointer, push token, reliability, last-seen).
+     * status) and clears `provisional`. Preserves local-only columns
+     * (`is_local_device`, SPK pointer, push token, reliability, last-seen).
      * A live-updated onion is preserved on confirmed rows (Tor rotation has no chain event);
      * provisional rows are fixed up to the event values wholesale.
      */
@@ -62,7 +61,6 @@ internal interface IdentityKeyRepository {
         torEndpoint: TorEndpoint,
         signingPublicKey: ByteArray,
         encryptionPublicKey: ByteArray,
-        keySignature: ByteArray?,
         status: IdentityStatus,
     )
 

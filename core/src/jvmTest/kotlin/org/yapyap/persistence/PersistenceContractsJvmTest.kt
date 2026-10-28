@@ -138,8 +138,6 @@ class PersistenceContractsJvmTest {
             accountId = accountId,
             displayName = "Repo Account",
             key = IdentityPublicKeyRecord(
-                keyId = "acc-k",
-                keyVersion = 1L,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = byteArrayOf(0x11),
             ),
@@ -148,8 +146,8 @@ class PersistenceContractsJvmTest {
 
         val devA = DeviceIdentityRecord(
             deviceId = deviceA,
-            signing = IdentityPublicKeyRecord("s-a", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(0x21)),
-            encryption = IdentityPublicKeyRecord("e-a", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x31)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(0x21)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x31)),
         )
         repo.insertLocalDevice(accountId = accountId, identity = devA)
 
@@ -172,8 +170,8 @@ class PersistenceContractsJvmTest {
 
         val devB = DeviceIdentityRecord(
             deviceId = deviceB,
-            signing = IdentityPublicKeyRecord("s-b", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(0x41)),
-            encryption = IdentityPublicKeyRecord("e-b", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x51)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(0x41)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x51)),
         )
         repo.insertPeerDevice(
             accountId = accountId,
@@ -197,8 +195,6 @@ class PersistenceContractsJvmTest {
             accountId = accountId,
             displayName = "Peer Account",
             key = IdentityPublicKeyRecord(
-                keyId = "pk-99",
-                keyVersion = 2L,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = byteArrayOf(0x55),
             ),
@@ -216,7 +212,7 @@ class PersistenceContractsJvmTest {
     }
 
     @Test
-    fun identityPublicKeyRepository_getDevicePublicKey_roundTripsKeySignature() = runTest {
+    fun identityPublicKeyRepository_getDevicePublicKey_roundTripsKeys() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
         val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
@@ -230,12 +226,13 @@ class PersistenceContractsJvmTest {
         val device = provisioning.createNewDeviceIdentity()
 
         val loaded = repo.getDeviceRecord(device.deviceId)
-        assertNotNull(loaded?.keySignature)
-        assertContentEquals(device.keySignature, loaded.keySignature)
+        assertNotNull(loaded)
+        assertContentEquals(device.signing.publicKey, loaded.signing.publicKey)
+        assertContentEquals(device.encryption.publicKey, loaded.encryption.publicKey)
 
         val resolved = resolver.resolvePeerIdentityRecord(device.deviceId)
         assertNotNull(resolved)
-        assertContentEquals(device.keySignature, resolved.keySignature)
+        assertEquals(device.deviceId, resolved.deviceId)
     }
 
     @Test

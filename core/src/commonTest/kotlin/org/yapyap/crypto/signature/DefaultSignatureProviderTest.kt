@@ -31,14 +31,10 @@ class DefaultSignatureProviderTest {
         val peerRecord = DeviceIdentityRecord(
             deviceId = peerId,
             signing = IdentityPublicKeyRecord(
-                keyId = "test-signing",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingKeys.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "test-encryption",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryptionKeys.publicKey,
             ),
@@ -65,14 +61,10 @@ class DefaultSignatureProviderTest {
         val peerRecord = DeviceIdentityRecord(
             deviceId = peerId,
             signing = IdentityPublicKeyRecord(
-                keyId = "test-signing",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingKeys.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "test-encryption",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryptionKeys.publicKey,
             ),
@@ -100,14 +92,10 @@ class DefaultSignatureProviderTest {
         val peerRecord = DeviceIdentityRecord(
             deviceId = peerId,
             signing = IdentityPublicKeyRecord(
-                keyId = "test-signing",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingKeys.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "test-encryption",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryptionKeys.publicKey,
             ),
@@ -135,14 +123,10 @@ class DefaultSignatureProviderTest {
         val peerRecord = DeviceIdentityRecord(
             deviceId = peerId,
             signing = IdentityPublicKeyRecord(
-                keyId = "test-signing",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingKeys.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = "test-encryption",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryptionKeys.publicKey,
             ),

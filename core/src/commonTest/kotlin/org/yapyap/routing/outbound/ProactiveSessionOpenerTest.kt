@@ -53,8 +53,8 @@ class ProactiveSessionOpenerTest {
         val configFlow = MutableStateFlow(config)
         val localDevice = DeviceIdentityRecord(
             deviceId = PeerId("opener-local-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            signing = IdentityPublicKeyRecord("ls", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord("le", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
         val ctx = RoutingContext(
             identityResolver = FakeIdentityResolverForRouter(localDevice = localDevice),

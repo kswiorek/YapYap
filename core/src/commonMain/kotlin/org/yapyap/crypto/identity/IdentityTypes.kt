@@ -14,8 +14,6 @@ internal enum class IdentityKeyPurpose {
 }
 
 internal data class IdentityPublicKeyRecord(
-    val keyId: String,
-    val keyVersion: Long,
     val purpose: IdentityKeyPurpose,
     val publicKey: ByteArray,
 )
@@ -54,7 +52,6 @@ internal data class DeviceIdentityRecord(
     val signing: IdentityPublicKeyRecord,
     val encryption: IdentityPublicKeyRecord,
     val signedPreKey: SignedPreKeyRecord? = null,
-    val keySignature: ByteArray? = null,
 )
 
 internal data class AccountIdentityRecord(
