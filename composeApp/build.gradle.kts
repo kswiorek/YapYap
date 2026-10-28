@@ -101,6 +101,11 @@ if (enableAndroid) {
         namespace = "org.yapyap"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
 
+        // IntelliJ's Android plugin treats a file at src/androidMain/AndroidManifest.xml as proof
+        // that the project is Android and then refuses to sync without an SDK. Keeping the manifest
+        // in a non-conventional folder lets the project sync SDK-free when Android is disabled.
+        sourceSets.getByName("main").manifest.srcFile("src/androidMain/manifest/AndroidManifest.xml")
+
         defaultConfig {
             applicationId = "org.yapyap"
             minSdk = libs.versions.android.minSdk.get().toInt()

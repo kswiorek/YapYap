@@ -169,7 +169,7 @@ internal class KmpTorBackend(
                 val output = socket.openWriteChannel(autoFlush = false)
 
                 performSocks5Handshake(target, input, output)
-                writeTransportFrame(output, localSource, payload)
+                writeTorTransportFrame(output, localSource, payload)
                 output.flush()
                 return
             } catch (error: SocksConnectException) {
@@ -257,7 +257,7 @@ internal class KmpTorBackend(
         try {
             val input = client.openReadChannel()
             val frame = try {
-                readTransportFrame(input)
+                readTorTransportFrame(input, config.value.maxPayloadBytes)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -325,53 +325,6 @@ internal class KmpTorBackend(
         input.readExact(addressLength + 2)
     }
 
-    private suspend fun writeTransportFrame(
-        output: ByteWriteChannel,
-        source: TorEndpoint,
-        payload: ByteArray,
-    ) {
-        val sourceHost = source.onionAddress.encodeToByteArray()
-        require(sourceHost.size <= 255) { "Source onion host is too long" }
-
-        output.writeInt(FRAME_MAGIC)
-        output.writeByte(sourceHost.size.toByte())
-        output.writeFully(sourceHost)
-        output.writeShort(source.port.toShort())
-        output.writeInt(payload.size)
-        output.writeFully(payload)
-    }
-
-    private suspend fun readTransportFrame(input: ByteReadChannel): TorIncomingFrame {
-        val magic = input.readInt()
-        require(magic == FRAME_MAGIC) { "Invalid Tor transport frame magic" }
-
-        val sourceHostLength = input.readUnsignedByte()
-        val sourceHost = input.readExact(sourceHostLength).decodeToString()
-        val sourcePort = input.readShort().toInt() and 0xffff
-        val payloadLength = input.readInt()
-        require(payloadLength >= 0) { "Payload length must be >= 0" }
-        require(payloadLength <= config.value.maxPayloadBytes) {
-            "Payload length $payloadLength exceeds configured max ${config.value.maxPayloadBytes}"
-        }
-        val payload = input.readExact(payloadLength)
-
-        return TorIncomingFrame(
-            source = TorEndpoint(onionAddress = sourceHost, port = sourcePort),
-            payload = payload,
-        )
-    }
-
-    private suspend fun ByteReadChannel.readUnsignedByte(): Int {
-        return readByte().toInt() and 0xff
-    }
-
-    private suspend fun ByteReadChannel.readExact(count: Int): ByteArray {
-        require(count >= 0) { "count must be >= 0" }
-        val data = ByteArray(count)
-        readFully(data, 0, count)
-        return data
-    }
-
     private fun ASocket.safeClose() {
         runCatching { close() }
     }
@@ -383,8 +336,4 @@ internal class KmpTorBackend(
     private class SocksConnectException(val code: Int) : RuntimeException()
 
     private fun Path.toKmpFile(): File = File(toString())
-
-    companion object {
-        private const val FRAME_MAGIC: Int = 0x59595431
-    }
 }

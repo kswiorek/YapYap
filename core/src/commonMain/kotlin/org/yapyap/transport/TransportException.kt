@@ -8,6 +8,9 @@ internal sealed class TransportException(message: String) : Exception(message) {
         "Payload $sizeBytes exceeds limit $limitBytes",
     )
 
+    /** Loopback-only failure (unreachable peer, non-loopback target). Never thrown by real backends. */
+    class LoopbackError(message: String) : TransportException("Loopback transport failed: $message")
+
     sealed class WebRtcException(message: String) : TransportException(message) {
         class WrongTargetException(peerId: PeerId) : WebRtcException("Wrong target peerId: $peerId")
         class DecodeError(message: String) : WebRtcException(message)

@@ -10,12 +10,18 @@ through the runtime, that is a missing runtime API — ask, don't bypass.**
 ### Bring-up sequence
 
 ```kotlin
-val orchestrator = OrchestratorFactory(dataDirectory, NodeMode.FULL_CLIENT).create()
+val orchestrator = OrchestratorFactory(
+    dataDirectory,
+    NodeMode.FULL_CLIENT,
+    // loopback defaults to NONE (real Tor/WebRTC), keyringNamespace to null (legacy keyring).
+).create()
 orchestrator.start()                    // boot recovery → router → domain loops
 val runtime: OrchestratorRuntime = orchestrator.runtime()
 ```
 
-- `dataDirectory` holds `vault.db*`, keyring entries, `tor/`, `state.toml` (per platform).
+- `dataDirectory` holds `vault.db*`, `tor/`, `logs/`, `state.toml`, `userSettings.toml`
+  (per platform). Key material lives in the OS keyring under service `org.yapyap`
+  (suffixed per `keyringNamespace` when set) — never in the data directory.
 - `orchestrator.state: StateFlow<OrchestratorState>` drives top-level UI:
   `Created → SetupRequired → Starting → Running`, plus `Stopping/Stopped`,
   `ResetRequired(reason)` and `Failed(cause)`.
@@ -37,6 +43,35 @@ val runtime: OrchestratorRuntime = orchestrator.runtime()
 - `orchestrator.onboardingState: StateFlow<OnboardingState>` mirrors newcomer progress
   on every node (also headless relays, which have no runtime).
 
+### Local dev profile (two instances, no Tor)
+
+For GUI work without a reachable Tor network, each instance gets its own isolated
+profile — separate data dirs plus the two dev-only factory arguments:
+
+```kotlin
+// Instance A
+OrchestratorFactory(dirA, NodeMode.FULL_CLIENT, LoopbackTransport.TOR, "dev-a")
+// Instance B
+OrchestratorFactory(dirB, NodeMode.FULL_CLIENT, LoopbackTransport.TOR, "dev-b")
+```
+
+- `loopback = LoopbackTransport.TOR` swaps the Tor daemon for a localhost-TCP
+  backend (`loopback-<port>.onion` endpoints, `start()` returns in milliseconds,
+  nothing written to disk). The envelope codec, routing, and E2EE above it are
+  identical to production; only anonymity and transport-layer authenticity are absent.
+  `WEBRTC`/`ALL` are reserved and fail fast — WebRTC stays real (localhost
+  candidates work without Tor).
+- Distinct `keyringNamespace` values (`"dev-a"` vs `"dev-b"`) give each instance its
+  own OS-keyring service (`org.yapyap.dev-a`, …). Without this, the second
+  instance's genesis overwrites the first's master/device keys while each keeps its
+  own `vault.db`. `null` keeps the legacy shared service (production default).
+- Pair the instances through the normal invite flow: genesis on A, join on B via
+  invite bytes — endpoints propagate over the loopback transport, no manual entry
+  needed. Switching back to real backends heals persisted loopback endpoints from
+  authenticated inbound traffic (`PEER_ENDPOINT_HEALED`).
+- Any GUI running loopback must show a visible "LOCAL — no anonymity" marker so a
+  dev build is never mistaken for a real one.
+
 ### The seven services (`runtime.*`)
 
 | Service      | Owns                                                                                                                                                                                                             |
@@ -56,10 +91,14 @@ leak its dependencies).
 
 ### Vocabulary types (importable)
 
-Identifiers and shared enums in `org.yapyap.protocol`: `PeerId`, `RoomId`, `TorEndpoint`,
+Orchestrator entry points and companions: `Orchestrator`, `OrchestratorFactory`,
+`OrchestratorState`, `NodeMode`, `LoopbackTransport`, `SetupIntent`, `SetupResult`,
+`BootstrapEndpoint`, `OnboardingState`, `ResetReason`, the `runtime.*` service
+interfaces, and the shared identifiers/enums: `PeerId`, `RoomId`, `TorEndpoint`,
 `AccountId`, `DeviceType`, `RoomType`, `RoomMemberRole`, `RoomMemberStatus`,
-`AccountRole`, `IdentityStatus`, `OnboardingState`, `ResetReason`, and the settings trio (`Setting`, `ConfigValue`,
-`UpdateResult`, `Number/Text/Toggle/PeriodSetting`).
+`AccountRole`, `IdentityStatus`, plus the settings types (`Setting`, `ConfigValue`,
+`UpdateResult`, `Number/Text/Toggle/PeriodSetting`). This list mirrors the
+`GuiApiBoundaryTest` allow-list exactly — importing anything else fails the build.
 
 Notes:
 

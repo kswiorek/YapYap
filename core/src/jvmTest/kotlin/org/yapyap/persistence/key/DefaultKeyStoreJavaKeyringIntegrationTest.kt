@@ -36,7 +36,7 @@ class DefaultKeyStoreJavaKeyringIntegrationTest {
         )
         val activeStore = DefaultKeyStore(
             serviceName = "yapyap.it.keyring.${UUID.randomUUID()}",
-            sessionFactory = JavaKeyringSessionFactory,
+            sessionFactory = JavaKeyringSessionFactory(),
         )
         store = activeStore
         ref = keyRef

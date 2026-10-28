@@ -28,6 +28,7 @@ class GuiApiBoundaryTest {
         "org.yapyap.orchestrator.SetupIntent",
         "org.yapyap.orchestrator.SetupResult",
         "org.yapyap.orchestrator.BootstrapEndpoint",
+        "org.yapyap.orchestrator.LoopbackTransport",
         "org.yapyap.orchestrator.onboarding.OnboardingState",
         "org.yapyap.orchestrator.boot.ResetReason",
         "org.yapyap.protocol.PeerId",

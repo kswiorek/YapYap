@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.io.files.Path
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.backend.KmpTorBackend
+import org.yapyap.transport.tor.backend.TOR_TRANSPORT_FRAME_MAGIC
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import kotlin.test.*
 import kotlin.time.Duration.Companion.seconds
@@ -58,7 +59,7 @@ class KmpTorBackendInboundFrameTest {
         val backend = backendUnderTest()
         withLoopbackPair { serverSide, peerOut ->
             // Push the reader past the channel open into a blocked mid-frame read.
-            peerOut.writeInt(FRAME_MAGIC)
+            peerOut.writeInt(TOR_TRANSPORT_FRAME_MAGIC)
             peerOut.flush()
             val reader = async(Dispatchers.IO) { backend.handleInboundConnection(serverSide) }
             delay(500)
@@ -80,7 +81,7 @@ class KmpTorBackendInboundFrameTest {
             }
             val host = "peer.onion".encodeToByteArray()
             val payload = byteArrayOf(1, 2, 3)
-            peerOut.writeInt(FRAME_MAGIC)
+            peerOut.writeInt(TOR_TRANSPORT_FRAME_MAGIC)
             peerOut.writeByte(host.size.toByte())
             peerOut.writeFully(host)
             peerOut.writeShort(80.toShort())
@@ -113,7 +114,8 @@ class KmpTorBackendInboundFrameTest {
     }
 
     private companion object {
-        /** Mirrors the private `FRAME_MAGIC` of [KmpTorBackend] (`0x59595431`). */
-        const val FRAME_MAGIC: Int = 0x59595431
+        /** Shared with [KmpTorBackend] via `TOR_TRANSPORT_FRAME_MAGIC`; kept here for readability. */
+        @Suppress("unused")
+        const val FRAME_MAGIC: Int = TOR_TRANSPORT_FRAME_MAGIC
     }
 }
