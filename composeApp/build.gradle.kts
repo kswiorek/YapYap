@@ -111,7 +111,7 @@ if (enableAndroid) {
             minSdk = libs.versions.android.minSdk.get().toInt()
             targetSdk = libs.versions.android.targetSdk.get().toInt()
             versionCode = 1
-            versionName = "1.0"
+            versionName = "0.0.1"
         }
         packaging {
             resources {
@@ -140,11 +140,11 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(
-                TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.AppImage,
+                TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.AppImage,
                 TargetFormat.Exe
             )
-            packageName = "org.yapyap"
-            packageVersion = "1.0.0"
+            packageName = "YapYap"
+            packageVersion = "0.0.1"
         }
     }
 }

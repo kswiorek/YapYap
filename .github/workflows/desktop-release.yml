@@ -13,16 +13,16 @@ jobs:
         os: [ ubuntu-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up JDK 21 (with jpackage)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
 
       # Linux: tools needed by jpackage for deb/rpm/AppImage
       - name: Install Linux packaging tools
@@ -51,7 +51,7 @@ jobs:
         shell: bash
 
       - name: Upload portable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: YapYap-portable-${{ runner.os }}
           path: composeApp/build/compose/binaries/main/app/**
@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload Linux installer (rpm)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: YapYap-installer-Linux-rpm
           path: composeApp/build/compose/binaries/main/rpm/**
@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload Windows installer (msi/exe)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: YapYap-installer-Windows
           path: |
@@ -83,7 +83,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
 
@@ -102,7 +102,7 @@ jobs:
         with:
           files: |
             dist/*.zip
-            dist/**/*.rpm
-            dist/**/*.msi
-            dist/**/*.exe
+            dist/YapYap-installer-Linux-rpm/**/*.rpm
+            dist/YapYap-installer-Windows/**/*.msi
+            dist/YapYap-installer-Windows/**/*.exe
           generate_release_notes: true
