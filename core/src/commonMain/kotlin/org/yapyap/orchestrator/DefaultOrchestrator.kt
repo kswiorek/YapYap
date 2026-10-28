@@ -135,6 +135,10 @@ internal class DefaultOrchestrator(
         _state.value = OrchestratorState.Starting
     }
 
+    /** Throws naming the live holder recorded in the lock file (null when unreadable). */
+    private fun dataDirectoryInUse(): Nothing =
+        throw DataDirectoryInUseException(dataDirectory.toString(), readDataDirLockHolder(dataDirectory))
+
 
     override suspend fun start() {
         if (_state.value is OrchestratorState.Running || _state.value is OrchestratorState.Starting) return
@@ -170,8 +174,7 @@ internal class DefaultOrchestrator(
             // catch below, which logs and lands in Failed — instead of contending
             // on vault.db with it.
             if (dataDirLock == null) {
-                dataDirLock = acquireDataDirLock(dataDirectory)
-                    ?: throw DataDirectoryInUseException(dataDirectory.toString())
+                dataDirLock = acquireDataDirLock(dataDirectory) ?: dataDirectoryInUse()
             }
 
             // 4. config store (loads userSettings.toml + state.toml cache → derive)
@@ -771,8 +774,7 @@ internal class DefaultOrchestrator(
         // acquire means another live instance owns the directory — refuse instead
         // of deleting its vault out from under it.
         if (dataDirLock == null) {
-            dataDirLock = acquireDataDirLock(dataDirectory)
-                ?: throw DataDirectoryInUseException(dataDirectory.toString())
+            dataDirLock = acquireDataDirLock(dataDirectory) ?: dataDirectoryInUse()
         }
         if (::orchestratorScope.isInitialized) {
             runCatching { orchestratorScope.cancel() }

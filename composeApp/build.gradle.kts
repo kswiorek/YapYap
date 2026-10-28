@@ -138,6 +138,19 @@ compose.desktop {
     application {
         mainClass = "org.yapyap.MainKt"
 
+        buildTypes {
+            // TODO: re-enable ProGuard for release builds with proper -keep rules
+            // (whyoleg crypto providers, java-keyring, dbus, sqlite, webrtc,
+            // SQLDelight drivers, app entry points). Shrinking currently strips
+            // reflectively loaded classes while keeping META-INF/services files,
+            // so release builds fail in ways debug builds don't.
+            release {
+                proguard {
+                    isEnabled.set(false)
+                }
+            }
+        }
+
         nativeDistributions {
             targetFormats(
                 TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.AppImage,

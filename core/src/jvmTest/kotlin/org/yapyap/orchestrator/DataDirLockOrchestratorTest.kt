@@ -10,6 +10,7 @@ import org.yapyap.config.BootConfig
 import org.yapyap.config.ConfigFileWatcher
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.boot.DataDirectoryInUseException
+import org.yapyap.orchestrator.boot.currentProcessPid
 import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.key.MapBackedKeyringSessionFactory
 import org.yapyap.protocol.DeviceType
@@ -63,9 +64,13 @@ class DataDirLockOrchestratorTest {
             second.start()
             val failed = second.state.value as? OrchestratorState.Failed
                 ?: fail("second start must land in Failed, was ${second.state.value}")
+            val cause = failed.cause as? DataDirectoryInUseException
+                ?: fail("cause must name the lock, was ${failed.cause}")
+            // Same-process holder: the message names our own PID so the report is
+            // actionable (close it / it is mid-shutdown) instead of mysterious.
             assertTrue(
-                failed.cause is DataDirectoryInUseException,
-                "cause must name the lock, was ${failed.cause}",
+                cause.message!!.contains(currentProcessPid().toString()),
+                "message must name the holder PID, was: ${cause.message}",
             )
 
             // The lock survives stop: the data is still ours while Stopped.

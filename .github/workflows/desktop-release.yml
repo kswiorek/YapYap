@@ -40,21 +40,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           chmod +x gradlew
-          ./gradlew :composeApp:createDistributable :composeApp:packageRpm --console=plain
+          ./gradlew :composeApp:createReleaseDistributable :composeApp:packageReleaseRpm --console=plain
         shell: bash
 
       - name: Build distributable + native installer (Windows)
         if: runner.os != 'Linux'
         run: |
           chmod +x gradlew
-          ./gradlew :composeApp:createDistributable :composeApp:packageDistributionForCurrentOS --console=plain
+          ./gradlew :composeApp:createReleaseDistributable :composeApp:packageReleaseDistributionForCurrentOS --console=plain
         shell: bash
 
       - name: Upload portable
         uses: actions/upload-artifact@v5
         with:
           name: YapYap-portable-${{ runner.os }}
-          path: composeApp/build/compose/binaries/main/app/**
+          path: composeApp/build/compose/binaries/main-release/app/**
           if-no-files-found: warn
 
       - name: Upload Linux installer (rpm)
@@ -62,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: YapYap-installer-Linux-rpm
-          path: composeApp/build/compose/binaries/main/rpm/**
+          path: composeApp/build/compose/binaries/main-release/rpm/**
           if-no-files-found: warn
 
       - name: Upload Windows installer (msi/exe)
@@ -71,8 +71,8 @@ jobs:
         with:
           name: YapYap-installer-Windows
           path: |
-            composeApp/build/compose/binaries/main/msi/**
-            composeApp/build/compose/binaries/main/exe/**
+            composeApp/build/compose/binaries/main-release/msi/**
+            composeApp/build/compose/binaries/main-release/exe/**
           if-no-files-found: warn
 
   release:
