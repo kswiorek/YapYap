@@ -145,6 +145,10 @@ compose.desktop {
             )
             packageName = "YapYap"
             packageVersion = "0.0.1"
+            // dbus-java SASL auth needs UnixSystem, which lives in jdk.security.auth.
+            // jdeps doesn't detect it (loaded reflectively), so without this the
+            // packaged runtime throws BackendNotSupportedException for every keyring.
+            modules("jdk.security.auth")
         }
     }
 }
