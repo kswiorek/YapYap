@@ -1,18 +1,17 @@
 <component name="ProjectRunConfigurationManager">
-    <configuration default="false" name="YapYap tor-b" type="GradleRunConfiguration" factoryName="Gradle"
-                   allow-running-in-parallel="true">
+    <configuration default="false" name="YapYap tor-b" type="GradleRunConfiguration" factoryName="Gradle">
         <ExternalSystemSettings>
             <option name="executionName"/>
             <option name="externalProjectPath" value="$PROJECT_DIR$/composeApp"/>
             <option name="externalSystemIdString" value="GRADLE"/>
-            <option name="scriptParameters"
-                    value="--args=&quot;--data-dir ../working-dir/yapyap-tor-b --keyring-ns tor-b&quot;"/>
+            <option name="scriptParameters" value=""/>
             <option name="taskDescriptions">
                 <list/>
             </option>
             <option name="taskNames">
                 <list>
                     <option value="run"/>
+                    <option value="--args=&quot;--data-dir ../working-dir/yapyap-tor-b --keyring-ns tor-b&quot;"/>
                 </list>
             </option>
             <option name="vmOptions"/>

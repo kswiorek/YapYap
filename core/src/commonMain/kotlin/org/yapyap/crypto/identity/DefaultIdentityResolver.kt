@@ -232,12 +232,15 @@ internal class DefaultIdentityResolver(
 
         if (torEndpoint == null) {
             val e = CryptoException.MissingDeviceRecord(deviceId.id)
-            AppLog.error(
+            // Routine in a store-and-forward mesh (offline peer on the send path,
+            // pre-seed inbound race on the reconcile path): callers handle the throw
+            // (retry/defer/skip) and genuinely broken states fail loudly upstream.
+            // WARN, not ERROR — no stack; the id is in the fields.
+            AppLog.warn(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
                 message = "Tor endpoint for device ${deviceId.id} not found",
                 fields = mapOf("deviceId" to deviceId),
-                throwable = e,
             )
             throw e
         }

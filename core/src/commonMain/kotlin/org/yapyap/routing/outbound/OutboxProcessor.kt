@@ -137,17 +137,20 @@ internal class OutboxProcessor(
             )
         }.onFailure { error ->
             if (error is CancellationException) throw error
-            AppLog.error(
+            // Retryable by design (offline peer, stale endpoint): the entry stays
+            // queued with backoff and expiry prunes it. WARN, not ERROR — a stack
+            // per attempt would bury real failures; the cause rides along as a field.
+            AppLog.warn(
                 component = LogComponent.ROUTER,
                 event = LogEvent.OUTBOX_DISPATCH_FAILED,
                 message = "Failed to dispatch outbox envelope",
-                throwable = error,
                 fields = mapOf(
                     "packetId" to envelope.packetId,
                     "target" to envelope.target,
                     "transport" to outbound.transport,
                     "attempts" to entry.attempts,
                     "nextRetryAt" to nextRetryAt,
+                    "error" to error.toString(),
                 ),
             )
             packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
