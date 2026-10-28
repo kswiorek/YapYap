@@ -17,11 +17,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
 import kotlinx.io.files.Path
-import org.yapyap.gui.session.YapSession
-import org.yapyap.gui.session.platformNotificationSink
-import org.yapyap.gui.session.resolveDataDirectory
+import org.yapyap.gui.session.*
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
+import org.yapyap.orchestrator.LoopbackTransport
 import java.awt.MouseInfo
 import java.awt.Point
 import java.io.File
@@ -35,11 +34,28 @@ import java.io.File
  * physical screen pixels, so there is no DPI/scale factor to get wrong on any
  * OS, display server (X11/Wayland) or monitor.
  */
-fun main() {
-    val dataDir: Path = resolveDataDirectory()
+fun main(args: Array<String>) {
+    if (args.any { it == "--help" || it == "-h" }) {
+        println(DESKTOP_ARGS_USAGE)
+        return
+    }
+    val cli = try {
+        parseDesktopArgs(args)
+    } catch (e: IllegalArgumentException) {
+        System.err.println(e.message)
+        return
+    }
+    val dataDir: Path = cli.dataDir?.let(::Path) ?: resolveDataDirectory()
+    val devMarker = if (cli.loopback != LoopbackTransport.NONE) {
+        " — LOCAL" + (cli.keyringNamespace?.let { " $it" } ?: "")
+    } else {
+        ""
+    }
     val prefsFile = File(dataDir.toString(), "ui-prefs.json")
     val session = YapSession(
         dataDirectory = dataDir,
+        loopback = cli.loopback,
+        keyringNamespace = cli.keyringNamespace,
         notificationSink = platformNotificationSink(),
         readPrefs = { runCatching { if (prefsFile.exists()) prefsFile.readText() else null }.getOrNull() },
         writePrefs = { raw ->
@@ -61,7 +77,7 @@ fun main() {
                 exitApplication()
             },
             state = windowState,
-            title = "YapYap",
+            title = "YapYap$devMarker",
             undecorated = true,
             resizable = true,
         ) {
@@ -77,6 +93,7 @@ fun main() {
                 Column(Modifier.fillMaxSize().background(colors.bgApp)) {
                     TitleBar(
                         mover = mover,
+                        devMarker = devMarker,
                         onMinimize = { windowState.isMinimized = true },
                         onToggleMax = {
                             windowState.placement = if (windowState.placement ==
@@ -161,6 +178,7 @@ private enum class Edge { LEFT, RIGHT, BOTTOM }
 @Composable
 private fun TitleBar(
     mover: WindowMover,
+    devMarker: String,
     onMinimize: () -> Unit,
     onToggleMax: () -> Unit,
     onClose: () -> Unit,
@@ -186,7 +204,7 @@ private fun TitleBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(
-            "✦ YapYap",
+            "✦ YapYap$devMarker",
             style = yapType.bodySmMedium.copy(color = colors.textSubtle),
             modifier = Modifier.padding(start = 12.dp).weight(1f),
         )

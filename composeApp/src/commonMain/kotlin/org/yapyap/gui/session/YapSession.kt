@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.io.files.Path
 import org.yapyap.gui.prefs.UiPreferencesController
+import org.yapyap.orchestrator.LoopbackTransport
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
 import org.yapyap.orchestrator.OrchestratorFactory
@@ -19,6 +20,8 @@ import kotlin.time.Clock
  */
 class YapSession(
     val dataDirectory: Path,
+    val loopback: LoopbackTransport = LoopbackTransport.NONE,
+    val keyringNamespace: String? = null,
     val notificationSink: NotificationSink = NotificationSink.NoOp,
     readPrefs: () -> String?,
     writePrefs: (String) -> Unit,
@@ -48,7 +51,7 @@ class YapSession(
     /** Create the orchestrator and boot. Safe to call once; later calls no-op. */
     fun start() {
         if (orchestrator != null) return
-        val orch = OrchestratorFactory(dataDirectory, NodeMode.FULL_CLIENT).create()
+        val orch = OrchestratorFactory(dataDirectory, NodeMode.FULL_CLIENT, loopback, keyringNamespace).create()
         orchestrator = orch
         _orchestratorFlow.value = orch
         scope.launch {

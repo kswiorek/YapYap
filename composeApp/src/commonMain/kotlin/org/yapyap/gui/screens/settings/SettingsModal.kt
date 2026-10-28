@@ -392,7 +392,8 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime) {
             confirmLabel = "Reset",
             onConfirm = {
                 showReset = false
-                scope.launch { runCatching { session.orchestrator?.resetApp() } }
+                // Process lifetime: reset navigates away from settings.
+                session.scope.launch { runCatching { session.orchestrator?.resetApp() } }
             },
             onCancel = { showReset = false },
             requireTypedText = "reset",

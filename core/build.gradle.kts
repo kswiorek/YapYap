@@ -165,6 +165,7 @@ tasks.named<Test>("jvmTest") {
             excludeTestsMatching("*DefaultRouterLiveIntegrationTest")
             excludeTestsMatching("*DefaultKeyStoreJavaKeyringIntegrationTest")
             excludeTestsMatching("*JvmEncryptedDriverFactoryIntegrationTest")
+            excludeTestsMatching("*OrchestratorLoopbackBootTest")
         }
     }
 }

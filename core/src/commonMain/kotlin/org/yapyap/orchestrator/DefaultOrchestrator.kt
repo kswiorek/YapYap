@@ -376,6 +376,11 @@ internal class DefaultOrchestrator(
     private suspend fun init() {
         torTransport = DefaultTorTransport(torBackend)
         webRtcTransport = DefaultWebRtcTransport(webRtcBackend)
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.STARTED,
+            message = "Transports initialized",
+        )
 
         val packetDeduplicator = DefaultPacketDeduplicator(database)
         val packetOutbox = DefaultPacketOutbox(database)
@@ -402,6 +407,11 @@ internal class DefaultOrchestrator(
             opkRepository = opkRepository,
             cryptoLimits = configStore.cryptoLimits,
             sessionConfig = configStore.cryptoConfig,
+        )
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.STARTED,
+            message = "Crypto initialized",
         )
 
         val signatureProvider = DefaultSignatureProvider(identityResolver, cryptoProvider)
@@ -430,6 +440,11 @@ internal class DefaultOrchestrator(
         // messages.room_id FKs to rooms, and frontier sync / ping / broadcast all
         // consult rooms + room_members. Seed idempotently.
         roomRepository.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global")
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.STARTED,
+            message = "Database ready",
+        )
 
         val syncPayloadProvider = DefaultSyncPayloadProvider(
             messageRepo,
@@ -466,6 +481,11 @@ internal class DefaultOrchestrator(
             peerAvailabilityStore = peerAvailabilityStore,
         )
 
+        AppLog.info(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.STARTED,
+            message = "Router built, starting",
+        )
         router.start()
 
         val causalHoldRepo = DefaultCausalHoldRepository(database)

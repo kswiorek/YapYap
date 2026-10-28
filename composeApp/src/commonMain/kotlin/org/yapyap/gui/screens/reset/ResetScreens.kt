@@ -16,7 +16,6 @@ import org.yapyap.orchestrator.boot.ResetReason
 @Composable
 fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
     val colors = yapColors
-    val scope = rememberCoroutineScope()
     var typed by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     CenterColumn {
@@ -41,7 +40,8 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
             YapButton(
                 "Reset app",
                 onClick = {
-                    scope.launch {
+                    // Process lifetime: reset navigates away from this screen.
+                    session.scope.launch {
                         runCatching { session.orchestrator?.resetApp() }
                             .onFailure { error = it.message }
                     }
@@ -58,7 +58,6 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
 @Composable
 fun FailureScreen(session: YapSession, cause: Throwable) {
     val colors = yapColors
-    val scope = rememberCoroutineScope()
     var showDetails by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     CenterColumn {
@@ -101,7 +100,8 @@ fun FailureScreen(session: YapSession, cause: Throwable) {
             YapButton(
                 "Reset",
                 onClick = {
-                    scope.launch {
+                    // Process lifetime: reset navigates away from this screen.
+                    session.scope.launch {
                         runCatching { session.orchestrator?.resetApp() }
                             .onFailure { error = it.message }
                     }

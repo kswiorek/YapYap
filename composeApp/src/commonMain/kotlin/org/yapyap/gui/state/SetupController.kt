@@ -12,6 +12,7 @@ import org.yapyap.orchestrator.SetupIntent
 import org.yapyap.orchestrator.SetupResult
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import kotlin.coroutines.cancellation.CancellationException
 
 sealed interface SetupUiState {
     data object Idle : SetupUiState
@@ -58,9 +59,17 @@ class SetupController(
             return
         }
         _state.value = SetupUiState.Working
+        // Process lifetime, not screen lifetime: setup flips orchestrator state,
+        // which navigates away from this screen — a composition scope would cancel
+        // init mid-flight and strand the app on "Starting…". Real cancellation
+        // still propagates (rethrown, not swallowed as Error).
         scope.launch {
-            val result = runCatching { orch.completeSetup(intent) }.getOrElse {
-                _state.value = SetupUiState.Error(it.message ?: "Setup failed.")
+            val result = try {
+                orch.completeSetup(intent)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.value = SetupUiState.Error(e.message ?: "Setup failed.")
                 return@launch
             }
             _state.value = SetupUiState.Invite(result)

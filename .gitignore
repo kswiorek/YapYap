@@ -20,3 +20,4 @@ node_modules/
 /composeApp/.yapyap/
 # Raw Discord stylesheet dumps are large and regenerable; see tools/discord-capture/README.md
 tools/discord-capture/.cache/
+/working-dir/

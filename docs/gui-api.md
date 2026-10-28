@@ -46,12 +46,20 @@ val runtime: OrchestratorRuntime = orchestrator.runtime()
 ### Local dev profile (two instances, no Tor)
 
 For GUI work without a reachable Tor network, each instance gets its own isolated
-profile — separate data dirs plus the two dev-only factory arguments:
+profile — separate data dirs plus loopback transport and a distinct keyring
+namespace. On desktop, pass CLI flags (or use the shared `YapYap dev-a (local)` /
+`YapYap dev-b (local)` run configurations, which bake them in):
+
+```
+YapYap --data-dir .yapyap-dev-a --loopback --keyring-ns dev-a
+YapYap --data-dir .yapyap-dev-b --loopback --keyring-ns dev-b
+```
+
+This is equivalent to constructing the factory directly (the only way on
+Android/iOS, which have no CLI):
 
 ```kotlin
-// Instance A
 OrchestratorFactory(dirA, NodeMode.FULL_CLIENT, LoopbackTransport.TOR, "dev-a")
-// Instance B
 OrchestratorFactory(dirB, NodeMode.FULL_CLIENT, LoopbackTransport.TOR, "dev-b")
 ```
 

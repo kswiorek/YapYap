@@ -29,8 +29,7 @@ private enum class Choice { Genesis, NewAccount, AddDevice, Recover }
 @Composable
 fun SetupScreen(session: YapSession) {
     val colors = yapColors
-    val scope = rememberCoroutineScope()
-    val controller = remember(session) { SetupController(scope, session) }
+    val controller = remember(session) { SetupController(session.scope, session) }
     val uiState by controller.state.collectAsState()
     var choice by remember { mutableStateOf(Choice.Genesis) }
 
