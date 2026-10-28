@@ -36,6 +36,7 @@ class PublicApiSurfaceTest {
         "org.yapyap.orchestrator.SetupIntent",
         "org.yapyap.orchestrator.SetupResult",
         "org.yapyap.orchestrator.BootstrapEndpoint",
+        "org.yapyap.orchestrator.LoopbackTransport",
         "org.yapyap.orchestrator.runtime.OrchestratorRuntime",
         "org.yapyap.orchestrator.runtime.account.AccountService",
         "org.yapyap.orchestrator.runtime.admin.AdminService",
