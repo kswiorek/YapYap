@@ -29,45 +29,38 @@ internal class DefaultIdentityProvisioning(
         val encryptionKey = cryptoProvider.generateEncryptionKeyPair()
         val deviceId = cryptoProvider.peerIdFromPublicKey(signingKey.publicKey)
 
+        val signingKeyId = LOCAL_DEVICE_KEY_PREFIX + "signing"
         val signingKeyRecord = IdentityPublicKeyRecord(
-            LOCAL_DEVICE_KEY_PREFIX + "signing",
-            0,
             IdentityKeyPurpose.SIGNING,
             signingKey.publicKey
         )
         val privateSigningKeyRef =
-            KeyReference(keyId = signingKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
+            KeyReference(keyId = signingKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
+        val encryptionKeyId = LOCAL_DEVICE_KEY_PREFIX + "encryption"
         val encryptionKeyRecord = IdentityPublicKeyRecord(
-            LOCAL_DEVICE_KEY_PREFIX + "encryption",
-            0,
             IdentityKeyPurpose.ENCRYPTION,
             encryptionKey.publicKey
         )
         val privateEncryptionKeyRef = KeyReference(
-            keyId = encryptionKeyRecord.keyId,
+            keyId = encryptionKeyId,
             purpose = IdentityKeyPurpose.ENCRYPTION,
             type = KeyType.PRIVATE
         )
 
         keyStore.putKey(privateSigningKeyRef, signingKey.privateKey)
         keyStore.putKey(
-            KeyReference(keyId = signingKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC),
+            KeyReference(keyId = signingKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC),
             signingKey.publicKey,
         )
 
         keyStore.putKey(privateEncryptionKeyRef, encryptionKey.privateKey)
         keyStore.putKey(
             KeyReference(
-                keyId = encryptionKeyRecord.keyId,
+                keyId = encryptionKeyId,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 type = KeyType.PUBLIC
             ),
             encryptionKey.publicKey,
-        )
-
-        val keySignature = cryptoProvider.signDetached(
-            signingKey.privateKey,
-            encryptionKey.publicKey + encryptionKeyRecord.keyId.encodeToByteArray()
         )
 
         val signedPreKey = provisionInitialSignedPreKey(
@@ -81,7 +74,6 @@ internal class DefaultIdentityProvisioning(
             signingKeyRecord,
             encryptionKeyRecord,
             signedPreKey = signedPreKey,
-            keySignature = keySignature
         )
 
         val accountRecord = identityResolver.getLocalAccountIdentityRecord()
@@ -156,17 +148,16 @@ internal class DefaultIdentityProvisioning(
         )
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val accountId = cryptoProvider.accountIdFromPublicKey(signingKey.publicKey)
+        val accountKeyId = LOCAL_ACCOUNT_KEY_PREFIX + "signing"
         val accountKeyRecord = IdentityPublicKeyRecord(
-            LOCAL_ACCOUNT_KEY_PREFIX + "signing",
-            0,
             IdentityKeyPurpose.SIGNING,
             signingKey.publicKey
         )
 
         val privateAccountKeyRef =
-            KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
+            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
         val publicAccountKeyRef =
-            KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
+            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
 
         keyStore.putKey(privateAccountKeyRef, signingKey.privateKey)
         keyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
@@ -225,17 +216,16 @@ internal class DefaultIdentityProvisioning(
 
         val publicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
         val accountId = cryptoProvider.accountIdFromPublicKey(publicKey)
+        val accountKeyId = LOCAL_ACCOUNT_KEY_PREFIX + "signing"
         val accountKeyRecord = IdentityPublicKeyRecord(
-            LOCAL_ACCOUNT_KEY_PREFIX + "signing",
-            0,
             IdentityKeyPurpose.SIGNING,
             publicKey,
         )
 
         val privateAccountKeyRef =
-            KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
+            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
         val publicAccountKeyRef =
-            KeyReference(keyId = accountKeyRecord.keyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
+            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
 
         keyStore.putKey(privateAccountKeyRef, material.privateSigningKey)
         keyStore.putKey(publicAccountKeyRef, publicKey)

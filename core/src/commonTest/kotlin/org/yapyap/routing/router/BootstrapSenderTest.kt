@@ -25,8 +25,8 @@ class BootstrapSenderTest {
     private fun localDeviceRecord(): DeviceIdentityRecord =
         DeviceIdentityRecord(
             deviceId = localDevice,
-            signing = IdentityPublicKeyRecord("ls", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord("le", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
 
     private fun newcomerIntroPayload(): Intro =
@@ -39,8 +39,8 @@ class BootstrapSenderTest {
             ),
             device = DeviceIdentityRecord(
                 deviceId = newcomerDevice,
-                signing = IdentityPublicKeyRecord("ns", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(3)),
-                encryption = IdentityPublicKeyRecord("ne", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(4)),
+                signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(3)),
+                encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(4)),
             ),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("newcomer.onion", 80),

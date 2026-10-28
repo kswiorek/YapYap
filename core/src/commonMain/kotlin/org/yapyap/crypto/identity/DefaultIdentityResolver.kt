@@ -78,26 +78,16 @@ internal class DefaultIdentityResolver(
             ),
         ) ?: cryptoProvider.privateEncryptionKeyToPublicKey(privateEncryptionKey)
 
-        val keySignature = cryptoProvider.signDetached(
-            signingKeys.privateKey,
-            publicEncryptionKey + encryptionKeyId.encodeToByteArray(),
-        )
-
         return DeviceIdentityRecord(
             deviceId,
             IdentityPublicKeyRecord(
-                keyId = signingKeys.keyId,
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingKeys.publicKey,
             ),
             IdentityPublicKeyRecord(
-                keyId = encryptionKeyId,
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = publicEncryptionKey,
             ),
-            keySignature = keySignature,
         )
     }
 
@@ -111,8 +101,6 @@ internal class DefaultIdentityResolver(
             // DB row is authoritative when present; this is only used to re-insert a missing row.
             displayName = "",
             key = IdentityPublicKeyRecord(
-                keyId = signingKeys.keyId,
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signingKeys.publicKey,
             ),
@@ -231,33 +219,11 @@ internal class DefaultIdentityResolver(
             )
             throw e
         }
-        if (device.keySignature == null) {
-            val e =
-                CryptoException.IncompleteRecord("Missing keySignature for device ${deviceId.id}, cannot verify device identity.")
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
-                message = "Incomplete peer record",
-                fields = mapOf("deviceId" to deviceId),
-                throwable = e,
-            )
-            throw e
-        }
-
-        val verifyMessage = device.encryption.publicKey + device.encryption.keyId.encodeToByteArray()
-        if (!cryptoProvider.verifyDetached(device.signing.publicKey, verifyMessage, device.keySignature)) {
-            val e =
-                CryptoException.IncompleteRecord("Device ${deviceId.id} keySignature verification failed, cannot verify device identity.")
-            AppLog.error(
-                component = LogComponent.CRYPTO,
-                event = LogEvent.IDENTITY_DEVICE_RECORD_MISSING,
-                message = "Incomplete peer record, keySignature verification failed",
-                fields = mapOf("deviceId" to deviceId),
-                throwable = e,
-            )
-            throw e
-        }
-
+        // No key re-verification here: chain rows are authenticated by the global fold at
+        // commit time (account binding signature over both keys), and provisional intro rows
+        // arrive over AEAD under the one-time onboarding secret. The device self-signature
+        // this check used to verify is gone (it shared its column with the account signature
+        // and could never verify for chain-folded rows).
         return device
     }
 

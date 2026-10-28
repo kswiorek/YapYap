@@ -114,10 +114,8 @@ class DefaultIdentityOrchestrationTest {
         val remotePeer =
             DeviceIdentityRecord(
                 deviceId = PeerId("peerdevidaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-                signing = IdentityPublicKeyRecord("rk-s", 0L, IdentityKeyPurpose.SIGNING, remoteSigning.publicKey),
+                signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, remoteSigning.publicKey),
                 encryption = IdentityPublicKeyRecord(
-                    "rk-e",
-                    0L,
                     IdentityKeyPurpose.ENCRYPTION,
                     remoteEncryption.publicKey
                 ),
@@ -142,7 +140,7 @@ class DefaultIdentityOrchestrationTest {
             AccountIdentityRecord(
                 accountId = AccountId("external-acc-id"),
                 displayName = "Peer Account",
-                key = IdentityPublicKeyRecord("ext", 1L, IdentityKeyPurpose.SIGNING, signing.publicKey),
+                key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, signing.publicKey),
             )
         repo.insertPeerAccount(
             identity = acc,

@@ -32,8 +32,6 @@ internal suspend fun seedLocalAccountAndDevice(
         accountId = accountId,
         displayName = "Fixture Account",
         key = IdentityPublicKeyRecord(
-            keyId = "fixture-account-key",
-            keyVersion = 0L,
             purpose = IdentityKeyPurpose.SIGNING,
             publicKey = byteArrayOf(0x0A, 0x0B, 0x0C),
         ),
@@ -41,14 +39,10 @@ internal suspend fun seedLocalAccountAndDevice(
     val deviceRecord = DeviceIdentityRecord(
         deviceId = deviceId,
         signing = IdentityPublicKeyRecord(
-            keyId = "fixture-device-signing",
-            keyVersion = 0L,
             purpose = IdentityKeyPurpose.SIGNING,
             publicKey = byteArrayOf(0x01, 0x02),
         ),
         encryption = IdentityPublicKeyRecord(
-            keyId = "fixture-device-encryption",
-            keyVersion = 0L,
             purpose = IdentityKeyPurpose.ENCRYPTION,
             publicKey = byteArrayOf(0x03, 0x04),
         ),
@@ -87,14 +81,10 @@ internal suspend fun seedPeerDevice(
     val deviceRecord = DeviceIdentityRecord(
         deviceId = deviceId,
         signing = IdentityPublicKeyRecord(
-            keyId = "fixture-peer-signing",
-            keyVersion = 0L,
             purpose = IdentityKeyPurpose.SIGNING,
             publicKey = byteArrayOf(0x05, 0x06),
         ),
         encryption = IdentityPublicKeyRecord(
-            keyId = "fixture-peer-encryption",
-            keyVersion = 0L,
             purpose = IdentityKeyPurpose.ENCRYPTION,
             publicKey = byteArrayOf(0x07, 0x08),
         ),

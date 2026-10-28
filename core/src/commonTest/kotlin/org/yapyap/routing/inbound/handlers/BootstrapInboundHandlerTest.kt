@@ -48,8 +48,8 @@ class BootstrapInboundHandlerTest {
     private fun localDeviceRecord(): DeviceIdentityRecord =
         DeviceIdentityRecord(
             deviceId = newcomerDevice,
-            signing = IdentityPublicKeyRecord("ls", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord("le", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
 
     private fun routingContext(activeSecret: ByteArray?): RoutingContext {
@@ -80,10 +80,8 @@ class BootstrapInboundHandlerTest {
         val encryption = crypto.generateEncryptionKeyPair()
         return DeviceIdentityRecord(
             deviceId = deviceId,
-            signing = IdentityPublicKeyRecord("device-signing", 0L, IdentityKeyPurpose.SIGNING, signing.publicKey),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, signing.publicKey),
             encryption = IdentityPublicKeyRecord(
-                "device-encryption",
-                0L,
                 IdentityKeyPurpose.ENCRYPTION,
                 encryption.publicKey
             ),
@@ -105,7 +103,7 @@ class BootstrapInboundHandlerTest {
         val account = AccountIdentityRecord(
             AccountId("recovering-account"),
             "Recovering",
-            key = IdentityPublicKeyRecord("account-signing", 0L, IdentityKeyPurpose.SIGNING, accountKeys.publicKey),
+            key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, accountKeys.publicKey),
         )
         val unsigned = RecoveryRequest(
             version = 1,

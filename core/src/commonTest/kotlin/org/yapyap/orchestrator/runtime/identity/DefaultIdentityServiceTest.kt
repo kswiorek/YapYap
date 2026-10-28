@@ -146,13 +146,13 @@ class DefaultIdentityServiceTest {
         private fun accountRecord(account: AccountId, displayName: String) = AccountIdentityRecord(
             accountId = account,
             displayName = displayName,
-            key = IdentityPublicKeyRecord("k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
         )
 
         private fun dummyDevice(id: PeerId) = DeviceIdentityRecord(
             deviceId = id,
-            signing = IdentityPublicKeyRecord("k", 0, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord("k", 0, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
     }
 

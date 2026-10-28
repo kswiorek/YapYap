@@ -43,7 +43,7 @@ class BootDiagnoserTest {
                 AccountIdentityRecord(
                     accountId,
                     "test",
-                    IdentityPublicKeyRecord("local", 0, IdentityKeyPurpose.SIGNING, accountSigning.publicKey),
+                    IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, accountSigning.publicKey),
                 ),
                 role = AccountRole.MEMBER,
                 provisional = provisional,
@@ -52,8 +52,8 @@ class BootDiagnoserTest {
                 accountId,
                 DeviceIdentityRecord(
                     deviceId,
-                    IdentityPublicKeyRecord("local", 0, IdentityKeyPurpose.SIGNING, deviceSigning.publicKey),
-                    IdentityPublicKeyRecord("local", 0, IdentityKeyPurpose.ENCRYPTION, deviceEncryption.publicKey),
+                    IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, deviceSigning.publicKey),
+                    IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, deviceEncryption.publicKey),
                     signedPreKey = SignedPreKeyRecord(
                         keyId = SPK_ID,
                         publicKey = spkPair.publicKey,

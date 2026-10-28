@@ -167,14 +167,10 @@ internal suspend fun deviceRecordFor(
     return DeviceIdentityRecord(
         deviceId = peerId,
         signing = IdentityPublicKeyRecord(
-            keyId = "fixture-signing",
-            keyVersion = 0,
             purpose = IdentityKeyPurpose.SIGNING,
             publicKey = signingKeys.publicKey,
         ),
         encryption = IdentityPublicKeyRecord(
-            keyId = "fixture-encryption",
-            keyVersion = 0,
             purpose = IdentityKeyPurpose.ENCRYPTION,
             publicKey = encryptionKeys.publicKey,
         ),

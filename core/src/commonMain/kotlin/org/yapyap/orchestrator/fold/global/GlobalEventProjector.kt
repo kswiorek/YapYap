@@ -535,7 +535,6 @@ internal class DefaultGlobalEventProjector(
                 torEndpoint = add.torEndpoint,
                 signingPublicKey = add.signingPublicKey,
                 encryptionPublicKey = add.encryptionPublicKey,
-                keySignature = add.keySignature,
                 status = IdentityStatus.ACTIVE,
             )
         }

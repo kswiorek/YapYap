@@ -47,8 +47,8 @@ class DefaultRouterLiveIntegrationTest {
     private fun localDevice(peer: PeerId): DeviceIdentityRecord =
         DeviceIdentityRecord(
             deviceId = peer,
-            signing = IdentityPublicKeyRecord("sg", 0L, IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord("en", 0L, IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
         )
 
     private fun sampleText(): MessagePayload.Text =

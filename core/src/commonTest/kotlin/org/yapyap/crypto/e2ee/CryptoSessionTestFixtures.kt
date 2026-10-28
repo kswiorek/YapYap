@@ -128,7 +128,6 @@ internal suspend fun buildTestPeerIdentity(
     val encryption = crypto.generateEncryptionKeyPair()
     val spk = crypto.generateEncryptionKeyPair()
     val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
-    val encryptionKeyId = "encryption-$label"
     val spkId = "spk-$label"
     val spkSignature = crypto.signDetached(signing.privateKey, spk.publicKey)
     return TestPeerIdentity(
@@ -136,14 +135,10 @@ internal suspend fun buildTestPeerIdentity(
         device = DeviceIdentityRecord(
             deviceId = deviceId,
             signing = IdentityPublicKeyRecord(
-                keyId = "signing-$label",
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.SIGNING,
                 publicKey = signing.publicKey,
             ),
             encryption = IdentityPublicKeyRecord(
-                keyId = encryptionKeyId,
-                keyVersion = 0,
                 purpose = IdentityKeyPurpose.ENCRYPTION,
                 publicKey = encryption.publicKey,
             ),
@@ -153,10 +148,6 @@ internal suspend fun buildTestPeerIdentity(
                 publicKey = spk.publicKey,
                 signature = spkSignature,
                 privateKey = null
-            ),
-            keySignature = crypto.signDetached(
-                signing.privateKey,
-                encryption.publicKey + encryptionKeyId.encodeToByteArray()
             ),
         ),
         encryptionPrivateKey = encryption.privateKey,
