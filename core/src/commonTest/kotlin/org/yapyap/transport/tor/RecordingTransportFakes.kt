@@ -1,9 +1,7 @@
 package org.yapyap.transport.tor
 
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
@@ -13,6 +11,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.transport.tor.backend.TorBackend
+import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -23,6 +22,9 @@ internal class RecordingTorTransport(
 
     private val incomingMutable = MutableSharedFlow<TorIncomingEnvelope>(extraBufferCapacity = 64)
     override val incoming: Flow<TorIncomingEnvelope> = incomingMutable.asSharedFlow()
+
+    override val publishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
 
     var startCalls = 0
         private set
@@ -90,6 +92,9 @@ internal class ConcurrencyTrackingTorTransport(
     private val incomingMutable = MutableSharedFlow<TorIncomingEnvelope>(extraBufferCapacity = 64)
     override val incoming: Flow<TorIncomingEnvelope> = incomingMutable.asSharedFlow()
 
+    override val publishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
+
     private val sendStatsMutex = Mutex()
     private var activeSends = 0
     var maxConcurrentSends = 0
@@ -141,6 +146,9 @@ internal class RecordingTorBackend : TorBackend {
 
     private val framesMutable = MutableSharedFlow<TorIncomingFrame>(extraBufferCapacity = 64)
     override val incomingFrames = framesMutable.asSharedFlow()
+
+    override val publishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
 
     val startCalls = mutableListOf<Int?>()
     val stopCalls = mutableListOf<Unit>()

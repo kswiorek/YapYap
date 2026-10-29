@@ -18,6 +18,7 @@ import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.*
+import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -405,6 +406,9 @@ private class RecordingRouter : Router {
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
 
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
+
+    override val localPublishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING)
 
     val sent = mutableListOf<MessagePayload>()
 

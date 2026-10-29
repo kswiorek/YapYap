@@ -68,11 +68,24 @@ internal data class RouterConfig(
     val reliabilityHalfLife: Duration = 24.hours,
     val maxBillableGap: Duration = 30.days,
     /**
-     * Outbound bootstrap envelope lifetime, doubling as the onboarding wait budget (session
-     * deadline): short enough that late responders can't append chain entries for failed
-     * onboardings or reply into burned secrets.
+     * Outbound bootstrap envelope lifetime (wire TTL): how long a queued intro /
+     * recovery-request ciphertext stays deliverable in the outbox. Short enough
+     * that late duplicates can't append chain entries for failed onboardings or
+     * reply into burned secrets.
      */
-    val bootstrapIntroLifetime: Duration = 5.minutes,
+    val bootstrapIntroLifetime: Duration = 8.minutes,
+    /**
+     * Newcomer onboarding session budget (AWAITING_INTRO + SYNCING wall-clock):
+     * how long the newcomer waits for the sponsor intro and the follow-up
+     * global-room sync before burning the secret (TIMED_OUT). Deliberately much
+     * longer than [bootstrapIntroLifetime] — Tor circuit setup, onion
+     * descriptor publication/HSDir propagation, and a human paste-and-scan round
+     * trip routinely exceed a few minutes on real networks, while the envelope
+     * TTL above still bounds replayability. The outbox keeps re-sending the
+     * intro until its own TTL lapses; the session budget covers the whole
+     * human + network round trip.
+     */
+    val bootstrapSessionLifetime: Duration = 40.minutes,
     /** Desired chance that at least one selected relay is online when a message needs relaying. */
     val relayTargetSuccessProbability: Double = 0.9,
     /** Hard cap on the number of relays a message is deposited with. */
@@ -102,6 +115,7 @@ internal data class RouterConfig(
         require(reliabilityHalfLife > Duration.ZERO) { "reliabilityHalfLife must be > 0" }
         require(maxBillableGap > Duration.ZERO) { "maxBillableGap must be > 0" }
         require(bootstrapIntroLifetime > Duration.ZERO) { "bootstrapIntroLifetime must be > 0" }
+        require(bootstrapSessionLifetime > Duration.ZERO) { "bootstrapSessionLifetime must be > 0" }
         require(relayTargetSuccessProbability in 0.0..1.0) { "relayTargetSuccessProbability must be in [0,1]" }
         require(maxRelays > 0) { "maxRelays must be > 0" }
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }

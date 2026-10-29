@@ -1,12 +1,14 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.time.Duration
 
 internal interface Router {
@@ -41,6 +43,13 @@ internal interface Router {
      * presence); callers that display the local account treat it as online.
      */
     val onlineAccounts: Flow<Set<AccountId>>
+
+    /**
+     * Our own onion publish readiness, straight from the Tor transport.
+     * Device-local (no peer involved), so the orchestrator can safely lift it
+     * to the public transport-state flow.
+     */
+    val localPublishState: StateFlow<TorPublishState>
 
     suspend fun start()
     suspend fun stop()

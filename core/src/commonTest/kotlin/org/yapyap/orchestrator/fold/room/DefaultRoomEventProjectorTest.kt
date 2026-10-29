@@ -2,10 +2,7 @@ package org.yapyap.orchestrator.fold.room
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -25,6 +22,7 @@ import org.yapyap.routing.router.*
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -166,6 +164,9 @@ private class FakeRouter : Router {
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
 
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
+
+    override val localPublishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING)
 
     override suspend fun start() = Unit
     override suspend fun stop() = Unit

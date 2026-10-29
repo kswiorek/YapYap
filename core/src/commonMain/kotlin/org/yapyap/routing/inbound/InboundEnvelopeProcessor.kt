@@ -17,6 +17,7 @@ import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
+import kotlin.coroutines.cancellation.CancellationException
 
 internal class InboundEnvelopeProcessor(
     private val ctx: RoutingContext,
@@ -111,12 +112,14 @@ internal class InboundEnvelopeProcessor(
                 ),
             )
             if (inbound.dispositionRequested) {
-                systemSender.sendDispositionForDuplicate(
-                    inbound,
-                    transport,
-                    ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
-                    endpointOverride = provenSourceEndpoint,
-                )
+                sendDispositionBestEffort("duplicate") {
+                    systemSender.sendDispositionForDuplicate(
+                        inbound,
+                        transport,
+                        ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
+                        endpointOverride = provenSourceEndpoint,
+                    )
+                }
             }
             return
         }
@@ -132,14 +135,16 @@ internal class InboundEnvelopeProcessor(
                 ),
             )
             if (inbound.dispositionRequested) {
-                systemSender.sendNack(
-                    inbound.packetId,
-                    inbound.source,
-                    inbound.packetType,
-                    PacketNackReason.EXPIRED,
-                    transport,
-                    endpointOverride = provenSourceEndpoint
-                )
+                sendDispositionBestEffort("expired") {
+                    systemSender.sendNack(
+                        inbound.packetId,
+                        inbound.source,
+                        inbound.packetType,
+                        PacketNackReason.EXPIRED,
+                        transport,
+                        endpointOverride = provenSourceEndpoint
+                    )
+                }
             }
             return
         }
@@ -156,14 +161,16 @@ internal class InboundEnvelopeProcessor(
                 ),
             )
             if (inbound.dispositionRequested) {
-                systemSender.sendNack(
-                    inbound.packetId,
-                    inbound.source,
-                    inbound.packetType,
-                    PacketNackReason.WRONG_TARGET,
-                    transport,
-                    endpointOverride = provenSourceEndpoint
-                )
+                sendDispositionBestEffort("wrong-target") {
+                    systemSender.sendNack(
+                        inbound.packetId,
+                        inbound.source,
+                        inbound.packetType,
+                        PacketNackReason.WRONG_TARGET,
+                        transport,
+                        endpointOverride = provenSourceEndpoint
+                    )
+                }
             }
             return
         }
@@ -195,13 +202,15 @@ internal class InboundEnvelopeProcessor(
         when (handleResult) {
             is InboundHandleResult.Success ->
                 if (inbound.dispositionRequested) {
-                    systemSender.sendAck(
-                        inbound.packetId,
-                        inbound.source,
-                        inbound.packetType,
-                        transport,
-                        endpointOverride = provenSourceEndpoint
-                    )
+                    sendDispositionBestEffort("ack") {
+                        systemSender.sendAck(
+                            inbound.packetId,
+                            inbound.source,
+                            inbound.packetType,
+                            transport,
+                            endpointOverride = provenSourceEndpoint
+                        )
+                    }
                 }
 
             is InboundHandleResult.Deferred -> {
@@ -220,15 +229,40 @@ internal class InboundEnvelopeProcessor(
 
             is InboundHandleResult.Rejected ->
                 if (inbound.dispositionRequested) {
-                    systemSender.sendNack(
-                        inbound.packetId,
-                        inbound.source,
-                        inbound.packetType,
-                        handleResult.reason,
-                        transport,
-                        endpointOverride = provenSourceEndpoint,
-                    )
+                    sendDispositionBestEffort("nack") {
+                        systemSender.sendNack(
+                            inbound.packetId,
+                            inbound.source,
+                            inbound.packetType,
+                            handleResult.reason,
+                            transport,
+                            endpointOverride = provenSourceEndpoint,
+                        )
+                    }
                 }
+        }
+    }
+
+    /**
+     * Dispositions (ACK/NACK) are best-effort by design: the inbound packet is
+     * already handled and deduped at this point, so a failed disposition send
+     * (peer unreachable mid-exchange) must never fail inbound processing — the
+     * sender's retry + our duplicate-replay path re-ACK instead. Downgrades an
+     * alarming ENVELOPE_HANDLE_FAILED into an expected transient warn.
+     */
+    private suspend fun sendDispositionBestEffort(
+        what: String,
+        send: suspend () -> Unit,
+    ) {
+        runCatching { send() }.onFailure { error ->
+            if (error is CancellationException) throw error
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_DISPATCH_FAILED,
+                message = "Failed to send $what disposition; sender retry will re-trigger it",
+                fields = mapOf("error" to error.toString()),
+            )
         }
     }
 

@@ -4,10 +4,7 @@ import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -42,6 +39,10 @@ internal class LoopbackTorBackend(
     )
     override val incomingFrames: Flow<TorIncomingFrame> = incomingFlow.asSharedFlow()
 
+    // Loopback is dialable the moment the socket binds — no descriptor dance.
+    private val _publishState = MutableStateFlow(TorPublishState.PUBLISHING)
+    override val publishState: StateFlow<TorPublishState> = _publishState.asStateFlow()
+
     var publishedLocalEndpoint: TorEndpoint? = null
         private set
 
@@ -60,6 +61,7 @@ internal class LoopbackTorBackend(
         val port = (listener.localAddress as InetSocketAddress).port
         val endpoint = TorEndpoint("loopback-$port.onion", port)
         publishedLocalEndpoint = endpoint
+        _publishState.value = TorPublishState.PUBLISHED
 
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
@@ -86,6 +88,7 @@ internal class LoopbackTorBackend(
         scope = null
 
         publishedLocalEndpoint = null
+        _publishState.value = TorPublishState.PUBLISHING
         AppLog.info(
             component = LogComponent.TOR_BACKEND,
             event = LogEvent.STOPPED,

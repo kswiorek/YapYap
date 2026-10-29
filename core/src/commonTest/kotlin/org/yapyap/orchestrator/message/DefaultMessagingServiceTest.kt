@@ -25,6 +25,7 @@ import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.test.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -1193,6 +1194,9 @@ private class RecordingRouter : Router {
     override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
 
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
+
+    override val localPublishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING)
 
     val sentTargets = mutableListOf<AccountId>()
     override suspend fun start() {}

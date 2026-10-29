@@ -3,6 +3,7 @@ package org.yapyap.transport.tor.transport
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -11,6 +12,8 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
+import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.probeNonceOrNull
 
 internal class DefaultTorTransport(
     private val backend: TorBackend,
@@ -23,6 +26,9 @@ internal class DefaultTorTransport(
 
     override val incoming: Flow<TorIncomingEnvelope> = incomingFlow.asSharedFlow()
 
+    override val publishState: StateFlow<TorPublishState>
+        get() = backend.publishState
+
     override suspend fun start(): TorEndpoint {
         check(!started) { "Tor transport is already started" }
 
@@ -33,6 +39,17 @@ internal class DefaultTorTransport(
 
         frameCollectorJob = localScope.launch {
             backend.incomingFrames.collect { frame ->
+                // Self-dial reachability probes are backend business, not envelopes:
+                // swallow silently so they never warn like corrupt traffic.
+                if (probeNonceOrNull(frame.payload) != null) {
+                    AppLog.debug(
+                        component = LogComponent.TOR_TRANSPORT,
+                        event = LogEvent.INBOUND_ENVELOPE_RECEIVED,
+                        message = "Skipped self-dial reachability probe frame",
+                        fields = mapOf("source" to frame.source.onionAddress),
+                    )
+                    return@collect
+                }
                 val envelope = runCatching { BinaryEnvelope.decode(frame.payload) }.getOrElse { error ->
                     AppLog.warn(
                         component = LogComponent.TOR_TRANSPORT,

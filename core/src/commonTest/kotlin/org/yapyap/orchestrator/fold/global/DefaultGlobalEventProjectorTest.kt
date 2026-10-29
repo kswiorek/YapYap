@@ -3,6 +3,8 @@ package org.yapyap.orchestrator.fold.global
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -23,6 +25,7 @@ import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.*
+import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.random.Random
 import kotlin.test.*
 import kotlin.time.Duration
@@ -209,6 +212,9 @@ private class RecordingProjectorRouter : Router {
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = emptyFlow()
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
+
+    override val localPublishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING)
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true

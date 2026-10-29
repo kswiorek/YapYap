@@ -99,7 +99,7 @@ internal class DefaultOnboardingProvider(
 
     override suspend fun beginSession(secret: ByteArray) {
         checkNotNull(scope) { "OnboardingProvider must be started before beginning a session" }
-        val deadline = clock.now() + routerConfig.value.bootstrapIntroLifetime
+        val deadline = clock.now() + routerConfig.value.bootstrapSessionLifetime
         sessionStore.setActiveSecret(secret, deadline)
         activate()
         transitionTo(
@@ -199,7 +199,7 @@ internal class DefaultOnboardingProvider(
 
     private suspend fun onBootstrapIntro(intro: Intro) {
         // The sync phase gets its own budget — extend first, then do the fallible work.
-        val syncDeadline = clock.now() + routerConfig.value.bootstrapIntroLifetime
+        val syncDeadline = clock.now() + routerConfig.value.bootstrapSessionLifetime
         sessionStore.extendDeadline(syncDeadline)
         transitionTo(
             OnboardingState.SYNCING,

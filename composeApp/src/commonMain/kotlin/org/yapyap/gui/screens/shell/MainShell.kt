@@ -33,6 +33,7 @@ import org.yapyap.gui.state.roomKey
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
+import org.yapyap.orchestrator.LocalTransportState
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
@@ -42,7 +43,12 @@ import kotlin.time.Clock
 private enum class RailDestination { Home, Friends }
 
 @Composable
-fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modifier = Modifier) {
+fun MainShell(
+    session: YapSession,
+    runtime: OrchestratorRuntime,
+    transportState: LocalTransportState,
+    modifier: Modifier = Modifier,
+) {
     val colors = yapColors
     val scope = rememberCoroutineScope()
     val prefs by session.prefsController.prefs.collectAsState()
@@ -110,6 +116,7 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
     // in-window overlay (see SettingsModal), not a Dialog.
     BoxWithConstraints(modifier.fillMaxSize().background(colors.bgApp)) {
         Column(Modifier.fillMaxSize()) {
+            TransportBanner(transportState)
             NewcomerStatusBanner(
                 state = newcomerState,
                 onShowCode = pendingInvite?.let { { showInvite = true } },
@@ -287,6 +294,7 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
         PendingInviteOverlay(
             inviteCode = remember(inviteBytes) { Base64Encoder.encode(inviteBytes) },
             newcomerState = newcomerState,
+            addressPublished = transportState == LocalTransportState.PUBLISHED,
             onCancelOnboarding = { cancelOnboarding() },
             onDismiss = { showInvite = false },
         )
@@ -335,6 +343,7 @@ fun MainShell(session: YapSession, runtime: OrchestratorRuntime, modifier: Modif
 private fun PendingInviteOverlay(
     inviteCode: String,
     newcomerState: OnboardingState,
+    addressPublished: Boolean,
     onCancelOnboarding: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -382,6 +391,14 @@ private fun PendingInviteOverlay(
                     style = yapType.bodySmMedium.copy(color = colors.info),
                     modifier = Modifier.padding(top = 8.dp),
                 )
+                if (!addressPublished) {
+                    BasicText(
+                        "Your address is still publishing — you can share the code now, " +
+                                "but the sponsor's first attempts may take a minute.",
+                        style = yapType.bodyXs.copy(color = colors.textMuted),
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             } else if (newcomerState == OnboardingState.SYNCING) {
                 BasicText(
                     "Status: sponsor found — syncing…",

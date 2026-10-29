@@ -120,6 +120,18 @@ class YapSession(
             prefsController.flush()
         }.invokeOnCompletion { scope.cancel() }
     }
+
+    /**
+     * Inline teardown for process shutdown (window close): same work as [stop]
+     * but awaited, so the JVM must not die mid-teardown and orphan the Tor
+     * daemon (its data-dir lock would break the *next* launch with a dead
+     * control connection). Callers cap it with a timeout and exit regardless.
+     */
+    suspend fun awaitStop() {
+        runCatching { orchestrator?.stop() }
+        runCatching { prefsController.flush() }
+        runCatching { scope.cancel() }
+    }
 }
 
 enum class ToastKind { Info, Success, Error }

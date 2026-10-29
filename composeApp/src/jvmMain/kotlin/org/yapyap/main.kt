@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.files.Path
 import org.yapyap.gui.session.*
 import org.yapyap.gui.theme.yapColors
@@ -24,6 +26,8 @@ import org.yapyap.orchestrator.LoopbackTransport
 import java.awt.MouseInfo
 import java.awt.Point
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 
 /**
  * Desktop entry with custom 32 dp title bar (10-windows.md §0).
@@ -73,8 +77,10 @@ fun main(args: Array<String>) {
         )
         Window(
             onCloseRequest = {
-                session.stop()
-                exitApplication()
+                // No window handle here (outside the content scope): minimize
+                // for instant feedback; the background teardown exits after.
+                windowState.isMinimized = true
+                beginShutdown(session, ::exitApplication)
             },
             state = windowState,
             title = "YapYap$devMarker",
@@ -105,8 +111,7 @@ fun main(args: Array<String>) {
                             }
                         },
                         onClose = {
-                            session.stop()
-                            exitApplication()
+                            beginShutdown(window, session, ::exitApplication)
                         },
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -116,6 +121,34 @@ fun main(args: Array<String>) {
                 ResizeOverlay(resizer)
             }
         }
+    }
+}
+
+/**
+ * Runs process teardown off the UI thread: hides the window immediately so a
+ * slow stop (dead peers, daemon shutdown) never freezes it, then exits when
+ * teardown completes or the cap lapses. Guarded: double-close runs teardown once.
+ */
+private val shutdownStarted = AtomicBoolean(false)
+
+private fun beginShutdown(session: org.yapyap.gui.session.YapSession, exit: () -> Unit) {
+    if (!shutdownStarted.compareAndSet(false, true)) return
+    thread(isDaemon = true, name = "yapyap-shutdown") {
+        runBlocking {
+            withTimeoutOrNull(20_000) { session.awaitStop() }
+        }
+        exit()
+    }
+}
+
+private fun beginShutdown(window: java.awt.Window, session: org.yapyap.gui.session.YapSession, exit: () -> Unit) {
+    if (!shutdownStarted.compareAndSet(false, true)) return
+    window.isVisible = false
+    thread(isDaemon = true, name = "yapyap-shutdown") {
+        runBlocking {
+            withTimeoutOrNull(20_000) { session.awaitStop() }
+        }
+        exit()
     }
 }
 

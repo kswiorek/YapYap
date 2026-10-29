@@ -63,6 +63,7 @@ import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
@@ -86,6 +87,9 @@ internal class DefaultOrchestrator(
 
     private val _onboardingState = MutableStateFlow(OnboardingState.IDLE)
     override val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
+
+    private val _transportState = MutableStateFlow(LocalTransportState.WARMING_UP)
+    override val transportState: StateFlow<LocalTransportState> = _transportState.asStateFlow()
 
     private val _bootProgress = MutableStateFlow(BootProgress(BootPhase.STARTING, 0, 0))
     override val bootProgress: StateFlow<BootProgress> = _bootProgress.asStateFlow()
@@ -660,6 +664,27 @@ internal class DefaultOrchestrator(
                 }
             }
         }
+        // Mirror the router's publish flow the same way: the router is recreated
+        // per start cycle, the exposed flow is stable. Transitions are logged
+        // for headless operators (this — plus the log — is their publish UX).
+        orchestratorScope.launch {
+            router.localPublishState.collect {
+                val mapped = when (it) {
+                    TorPublishState.PUBLISHING -> LocalTransportState.WARMING_UP
+                    TorPublishState.PUBLISHED -> LocalTransportState.PUBLISHED
+                    TorPublishState.DEGRADED -> LocalTransportState.DEGRADED
+                }
+                if (mapped != _transportState.value) {
+                    _transportState.value = mapped
+                    AppLog.info(
+                        component = LogComponent.ORCHESTRATOR,
+                        event = LogEvent.SESSION_STATE_CHANGED,
+                        message = "Local transport publish state changed",
+                        fields = mapOf("transportState" to mapped),
+                    )
+                }
+            }
+        }
 
         // Standing recovery service: serves OTHER nodes' account-recovery requests, in every mode —
         // an always-on relay is exactly the bootstrap endpoint a recovering device points at.
@@ -808,6 +833,7 @@ internal class DefaultOrchestrator(
         runCatching { dataDirLock?.close() }
         dataDirLock = null
         _onboardingState.value = OnboardingState.IDLE
+        _transportState.value = LocalTransportState.WARMING_UP
         // Wipe deleted vault.db + closed its driver, but the lateinit
         // database/identityRepo/etc. still reference the dead connection — so
         // SetupRequired here would be a lie: completeSetup() would query the

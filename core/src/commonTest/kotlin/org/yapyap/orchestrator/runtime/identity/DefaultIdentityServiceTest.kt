@@ -2,10 +2,7 @@ package org.yapyap.orchestrator.runtime.identity
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -23,6 +20,7 @@ import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.router.*
+import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -34,6 +32,9 @@ import kotlin.time.Instant
 private class FakeRouter : Router {
     val onlineAccountsFlow = MutableStateFlow<Set<AccountId>>(emptySet())
     override val onlineAccounts: Flow<Set<AccountId>> = onlineAccountsFlow
+
+    override val localPublishState: StateFlow<TorPublishState> =
+        MutableStateFlow(TorPublishState.PUBLISHING)
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()

@@ -13,7 +13,9 @@ import kotlin.uuid.Uuid
 /**
  * Sends a bootstrap-family packet: protect inside routing (plaintext in, ciphertext in the
  * outbox, scheme chosen by kind), queue with `dispositionRequested` and the short
- * [bootstrapIntroLifetime][org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime].
+ * envelope TTL [bootstrapIntroLifetime][org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime]
+ * (distinct from the newcomer's session budget
+ * [bootstrapSessionLifetime][org.yapyap.routing.router.RouterConfig.bootstrapSessionLifetime]).
  *
  * `targetEndpoint` out-of-band endpoint override for targets with no local devices row
  *   (persisted on the outbox row, preferred at dispatch).

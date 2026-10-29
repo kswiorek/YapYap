@@ -30,6 +30,7 @@ import org.yapyap.routing.sync.RemovalRePusher
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
+import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
@@ -208,6 +209,9 @@ internal class DefaultRouter(
             .map { online -> online.mapNotNull { identityResolver.getAccountIdForDevice(it) }.toSet() }
             .distinctUntilChanged()
 
+    override val localPublishState: StateFlow<TorPublishState>
+        get() = torTransport.publishState
+
     override suspend fun start() {
         check(!started) { "Router is already started" }
         localDeviceIdentity = identityResolver.getLocalDeviceIdentityRecord()
@@ -299,10 +303,33 @@ internal class DefaultRouter(
 
         pingProvider.stop()
         peerAvailabilityRegistry.stop()
-        pingProvider.logOff()
+        // Bounded: logOff fans out over Tor with the full 35s inner send
+        // budget per dead peer — unbounded it burns the whole shutdown budget
+        // (and the UI-thread wait above it) and starves the Tor stop below,
+        // orphaning the daemon. Peers expire us via sweep regardless.
+        runCatching {
+            withTimeoutOrNull(8_000) { pingProvider.logOff() }
+        }
 
-        webRtcTransport.stop()
-        torTransport.stop()
+        // Best-effort per transport: a failing WebRTC stop must never skip the
+        // Tor stop and strand a live daemon (its data-dir lock breaks the next
+        // launch). Mirrors the teardown discipline in enterResetRequired.
+        runCatching { webRtcTransport.stop() }.onFailure { error ->
+            AppLog.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.SESSION_FAILED,
+                message = "WebRTC transport stop failed; continuing with Tor stop",
+                throwable = error,
+            )
+        }
+        runCatching { torTransport.stop() }.onFailure { error ->
+            AppLog.error(
+                component = LogComponent.ROUTER,
+                event = LogEvent.SESSION_FAILED,
+                message = "Tor transport stop failed",
+                throwable = error,
+            )
+        }
 
         listOfNotNull(
             torIncomingJob,

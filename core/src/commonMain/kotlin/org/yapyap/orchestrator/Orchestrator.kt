@@ -23,6 +23,14 @@ public interface Orchestrator {
      */
     public val bootProgress: StateFlow<BootProgress>
 
+    /**
+     * Local Tor publish readiness: whether our own onion is dialable yet.
+     * WARMING_UP after every start (the descriptor is re-uploaded per boot)
+     * until an HSDir accepts it; PUBLISHED latches then. Headless relays watch
+     * this like [onboardingState] — it is node-level, not account-level.
+     */
+    public val transportState: StateFlow<LocalTransportState>
+
     /** Boot recovery → start router → start domain loops. */
     public suspend fun start()
 

@@ -14,6 +14,27 @@ import org.yapyap.transport.tor.TorIncomingFrame
  */
 internal const val TOR_TRANSPORT_FRAME_MAGIC: Int = 0x59595431
 
+/**
+ * Reachability-probe marker: self-dial frames carry `MAGIC + 16-byte nonce`
+ * as the frame payload so the sender can match its own looped-back frame.
+ * [DefaultTorTransport] skips these before envelope decode (silent, no warn).
+ */
+internal val TOR_PROBE_MAGIC: ByteArray = "YAPROBE1".encodeToByteArray()
+
+internal fun buildProbePayload(nonce: ByteArray): ByteArray {
+    require(nonce.size == TOR_PROBE_NONCE_SIZE) { "probe nonce must be $TOR_PROBE_NONCE_SIZE bytes" }
+    return TOR_PROBE_MAGIC + nonce
+}
+
+/** Returns the probe nonce, or null when [payload] is not a probe frame. */
+internal fun probeNonceOrNull(payload: ByteArray): ByteArray? {
+    if (payload.size < TOR_PROBE_MAGIC.size + TOR_PROBE_NONCE_SIZE) return null
+    if (!payload.copyOfRange(0, TOR_PROBE_MAGIC.size).contentEquals(TOR_PROBE_MAGIC)) return null
+    return payload.copyOfRange(TOR_PROBE_MAGIC.size, TOR_PROBE_MAGIC.size + TOR_PROBE_NONCE_SIZE)
+}
+
+internal const val TOR_PROBE_NONCE_SIZE: Int = 16
+
 internal suspend fun writeTorTransportFrame(
     output: ByteWriteChannel,
     source: TorEndpoint,

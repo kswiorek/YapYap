@@ -78,3 +78,54 @@ public data class SetupResult(
     /** Non-null for the account-founding paths (Genesis, NewAccountFirstDevice) — the account signing key as a pasteable code. */
     val recoveryKey: String?,
 )
+
+/**
+ * Selects loopback stand-ins for the real network backends.
+ *
+ * Test/dev only: a loopback transport keeps the full encode/decode, routing, and E2EE
+ * path intact but provides no anonymity and no transport-layer authenticity. Anything
+ * above the transport (signatures, E2EE) still verifies exactly as in production.
+ *
+ * The GUI may pass this to [OrchestratorFactory] for local testing; production defaults
+ * to [NONE].
+ */
+public enum class LoopbackTransport {
+    /** Real backends (Tor + WebRTC). */
+    NONE,
+
+    /** Loopback Tor backend (localhost TCP); real WebRTC backend. */
+    TOR,
+
+    /** Real Tor backend; loopback WebRTC — not yet implemented. */
+    WEBRTC,
+
+    /** Loopback for both transports — WebRTC side not yet implemented. */
+    ALL,
+}
+
+/**
+ * Local Tor publish readiness: whether our own onion address is dialable by
+ * the rest of the network yet. Device-local (no peer involved), so it is safe
+ * to surface on the [Orchestrator] itself — including to headless relays, which
+ * have no runtime services.
+ *
+ * A fresh onion (first boot, or any restart before its descriptor is
+ * re-uploaded) is unresolvable for minutes: descriptor upload to an HSDir plus
+ * propagation. During [WARMING_UP] outbound bootstrap dials fail with
+ * host-unreachable and ride the slow retry path; the GUI should say so instead
+ * of showing a silent spinner.
+ */
+public enum class LocalTransportState {
+    /** Tor is up and our hidden service is added, but no descriptor upload observed yet. */
+    WARMING_UP,
+
+    /** An HSDir accepted our descriptor (or loopback transport came up) — dialable. */
+    PUBLISHED,
+
+    /**
+     * Gave up waiting for a descriptor upload while Tor stayed up
+     * (see `TorBackendConfig.publishTimeout`). Check connectivity; the node
+     * keeps retrying underneath, so this can still resolve to [PUBLISHED].
+     */
+    DEGRADED,
+}
