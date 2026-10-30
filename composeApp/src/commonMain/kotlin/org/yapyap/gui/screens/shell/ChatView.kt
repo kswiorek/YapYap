@@ -178,6 +178,14 @@ fun ChatView(
             }
         }
 
+        ui.openError?.let { err ->
+            BasicText(
+                err,
+                style = yapType.bodyXs.copy(color = colors.danger),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
         ui.sendError?.let { err ->
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),

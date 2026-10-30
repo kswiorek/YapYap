@@ -1,12 +1,9 @@
 package org.yapyap.gui.state
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import org.yapyap.gui.mentions.MentionMatcher
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.message.Message
@@ -37,6 +34,7 @@ data class ChatUiState(
     val hasMoreOlder: Boolean = false,
     val loadingOlder: Boolean = false,
     val sendError: String? = null,
+    val openError: String? = null,
     val typingNames: List<String> = emptyList(),
 )
 
@@ -56,30 +54,50 @@ class ChatController(
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
     private var typingJob: Job? = null
+    private var windowJob: Job? = null
 
     fun start() {
-        scope.launch {
-            val w = runCatching { runtime.messaging.openRoom(roomId) }.getOrNull() ?: return@launch
-            window = w
-            launch {
-                w.displayItems.collect { items ->
-                    // Dedupe: drop pending rows whose text now appears as a real item
-                    // from the local account (replaced, never duplicated).
-                    val realTexts = items
-                        .filterIsInstance<MessageDisplayItem.Text>()
-                        .filter { it.accountId == localId }
-                        .map { it.text }.toSet()
-                    _state.value = _state.value.copy(
-                        items = items,
-                        pending = _state.value.pending.filter { it.text !in realTexts },
-                        hasMoreOlder = w.hasMoreOlder.value,
-                    )
-                }
+        // The window lives exactly as long as this job: cancelling it (dispose, or the
+        // composition scope going away with the view) closes the window in `finally`.
+        // A close launched from dispose would never run once the scope is cancelled,
+        // leaving the room registered as open and every later openRoom refused.
+        windowJob = scope.launch {
+            val w = try {
+                runtime.messaging.openRoom(roomId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    openError = "Couldn't open this room: ${e.message ?: e::class.simpleName}",
+                )
+                return@launch
             }
-            launch {
-                w.hasMoreOlder.collect { hasMore ->
-                    _state.value = _state.value.copy(hasMoreOlder = hasMore)
+            window = w
+            try {
+                launch {
+                    w.displayItems.collect { items ->
+                        // Dedupe: drop pending rows whose text now appears as a real item
+                        // from the local account (replaced, never duplicated).
+                        val realTexts = items
+                            .filterIsInstance<MessageDisplayItem.Text>()
+                            .filter { it.accountId == localId }
+                            .map { it.text }.toSet()
+                        _state.value = _state.value.copy(
+                            items = items,
+                            pending = _state.value.pending.filter { it.text !in realTexts },
+                            hasMoreOlder = w.hasMoreOlder.value,
+                        )
+                    }
                 }
+                launch {
+                    w.hasMoreOlder.collect { hasMore ->
+                        _state.value = _state.value.copy(hasMoreOlder = hasMore)
+                    }
+                }
+                awaitCancellation()
+            } finally {
+                window = null
+                withContext(NonCancellable) { runCatching { w.close() } }
             }
         }
         scope.launch {
@@ -181,7 +199,7 @@ class ChatController(
         typingJob?.cancel()
         scope.launch {
             runCatching { runtime.messaging.setTyping(roomId, false) }
-            runCatching { window?.close() }
         }
+        windowJob?.cancel()
     }
 }
