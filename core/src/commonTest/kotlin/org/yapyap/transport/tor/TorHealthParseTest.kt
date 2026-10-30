@@ -105,4 +105,11 @@ class TorHealthParseTest {
         assertNull(socksPortFromListeners(""))
         assertNull(socksPortFromListeners("\"unix:/tmp/socks\""))
     }
+
+    @Test
+    fun noNetwork_ignoresTorsOwnEvents() {
+        val event = assertNotNull(parseTorStatusEvent("NOTICE BOOTSTRAP PROGRESS=100 TAG=done"))
+        assertEquals(TorHealth.NoNetwork, TorHealth.NoNetwork.afterBootstrapEvent(event))
+        assertEquals(TorHealth.NoNetwork, TorHealth.NoNetwork.afterLiveness(up = true))
+    }
 }

@@ -5,6 +5,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.config.BootConfig
@@ -63,7 +64,6 @@ import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
-import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
@@ -88,8 +88,8 @@ internal class DefaultOrchestrator(
     private val _onboardingState = MutableStateFlow(OnboardingState.IDLE)
     override val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
 
-    private val _transportState = MutableStateFlow(LocalTransportState.WARMING_UP)
-    override val transportState: StateFlow<LocalTransportState> = _transportState.asStateFlow()
+    private val _transportStatus = MutableStateFlow<LocalTransportStatus>(INITIAL_TRANSPORT_STATUS)
+    override val transportStatus: StateFlow<LocalTransportStatus> = _transportStatus.asStateFlow()
 
     private val _bootProgress = MutableStateFlow(BootProgress(BootPhase.STARTING, 0, 0))
     override val bootProgress: StateFlow<BootProgress> = _bootProgress.asStateFlow()
@@ -664,26 +664,28 @@ internal class DefaultOrchestrator(
                 }
             }
         }
-        // Mirror the router's publish flow the same way: the router is recreated
+        // Mirror the router's transport flows the same way: the router is recreated
         // per start cycle, the exposed flow is stable. Transitions are logged
-        // for headless operators (this — plus the log — is their publish UX).
+        // for headless operators (this — plus the log — is their status UX);
+        // bootstrap percentages alone don't log, only a new kind or problem.
         orchestratorScope.launch {
-            router.localPublishState.collect {
-                val mapped = when (it) {
-                    TorPublishState.PUBLISHING -> LocalTransportState.WARMING_UP
-                    TorPublishState.PUBLISHED -> LocalTransportState.PUBLISHED
-                    TorPublishState.DEGRADED -> LocalTransportState.DEGRADED
+            combine(router.localTransportHealth, router.localPublishState, ::localTransportStatus)
+                .collect { status ->
+                    val previous = _transportStatus.value
+                    if (status == previous) return@collect
+                    _transportStatus.value = status
+                    val sameKind = status::class == previous::class &&
+                            (status as? LocalTransportStatus.Connecting)?.problem ==
+                            (previous as? LocalTransportStatus.Connecting)?.problem
+                    if (!sameKind) {
+                        AppLog.info(
+                            component = LogComponent.ORCHESTRATOR,
+                            event = LogEvent.SESSION_STATE_CHANGED,
+                            message = "Local transport status changed",
+                            fields = mapOf("transportStatus" to status),
+                        )
+                    }
                 }
-                if (mapped != _transportState.value) {
-                    _transportState.value = mapped
-                    AppLog.info(
-                        component = LogComponent.ORCHESTRATOR,
-                        event = LogEvent.SESSION_STATE_CHANGED,
-                        message = "Local transport publish state changed",
-                        fields = mapOf("transportState" to mapped),
-                    )
-                }
-            }
         }
 
         // Standing recovery service: serves OTHER nodes' account-recovery requests, in every mode —
@@ -833,7 +835,7 @@ internal class DefaultOrchestrator(
         runCatching { dataDirLock?.close() }
         dataDirLock = null
         _onboardingState.value = OnboardingState.IDLE
-        _transportState.value = LocalTransportState.WARMING_UP
+        _transportStatus.value = INITIAL_TRANSPORT_STATUS
         // Wipe deleted vault.db + closed its driver, but the lateinit
         // database/identityRepo/etc. still reference the dead connection — so
         // SetupRequired here would be a lie: completeSetup() would query the

@@ -33,7 +33,7 @@ import org.yapyap.gui.state.roomKey
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
-import org.yapyap.orchestrator.LocalTransportState
+import org.yapyap.orchestrator.LocalTransportStatus
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
@@ -46,7 +46,7 @@ private enum class RailDestination { Home, Friends }
 fun MainShell(
     session: YapSession,
     runtime: OrchestratorRuntime,
-    transportState: LocalTransportState,
+    transportStatus: LocalTransportStatus,
     modifier: Modifier = Modifier,
 ) {
     val colors = yapColors
@@ -116,7 +116,7 @@ fun MainShell(
     // in-window overlay (see SettingsModal), not a Dialog.
     BoxWithConstraints(modifier.fillMaxSize().background(colors.bgApp)) {
         Column(Modifier.fillMaxSize()) {
-            TransportBanner(transportState)
+            TransportBanner(transportStatus)
             NewcomerStatusBanner(
                 state = newcomerState,
                 onShowCode = pendingInvite?.let { { showInvite = true } },
@@ -294,7 +294,7 @@ fun MainShell(
         PendingInviteOverlay(
             inviteCode = remember(inviteBytes) { Base64Encoder.encode(inviteBytes) },
             newcomerState = newcomerState,
-            addressPublished = transportState == LocalTransportState.PUBLISHED,
+            addressPublished = transportStatus == LocalTransportStatus.Online,
             onCancelOnboarding = { cancelOnboarding() },
             onDismiss = { showInvite = false },
         )

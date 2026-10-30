@@ -54,6 +54,9 @@
     `KmpTorBackend` cycles `DisableNetwork` itself, drops cached onion lookups and re-verifies publication.
     Setting `DisableNetwork` closes Tor's SOCKS listener and re-enabling reopens it on a new port; the backend
     re-reads the port (`GETINFO net/listeners/socks`) when a local SOCKS connect fails.
+  - Status path to the GUI: `TorHealth` (incl. `NoNetwork` from the monitor) + `TorPublishState` → `Router`
+    (`localTransportHealth`, `localPublishState`) → `Orchestrator.transportStatus` (`LocalTransportStatus`, mapped
+    in `TransportStatusMapping.kt`). Tor's stall reason travels as `TransportProblem` detail, never as headline.
 - WebRTC:
   - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
   - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).

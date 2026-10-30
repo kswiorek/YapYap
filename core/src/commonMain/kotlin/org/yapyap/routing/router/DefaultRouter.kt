@@ -30,6 +30,7 @@ import org.yapyap.routing.sync.RemovalRePusher
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
+import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
@@ -211,6 +212,9 @@ internal class DefaultRouter(
 
     override val localPublishState: StateFlow<TorPublishState>
         get() = torTransport.publishState
+
+    override val localTransportHealth: StateFlow<TorHealth>
+        get() = torTransport.health
 
     override suspend fun start() {
         check(!started) { "Router is already started" }

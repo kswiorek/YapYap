@@ -22,6 +22,7 @@ import org.yapyap.routing.router.*
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -167,6 +168,8 @@ private class FakeRouter : Router {
 
     override val localPublishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING)
+    override val localTransportHealth: StateFlow<TorHealth> =
+        MutableStateFlow(TorHealth.Ready)
 
     override suspend fun start() = Unit
     override suspend fun stop() = Unit

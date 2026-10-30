@@ -104,6 +104,7 @@ internal class KmpTorBackend(
             runtime.startDaemonAsync()
             waitForSocksListener(runtime)
             seedBootstrapStatus(runtime)
+            if (networkMonitor?.state?.value?.online == false) updateHealth { TorHealth.NoNetwork }
 
             // Stable onion identity: the whole sponsor flow assumes the onion in a
             // newcomer's QR still resolves when the sponsor dials minutes later.
@@ -232,7 +233,10 @@ internal class KmpTorBackend(
             fields = mapOf("change" to state.change, "online" to state.online, "generation" to state.generation),
         )
         // Offline: kmp-tor already disables Tor's network; there is nothing to refresh yet.
-        if (!state.online) return
+        if (!state.online) {
+            updateHealth { TorHealth.NoNetwork }
+            return
+        }
         // NonCancellable: a newer change cancels this handler (collectLatest),
         // and stopping between the two writes would leave Tor's network disabled.
         withContext(NonCancellable) {
@@ -250,6 +254,10 @@ internal class KmpTorBackend(
                         delay(150.milliseconds)
                     }
                 }
+                // Back from NoNetwork: Tor's own events take over again, starting
+                // from wherever its bootstrap actually is (often still 100%).
+                updateHealth { if (it == TorHealth.NoNetwork) TorHealth.Starting else it }
+                seedBootstrapStatus(runtime)
             }
         }
         // Cached descriptor lookups and our intro circuits belong to the old network.

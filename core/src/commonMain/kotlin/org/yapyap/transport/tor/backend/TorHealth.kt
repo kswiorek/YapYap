@@ -23,6 +23,13 @@ internal sealed interface TorHealth {
 
     /** Bootstrapped earlier, but Tor reports `NETWORK_LIVENESS DOWN`. */
     data object NetworkDown : TorHealth
+
+    /**
+     * The device itself has no usable network (the platform network monitor
+     * says so) and Tor's network is disabled. Tor's own events can't clear it;
+     * only the monitor reporting the network back does.
+     */
+    data object NoNetwork : TorHealth
 }
 
 /**
@@ -88,7 +95,7 @@ internal fun TorStatusEvent.toBootstrapProblem(): TorBootstrapProblem? {
  * keeps an already-reported problem (Tor interleaves both); only progress clears it.
  */
 internal fun TorHealth.afterBootstrapEvent(event: TorStatusEvent): TorHealth {
-    if (event.action != "BOOTSTRAP") return this
+    if (event.action != "BOOTSTRAP" || this == TorHealth.NoNetwork) return this
     val progress = event.args["PROGRESS"]?.toIntOrNull() ?: return this
     if (progress >= 100) return if (this == TorHealth.NetworkDown) this else TorHealth.Ready
     val previous = this as? TorHealth.Bootstrapping

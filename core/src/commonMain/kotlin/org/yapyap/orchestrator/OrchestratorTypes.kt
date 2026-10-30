@@ -104,28 +104,58 @@ public enum class LoopbackTransport {
 }
 
 /**
- * Local Tor publish readiness: whether our own onion address is dialable by
- * the rest of the network yet. Device-local (no peer involved), so it is safe
- * to surface on the [Orchestrator] itself — including to headless relays, which
- * have no runtime services.
+ * Local transport status: whether this device can talk to the network, and
+ * whether our own onion address is dialable by others yet. Device-local (no
+ * peer involved), so it is safe to surface on the [Orchestrator] itself —
+ * including to headless relays, which have no runtime services.
  *
- * A fresh onion (first boot, or any restart before its descriptor is
- * re-uploaded) is unresolvable for minutes: descriptor upload to an HSDir plus
- * propagation. During [WARMING_UP] outbound bootstrap dials fail with
- * host-unreachable and ride the slow retry path; the GUI should say so instead
- * of showing a silent spinner.
+ * Messages sent in any state but [Online] are not lost: they wait in the
+ * outbox and the peers' pull path, and go out once connected.
  */
-public enum class LocalTransportState {
-    /** Tor is up and our hidden service is added, but no descriptor upload observed yet. */
-    WARMING_UP,
-
-    /** An HSDir accepted our descriptor (or loopback transport came up) — dialable. */
-    PUBLISHED,
+public sealed interface LocalTransportStatus {
+    /** The device has no usable network connection. */
+    public data object NoNetwork : LocalTransportStatus
 
     /**
-     * Gave up waiting for a descriptor upload while Tor stayed up
-     * (see `TorBackendConfig.publishTimeout`). Check connectivity; the node
-     * keeps retrying underneath, so this can still resolve to [PUBLISHED].
+     * Tor is connecting to the network ([progress] 0–99 %). [problem] is set
+     * while Tor reports trouble reaching relays; it often clears on its own, so
+     * it is detail, not a verdict.
      */
-    DEGRADED,
+    public data class Connecting(
+        val progress: Int,
+        val problem: TransportProblem?,
+    ) : LocalTransportStatus
+
+    /** Tor was connected but lost the network; it reconnects on its own. */
+    public data object Reconnecting : LocalTransportStatus
+
+    /**
+     * Tor is connected, but our address isn't proven dialable yet: a fresh
+     * descriptor (after every start or network change) takes a while to
+     * propagate. Outbound bootstrap dials ride the slow retry path meanwhile.
+     */
+    public data object WarmingUp : LocalTransportStatus
+
+    /** Connected and our address is dialable. */
+    public data object Online : LocalTransportStatus
+
+    /**
+     * Connected, but our address could not be proven dialable within the
+     * budget. Still retrying underneath, so this can resolve to [Online].
+     */
+    public data object Degraded : LocalTransportStatus
+}
+
+/** Why Tor is having trouble connecting. [detail] is diagnostic text (reason, relay address), not user copy. */
+public data class TransportProblem(
+    val kind: TransportProblemKind,
+    val detail: String,
+)
+
+public enum class TransportProblemKind {
+    /** Tor can't reach the relays it tries (refused, no route, timeouts): a blocked or broken network. */
+    RELAYS_UNREACHABLE,
+
+    /** Anything else Tor reported. */
+    OTHER,
 }

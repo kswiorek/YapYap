@@ -63,8 +63,8 @@ private fun AppRoot(session: YapSession, orch: Orchestrator, state: Orchestrator
             OrchestratorState.SetupRequired -> SetupScreen(session)
             OrchestratorState.Running -> {
                 val runtime = remember(state) { runCatching { session.orchestrator?.runtime() }.getOrNull() }
-                val transportState by orch.transportState.collectAsState()
-                if (runtime != null) MainShell(session, runtime, transportState) else SplashScreen("Loading…")
+                val transportStatus by orch.transportStatus.collectAsState()
+                if (runtime != null) MainShell(session, runtime, transportStatus) else SplashScreen("Loading…")
             }
 
             is OrchestratorState.ResetRequired -> ResetScreen(session, state.reason, state.details)

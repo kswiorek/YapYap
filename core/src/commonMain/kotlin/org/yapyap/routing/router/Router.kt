@@ -8,6 +8,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import kotlin.time.Duration
 
@@ -50,6 +51,13 @@ internal interface Router {
      * to the public transport-state flow.
      */
     val localPublishState: StateFlow<TorPublishState>
+
+    /**
+     * Our own Tor daemon health (bootstrap progress and stall reason, device
+     * offline, network liveness), straight from the Tor transport. Device-local
+     * like [localPublishState]; the orchestrator lifts it to the public status.
+     */
+    val localTransportHealth: StateFlow<TorHealth>
 
     suspend fun start()
     suspend fun stop()
