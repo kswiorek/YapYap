@@ -17,6 +17,17 @@ internal interface TorBackend {
      */
     val publishState: StateFlow<TorPublishState>
 
+    /**
+     * Daemon health: bootstrap progress (with Tor's own reason when it is stuck)
+     * and network liveness once bootstrapped. [TorHealth.Stopped] outside start/stop.
+     */
+    val health: StateFlow<TorHealth>
+
+    /**
+     * Launches the daemon and adds our onion, then returns its endpoint. Does not
+     * wait for bootstrap: progress is reported through [health], and sends made
+     * before bootstrap completes fail like any other transient Tor error.
+     */
     suspend fun start(): TorEndpoint
 
     suspend fun stop()

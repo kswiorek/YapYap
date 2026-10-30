@@ -10,6 +10,7 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.logging.AppLog
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -17,17 +18,18 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -38,6 +40,12 @@ import kotlin.uuid.Uuid
  * Opt-in: `./gradlew :core:jvmTest -PintegrationTests=true`
  */
 class DefaultRouterLiveIntegrationTest {
+
+    @BeforeTest
+    fun installLogger() = AppLog.init(PrintingAppLogger())
+
+    @AfterTest
+    fun resetLogger() = AppLog.reset()
 
     private val alicePeer =
         PeerId("routeraliceaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -145,6 +153,14 @@ class DefaultRouterLiveIntegrationTest {
         try {
             bobRouter.start()
             aliceRouter.start()
+            // start() no longer waits for bootstrap. Dialing Bob before his
+            // descriptor is uploaded makes Alice's Tor cache the miss, and with
+            // the FakeClock the outbox never retries — wait until both onions
+            // are actually dialable, as a real peer would be.
+            withTimeout(5.minutes) {
+                aliceRouter.localPublishState.first { it == TorPublishState.PUBLISHED }
+                bobRouter.localPublishState.first { it == TorPublishState.PUBLISHED }
+            }
 
             aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)
             bobTorMap[alicePeer] = aliceIdentity.resolveTorEndpointForDevice(alicePeer)

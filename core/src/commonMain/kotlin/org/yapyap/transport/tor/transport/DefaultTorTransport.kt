@@ -12,6 +12,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorBackend
+import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.backend.probeNonceOrNull
 
@@ -28,6 +29,9 @@ internal class DefaultTorTransport(
 
     override val publishState: StateFlow<TorPublishState>
         get() = backend.publishState
+
+    override val health: StateFlow<TorHealth>
+        get() = backend.health
 
     override suspend fun start(): TorEndpoint {
         check(!started) { "Tor transport is already started" }

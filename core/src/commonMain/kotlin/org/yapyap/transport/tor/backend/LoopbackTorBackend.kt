@@ -43,6 +43,9 @@ internal class LoopbackTorBackend(
     private val _publishState = MutableStateFlow(TorPublishState.PUBLISHING)
     override val publishState: StateFlow<TorPublishState> = _publishState.asStateFlow()
 
+    private val _health = MutableStateFlow<TorHealth>(TorHealth.Stopped)
+    override val health: StateFlow<TorHealth> = _health.asStateFlow()
+
     var publishedLocalEndpoint: TorEndpoint? = null
         private set
 
@@ -62,6 +65,7 @@ internal class LoopbackTorBackend(
         val endpoint = TorEndpoint("loopback-$port.onion", port)
         publishedLocalEndpoint = endpoint
         _publishState.value = TorPublishState.PUBLISHED
+        _health.value = TorHealth.Ready
 
         val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = localScope
@@ -89,6 +93,7 @@ internal class LoopbackTorBackend(
 
         publishedLocalEndpoint = null
         _publishState.value = TorPublishState.PUBLISHING
+        _health.value = TorHealth.Stopped
         AppLog.info(
             component = LogComponent.TOR_BACKEND,
             event = LogEvent.STOPPED,

@@ -7,6 +7,7 @@ import io.matthewnelson.kmp.file.File
 import io.matthewnelson.kmp.file.resolve
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.startDaemonAsync
 import io.matthewnelson.kmp.tor.runtime.Action.Companion.stopDaemonAsync
+import io.matthewnelson.kmp.tor.runtime.RuntimeEvent
 import io.matthewnelson.kmp.tor.runtime.TorRuntime
 import io.matthewnelson.kmp.tor.runtime.core.TorEvent
 import io.matthewnelson.kmp.tor.runtime.core.config.IntervalUnit
@@ -54,6 +55,9 @@ internal class KmpTorBackend(
     private val _publishState = MutableStateFlow(TorPublishState.PUBLISHING)
     override val publishState: StateFlow<TorPublishState> = _publishState.asStateFlow()
 
+    private val _health = MutableStateFlow<TorHealth>(TorHealth.Stopped)
+    override val health: StateFlow<TorHealth> = _health.asStateFlow()
+
     private var socksPort: Int? = null
 
     var publishedLocalEndpoint: TorEndpoint? = null
@@ -82,13 +86,16 @@ internal class KmpTorBackend(
 
         val runtime = createTorRuntime(torStateRootPath.toKmpFile())
         torRuntime = runtime
+        _health.value = TorHealth.Starting
+        runtime.subscribe(*instanceObservers)
 
         val localScope = CoroutineScope(SupervisorJob() + selectorContext)
         scope = localScope
 
         try {
             runtime.startDaemonAsync()
-            waitUntilReady(runtime)
+            waitForSocksListener(runtime)
+            seedBootstrapStatus(runtime)
 
             // Stable onion identity: the whole sponsor flow assumes the onion in a
             // newcomer's QR still resolves when the sponsor dials minutes later.
@@ -104,9 +111,13 @@ internal class KmpTorBackend(
             // Every boot re-uploads the descriptor, so every boot re-warms.
             // PUBLISHED only latches on a successful self-dial (see the
             // verifier); the watchdog below flips to DEGRADED past the
-            // budget. All three die with localScope on stop().
+            // budget. All three die with localScope on stop(). Both timers
+            // count from bootstrap completion, not from start(): start() no
+            // longer waits for bootstrap, and a slow bootstrap must not burn
+            // the publish budget before Tor can even upload.
             _publishState.value = TorPublishState.PUBLISHING
             localScope.launch {
+                health.first { it == TorHealth.Ready }
                 delay(config.value.publishTimeout)
                 if (_publishState.value == TorPublishState.PUBLISHING && torRuntime != null) {
                     _publishState.value = TorPublishState.DEGRADED
@@ -123,6 +134,7 @@ internal class KmpTorBackend(
             // if no upload was ever observed. The probe is ground truth; the
             // event is only the fast path.
             localScope.launch {
+                health.first { it == TorHealth.Ready }
                 delay(config.value.uploadGracePeriod)
                 if (_publishState.value == TorPublishState.PUBLISHING) {
                     AppLog.info(
@@ -173,13 +185,21 @@ internal class KmpTorBackend(
         scope = null
 
         torRuntime?.let { runtime ->
-            runCatching { runtime.stopDaemonAsync() }
+            runtime.unsubscribe(*instanceObservers)
+            // NonCancellable: stop() also runs from start()'s failure path, where
+            // the caller is often already cancelled (a cancelled boot). There a
+            // plain suspend call throws at once and leaves the daemon running
+            // inside our process, holding the data directory.
+            withContext(NonCancellable) {
+                runCatching { runtime.stopDaemonAsync() }
+            }
         }
         torRuntime = null
 
         publishedLocalEndpoint = null
         socksPort = null
         started = false
+        _health.value = TorHealth.Stopped
         AppLog.info(
             component = LogComponent.TOR_BACKEND,
             event = LogEvent.STOPPED,
@@ -368,13 +388,81 @@ internal class KmpTorBackend(
                 // can dial us"). Default is 5 minutes.
                 TorOption.KeepalivePeriod.configure(60, IntervalUnit.SECONDS)
             }
-            // required() is what puts HS_DESC into the control connection's
-            // SETEVENTS — observer() alone only registers the callback, and
+            // required() is what puts an event into the control connection's
+            // SETEVENTS — an observer alone only registers the callback, and
             // without the event enabled nothing ever arrives (publishState
             // would sit at PUBLISHING forever). Callbacks must not throw.
+            //
+            // Observers registered here must be stateless (logging only):
+            // kmp-tor returns this same runtime for the same directory for the
+            // life of the process, so a builder observer bound to `this` would
+            // keep feeding the first backend instance after an in-process
+            // restart. Stateful ones live in [instanceObservers].
             required(TorEvent.HS_DESC)
-            observer(TorEvent.HS_DESC.observer(PUBLISH_OBSERVER_TAG, null) { data ->
-                runCatching { onHsDescEvent(data) }
+            // kmp-tor's own runtime log: daemon launch, process exit and control
+            // connection failures surface here, never as Tor control events.
+            observer(RuntimeEvent.ERROR.observer(HEALTH_OBSERVER_TAG, null) { error ->
+                runCatching {
+                    AppLog.error(
+                        component = LogComponent.TOR_BACKEND,
+                        event = LogEvent.TOR_DAEMON_WARNING,
+                        message = "Tor runtime error",
+                        throwable = error,
+                    )
+                }
+            })
+            observer(RuntimeEvent.LOG.WARN.observer(HEALTH_OBSERVER_TAG, null) { line ->
+                runCatching {
+                    AppLog.warn(
+                        component = LogComponent.TOR_BACKEND,
+                        event = LogEvent.TOR_DAEMON_WARNING,
+                        message = "Tor runtime warning",
+                        fields = mapOf("line" to line),
+                    )
+                }
+            })
+            observer(RuntimeEvent.LOG.INFO.observer(HEALTH_OBSERVER_TAG, null) { line ->
+                runCatching {
+                    AppLog.debug(
+                        component = LogComponent.TOR_BACKEND,
+                        event = LogEvent.TOR_DAEMON_NOTICE,
+                        message = "Tor runtime info",
+                        fields = mapOf("line" to line),
+                    )
+                }
+            })
+            // Diagnostics: STATUS_CLIENT carries bootstrap progress and, when
+            // stuck, Tor's reason (REASON/COUNT/HOSTADDR); STATUS_GENERAL clock
+            // skew; NETWORK_LIVENESS whether Tor thinks the network is up; WARN/ERR
+            // the daemon's own complaints. Without these a stuck bootstrap is a
+            // silent "Bootstrapped 5%" and nothing else.
+            required(TorEvent.STATUS_CLIENT)
+            required(TorEvent.STATUS_GENERAL)
+            observer(TorEvent.STATUS_GENERAL.observer(HEALTH_OBSERVER_TAG, null) { data ->
+                runCatching { onStatusGeneralEvent(data) }
+            })
+            required(TorEvent.NETWORK_LIVENESS)
+            required(TorEvent.WARN)
+            observer(TorEvent.WARN.observer(HEALTH_OBSERVER_TAG, null) { data ->
+                runCatching {
+                    AppLog.warn(
+                        component = LogComponent.TOR_BACKEND,
+                        event = LogEvent.TOR_DAEMON_WARNING,
+                        message = "Tor daemon warning",
+                        fields = mapOf("line" to data),
+                    )
+                }
+            })
+            required(TorEvent.ERR)
+            observer(TorEvent.ERR.observer(HEALTH_OBSERVER_TAG, null) { data ->
+                runCatching {
+                    AppLog.error(
+                        component = LogComponent.TOR_BACKEND,
+                        event = LogEvent.TOR_DAEMON_WARNING,
+                        message = "Tor daemon error",
+                        fields = mapOf("line" to data),
+                    )
+                }
             })
             // NOTICE carries daemon-side context (bootstrap, circuit rebuilds,
             // rendezvous complaints) we can't see otherwise. Debug only —
@@ -391,6 +479,127 @@ internal class KmpTorBackend(
                 }
             })
         }
+    }
+
+    /**
+     * Observers bound to this instance's state, subscribed in start() and
+     * removed in stop() (see the builder note in [createTorRuntime]).
+     */
+    private val instanceObservers: Array<TorEvent.Observer> = arrayOf(
+        TorEvent.HS_DESC.observer(PUBLISH_OBSERVER_TAG, null) { data ->
+            runCatching { onHsDescEvent(data) }
+        },
+        TorEvent.STATUS_CLIENT.observer(HEALTH_OBSERVER_TAG, null) { data ->
+            runCatching { onStatusClientEvent(data) }
+        },
+        TorEvent.NETWORK_LIVENESS.observer(HEALTH_OBSERVER_TAG, null) { data ->
+            runCatching { onNetworkLivenessEvent(data) }
+        },
+    )
+
+    private fun onStatusClientEvent(data: String) {
+        AppLog.debug(
+            component = LogComponent.TOR_BACKEND,
+            event = LogEvent.TOR_DAEMON_NOTICE,
+            message = "Tor client status event",
+            fields = mapOf("line" to data),
+        )
+        val event = parseTorStatusEvent(data) ?: return
+        updateHealth { it.afterBootstrapEvent(event) }
+    }
+
+    private fun onStatusGeneralEvent(data: String) {
+        val event = parseTorStatusEvent(data)
+        // CLOCK_SKEW and friends: a wrong clock makes Tor reject every consensus,
+        // which looks exactly like a network that won't bootstrap.
+        if (event != null && (event.severity == "WARN" || event.severity == "ERR")) {
+            AppLog.warn(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.TOR_DAEMON_WARNING,
+                message = "Tor general status warning",
+                fields = mapOf("action" to event.action, "line" to data),
+            )
+        } else {
+            AppLog.debug(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.TOR_DAEMON_NOTICE,
+                message = "Tor general status event",
+                fields = mapOf("line" to data),
+            )
+        }
+    }
+
+    private fun onNetworkLivenessEvent(data: String) {
+        val up = parseNetworkLiveness(data) ?: return
+        AppLog.info(
+            component = LogComponent.TOR_BACKEND,
+            event = LogEvent.TOR_DAEMON_NOTICE,
+            message = "Tor network liveness changed",
+            fields = mapOf("live" to up),
+        )
+        updateHealth { it.afterLiveness(up) }
+    }
+
+    /**
+     * Applies [transform] unless stopped (late events after stop() must not
+     * resurrect a dead backend) and logs real transitions. Bootstrap progress
+     * steps are debug; a new stall reason is a warning; everything else info.
+     */
+    private fun updateHealth(transform: (TorHealth) -> TorHealth) {
+        var previous: TorHealth = TorHealth.Stopped
+        val next = _health.updateAndGet { current ->
+            previous = current
+            if (current == TorHealth.Stopped) current else transform(current)
+        }
+        if (next == previous) return
+        val problem = (next as? TorHealth.Bootstrapping)?.problem
+        val previousProblem = (previous as? TorHealth.Bootstrapping)?.problem
+        val fields = buildMap<String, Any?> {
+            put("health", next::class.simpleName)
+            if (next is TorHealth.Bootstrapping) put("progress", next.progress)
+            if (problem != null) {
+                put("reason", problem.reason)
+                put("warning", problem.warning)
+                put("count", problem.count)
+                put("hostAddr", problem.hostAddr)
+            }
+        }
+        when {
+            problem != null && problem != previousProblem -> AppLog.warn(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.TOR_HEALTH_CHANGED,
+                message = "Tor bootstrap is stuck",
+                fields = fields,
+            )
+
+            next is TorHealth.Bootstrapping && previous is TorHealth.Bootstrapping -> AppLog.debug(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.TOR_HEALTH_CHANGED,
+                message = "Tor bootstrap progressed",
+                fields = fields,
+            )
+
+            else -> AppLog.info(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.TOR_HEALTH_CHANGED,
+                message = "Tor health changed",
+                fields = fields,
+            )
+        }
+    }
+
+    /**
+     * Seeds [health] from `GETINFO status/bootstrap-phase` in case bootstrap
+     * events fired before our observers were attached (a warm restart can reach
+     * 100% almost immediately). Only applies while still [TorHealth.Starting],
+     * so it never rolls back state already advanced by a live event.
+     */
+    private suspend fun seedBootstrapStatus(runtime: TorRuntime) {
+        val phase = runCatching {
+            runtime.executeAsync(TorCmd.Info.Get(BOOTSTRAP_PHASE_KEY))[BOOTSTRAP_PHASE_KEY]
+        }.getOrNull() ?: return
+        val event = parseTorStatusEvent(phase) ?: return
+        updateHealth { if (it == TorHealth.Starting) it.afterBootstrapEvent(event) else it }
     }
 
     private fun onHsDescEvent(data: String) {
@@ -455,9 +664,32 @@ internal class KmpTorBackend(
                     )
                     return@launch
                 }
-                delay(config.value.probeInterval)
+                // A failed probe usually means our first lookup hit HSDirs that
+                // did not have the fresh descriptor yet. Tor then caches the miss
+                // and won't re-ask them for minutes, so the next probe would fail
+                // the same way. NEWNYM drops Tor's cached onion lookups; retry
+                // after Tor's NEWNYM rate limit instead of the full interval.
+                if (refreshOnionLookups()) {
+                    delay(config.value.probeRefreshRetryDelay)
+                } else {
+                    delay(config.value.probeInterval)
+                }
             }
         }
+    }
+
+    /** `SIGNAL NEWNYM`: drops Tor's cached onion descriptor lookups (and failed-lookup state). */
+    private suspend fun refreshOnionLookups(): Boolean {
+        val runtime = torRuntime ?: return false
+        return runCatching { runtime.executeAsync(TorCmd.Signal.NewNym) }
+            .onSuccess {
+                AppLog.debug(
+                    component = LogComponent.TOR_BACKEND,
+                    event = LogEvent.TOR_DAEMON_NOTICE,
+                    message = "Refreshed Tor onion lookups after a failed self-dial",
+                )
+            }
+            .isSuccess
     }
 
     /**
@@ -606,13 +838,23 @@ internal class KmpTorBackend(
         }
     }
 
-    private suspend fun waitUntilReady(runtime: TorRuntime) {
+    /**
+     * Waits only for the daemon's SOCKS listener (seconds), not for bootstrap:
+     * bootstrap can legitimately take minutes on a new or hostile network, and
+     * blocking start() on it turned every slow bootstrap into a failed app start.
+     *
+     * Asks Tor directly (`GETINFO net/listeners/socks`): kmp-tor's
+     * `runtime.listeners()` stays empty until bootstrap reaches 100%, so polling
+     * it was a hidden wait for full bootstrap under [TorBackendConfig.startupTimeout].
+     */
+    private suspend fun waitForSocksListener(runtime: TorRuntime) {
         val completed = withTimeoutOrNull(config.value.startupTimeout) {
             while (true) {
-                socksPort = runtime.listeners().socks.lastOrNull()?.port?.value ?: socksPort
-                val ready = socksPort != null && runtime.isReady()
+                socksPort = runCatching {
+                    socksPortFromListeners(runtime.executeAsync(TorCmd.Info.Get(SOCKS_LISTENERS_KEY))[SOCKS_LISTENERS_KEY])
+                }.getOrNull() ?: socksPort
 
-                if (ready) return@withTimeoutOrNull
+                if (socksPort != null) return@withTimeoutOrNull
 
                 if (torRuntime == null) {
                     throw TransportException.TorException.TorRuntimeError("Tor runtime exitted before ready")
@@ -736,6 +978,13 @@ internal class KmpTorBackend(
 
         /** Tag grouping our HS_DESC control observer (non-static: removable). */
         const val PUBLISH_OBSERVER_TAG: String = "yapyap-publish"
+
+        /** Tag grouping our health/diagnostics control observers. */
+        const val HEALTH_OBSERVER_TAG: String = "yapyap-health"
+
+        private const val BOOTSTRAP_PHASE_KEY: String = "status/bootstrap-phase"
+
+        private const val SOCKS_LISTENERS_KEY: String = "net/listeners/socks"
     }
 }
 
@@ -761,6 +1010,16 @@ internal fun hsDescUploadedOnion(data: String): String? {
     if (!action.equals("UPLOADED", ignoreCase = true)) return null
     return onion
 }
+
+/**
+ * First port from a `GETINFO net/listeners/socks` value: space-separated,
+ * optionally quoted `host:port` entries (`"127.0.0.1:45651"`, `"[::1]:9050"`).
+ * Null when Tor has no SOCKS listener yet.
+ */
+internal fun socksPortFromListeners(value: String?): Int? =
+    value?.split(' ')
+        ?.map { it.trim().trim('"') }
+        ?.firstNotNullOfOrNull { it.substringAfterLast(':', "").toIntOrNull()?.takeIf { port -> port in 1..65535 } }
 
 /** Onion equality ignoring case and a present/absent `.onion` suffix. */
 internal fun onionMatches(a: String, b: String): Boolean {

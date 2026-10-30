@@ -42,6 +42,12 @@
 - Tor:
   - Tor backend + Tor transport abstraction implemented.
   - Integration tests exist (including live loopback Tor test).
+  - `TorBackend.start()` returns once the daemon's SOCKS listener is up and the onion is added; it does not wait
+    for bootstrap. Bootstrap progress, Tor's own stall reason (`STATUS_CLIENT` `REASON`/`HOSTADDR`) and network
+    liveness are reported through `TorBackend.health` (`TorHealth`). Callers must not dial an onion (including
+    their own) before it is published: Tor caches a failed descriptor lookup and holds or refuses the stream for
+    minutes. kmp-tor returns the same runtime per data directory for the life of the process, so observers bound
+    to a backend instance are subscribed in `start()` and removed in `stop()`, never registered in the builder.
 - WebRTC:
   - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
   - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).

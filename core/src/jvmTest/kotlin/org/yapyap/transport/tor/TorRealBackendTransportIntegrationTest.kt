@@ -9,17 +9,18 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
+import org.yapyap.logging.AppLog
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
+import org.yapyap.transport.tor.backend.TorHealth
+import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.DefaultTorTransport
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -32,6 +33,12 @@ import kotlin.uuid.Uuid
  * slow and need a working Tor download/bootstrap on the host.
  */
 class TorRealBackendTransportIntegrationTest {
+
+    @BeforeTest
+    fun installLogger() = AppLog.init(PrintingAppLogger())
+
+    @AfterTest
+    fun resetLogger() = AppLog.reset()
     @Test
     fun defaultTorTransport_withKmpTorBackend_sendsToSelfAndDecodesIncoming() = runBlocking {
         val tempDir = Path(SystemTemporaryDirectory, "yapyap-tor-it-${Uuid.random()}")
@@ -60,6 +67,10 @@ class TorRealBackendTransportIntegrationTest {
         )
         try {
             val localEndpoint = transport.start()
+            // Dialing an onion before its descriptor is uploaded makes Tor cache
+            // the miss and hold the stream for minutes; start() no longer waits
+            // for bootstrap, so wait for the backend's own published signal.
+            withTimeout(5.minutes) { backend.publishState.first { it == TorPublishState.PUBLISHED } }
             assertTrue(localEndpoint.onionAddress.endsWith(".onion"), "expected .onion from Tor")
             val received = withTimeout(300_000L.milliseconds) {
                 coroutineScope {
@@ -79,6 +90,10 @@ class TorRealBackendTransportIntegrationTest {
             assertEquals(out.source, received.envelope.source)
             assertEquals(out.target, received.envelope.target)
             assertContentEquals(out.payload, received.envelope.payload)
+            // A completed round trip means Tor bootstrapped; health must have
+            // seen it through the STATUS_CLIENT events (parser vs real Tor lines).
+            withTimeout(30_000L.milliseconds) { backend.health.first { it == TorHealth.Ready } }
+            Unit
         } finally {
             runCatching { transport.stop() }
             runCatching { deleteRecursively(tempDir) }
@@ -114,6 +129,10 @@ class TorRealBackendTransportIntegrationTest {
         )
         try {
             val localEndpoint = transport.start()
+            // Dialing an onion before its descriptor is uploaded makes Tor cache
+            // the miss and hold the stream for minutes; start() no longer waits
+            // for bootstrap, so wait for the backend's own published signal.
+            withTimeout(5.minutes) { backend.publishState.first { it == TorPublishState.PUBLISHED } }
             assertTrue(localEndpoint.onionAddress.endsWith(".onion"), "expected .onion from Tor")
             val received = withTimeout(5.minutes) {
                 coroutineScope {

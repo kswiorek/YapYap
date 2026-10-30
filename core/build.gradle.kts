@@ -169,6 +169,7 @@ tasks.named<Test>("jvmTest") {
     filter {
         if (!integrationTestsEnabled) {
             excludeTestsMatching("*TorRealBackendTransportIntegrationTest")
+            excludeTestsMatching("*KmpTorBackendLifecycleIntegrationTest")
             excludeTestsMatching("*WebRtcInMemorySignalingIntegrationTest")
             excludeTestsMatching("*DefaultRouterLiveIntegrationTest")
             excludeTestsMatching("*DefaultKeyStoreJavaKeyringIntegrationTest")

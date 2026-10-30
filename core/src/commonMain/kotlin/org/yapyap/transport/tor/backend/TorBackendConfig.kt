@@ -21,6 +21,11 @@ import kotlin.time.Duration.Companion.seconds
  */
 @Serializable
 internal data class TorBackendConfig(
+    /**
+     * How long start() waits for the daemon's SOCKS listener. Bootstrap is not
+     * part of it (progress is reported through `TorBackend.health`), so this
+     * only fires when the daemon itself fails to come up.
+     */
     val startupTimeout: Duration = 120_000L.milliseconds,
     val maxPayloadBytes: Int = 4 * 1024 * 1024,
     val socksRetryTimeout: Duration = 150.seconds,
@@ -49,19 +54,24 @@ internal data class TorBackendConfig(
      * [probeBudget]; first success latches PUBLISHED and stops the loop.
      */
     val probeInterval: Duration = 45.seconds,
+    /**
+     * Delay before re-probing after a failed self-dial once Tor's cached onion
+     * lookups were dropped (NEWNYM). Tor rate-limits NEWNYM to one per 10 s.
+     */
+    val probeRefreshRetryDelay: Duration = 10.seconds,
     /** Budget for a single self-dial probe (dial + rendezvous round trip). */
     val probeTimeout: Duration = 60.seconds,
     /** Give up verifying reachability after this long past the first upload. */
     val probeBudget: Duration = 10.minutes,
     /**
-     * Grace period after adding our hidden service before verifying
+     * Grace period after bootstrap completes before verifying
      * reachability even when no `HS_DESC UPLOADED` was observed: the event is
      * only the fast path (it can be missed or late), the self-dial probe is
      * ground truth.
      */
     val uploadGracePeriod: Duration = 3.minutes,
     /**
-     * Publish budget: how long after adding our hidden service we wait for a
+     * Publish budget: how long after bootstrap completes we wait for a
      * matching `HS_DESC UPLOADED` before reporting DEGRADED. Tor circuit setup
      * plus HSDir upload normally takes a minute or two; the budget only fires
      * on a genuinely stuck network.
@@ -84,6 +94,7 @@ internal data class TorBackendConfig(
         require(socksNotPublishedRetryDelay > 0L.milliseconds) { "socksNotPublishedRetryDelayMillis must be > 0" }
         require(socksSocketTimeout > 0L.milliseconds) { "socksSocketTimeoutMillis must be > 0" }
         require(probeInterval > 0L.milliseconds) { "probeIntervalMillis must be > 0" }
+        require(probeRefreshRetryDelay > 0L.milliseconds) { "probeRefreshRetryDelayMillis must be > 0" }
         require(probeTimeout > 0L.milliseconds) { "probeTimeoutMillis must be > 0" }
         require(probeBudget > 0L.milliseconds) { "probeBudgetMillis must be > 0" }
         require(uploadGracePeriod > 0L.milliseconds) { "uploadGracePeriodMillis must be > 0" }

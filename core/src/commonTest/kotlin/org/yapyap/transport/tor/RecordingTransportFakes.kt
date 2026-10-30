@@ -11,6 +11,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.transport.tor.backend.TorBackend
+import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration.Companion.milliseconds
@@ -25,6 +26,9 @@ internal class RecordingTorTransport(
 
     override val publishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
+
+    override val health: StateFlow<TorHealth> =
+        MutableStateFlow<TorHealth>(TorHealth.Ready).asStateFlow()
 
     var startCalls = 0
         private set
@@ -95,6 +99,9 @@ internal class ConcurrencyTrackingTorTransport(
     override val publishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
 
+    override val health: StateFlow<TorHealth> =
+        MutableStateFlow<TorHealth>(TorHealth.Ready).asStateFlow()
+
     private val sendStatsMutex = Mutex()
     private var activeSends = 0
     var maxConcurrentSends = 0
@@ -149,6 +156,9 @@ internal class RecordingTorBackend : TorBackend {
 
     override val publishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()
+
+    override val health: StateFlow<TorHealth> =
+        MutableStateFlow<TorHealth>(TorHealth.Ready).asStateFlow()
 
     val startCalls = mutableListOf<Int?>()
     val stopCalls = mutableListOf<Unit>()
