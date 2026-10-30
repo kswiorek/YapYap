@@ -24,6 +24,12 @@ internal interface TorBackend {
     val health: StateFlow<TorHealth>
 
     /**
+     * The recovery step the backend's supervisor is working through when Tor is
+     * stuck while the network is fine; null when healthy (or not supervised).
+     */
+    val recovery: StateFlow<TorRecoveryStep?>
+
+    /**
      * Launches the daemon and adds our onion, then returns its endpoint. Does not
      * wait for bootstrap: progress is reported through [health], and sends made
      * before bootstrap completes fail like any other transient Tor error.

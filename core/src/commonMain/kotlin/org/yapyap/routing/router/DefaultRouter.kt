@@ -32,6 +32,7 @@ import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
@@ -215,6 +216,9 @@ internal class DefaultRouter(
 
     override val localTransportHealth: StateFlow<TorHealth>
         get() = torTransport.health
+
+    override val localTransportRecovery: StateFlow<TorRecoveryStep?>
+        get() = torTransport.recovery
 
     override suspend fun start() {
         check(!started) { "Router is already started" }

@@ -27,6 +27,7 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -1200,6 +1201,8 @@ private class RecordingRouter : Router {
         MutableStateFlow(TorPublishState.PUBLISHING)
     override val localTransportHealth: StateFlow<TorHealth> =
         MutableStateFlow(TorHealth.Ready)
+    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
+        MutableStateFlow(null)
 
     val sentTargets = mutableListOf<AccountId>()
     override suspend fun start() {}

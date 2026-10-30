@@ -7,6 +7,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 
 internal interface TorTransport {
     val incoming: Flow<TorIncomingEnvelope>
@@ -16,6 +17,9 @@ internal interface TorTransport {
 
     /** Mirrors the backend's daemon health (loopback: ready on start). */
     val health: StateFlow<TorHealth>
+
+    /** Mirrors the backend's current recovery step (loopback: never recovering). */
+    val recovery: StateFlow<TorRecoveryStep?>
 
     suspend fun start(): TorEndpoint
 

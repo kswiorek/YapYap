@@ -20,6 +20,8 @@ import io.matthewnelson.kmp.tor.runtime.core.util.executeAsync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.logging.AppLog
@@ -50,7 +52,7 @@ internal class KmpTorBackend(
      * always "connected", no reaction to switches or sleep).
      */
     private val networkMonitor: NetworkMonitor? = null,
-) : TorBackend {
+) : TorBackend, TorRecoveryControl {
 
     private val inboundFlow = MutableSharedFlow<TorIncomingFrame>(
         replay = 0,
@@ -64,6 +66,16 @@ internal class KmpTorBackend(
 
     private val _health = MutableStateFlow<TorHealth>(TorHealth.Stopped)
     override val health: StateFlow<TorHealth> = _health.asStateFlow()
+
+    private val _recovery = MutableStateFlow<TorRecoveryStep?>(null)
+    override val recovery: StateFlow<TorRecoveryStep?> = _recovery.asStateFlow()
+
+    /**
+     * Serializes everything that reconfigures or restarts the daemon (recovery
+     * steps, network-change reactions): interleaving a DisableNetwork cycle with
+     * a restart would leave Tor in whichever state wrote last.
+     */
+    private val daemonMutex = Mutex()
 
     private var socksPort: Int? = null
 
@@ -101,24 +113,12 @@ internal class KmpTorBackend(
         scope = localScope
 
         try {
-            runtime.startDaemonAsync()
-            waitForSocksListener(runtime)
-            seedBootstrapStatus(runtime)
-            if (networkMonitor?.state?.value?.online == false) updateHealth { TorHealth.NoNetwork }
+            val onionReused = bringUpDaemon(runtime, listener)
+            val resolvedEndpoint = checkNotNull(publishedLocalEndpoint)
+            val onionAddress = resolvedEndpoint.onionAddress
 
-            // Stable onion identity: the whole sponsor flow assumes the onion in a
-            // newcomer's QR still resolves when the sponsor dials minutes later.
-            // ADD_ONION with a fresh key is ephemeral (new onion every restart),
-            // so persist the private key under torStateRoot and re-add it.
-            val (onionEntry, onionReused) = addStableOnion(runtime, listener)
-            val onionAddress = onionEntry.publicKey.address().toString().let { raw ->
-                if (raw.endsWith(".onion", ignoreCase = true)) raw else "$raw.onion"
-            }
-            val resolvedEndpoint = TorEndpoint(onionAddress = onionAddress, port = config.value.defaultTorPort)
-            publishedLocalEndpoint = resolvedEndpoint
-
-            restartPublishVerification()
             networkMonitor?.let { monitor -> watchNetwork(monitor, localScope) }
+            startSupervisor(localScope)
 
             localScope.launch {
                 acceptInboundConnections(listener)
@@ -144,6 +144,131 @@ internal class KmpTorBackend(
             )
             stop()
             throw error
+        }
+    }
+
+    /**
+     * Starts the daemon (or starts it again after a stop) up to "onion added":
+     * waits only for the SOCKS listener, never for bootstrap. Returns whether
+     * the persisted onion key was reused.
+     */
+    private suspend fun bringUpDaemon(runtime: TorRuntime, listener: ServerSocket): Boolean {
+        runtime.startDaemonAsync()
+        waitForSocksListener(runtime)
+        seedBootstrapStatus(runtime)
+        if (networkMonitor?.state?.value?.online == false) updateHealth { TorHealth.NoNetwork }
+
+        // Stable onion identity: the whole sponsor flow assumes the onion in a
+        // newcomer's QR still resolves when the sponsor dials minutes later.
+        // ADD_ONION with a fresh key is ephemeral (new onion every restart),
+        // so persist the private key under torStateRoot and re-add it.
+        val (onionEntry, onionReused) = addStableOnion(runtime, listener)
+        val onionAddress = onionEntry.publicKey.address().toString().let { raw ->
+            if (raw.endsWith(".onion", ignoreCase = true)) raw else "$raw.onion"
+        }
+        publishedLocalEndpoint = TorEndpoint(onionAddress = onionAddress, port = config.value.defaultTorPort)
+        restartPublishVerification()
+        return onionReused
+    }
+
+    private fun startSupervisor(owner: CoroutineScope) {
+        val online: StateFlow<Boolean> = networkMonitor
+            ?.state
+            ?.map { it.online }
+            ?.stateIn(owner, SharingStarted.Eagerly, networkMonitor.state.value.online)
+            ?: MutableStateFlow(true)
+        val supervisor = TorSupervisor(
+            control = this,
+            networkOnline = online,
+            config = config,
+            guardResets = FileGuardResetRecord(Path(torStateRootPath, GUARD_RESET_FILE)),
+        )
+        owner.launch { supervisor.recovery.collect { _recovery.value = it } }
+        owner.launch { supervisor.run() }
+    }
+
+    override suspend fun perform(step: TorRecoveryStep) {
+        val runtime = torRuntime ?: return
+        daemonMutex.withLock {
+            when (step) {
+                TorRecoveryStep.CYCLE_NETWORK -> {
+                    if (networkMonitor?.state?.value?.online == false) return
+                    withContext(NonCancellable) { cycleNetwork(runtime) }
+                    refreshOnionLookups()
+                    restartPublishVerification(probeWhenReady = true)
+                }
+
+                TorRecoveryStep.RESTART_DAEMON -> restartDaemon(runtime, step) {}
+                TorRecoveryStep.PURGE_DIRECTORY_CACHE -> restartDaemon(runtime, step) {
+                    deleteTorFiles(Path(torStateRootPath, CACHE_DIR)) { it.startsWith("cached-") }
+                }
+
+                TorRecoveryStep.RESET_GUARD_STATE -> restartDaemon(runtime, step) {
+                    deleteTorFiles(Path(torStateRootPath, DATA_DIR)) { it == GUARD_STATE_FILE }
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops the daemon, runs [whileStopped] (file cleanup), and brings it back
+     * up with the same onion. On failure health stays [TorHealth.Starting]
+     * without progress, so the supervisor escalates again after its stall
+     * timeout instead of giving up.
+     */
+    private suspend fun restartDaemon(runtime: TorRuntime, step: TorRecoveryStep, whileStopped: () -> Unit) {
+        val listener = acceptSocket ?: return
+        withContext(NonCancellable) { runCatching { runtime.stopDaemonAsync() } }
+        socksPort = null
+        _health.value = TorHealth.Starting
+        runCatching { whileStopped() }.onFailure { error ->
+            AppLog.warn(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.TOR_DAEMON_WARNING,
+                message = "Tor recovery cleanup failed; restarting anyway",
+                fields = mapOf("step" to step, "error" to error.toString()),
+            )
+        }
+        runCatching { bringUpDaemon(runtime, listener) }.onFailure { error ->
+            if (error is CancellationException) throw error
+            AppLog.error(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "Tor restart during recovery failed",
+                throwable = error,
+                fields = mapOf("step" to step),
+            )
+        }
+    }
+
+    /** Deletes regular files directly in [dir] whose name matches. Missing dir is fine. */
+    private fun deleteTorFiles(dir: Path, nameMatches: (String) -> Boolean) {
+        if (!SystemFileSystem.exists(dir)) return
+        SystemFileSystem.list(dir)
+            .filter { nameMatches(it.name) && SystemFileSystem.metadataOrNull(it)?.isRegularFile == true }
+            .forEach { SystemFileSystem.delete(it, mustExist = false) }
+    }
+
+    override suspend fun recheckReachability() {
+        if (_publishState.value != TorPublishState.PUBLISHED) return
+        repeat(RECHECK_ATTEMPTS) { attempt ->
+            when (checkSelfReachability()) {
+                ProbeOutcome.REACHABLE -> return
+                ProbeOutcome.NOT_FOUND, ProbeOutcome.FAILED -> refreshOnionLookups()
+                ProbeOutcome.TIMED_OUT -> if (attempt + 1 >= TIMEOUTS_BEFORE_REFRESH) refreshOnionLookups()
+            }
+            if (attempt < RECHECK_ATTEMPTS - 1) delay(config.value.probeRefreshRetryDelay)
+        }
+        // Still claiming PUBLISHED with nobody able to dial us is the worst state:
+        // say so, and let the supervisor act on it.
+        if (_publishState.value == TorPublishState.PUBLISHED) {
+            _publishState.value = TorPublishState.DEGRADED
+            AppLog.warn(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "Periodic self-dial failed; our onion no longer looks reachable",
+                fields = mapOf("onionAddress" to publishedLocalEndpoint?.onionAddress),
+            )
         }
     }
 
@@ -237,32 +362,39 @@ internal class KmpTorBackend(
             updateHealth { TorHealth.NoNetwork }
             return
         }
-        // NonCancellable: a newer change cancels this handler (collectLatest),
-        // and stopping between the two writes would leave Tor's network disabled.
-        withContext(NonCancellable) {
-            // Cycling DisableNetwork drops every connection made from the old
-            // address and makes Tor retry its guards now instead of after backoff.
-            setNetworkDisabled(runtime, true)
-            // Re-check: if the device went offline meanwhile, leave it disabled
-            // (kmp-tor's own Disconnected may have landed before our write).
-            if (monitor.state.value.online) {
-                setNetworkDisabled(runtime, false)
-                // Re-enabling reopens the SOCKS listener on a new auto port.
-                withTimeoutOrNull(SOCKS_REOPEN_TIMEOUT) {
-                    while (true) {
-                        querySocksPort(runtime)?.let { socksPort = it; return@withTimeoutOrNull }
-                        delay(150.milliseconds)
-                    }
-                }
-                // Back from NoNetwork: Tor's own events take over again, starting
-                // from wherever its bootstrap actually is (often still 100%).
-                updateHealth { if (it == TorHealth.NoNetwork) TorHealth.Starting else it }
-                seedBootstrapStatus(runtime)
-            }
+        daemonMutex.withLock {
+            // NonCancellable: a newer change cancels this handler (collectLatest),
+            // and stopping between the two writes would leave Tor's network disabled.
+            withContext(NonCancellable) { cycleNetwork(runtime, monitor) }
         }
         // Cached descriptor lookups and our intro circuits belong to the old network.
         refreshOnionLookups()
         restartPublishVerification(probeWhenReady = true)
+    }
+
+    /**
+     * Cycles DisableNetwork: drops every connection (made from an old address,
+     * or dead after sleep) and makes Tor retry its guards now instead of after
+     * backoff. Then follows the SOCKS listener to its new port and lets Tor's own
+     * events drive health again.
+     */
+    private suspend fun cycleNetwork(runtime: TorRuntime, monitor: NetworkMonitor? = networkMonitor) {
+        setNetworkDisabled(runtime, true)
+        // Re-check: if the device went offline meanwhile, leave it disabled
+        // (kmp-tor's own Disconnected may have landed before our write).
+        if (monitor != null && !monitor.state.value.online) return
+        setNetworkDisabled(runtime, false)
+        // Re-enabling reopens the SOCKS listener on a new auto port.
+        withTimeoutOrNull(SOCKS_REOPEN_TIMEOUT) {
+            while (true) {
+                querySocksPort(runtime)?.let { socksPort = it; return@withTimeoutOrNull }
+                delay(150.milliseconds)
+            }
+        }
+        // Back from NoNetwork: Tor's own events take over again, starting
+        // from wherever its bootstrap actually is (often still 100%).
+        updateHealth { if (it == TorHealth.NoNetwork) TorHealth.Starting else it }
+        seedBootstrapStatus(runtime)
     }
 
     private suspend fun setNetworkDisabled(runtime: TorRuntime, disabled: Boolean) {
@@ -304,6 +436,7 @@ internal class KmpTorBackend(
         socksPort = null
         started = false
         _health.value = TorHealth.Stopped
+        _recovery.value = null
         AppLog.info(
             component = LogComponent.TOR_BACKEND,
             event = LogEvent.STOPPED,
@@ -769,6 +902,7 @@ internal class KmpTorBackend(
         if (verifierJob?.isActive == true) return
         verifierJob = owner.launch {
             val startedAt = TimeSource.Monotonic.markNow()
+            var consecutiveTimeouts = 0
             while (isActive) {
                 val outcome = checkSelfReachability()
                 if (outcome == ProbeOutcome.REACHABLE) {
@@ -796,20 +930,35 @@ internal class KmpTorBackend(
                     return@launch
                 }
                 when (outcome) {
-                    // Our lookup hit HSDirs that did not have the fresh descriptor
-                    // yet. Tor caches that miss and won't re-ask them for minutes,
-                    // so the next probe would fail the same way: drop Tor's cached
-                    // lookups first (NEWNYM; Tor rate-limits it to one per 10 s).
-                    ProbeOutcome.NOT_FOUND -> {
+                    // NOT_FOUND: our lookup hit HSDirs that did not have the fresh
+                    // descriptor yet; Tor caches that miss and won't re-ask them for
+                    // minutes. FAILED (Tor refused the stream): usually a cached
+                    // descriptor whose intro points died — after a restart or a
+                    // network cycle the service has new ones. Either way the next
+                    // probe would fail the same way: drop Tor's cached lookups first
+                    // (NEWNYM; Tor rate-limits it to one per 10 s).
+                    ProbeOutcome.NOT_FOUND, ProbeOutcome.FAILED -> {
+                        consecutiveTimeouts = 0
                         refreshOnionLookups()
                         delay(config.value.probeRefreshRetryDelay)
                     }
-                    // Tor is still working on it (slow HSDir fetch or rendezvous
-                    // right after bootstrap or a network change). Keep what it has
-                    // fetched so far — a refresh here would throw away a descriptor
-                    // that may have just arrived — and re-probe soon.
-                    ProbeOutcome.TIMED_OUT -> delay(config.value.probeRefreshRetryDelay)
-                    else -> delay(config.value.probeInterval)
+                    // A first timeout: Tor is likely still working on it (slow
+                    // HSDir fetch or rendezvous right after bootstrap or a network
+                    // change). Keep what it has fetched so far — a refresh would
+                    // throw away a descriptor that may have just arrived.
+                    ProbeOutcome.TIMED_OUT -> {
+                        // The probe shares this Tor's client state, and a second
+                        // timeout in a row means that state is stale (intro points
+                        // remembered as failed while our service was rebuilding its
+                        // circuits): refresh then.
+                        if (++consecutiveTimeouts >= TIMEOUTS_BEFORE_REFRESH) {
+                            consecutiveTimeouts = 0
+                            refreshOnionLookups()
+                        }
+                        delay(config.value.probeRefreshRetryDelay)
+                    }
+
+                    ProbeOutcome.REACHABLE -> Unit
                 }
             }
         }
@@ -859,14 +1008,32 @@ internal class KmpTorBackend(
                         if (sendError is CancellationException) throw sendError
                         if (sendError is kotlinx.coroutines.CancellationException) throw sendError
                         wait.cancel()
-                        val notFound = (sendError as? SocksConnectException)?.code == NOT_PUBLISHED_SOCKS_CODE
-                        return@coroutineScope if (notFound) ProbeOutcome.NOT_FOUND else ProbeOutcome.FAILED
+                        val socksCode = (sendError as? SocksConnectException)?.code
+                        val outcome =
+                            if (socksCode == NOT_PUBLISHED_SOCKS_CODE) ProbeOutcome.NOT_FOUND else ProbeOutcome.FAILED
+                        AppLog.debug(
+                            component = LogComponent.TOR_BACKEND,
+                            event = LogEvent.SESSION_FAILED,
+                            message = "Self-dial probe failed",
+                            fields = mapOf(
+                                "outcome" to outcome,
+                                "socksCode" to socksCode,
+                                "error" to sendError.toString()
+                            ),
+                        )
+                        return@coroutineScope outcome
                     }
                     wait.await()
                     ProbeOutcome.REACHABLE
                 }
             }
         } catch (_: TimeoutCancellationException) {
+            AppLog.debug(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "Self-dial probe timed out",
+                fields = mapOf("timeout" to configSnapshot.probeTimeout),
+            )
             ProbeOutcome.TIMED_OUT
         } catch (e: CancellationException) {
             throw e
@@ -1132,6 +1299,20 @@ internal class KmpTorBackend(
         private const val SOCKS_LISTENERS_KEY: String = "net/listeners/socks"
 
         private val SOCKS_REOPEN_TIMEOUT: Duration = 10_000L.milliseconds
+
+        /** Consecutive self-dial timeouts after which Tor's cached onion lookups are dropped. */
+        private const val TIMEOUTS_BEFORE_REFRESH: Int = 2
+
+        /** Probes per periodic reachability re-check before declaring DEGRADED. */
+        private const val RECHECK_ATTEMPTS: Int = 3
+
+        // Tor's files under torStateRoot (kmp-tor layout: work/data is Tor's
+        // DataDirectory, cache its CacheDirectory). The onion key lives beside
+        // them, so no recovery step can change our address.
+        private const val CACHE_DIR: String = "cache"
+        private const val DATA_DIR: String = "work/data"
+        private const val GUARD_STATE_FILE: String = "state"
+        private const val GUARD_RESET_FILE: String = "guard_reset_at"
     }
 }
 

@@ -27,6 +27,7 @@ import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.*
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.random.Random
 import kotlin.test.*
 import kotlin.time.Duration
@@ -218,6 +219,8 @@ private class RecordingProjectorRouter : Router {
         MutableStateFlow(TorPublishState.PUBLISHING)
     override val localTransportHealth: StateFlow<TorHealth> =
         MutableStateFlow(TorHealth.Ready)
+    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
+        MutableStateFlow(null)
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true

@@ -20,6 +20,7 @@ import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.*
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -412,6 +413,8 @@ private class RecordingRouter : Router {
         MutableStateFlow(TorPublishState.PUBLISHING)
     override val localTransportHealth: StateFlow<TorHealth> =
         MutableStateFlow(TorHealth.Ready)
+    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
+        MutableStateFlow(null)
 
     val sent = mutableListOf<MessagePayload>()
 

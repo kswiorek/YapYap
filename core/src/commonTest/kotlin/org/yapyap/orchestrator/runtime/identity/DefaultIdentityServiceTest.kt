@@ -22,6 +22,7 @@ import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.router.*
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -38,6 +39,8 @@ private class FakeRouter : Router {
         MutableStateFlow(TorPublishState.PUBLISHING)
     override val localTransportHealth: StateFlow<TorHealth> =
         MutableStateFlow(TorHealth.Ready)
+    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
+        MutableStateFlow(null)
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()

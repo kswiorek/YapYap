@@ -46,6 +46,9 @@ internal class LoopbackTorBackend(
     private val _health = MutableStateFlow<TorHealth>(TorHealth.Stopped)
     override val health: StateFlow<TorHealth> = _health.asStateFlow()
 
+    // Nothing to recover: loopback has no daemon.
+    override val recovery: StateFlow<TorRecoveryStep?> = MutableStateFlow<TorRecoveryStep?>(null).asStateFlow()
+
     var publishedLocalEndpoint: TorEndpoint? = null
         private set
 

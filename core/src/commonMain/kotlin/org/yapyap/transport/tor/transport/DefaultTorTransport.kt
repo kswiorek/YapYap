@@ -11,10 +11,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
-import org.yapyap.transport.tor.backend.TorBackend
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.probeNonceOrNull
+import org.yapyap.transport.tor.backend.*
 
 internal class DefaultTorTransport(
     private val backend: TorBackend,
@@ -32,6 +29,9 @@ internal class DefaultTorTransport(
 
     override val health: StateFlow<TorHealth>
         get() = backend.health
+
+    override val recovery: StateFlow<TorRecoveryStep?>
+        get() = backend.recovery
 
     override suspend fun start(): TorEndpoint {
         check(!started) { "Tor transport is already started" }

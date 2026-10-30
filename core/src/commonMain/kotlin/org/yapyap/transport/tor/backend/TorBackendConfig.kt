@@ -2,6 +2,7 @@ package org.yapyap.transport.tor.backend
 
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -48,20 +49,19 @@ internal data class TorBackendConfig(
      */
     val socksSocketTimeout: Duration = 120.seconds,
     /**
-     * Self-dial reachability probe cadence once our descriptor is uploaded:
-     * how often the backend dials its own onion end-to-end (full rendezvous)
-     * to prove it is actually dialable, not just published. Bounded by
-     * [probeBudget]; first success latches PUBLISHED and stops the loop.
-     */
-    val probeInterval: Duration = 45.seconds,
-    /**
      * Delay before re-probing after a self-dial that timed out (Tor still
      * working; keep its progress) or found no descriptor (after dropping Tor's
      * cached lookups with NEWNYM, which Tor rate-limits to one per 10 s).
      */
     val probeRefreshRetryDelay: Duration = 10.seconds,
-    /** Budget for a single self-dial probe (dial + rendezvous round trip). */
-    val probeTimeout: Duration = 60.seconds,
+    /**
+     * Budget for a single self-dial probe (dial + rendezvous round trip).
+     * Aligned with Tor's own `SocksTimeout`, like [socksSocketTimeout]: on slow
+     * paths rendezvous legitimately takes over a minute, and a shorter budget
+     * cut winnable probes off and restarted them from scratch (observed as
+     * repeated 60 s timeouts followed by a quick success).
+     */
+    val probeTimeout: Duration = 120.seconds,
     /** Give up verifying reachability after this long past the first upload. */
     val probeBudget: Duration = 10.minutes,
     /**
@@ -85,6 +85,21 @@ internal data class TorBackendConfig(
      * usual transient set, with 4 (not-yet-published onion) on the slow lane.
      */
     val socksTransientFailureCodes: Set<Int> = setOf(1, 3, 4, 6),
+    /**
+     * Supervisor: no bootstrap progress for this long while online counts as
+     * stuck. Generous on purpose — Tor recovers from many stalls on its own
+     * (a minute or more is normal on a slow directory mirror), and every
+     * recovery step throws its progress away.
+     */
+    val bootstrapStallTimeout: Duration = 2.minutes,
+    /** Supervisor: minimum wait after a recovery step before judging again. */
+    val recoveryCooldown: Duration = 30.seconds,
+    /** Supervisor: cap for the stall timeout, which doubles per attempt once the ladder is exhausted. */
+    val recoveryMaxBackoff: Duration = 30.minutes,
+    /** Supervisor: guard state is reset at most this often (new guards weaken anonymity). */
+    val guardResetMinInterval: Duration = 1.days,
+    /** Supervisor: how often to silently re-prove our onion is dialable while healthy. */
+    val reachabilityRecheckInterval: Duration = 15.minutes,
     val defaultTorPort: Int = 80,
 ) {
     init {
@@ -94,12 +109,16 @@ internal data class TorBackendConfig(
         require(socksRetryDelay > 0L.milliseconds) { "socksRetryDelayMillis must be > 0" }
         require(socksNotPublishedRetryDelay > 0L.milliseconds) { "socksNotPublishedRetryDelayMillis must be > 0" }
         require(socksSocketTimeout > 0L.milliseconds) { "socksSocketTimeoutMillis must be > 0" }
-        require(probeInterval > 0L.milliseconds) { "probeIntervalMillis must be > 0" }
         require(probeRefreshRetryDelay > 0L.milliseconds) { "probeRefreshRetryDelayMillis must be > 0" }
         require(probeTimeout > 0L.milliseconds) { "probeTimeoutMillis must be > 0" }
         require(probeBudget > 0L.milliseconds) { "probeBudgetMillis must be > 0" }
         require(uploadGracePeriod > 0L.milliseconds) { "uploadGracePeriodMillis must be > 0" }
         require(publishTimeout > 0L.milliseconds) { "publishTimeoutMillis must be > 0" }
+        require(bootstrapStallTimeout > 0L.milliseconds) { "bootstrapStallTimeout must be > 0" }
+        require(recoveryCooldown > 0L.milliseconds) { "recoveryCooldown must be > 0" }
+        require(recoveryMaxBackoff >= bootstrapStallTimeout) { "recoveryMaxBackoff must be >= bootstrapStallTimeout" }
+        require(guardResetMinInterval > 0L.milliseconds) { "guardResetMinInterval must be > 0" }
+        require(reachabilityRecheckInterval > 0L.milliseconds) { "reachabilityRecheckInterval must be > 0" }
         require(defaultTorPort in 1..65535) { "defaultTorPort must be in range 1..65535" }
     }
 }

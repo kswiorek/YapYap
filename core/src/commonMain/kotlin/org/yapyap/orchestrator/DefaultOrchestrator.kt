@@ -669,14 +669,20 @@ internal class DefaultOrchestrator(
         // for headless operators (this — plus the log — is their status UX);
         // bootstrap percentages alone don't log, only a new kind or problem.
         orchestratorScope.launch {
-            combine(router.localTransportHealth, router.localPublishState, ::localTransportStatus)
+            combine(
+                router.localTransportHealth,
+                router.localPublishState,
+                router.localTransportRecovery,
+                ::localTransportStatus,
+            )
                 .collect { status ->
                     val previous = _transportStatus.value
                     if (status == previous) return@collect
                     _transportStatus.value = status
                     val sameKind = status::class == previous::class &&
-                            (status as? LocalTransportStatus.Connecting)?.problem ==
-                            (previous as? LocalTransportStatus.Connecting)?.problem
+                            status.problemOrNull() == previous.problemOrNull() &&
+                            (status as? LocalTransportStatus.Recovering)?.action ==
+                            (previous as? LocalTransportStatus.Recovering)?.action
                     if (!sameKind) {
                         AppLog.info(
                             component = LogComponent.ORCHESTRATOR,

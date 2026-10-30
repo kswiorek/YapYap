@@ -3,6 +3,7 @@ package org.yapyap.orchestrator
 import org.yapyap.transport.tor.backend.TorBootstrapProblem
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -65,6 +66,41 @@ class TransportStatusMappingTest {
         assertEquals(
             TransportProblem(TransportProblemKind.OTHER, "IDENTITY"),
             identity.toTransportProblem(),
+        )
+    }
+
+    @Test
+    fun recovery_showsWhileStuck_withProgressAndProblem() {
+        assertEquals(
+            LocalTransportStatus.Recovering(
+                action = RecoveryAction.RESTARTING,
+                progress = 5,
+                problem = TransportProblem(
+                    kind = TransportProblemKind.RELAYS_UNREACHABLE,
+                    detail = "NOROUTE to 95.216.23.120:9001 (No route to host), 3 times",
+                ),
+            ),
+            localTransportStatus(
+                TorHealth.Bootstrapping(5, noRoute),
+                TorPublishState.PUBLISHING,
+                TorRecoveryStep.RESTART_DAEMON,
+            ),
+        )
+        assertEquals(
+            LocalTransportStatus.Recovering(RecoveryAction.RECONNECTING, progress = null, problem = null),
+            localTransportStatus(TorHealth.Ready, TorPublishState.DEGRADED, TorRecoveryStep.CYCLE_NETWORK),
+        )
+    }
+
+    @Test
+    fun recovery_neverHidesNoNetwork_orAFinishedRecovery() {
+        assertEquals(
+            LocalTransportStatus.NoNetwork,
+            localTransportStatus(TorHealth.NoNetwork, TorPublishState.PUBLISHING, TorRecoveryStep.RESTART_DAEMON),
+        )
+        assertEquals(
+            LocalTransportStatus.Online,
+            localTransportStatus(TorHealth.Ready, TorPublishState.PUBLISHED, TorRecoveryStep.RESTART_DAEMON),
         )
     }
 }

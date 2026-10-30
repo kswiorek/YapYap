@@ -57,6 +57,14 @@
   - Status path to the GUI: `TorHealth` (incl. `NoNetwork` from the monitor) + `TorPublishState` → `Router`
     (`localTransportHealth`, `localPublishState`) → `Orchestrator.transportStatus` (`LocalTransportStatus`, mapped
     in `TransportStatusMapping.kt`). Tor's stall reason travels as `TransportProblem` detail, never as headline.
+  - `TorSupervisor` (inside `KmpTorBackend`) recovers a Tor that is stuck while the network is fine: no bootstrap
+    progress for `bootstrapStallTimeout` (2 min; Tor can stall silently and also recovers from many stalls on its
+    own), or publication DEGRADED. It escalates one `TorRecoveryStep` per incident — cycle DisableNetwork, restart
+    the daemon, restart with a purged directory cache (`tor/cache/cached-*`), restart with reset guard state
+    (`tor/work/data/state`, at most once per `guardResetMinInterval`, recorded in `tor/guard_reset_at`) — and starts
+    over once Tor is up and published. Past the ladder it keeps restarting with a backed-off stall timeout. While
+    healthy it silently re-proves reachability every `reachabilityRecheckInterval`. No step touches the onion key.
+    The current step reaches the GUI as `LocalTransportStatus.Recovering`.
 - WebRTC:
   - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
   - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).

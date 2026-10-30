@@ -10,6 +10,7 @@ import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.time.Duration
 
 internal interface Router {
@@ -58,6 +59,9 @@ internal interface Router {
      * like [localPublishState]; the orchestrator lifts it to the public status.
      */
     val localTransportHealth: StateFlow<TorHealth>
+
+    /** The Tor backend's current recovery step (null when healthy), straight from the transport. */
+    val localTransportRecovery: StateFlow<TorRecoveryStep?>
 
     suspend fun start()
     suspend fun stop()

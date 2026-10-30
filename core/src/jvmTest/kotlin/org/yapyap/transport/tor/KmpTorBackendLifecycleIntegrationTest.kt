@@ -15,10 +15,7 @@ import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.transport.network.NetworkChange
 import org.yapyap.transport.network.NetworkMonitor
 import org.yapyap.transport.network.NetworkState
-import org.yapyap.transport.tor.backend.KmpTorBackend
-import org.yapyap.transport.tor.backend.TorBackendConfig
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
+import org.yapyap.transport.tor.backend.*
 import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -140,6 +137,57 @@ class KmpTorBackendLifecycleIntegrationTest {
         }
     }
 
+    /**
+     * Every supervisor recovery step against a real daemon: the address must
+     * survive (no step may touch the onion key), Tor must come back Ready, and
+     * our onion must be proven dialable again. The ladder logic itself is
+     * covered by TorSupervisorTest; this covers the actions it triggers.
+     */
+    @Test
+    fun recoverySteps_keepAddress_andRepublish() = runBlocking {
+        val dir = Path(SystemTemporaryDirectory, "yapyap-tor-recovery-${Uuid.random()}")
+        SystemFileSystem.createDirectories(dir)
+        val backend = KmpTorBackend(dir, config = MutableStateFlow(TorBackendConfig(startupTimeout = 60.seconds)))
+        val publishStates = mutableListOf<TorPublishState>()
+        try {
+            val endpoint = backend.start()
+            val recorder =
+                launch { backend.publishState.collect { synchronized(publishStates) { publishStates += it } } }
+            assertNotNull(
+                withTimeoutOrNull(READY_BUDGET) { backend.health.first { it == TorHealth.Ready } },
+                "never bootstrapped; last health=${backend.health.value}",
+            )
+            assertNotNull(
+                withTimeoutOrNull(PUBLISH_BUDGET) { backend.publishState.first { it == TorPublishState.PUBLISHED } },
+                "never published initially; health=${backend.health.value}",
+            )
+            for (step in TorRecoveryStep.entries) {
+                synchronized(publishStates) { publishStates.clear() }
+                backend.perform(step)
+                val republished = withTimeoutOrNull(READY_BUDGET) {
+                    while (true) {
+                        val seen = synchronized(publishStates) { publishStates.toList() }
+                        val lastPublishing = seen.lastIndexOf(TorPublishState.PUBLISHING)
+                        if (lastPublishing >= 0 && seen.drop(lastPublishing + 1)
+                                .contains(TorPublishState.PUBLISHED)
+                        ) break
+                        delay(200.milliseconds)
+                    }
+                }
+                assertNotNull(
+                    republished,
+                    "$step: not re-verified; states=$publishStates health=${backend.health.value}"
+                )
+                assertEquals(TorHealth.Ready, backend.health.value, "$step: health")
+                assertEquals(endpoint, backend.publishedLocalEndpoint, "$step: address must not change")
+            }
+            recorder.cancel()
+        } finally {
+            backend.stop()
+            runCatching { deleteRecursively(dir) }
+        }
+    }
+
     private fun deleteRecursively(path: Path) {
         if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
             SystemFileSystem.list(path).forEach { deleteRecursively(it) }
@@ -151,6 +199,6 @@ class KmpTorBackendLifecycleIntegrationTest {
         const val RESTARTS = 4
         val START_BUDGET = 20.seconds
         val READY_BUDGET = 10.minutes
-        val PUBLISH_BUDGET = 4.minutes
+        val PUBLISH_BUDGET = 6.minutes
     }
 }

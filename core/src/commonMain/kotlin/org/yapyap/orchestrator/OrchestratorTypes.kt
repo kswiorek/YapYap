@@ -130,6 +130,18 @@ public sealed interface LocalTransportStatus {
     public data object Reconnecting : LocalTransportStatus
 
     /**
+     * Tor got stuck while the network is fine and is being fixed automatically
+     * ([action] is the current step). [progress] is Tor's bootstrap percentage
+     * while it reconnects, null once it is up again and only our address is
+     * being re-proven.
+     */
+    public data class Recovering(
+        val action: RecoveryAction,
+        val progress: Int?,
+        val problem: TransportProblem?,
+    ) : LocalTransportStatus
+
+    /**
      * Tor is connected, but our address isn't proven dialable yet: a fresh
      * descriptor (after every start or network change) takes a while to
      * propagate. Outbound bootstrap dials ride the slow retry path meanwhile.
@@ -151,6 +163,21 @@ public data class TransportProblem(
     val kind: TransportProblemKind,
     val detail: String,
 )
+
+/** What automatic recovery is doing, cheapest first. None of it changes our address. */
+public enum class RecoveryAction {
+    /** Dropping and re-making Tor's network connections. */
+    RECONNECTING,
+
+    /** Restarting Tor. */
+    RESTARTING,
+
+    /** Restarting Tor with a fresh copy of the network directory. */
+    REFRESHING_DIRECTORY,
+
+    /** Restarting Tor with newly chosen entry relays (rare; at most once a day). */
+    RESETTING_ENTRY_RELAYS,
+}
 
 public enum class TransportProblemKind {
     /** Tor can't reach the relays it tries (refused, no route, timeouts): a blocked or broken network. */

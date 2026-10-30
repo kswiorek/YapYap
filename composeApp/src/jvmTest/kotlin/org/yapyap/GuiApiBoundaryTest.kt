@@ -27,6 +27,7 @@ class GuiApiBoundaryTest {
         "org.yapyap.orchestrator.LocalTransportStatus",
         "org.yapyap.orchestrator.TransportProblem",
         "org.yapyap.orchestrator.TransportProblemKind",
+        "org.yapyap.orchestrator.RecoveryAction",
         "org.yapyap.orchestrator.BootProgress",
         "org.yapyap.orchestrator.BootPhase",
         "org.yapyap.orchestrator.NodeMode",

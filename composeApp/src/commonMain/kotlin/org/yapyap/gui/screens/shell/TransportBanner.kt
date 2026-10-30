@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.LocalTransportStatus
+import org.yapyap.orchestrator.RecoveryAction
 import org.yapyap.orchestrator.TransportProblem
 import org.yapyap.orchestrator.TransportProblemKind
 
@@ -49,6 +50,12 @@ fun TransportBanner(status: LocalTransportStatus) {
             false,
         )
 
+        is LocalTransportStatus.Recovering -> Triple(
+            "Tor got stuck — ${status.action.describe()}" + (status.progress?.let { "… $it%" } ?: "…"),
+            "This is fixed automatically. Messages will be sent once connected.",
+            false,
+        )
+
         LocalTransportStatus.WarmingUp -> Triple(
             "Connected — your address isn't reachable yet. Invites may take a few minutes.",
             "Your address warms up after every restart or network change — this clears on its own.",
@@ -61,7 +68,11 @@ fun TransportBanner(status: LocalTransportStatus) {
             true,
         )
     }
-    val problem = (status as? LocalTransportStatus.Connecting)?.problem
+    val problem = when (status) {
+        is LocalTransportStatus.Connecting -> status.problem
+        is LocalTransportStatus.Recovering -> status.problem
+        else -> null
+    }
     var showDetails by remember(problem) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().background(colors.bgSurfaceHigh)
@@ -94,6 +105,13 @@ fun TransportBanner(status: LocalTransportStatus) {
             )
         }
     }
+}
+
+private fun RecoveryAction.describe(): String = when (this) {
+    RecoveryAction.RECONNECTING -> "reconnecting"
+    RecoveryAction.RESTARTING -> "restarting Tor"
+    RecoveryAction.REFRESHING_DIRECTORY -> "refreshing Tor's network directory"
+    RecoveryAction.RESETTING_ENTRY_RELAYS -> "choosing new entry relays"
 }
 
 private fun TransportProblem.describe(): String = when (kind) {
