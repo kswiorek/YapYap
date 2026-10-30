@@ -109,6 +109,8 @@ internal class DefaultTorTransport(
         )
     }
 
+    override suspend fun refreshOnionLookups(): Boolean = backend.refreshOnionLookups()
+
     override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
         check(started) { "Tor transport must be started before send" }
         backend.send(target = target, payload = envelope.encode())

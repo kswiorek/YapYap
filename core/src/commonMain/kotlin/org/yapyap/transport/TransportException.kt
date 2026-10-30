@@ -18,6 +18,12 @@ internal sealed class TransportException(message: String) : Exception(message) {
 
     sealed class TorException(message: String) : TransportException(message) {
         class SocksError(message: String) : TorException(message)
+
+        /**
+         * Tor found no descriptor for [onionAddress] (SOCKS code 4): the onion isn't
+         * published — or Tor still remembers an earlier miss after it was.
+         */
+        class OnionNotFound(val onionAddress: String) : TorException("Onion descriptor not found: $onionAddress")
         class SocksConnectionTimeout : TorException("Socks timeout")
         class TorRuntimeError(message: String) : TorException(message)
         class TransportFrameError(message: String) : TorException("Failed to parse transport frame: $message")

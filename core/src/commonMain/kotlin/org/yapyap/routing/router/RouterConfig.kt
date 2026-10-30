@@ -32,6 +32,11 @@ internal data class RouterConfig(
      * deliberately coarser than the old poll quantum.
      */
     val sessionAwaitReopenDelay: Duration = 5.seconds,
+    /**
+     * After Tor's cached "not found" for an online peer was dropped, retry that
+     * peer's outbox this soon instead of after the normal backoff.
+     */
+    val onionRefreshRetryDelay: Duration = 10.seconds,
     /** Max messages returned per sync response (responder-side page size). */
     val syncMaxMessages: Int = 20,
     /**
@@ -104,6 +109,7 @@ internal data class RouterConfig(
         require(outboxMaxSizeBytes > 0) { "outboxMaxSizeBytes must be > 0" }
         require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshness must be > 0" }
         require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelay must be > 0" }
+        require(onionRefreshRetryDelay > Duration.ZERO) { "onionRefreshRetryDelay must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }
         require(sessionAwaitReopenDelay > Duration.ZERO) { "sessionAwaitReopenDelay must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }

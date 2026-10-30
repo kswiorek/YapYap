@@ -776,6 +776,7 @@ internal fun outboxProcessorUnderTest(
     outbox: PacketOutbox = TrackingPacketOutbox(),
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
+    isPeerOnline: (PeerId) -> Boolean = { false },
 ): OutboxProcessor {
     val ctx =
         RoutingContext(
@@ -794,6 +795,7 @@ internal fun outboxProcessorUnderTest(
         transportPolicy = SessionOrTorPolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
+        isPeerOnline = isPeerOnline,
     )
 }
 

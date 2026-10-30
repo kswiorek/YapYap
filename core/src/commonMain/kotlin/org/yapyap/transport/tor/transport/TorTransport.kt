@@ -26,4 +26,10 @@ internal interface TorTransport {
     suspend fun stop()
 
     suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope)
+
+    /**
+     * Drops Tor's cached onion lookups so a peer that was "not found" earlier is
+     * looked up afresh. Global and throttled; true only when it refreshed now.
+     */
+    suspend fun refreshOnionLookups(): Boolean
 }

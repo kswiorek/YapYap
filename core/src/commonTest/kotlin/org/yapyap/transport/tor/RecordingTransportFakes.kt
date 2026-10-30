@@ -34,6 +34,15 @@ internal class RecordingTorTransport(
     override val recovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow<TorRecoveryStep?>(null).asStateFlow()
 
+    var refreshOnionLookupsCalls = 0
+        private set
+    var refreshOnionLookupsResult = true
+
+    override suspend fun refreshOnionLookups(): Boolean {
+        refreshOnionLookupsCalls++
+        return refreshOnionLookupsResult
+    }
+
     var startCalls = 0
         private set
     var stopCalls = 0
@@ -42,6 +51,9 @@ internal class RecordingTorTransport(
     private val sendsMutex = Mutex()
     val sends = mutableListOf<Pair<TorEndpoint, BinaryEnvelope>>()
     var failNextSend: Boolean = false
+
+    /** One-shot: the next non-heartbeat send throws this. */
+    var nextSendError: Throwable? = null
 
     override suspend fun start(): TorEndpoint {
         startCalls++
@@ -56,6 +68,10 @@ internal class RecordingTorTransport(
         if (failNextSend && !envelope.isHeartbeat()) {
             failNextSend = false
             error("simulated Tor send failure")
+        }
+        nextSendError?.takeIf { !envelope.isHeartbeat() }?.let {
+            nextSendError = null
+            throw it
         }
         sendsMutex.withLock { sends.add(target to envelope) }
     }
@@ -108,6 +124,15 @@ internal class ConcurrencyTrackingTorTransport(
 
     override val recovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow<TorRecoveryStep?>(null).asStateFlow()
+
+    var refreshOnionLookupsCalls = 0
+        private set
+    var refreshOnionLookupsResult = true
+
+    override suspend fun refreshOnionLookups(): Boolean {
+        refreshOnionLookupsCalls++
+        return refreshOnionLookupsResult
+    }
 
     private val sendStatsMutex = Mutex()
     private var activeSends = 0
@@ -169,6 +194,15 @@ internal class RecordingTorBackend : TorBackend {
 
     override val recovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow<TorRecoveryStep?>(null).asStateFlow()
+
+    var refreshOnionLookupsCalls = 0
+        private set
+    var refreshOnionLookupsResult = true
+
+    override suspend fun refreshOnionLookups(): Boolean {
+        refreshOnionLookupsCalls++
+        return refreshOnionLookupsResult
+    }
 
     val startCalls = mutableListOf<Int?>()
     val stopCalls = mutableListOf<Unit>()

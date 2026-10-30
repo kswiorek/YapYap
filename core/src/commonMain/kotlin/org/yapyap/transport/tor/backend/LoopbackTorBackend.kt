@@ -46,6 +46,9 @@ internal class LoopbackTorBackend(
     private val _health = MutableStateFlow<TorHealth>(TorHealth.Stopped)
     override val health: StateFlow<TorHealth> = _health.asStateFlow()
 
+    // No lookups to refresh: loopback dials ports directly.
+    override suspend fun refreshOnionLookups(): Boolean = false
+
     // Nothing to recover: loopback has no daemon.
     override val recovery: StateFlow<TorRecoveryStep?> = MutableStateFlow<TorRecoveryStep?>(null).asStateFlow()
 

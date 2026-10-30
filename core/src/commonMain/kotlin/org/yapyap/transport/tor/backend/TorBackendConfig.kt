@@ -62,6 +62,20 @@ internal data class TorBackendConfig(
      * repeated 60 s timeouts followed by a quick success).
      */
     val probeTimeout: Duration = 120.seconds,
+    /**
+     * A fetch of our own descriptor that no directory relay has answered for
+     * this long ends the self-dial probe early (lookups are then refreshed and
+     * another relay asked). Normal fetches answer within a couple of seconds;
+     * a hanging relay otherwise holds the probe for Tor's full two minutes.
+     */
+    val descriptorFetchStallTimeout: Duration = 20.seconds,
+    /**
+     * Minimum interval between onion-lookup refreshes (NEWNYM) requested from
+     * outside the backend's own recovery — peer sends stuck on a fetch, the
+     * router seeing an online peer as "not found". NEWNYM is global: every
+     * onion's cached lookups are dropped and re-fetched.
+     */
+    val onionLookupRefreshMinInterval: Duration = 30.seconds,
     /** Give up verifying reachability after this long past the first upload. */
     val probeBudget: Duration = 10.minutes,
     /**
@@ -111,6 +125,8 @@ internal data class TorBackendConfig(
         require(socksSocketTimeout > 0L.milliseconds) { "socksSocketTimeoutMillis must be > 0" }
         require(probeRefreshRetryDelay > 0L.milliseconds) { "probeRefreshRetryDelayMillis must be > 0" }
         require(probeTimeout > 0L.milliseconds) { "probeTimeoutMillis must be > 0" }
+        require(descriptorFetchStallTimeout > 0L.milliseconds) { "descriptorFetchStallTimeout must be > 0" }
+        require(onionLookupRefreshMinInterval > 0L.milliseconds) { "onionLookupRefreshMinInterval must be > 0" }
         require(probeBudget > 0L.milliseconds) { "probeBudgetMillis must be > 0" }
         require(uploadGracePeriod > 0L.milliseconds) { "uploadGracePeriodMillis must be > 0" }
         require(publishTimeout > 0L.milliseconds) { "publishTimeoutMillis must be > 0" }

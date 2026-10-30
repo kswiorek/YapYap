@@ -65,6 +65,14 @@
     over once Tor is up and published. Past the ladder it keeps restarting with a backed-off stall timeout. While
     healthy it silently re-proves reachability every `reachabilityRecheckInterval`. No step touches the onion key.
     The current step reaches the GUI as `LocalTransportStatus.Recovering`.
+  - Stale onion lookups: Tor remembers "descriptor not found" for minutes, and a directory relay that never
+    answers holds a stream for Tor's full two-minute SOCKS timeout. The backend tracks unanswered `HS_DESC`
+    fetches per onion (`DescriptorFetchTracker`) and ends a send attempt or self-probe stuck on one for
+    `descriptorFetchStallTimeout` (20 s). SOCKS code 4 surfaces as `TorException.OnionNotFound`; the router's
+    outbox remembers such peers and, when the availability registry says the peer is online (or it comes
+    online), asks `TorTransport.refreshOnionLookups()` to drop the cached miss and retries after
+    `onionRefreshRetryDelay`. NEWNYM is global, so refreshes requested from outside the backend's own
+    recovery are throttled (`onionLookupRefreshMinInterval`, 30 s).
 - WebRTC:
   - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
   - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).

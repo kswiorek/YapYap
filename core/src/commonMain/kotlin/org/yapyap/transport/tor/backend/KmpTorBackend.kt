@@ -20,6 +20,7 @@ import io.matthewnelson.kmp.tor.runtime.core.util.executeAsync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
@@ -36,6 +37,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
+import kotlin.time.ComparableTimeMark
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
@@ -76,6 +78,12 @@ internal class KmpTorBackend(
      * a restart would leave Tor in whichever state wrote last.
      */
     private val daemonMutex = Mutex()
+
+    /** Unanswered descriptor fetches, per onion (ours for the self-dial probe, peers' for sends). */
+    private val descriptorFetches = DescriptorFetchTracker()
+
+    /** When Tor's onion lookups were last dropped (NEWNYM), for throttling [refreshOnionLookups]. */
+    private var lastLookupRefresh: TimeSource.Monotonic.ValueTimeMark? = null
 
     private var socksPort: Int? = null
 
@@ -194,7 +202,7 @@ internal class KmpTorBackend(
                 TorRecoveryStep.CYCLE_NETWORK -> {
                     if (networkMonitor?.state?.value?.online == false) return
                     withContext(NonCancellable) { cycleNetwork(runtime) }
-                    refreshOnionLookups()
+                    signalNewNym()
                     restartPublishVerification(probeWhenReady = true)
                 }
 
@@ -254,8 +262,8 @@ internal class KmpTorBackend(
         repeat(RECHECK_ATTEMPTS) { attempt ->
             when (checkSelfReachability()) {
                 ProbeOutcome.REACHABLE -> return
-                ProbeOutcome.NOT_FOUND, ProbeOutcome.FAILED -> refreshOnionLookups()
-                ProbeOutcome.TIMED_OUT -> if (attempt + 1 >= TIMEOUTS_BEFORE_REFRESH) refreshOnionLookups()
+                ProbeOutcome.NOT_FOUND, ProbeOutcome.FETCH_STALLED, ProbeOutcome.FAILED -> signalNewNym()
+                ProbeOutcome.TIMED_OUT -> if (attempt + 1 >= TIMEOUTS_BEFORE_REFRESH) signalNewNym()
             }
             if (attempt < RECHECK_ATTEMPTS - 1) delay(config.value.probeRefreshRetryDelay)
         }
@@ -368,7 +376,7 @@ internal class KmpTorBackend(
             withContext(NonCancellable) { cycleNetwork(runtime, monitor) }
         }
         // Cached descriptor lookups and our intro circuits belong to the old network.
-        refreshOnionLookups()
+        signalNewNym()
         restartPublishVerification(probeWhenReady = true)
     }
 
@@ -455,6 +463,7 @@ internal class KmpTorBackend(
 
         val deadline = TimeSource.Monotonic.markNow() + configSnapshot.socksRetryTimeout
         var attempts = 0
+        var lastSocksCode: Int? = null
         while (true) {
             currentCoroutineContext().ensureActive()
             // Enforce the budget per attempt, not just between them: a single
@@ -464,22 +473,17 @@ internal class KmpTorBackend(
             // External cancellation still propagates as CancellationException;
             // only our own timeout surfaces as budget exhaustion below.
             val remaining = deadline - TimeSource.Monotonic.markNow()
-            if (remaining <= Duration.ZERO) {
-                throw TransportException.TorException.SocksError(
-                    "Tor send budget exhausted for ${target.onionAddress}"
-                )
-            }
+            if (remaining <= Duration.ZERO) throw budgetExhausted(target, lastSocksCode)
             try {
                 withTimeout(remaining) {
-                    sendFrameOnce(target, payload, configSnapshot)
+                    sendWatchingFetch(target, payload, configSnapshot)
                 }
                 return
             } catch (_: TimeoutCancellationException) {
-                throw TransportException.TorException.SocksError(
-                    "Tor send budget exhausted for ${target.onionAddress}"
-                )
+                throw budgetExhausted(target, lastSocksCode)
             } catch (error: SocksConnectException) {
                 attempts++
+                lastSocksCode = error.code
                 val shouldRetry =
                     error.code in configSnapshot.socksTransientFailureCodes &&
                             TimeSource.Monotonic.markNow() < deadline
@@ -496,6 +500,9 @@ internal class KmpTorBackend(
                             "attempts" to attempts,
                         ),
                     )
+                    if (error.code == NOT_PUBLISHED_SOCKS_CODE) {
+                        throw TransportException.TorException.OnionNotFound(target.onionAddress)
+                    }
                     throw TransportException.TorException.SocksError("SOCKS connect failed with code ${error.code}, error: ${error.message}")
                 }
                 // Host-unreachable (code 4) is the normal state of a fresh onion
@@ -521,6 +528,13 @@ internal class KmpTorBackend(
                     ),
                 )
                 delay(jittered)
+            } catch (stall: FetchStalledException) {
+                // A directory relay is hanging on the target's descriptor. Waiting
+                // would hold this send for Tor's full two minutes; drop the lookups
+                // (throttled: it's global) so the retry asks other relays.
+                attempts++
+                refreshAfterStalledFetch(target, stall.hsDir)
+                retryTransientOrThrow(stall, "fetch-stalled", attempts, deadline, configSnapshot, target)
             } catch (moved: SocksPortMovedException) {
                 // Not a Tor failure: retry on the new port at once (still within the budget).
                 attempts++
@@ -875,8 +889,9 @@ internal class KmpTorBackend(
             message = "Tor hidden-service descriptor event",
             fields = mapOf("line" to data),
         )
-        val uploadedOnion = hsDescUploadedOnion(data) ?: return
+        parseHsDescEvent(data)?.let { descriptorFetches.onEvent(it) }
         val local = publishedLocalEndpoint?.onionAddress ?: return
+        val uploadedOnion = hsDescUploadedOnion(data) ?: return
         if (!onionMatches(uploadedOnion, local)) return
         AppLog.info(
             component = LogComponent.TOR_BACKEND,
@@ -932,14 +947,14 @@ internal class KmpTorBackend(
                 when (outcome) {
                     // NOT_FOUND: our lookup hit HSDirs that did not have the fresh
                     // descriptor yet; Tor caches that miss and won't re-ask them for
-                    // minutes. FAILED (Tor refused the stream): usually a cached
+                    // minutes. FETCH_STALLED: a relay never answered our fetch. FAILED (Tor refused the stream): usually a cached
                     // descriptor whose intro points died — after a restart or a
                     // network cycle the service has new ones. Either way the next
                     // probe would fail the same way: drop Tor's cached lookups first
                     // (NEWNYM; Tor rate-limits it to one per 10 s).
-                    ProbeOutcome.NOT_FOUND, ProbeOutcome.FAILED -> {
+                    ProbeOutcome.NOT_FOUND, ProbeOutcome.FETCH_STALLED, ProbeOutcome.FAILED -> {
                         consecutiveTimeouts = 0
-                        refreshOnionLookups()
+                        signalNewNym()
                         delay(config.value.probeRefreshRetryDelay)
                     }
                     // A first timeout: Tor is likely still working on it (slow
@@ -953,7 +968,7 @@ internal class KmpTorBackend(
                         // circuits): refresh then.
                         if (++consecutiveTimeouts >= TIMEOUTS_BEFORE_REFRESH) {
                             consecutiveTimeouts = 0
-                            refreshOnionLookups()
+                            signalNewNym()
                         }
                         delay(config.value.probeRefreshRetryDelay)
                     }
@@ -964,11 +979,25 @@ internal class KmpTorBackend(
         }
     }
 
+    /**
+     * Throttled [signalNewNym] for callers outside the backend's own recovery
+     * (peer sends, the router): NEWNYM is global — every onion's cached lookups
+     * go, and the next dial to each pays a fresh fetch — so at most once per
+     * [TorBackendConfig.onionLookupRefreshMinInterval]. True when it refreshed now.
+     */
+    override suspend fun refreshOnionLookups(): Boolean {
+        val last = lastLookupRefresh
+        if (last != null && last.elapsedNow() < config.value.onionLookupRefreshMinInterval) return false
+        return signalNewNym()
+    }
+
     /** `SIGNAL NEWNYM`: drops Tor's cached onion descriptor lookups (and failed-lookup state). */
-    private suspend fun refreshOnionLookups(): Boolean {
+    private suspend fun signalNewNym(): Boolean {
         val runtime = torRuntime ?: return false
         return runCatching { runtime.executeAsync(TorCmd.Signal.NewNym) }
             .onSuccess {
+                lastLookupRefresh = TimeSource.Monotonic.markNow()
+                descriptorFetches.clear()
                 AppLog.debug(
                     component = LogComponent.TOR_BACKEND,
                     event = LogEvent.TOR_DAEMON_NOTICE,
@@ -978,7 +1007,94 @@ internal class KmpTorBackend(
             .isSuccess
     }
 
-    private enum class ProbeOutcome { REACHABLE, NOT_FOUND, TIMED_OUT, FAILED }
+    private enum class ProbeOutcome { REACHABLE, NOT_FOUND, FETCH_STALLED, TIMED_OUT, FAILED }
+
+    /** The send + loop-back half of a probe; see [checkSelfReachability]. */
+    private suspend fun selfDialOnce(
+        local: TorEndpoint,
+        nonce: ByteArray,
+        payload: ByteArray,
+        configSnapshot: TorBackendConfig,
+    ): ProbeOutcome = coroutineScope {
+        val wait = async {
+            inboundFlow.first { frame ->
+                probeNonceOrNull(frame.payload)?.contentEquals(nonce) == true
+            }
+        }
+        // Let the collector subscribe before the frame can loop back.
+        yield()
+        try {
+            sendFrameOnce(local, payload, configSnapshot)
+        } catch (sendError: Exception) {
+            if (sendError is CancellationException) throw sendError
+            if (sendError is kotlinx.coroutines.CancellationException) throw sendError
+            wait.cancel()
+            val socksCode = (sendError as? SocksConnectException)?.code
+            val outcome =
+                if (socksCode == NOT_PUBLISHED_SOCKS_CODE) ProbeOutcome.NOT_FOUND else ProbeOutcome.FAILED
+            AppLog.debug(
+                component = LogComponent.TOR_BACKEND,
+                event = LogEvent.SESSION_FAILED,
+                message = "Self-dial probe failed",
+                fields = mapOf(
+                    "outcome" to outcome,
+                    "socksCode" to socksCode,
+                    "error" to sendError.toString()
+                ),
+            )
+            return@coroutineScope outcome
+        }
+        wait.await()
+        ProbeOutcome.REACHABLE
+    }
+
+    /**
+     * Returns (relay, waited) once a descriptor fetch of [onion] has gone
+     * unanswered for [timeout], counting from no earlier than [since].
+     */
+    private suspend fun awaitFetchStall(
+        onion: String,
+        since: ComparableTimeMark,
+        timeout: Duration,
+    ): Pair<String, Duration> {
+        while (true) {
+            val stalled = descriptorFetches.oldestPending(onion, since)
+            if (stalled != null && stalled.second >= timeout) {
+                AppLog.debug(
+                    component = LogComponent.TOR_BACKEND,
+                    event = LogEvent.SESSION_FAILED,
+                    message = "Descriptor fetch unanswered by a directory relay",
+                    fields = mapOf("onion" to onion, "hsDir" to stalled.first, "waited" to stalled.second),
+                )
+                return stalled
+            }
+            delay(FETCH_STALL_POLL)
+        }
+    }
+
+    /**
+     * One send attempt that gives up early when Tor's descriptor fetch for the
+     * target hangs (see [awaitFetchStall]); otherwise exactly [sendFrameOnce].
+     */
+    private suspend fun sendWatchingFetch(
+        target: TorEndpoint,
+        payload: ByteArray,
+        configSnapshot: TorBackendConfig,
+    ): Unit = coroutineScope {
+        val since = descriptorFetches.now()
+        val attempt = async {
+            sendFrameOnce(target, payload, configSnapshot)
+            null
+        }
+        val stalled = async { awaitFetchStall(target.onionAddress, since, configSnapshot.descriptorFetchStallTimeout) }
+        val stall = select {
+            attempt.onAwait { it }
+            stalled.onAwait { it }
+        }
+        attempt.cancel()
+        stalled.cancel()
+        if (stall != null) throw FetchStalledException(stall.first)
+    }
 
     /**
      * One self-dial round trip to our own onion: raw probe frame out through
@@ -995,36 +1111,22 @@ internal class KmpTorBackend(
         return try {
             withTimeout(configSnapshot.probeTimeout) {
                 coroutineScope {
-                    val wait = async {
-                        inboundFlow.first { frame ->
-                            probeNonceOrNull(frame.payload)?.contentEquals(nonce) == true
-                        }
+                    val since = descriptorFetches.now()
+                    val attempt = async { selfDialOnce(local, nonce, payload, configSnapshot) }
+                    // A directory relay that never answers our descriptor fetch holds the
+                    // probe's stream until Tor's own two-minute timeout; end the probe
+                    // early instead, so the caller can refresh lookups and try other relays.
+                    val stalled = async {
+                        awaitFetchStall(local.onionAddress, since, configSnapshot.descriptorFetchStallTimeout)
+                        ProbeOutcome.FETCH_STALLED
                     }
-                    // Let the collector subscribe before the frame can loop back.
-                    yield()
-                    try {
-                        sendFrameOnce(local, payload, configSnapshot)
-                    } catch (sendError: Exception) {
-                        if (sendError is CancellationException) throw sendError
-                        if (sendError is kotlinx.coroutines.CancellationException) throw sendError
-                        wait.cancel()
-                        val socksCode = (sendError as? SocksConnectException)?.code
-                        val outcome =
-                            if (socksCode == NOT_PUBLISHED_SOCKS_CODE) ProbeOutcome.NOT_FOUND else ProbeOutcome.FAILED
-                        AppLog.debug(
-                            component = LogComponent.TOR_BACKEND,
-                            event = LogEvent.SESSION_FAILED,
-                            message = "Self-dial probe failed",
-                            fields = mapOf(
-                                "outcome" to outcome,
-                                "socksCode" to socksCode,
-                                "error" to sendError.toString()
-                            ),
-                        )
-                        return@coroutineScope outcome
+                    val outcome = select {
+                        attempt.onAwait { it }
+                        stalled.onAwait { it }
                     }
-                    wait.await()
-                    ProbeOutcome.REACHABLE
+                    attempt.cancel()
+                    stalled.cancel()
+                    outcome
                 }
             }
         } catch (_: TimeoutCancellationException) {
@@ -1279,6 +1381,25 @@ internal class KmpTorBackend(
 
     private class SocksPortMovedException(val from: Int, val to: Int) : RuntimeException()
 
+    private class FetchStalledException(val hsDir: String) : RuntimeException("Descriptor fetch unanswered by $hsDir")
+
+    private fun budgetExhausted(target: TorEndpoint, lastSocksCode: Int?): TransportException.TorException =
+        if (lastSocksCode == NOT_PUBLISHED_SOCKS_CODE) {
+            TransportException.TorException.OnionNotFound(target.onionAddress)
+        } else {
+            TransportException.TorException.SocksError("Tor send budget exhausted for ${target.onionAddress}")
+        }
+
+    private suspend fun refreshAfterStalledFetch(target: TorEndpoint, hsDir: String) {
+        val refreshed = refreshOnionLookups()
+        AppLog.info(
+            component = LogComponent.TOR_BACKEND,
+            event = LogEvent.TOR_DAEMON_NOTICE,
+            message = if (refreshed) "Descriptor fetch stuck; refreshed Tor onion lookups" else "Descriptor fetch stuck; lookups refreshed recently, retrying",
+            fields = mapOf("targetHost" to target.onionAddress, "hsDir" to hsDir),
+        )
+    }
+
     private fun Path.toKmpFile(): File = File(toString())
 
     companion object {
@@ -1299,6 +1420,9 @@ internal class KmpTorBackend(
         private const val SOCKS_LISTENERS_KEY: String = "net/listeners/socks"
 
         private val SOCKS_REOPEN_TIMEOUT: Duration = 10_000L.milliseconds
+
+        /** How often a running probe checks for an unanswered descriptor fetch. */
+        private val FETCH_STALL_POLL: Duration = 1_000L.milliseconds
 
         /** Consecutive self-dial timeouts after which Tor's cached onion lookups are dropped. */
         private const val TIMEOUTS_BEFORE_REFRESH: Int = 2

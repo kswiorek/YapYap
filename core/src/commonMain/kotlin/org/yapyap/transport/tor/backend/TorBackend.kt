@@ -39,6 +39,13 @@ internal interface TorBackend {
     suspend fun stop()
 
     suspend fun send(target: TorEndpoint, payload: ByteArray)
+
+    /**
+     * Drops Tor's cached onion lookups (descriptors and remembered "not found"
+     * misses) so the next dial to any onion fetches afresh. Global and therefore
+     * throttled; true only when a refresh actually happened now.
+     */
+    suspend fun refreshOnionLookups(): Boolean
 }
 
 internal expect fun createResourceLoader(resourceDir: File): ResourceLoader.Tor

@@ -96,6 +96,7 @@ internal class DefaultRouter(
         transportPolicy = transportPolicy,
         packetOutbox = packetOutbox,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
+        isPeerOnline = { peerAvailabilityRegistry.isOnline(it) },
     )
 
     private val bootstrapSender = BootstrapSender(routingContext, outboxProcessor)
