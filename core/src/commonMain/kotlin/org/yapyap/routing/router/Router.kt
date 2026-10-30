@@ -12,6 +12,7 @@ import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.time.Duration
+import kotlin.uuid.Uuid
 
 internal interface Router {
     val incomingMessages: Flow<MessagePayload>
@@ -113,12 +114,20 @@ internal interface Router {
      * @param targetEndpoint out-of-band endpoint override for targets with no local devices row.
      * @param sharedSecret sender's in-memory one-time secret, required for INTRO (used once,
      *   never persisted). Null for RECOVERY_REQUEST.
+     * @return the queued packet's id, as later reported by [bootstrapDeliveries].
      */
     suspend fun sendBootstrap(
         payload: BootstrapPayload,
         target: PeerId,
         targetEndpoint: TorEndpoint? = null,
         sharedSecret: ByteArray? = null,
-    )
+    ): Uuid
+
+    /**
+     * Ids of bootstrap packets we sent that a device we don't know yet acknowledged
+     * (the recovery request's target, before its intro makes it known). Lets the
+     * newcomer side show "request delivered" instead of an unchanging wait.
+     */
+    val bootstrapDeliveries: Flow<Uuid>
 
 }

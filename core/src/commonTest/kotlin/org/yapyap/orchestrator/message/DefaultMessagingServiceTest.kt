@@ -298,9 +298,10 @@ class DefaultMessagingServiceTest {
 
         val items = window.displayItems.value
         assertEquals(2, items.size)
-        assertTrue(items[0] is MessageDisplayItem.Text)
-        assertTrue(items[1] is MessageDisplayItem.Gap)
-        assertEquals(listOf(prevUuid), (items[1] as MessageDisplayItem.Gap).missingPrevIds)
+        // The gap stands for the missing predecessor, so it comes before the orphan.
+        assertTrue(items[0] is MessageDisplayItem.Gap)
+        assertTrue(items[1] is MessageDisplayItem.Text)
+        assertEquals(listOf(prevUuid), (items[0] as MessageDisplayItem.Gap).missingPrevIds)
     }
 
     @Test
@@ -1203,6 +1204,7 @@ private class RecordingRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
+    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
 
     val sentTargets = mutableListOf<AccountId>()
     override suspend fun start() {}
@@ -1230,7 +1232,7 @@ private class RecordingRouter : Router {
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ) = Unit
+    ) = Uuid.random()
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

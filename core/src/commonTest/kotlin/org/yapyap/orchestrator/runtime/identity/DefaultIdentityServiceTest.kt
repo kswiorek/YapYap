@@ -30,6 +30,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 private class FakeRouter : Router {
     val onlineAccountsFlow = MutableStateFlow<Set<AccountId>>(emptySet())
@@ -41,6 +42,7 @@ private class FakeRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
+    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
@@ -63,7 +65,7 @@ private class FakeRouter : Router {
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ) = Unit
+    ) = Uuid.random()
 }
 
 private class FakeProjector : GlobalEventProjector {

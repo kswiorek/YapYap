@@ -38,6 +38,7 @@ import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.uuid.Uuid
 
 internal class DefaultRouter(
     val torTransport: TorTransport,
@@ -154,6 +155,8 @@ internal class DefaultRouter(
         systemSender = systemSender,
         sessionOpener = proactiveSessionOpener,
     )
+    private val bootstrapDeliveryFlow = MutableSharedFlow<Uuid>(extraBufferCapacity = 16)
+
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         systemSender = systemSender,
@@ -171,6 +174,7 @@ internal class DefaultRouter(
         syncHandler = syncHandler,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         pingProvider = pingProvider,
+        bootstrapDeliveries = bootstrapDeliveryFlow,
     )
 
     private val peerPolicy = DefaultSyncPeerPolicy(routingContext, peerAvailabilityRegistry)
@@ -240,6 +244,7 @@ internal class DefaultRouter(
             torEndpoint = torEndpoint!!,
         )
 
+        inboundEnvelopeProcessor.startDispositions(scope)
         torIncomingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             torTransport.incoming.collect { inbound ->
                 runCatching { inboundEnvelopeProcessor.handleTorInbound(inbound) }
@@ -309,6 +314,7 @@ internal class DefaultRouter(
 
     override suspend fun stop() {
         if (!started) return
+        inboundEnvelopeProcessor.stopDispositions()
 
         pingProvider.stop()
         peerAvailabilityRegistry.stop()
@@ -394,8 +400,10 @@ internal class DefaultRouter(
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ) {
+    ): Uuid {
         check(started) { "Router must be started before sending bootstrap intro" }
-        bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
+        return bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
     }
+
+    override val bootstrapDeliveries: Flow<Uuid> = bootstrapDeliveryFlow.asSharedFlow()
 }

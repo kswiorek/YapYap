@@ -4,6 +4,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
+import kotlin.time.Duration
 
 internal class EnvelopeDispatcher(
     private val ctx: RoutingContext,
@@ -18,11 +19,14 @@ internal class EnvelopeDispatcher(
          * unknown sources (transport-proven inbound endpoint).
          */
         endpointOverride: TorEndpoint? = null,
+        /** Cap on the Tor send (null: the transport's own budget); see `RouterConfig.offlinePeerSendBudget`. */
+        torBudget: Duration? = null,
     ) {
         when (transport) {
             RouterTransport.TOR -> ctx.torTransport.send(
                 endpointOverride ?: ctx.identityResolver.resolveTorEndpointForDevice(envelope.target),
                 envelope,
+                torBudget,
             )
 
             RouterTransport.WEBRTC -> {

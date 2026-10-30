@@ -12,6 +12,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.*
+import kotlin.time.Duration
 
 internal class DefaultTorTransport(
     private val backend: TorBackend,
@@ -111,9 +112,9 @@ internal class DefaultTorTransport(
 
     override suspend fun refreshOnionLookups(): Boolean = backend.refreshOnionLookups()
 
-    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
+    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?) {
         check(started) { "Tor transport must be started before send" }
-        backend.send(target = target, payload = envelope.encode())
+        backend.send(target = target, payload = envelope.encode(), budget = budget)
         AppLog.debug(
             component = LogComponent.TOR_TRANSPORT,
             event = LogEvent.SIGNAL_OUTBOUND_EMITTED,

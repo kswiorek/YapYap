@@ -363,11 +363,12 @@ internal class DefaultOrchestrator(
                     identityResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING),
                     unsigned.accountSignedDeviceBindingBytes(),
                 )
-                router.sendBootstrap(
+                val requestId = router.sendBootstrap(
                     unsigned.copy(accountSignature = accountSignature),
                     target = intent.bootstrapEndpoint.peerId,
                     targetEndpoint = intent.bootstrapEndpoint.torEndpoint,
                 )
+                onboardingProvider.awaitRequestDelivery(requestId)
 
                 return SetupResult(
                     inviteBytes = null, // no sponsor QR — direct to the supplied bootstrap endpoint

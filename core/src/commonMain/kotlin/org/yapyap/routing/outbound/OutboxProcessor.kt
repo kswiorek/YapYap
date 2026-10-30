@@ -4,11 +4,14 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -18,6 +21,7 @@ import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.TransportException
+import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -39,8 +43,21 @@ internal class OutboxProcessor(
      */
     private val notFoundPeers = MutableStateFlow<Set<PeerId>>(emptySet())
 
+    /**
+     * Dispatches in progress (packet id → target). There is no processing round
+     * to wait for: each due entry is claimed and sent on its own, so one slow
+     * send (an offline peer can hold Tor for its whole budget) never delays
+     * anything queued behind it. Guarded by [inFlightLock].
+     */
+    private val inFlight = HashMap<Uuid, PeerId>()
+    private val inFlightLock = Mutex()
+
+    /** Where sends run while [runIn] is active; null otherwise (sends then run inline, see [processDue]). */
+    @Volatile
+    private var dispatchScope: CoroutineScope? = null
+
     private val retryLoop = RetryLoop(
-        earliestPendingRetryAt = { packetOutbox.earliestPendingRetryAt() },
+        earliestPendingRetryAt = { nextRetryWorthWaking() },
         clock = ctx.clock,
         processDue = { processDue() },
         maxIdlePoll = maxIdlePoll,
@@ -54,11 +71,26 @@ internal class OutboxProcessor(
         },
     )
 
-    fun runIn(scope: CoroutineScope): Job = retryLoop.runIn(scope)
+    fun runIn(scope: CoroutineScope): Job {
+        val dispatchJob = SupervisorJob(scope.coroutineContext[Job])
+        dispatchScope = CoroutineScope(scope.coroutineContext + dispatchJob)
+        val loop = retryLoop.runIn(scope)
+        loop.invokeOnCompletion {
+            dispatchJob.cancel()
+            dispatchScope = null
+        }
+        return loop
+    }
 
     fun wake() {
         retryLoop.notifyChanged()
     }
+
+    /** Whether [packetId] is a bootstrap packet in our outbox addressed to [target]. */
+    suspend fun isPendingBootstrapTo(target: PeerId, packetId: Uuid): Boolean =
+        packetOutbox.listAllForTarget(target).any {
+            it.packetId == packetId && it.envelope.packetType == PacketType.BOOTSTRAP
+        }
 
     suspend fun onOutboundPacketDelivered(packetId: Uuid) {
         packetOutbox.markDelivered(packetId)
@@ -92,10 +124,34 @@ internal class OutboxProcessor(
         )
     }
 
+    /**
+     * Starts every due entry that isn't already in flight, within the in-flight
+     * caps, and returns without waiting for the sends (while [runIn] is active).
+     * Entries held back by a cap stay due; each finished send wakes the loop so
+     * they go next. Each entry is claimed before its send — the attempt and next
+     * retry time are recorded first — so an in-progress send stops counting as due.
+     *
+     * Not running ([runIn] inactive, e.g. tests driving it directly): the sends
+     * run inline and this returns once they finish.
+     */
     suspend fun processDue() {
         val now = ctx.clock.now()
+        val config = ctx.routerConfig.value
         val pruned = packetOutbox.pruneExpired(now)
         val dueEntries = packetOutbox.listDue(now)
+        val started = inFlightLock.withLock {
+            buildList {
+                for (entry in dueEntries) {
+                    if (inFlight.size >= config.outboxMaxInFlight) break
+                    val packetId = entry.envelope.packetId
+                    val target = entry.envelope.target
+                    if (packetId in inFlight) continue
+                    if (inFlight.values.count { it == target } >= config.outboxMaxInFlightPerTarget) continue
+                    inFlight[packetId] = target
+                    add(entry)
+                }
+            }
+        }
         if (dueEntries.isNotEmpty() || pruned > 0) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
@@ -103,86 +159,130 @@ internal class OutboxProcessor(
                 message = "Processing due outbox entries",
                 fields = mapOf(
                     "dueCount" to dueEntries.size,
+                    "startedCount" to started.size,
                     "prunedCount" to pruned,
                 ),
             )
         }
-        if (dueEntries.isNotEmpty()) {
-            coroutineScope {
-                dueEntries.map { entry ->
-                    async { processDueEntry(entry, now) }
-                }.awaitAll()
-            }
-        }
-        wake()
-        if (dueEntries.isNotEmpty()) {
-            AppLog.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_PROCESSED,
-                message = "Processed outbox for due envelopes",
-                fields = mapOf("dueCount" to dueEntries.size),
-            )
+        if (started.isEmpty()) return
+        val claimed = started.map { entry -> claim(entry, now) }
+        val scope = dispatchScope
+        if (scope != null) {
+            claimed.forEach { dispatch -> scope.launch { send(dispatch) } }
+        } else {
+            coroutineScope { claimed.map { dispatch -> async { send(dispatch) } }.awaitAll() }
         }
     }
 
-    private suspend fun processDueEntry(entry: OutboxEntry, now: Instant) {
+    /**
+     * When the retry loop's timer should next fire. Entries that are overdue but
+     * can't start (in flight, or held by a cap) don't count: finishing sends wake
+     * the loop for those. Counting them would make the timer fire at once, again
+     * and again, for as long as a send outlasts its retry delay.
+     */
+    private suspend fun nextRetryWorthWaking(): Instant? {
+        val now = ctx.clock.now()
+        val earliest = packetOutbox.earliestPendingRetryAt() ?: return null
+        if (earliest > now) return earliest
+        val config = ctx.routerConfig.value
+        val startable = inFlightLock.withLock {
+            inFlight.size < config.outboxMaxInFlight &&
+                    packetOutbox.listDue(now).any { entry ->
+                        entry.envelope.packetId !in inFlight &&
+                                inFlight.values.count { it == entry.envelope.target } < config.outboxMaxInFlightPerTarget
+                    }
+        }
+        return if (startable) earliest else packetOutbox.earliestPendingRetryAfter(now)
+    }
+
+    private class ClaimedDispatch(
+        val entry: OutboxEntry,
+        val transport: RouterTransport,
+        val torBudget: Duration?,
+        val now: Instant,
+        val nextRetryAt: Instant,
+    )
+
+    private suspend fun claim(entry: OutboxEntry, now: Instant): ClaimedDispatch {
         val envelope = entry.envelope
+        val config = ctx.routerConfig.value
         val outbound = transportPolicy.resolve(
             target = envelope.target,
             retries = entry.attempts,
             hasWebRtcSession = ctx.webRtcTransport.hasSession(envelope.target),
         )
         val nextRetryAt = now + outbound.retryDelay
-        runCatching {
-            dispatcher.dispatch(envelope, outbound.transport, entry.targetEndpoint)
-        }.onSuccess {
-            if (outbound.transport == RouterTransport.TOR) notFoundPeers.update { it - envelope.target }
-            packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-            AppLog.debug(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_RETRY_DISPATCHED,
-                message = "Dispatched due outbox envelope",
-                fields = mapOf(
-                    "packetId" to envelope.packetId,
-                    "packetType" to envelope.packetType,
-                    "target" to envelope.target,
-                    "transport" to outbound.transport,
-                    "attempts" to entry.attempts + 1,
-                    "nextRetryAt" to nextRetryAt,
-                ),
-            )
-        }.onFailure { error ->
-            if (error is CancellationException) throw error
-            // Retryable by design (offline peer, stale endpoint): the entry stays
-            // queued with backoff and expiry prunes it. WARN, not ERROR — a stack
-            // per attempt would bury real failures; the cause rides along as a field.
-            AppLog.warn(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_DISPATCH_FAILED,
-                message = "Failed to dispatch outbox envelope",
-                fields = mapOf(
-                    "packetId" to envelope.packetId,
-                    "target" to envelope.target,
-                    "transport" to outbound.transport,
-                    "attempts" to entry.attempts,
-                    "nextRetryAt" to nextRetryAt,
-                    "error" to error.toString(),
-                ),
-            )
-            packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-            if (error is TransportException.TorException.OnionNotFound) {
-                notFoundPeers.update { it + envelope.target }
-                // Not found, yet the peer is online (it pinged us recently): Tor's miss is
-                // stale. Refresh and retry soon instead of after the normal backoff.
-                if (isPeerOnline(envelope.target) && refreshStaleLookup(
-                        envelope.target,
-                        reason = "online peer not found"
-                    )
-                ) {
-                    packetOutbox.setDueForTarget(envelope.target, now + ctx.routerConfig.value.onionRefreshRetryDelay)
-                    wake()
+        packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
+        // A peer the registry considers offline gets one short try: a "not found"
+        // there would otherwise retry inside Tor for the full send budget. Packets
+        // with an explicit endpoint (bootstrap to a newcomer, never in the registry)
+        // keep the full budget.
+        val torBudget = if (entry.targetEndpoint == null && !isPeerOnline(envelope.target)) {
+            config.offlinePeerSendBudget
+        } else {
+            null
+        }
+        return ClaimedDispatch(entry, outbound.transport, torBudget, now, nextRetryAt)
+    }
+
+    private suspend fun send(dispatch: ClaimedDispatch) {
+        val envelope = dispatch.entry.envelope
+        try {
+            runCatching {
+                dispatcher.dispatch(envelope, dispatch.transport, dispatch.entry.targetEndpoint, dispatch.torBudget)
+            }.onSuccess {
+                if (dispatch.transport == RouterTransport.TOR) notFoundPeers.update { it - envelope.target }
+                AppLog.debug(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.OUTBOX_RETRY_DISPATCHED,
+                    message = "Dispatched due outbox envelope",
+                    fields = mapOf(
+                        "packetId" to envelope.packetId,
+                        "packetType" to envelope.packetType,
+                        "target" to envelope.target,
+                        "transport" to dispatch.transport,
+                        "attempts" to dispatch.entry.attempts + 1,
+                        "nextRetryAt" to dispatch.nextRetryAt,
+                    ),
+                )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                // Retryable by design (offline peer, stale endpoint): the entry stays
+                // queued with backoff and expiry prunes it. WARN, not ERROR — a stack
+                // per attempt would bury real failures; the cause rides along as a field.
+                AppLog.warn(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.OUTBOX_DISPATCH_FAILED,
+                    message = "Failed to dispatch outbox envelope",
+                    fields = mapOf(
+                        "packetId" to envelope.packetId,
+                        "target" to envelope.target,
+                        "transport" to dispatch.transport,
+                        "attempts" to dispatch.entry.attempts,
+                        "nextRetryAt" to dispatch.nextRetryAt,
+                        "error" to error.toString(),
+                    ),
+                )
+                if (error is TransportException.TorException.OnionNotFound) {
+                    notFoundPeers.update { it + envelope.target }
+                    // Not found, yet the peer is online (it pinged us recently): Tor's miss is
+                    // stale. Refresh and retry soon instead of after the normal backoff.
+                    if (isPeerOnline(envelope.target) &&
+                        refreshStaleLookup(envelope.target, reason = "online peer not found")
+                    ) {
+                        packetOutbox.setDueForTarget(
+                            envelope.target,
+                            dispatch.now + ctx.routerConfig.value.onionRefreshRetryDelay,
+                        )
+                    }
                 }
             }
+        } finally {
+            withContext(NonCancellable) {
+                inFlightLock.withLock { inFlight.remove(envelope.packetId) }
+            }
+            // A slot freed: entries held back by a cap (or made due meanwhile) go now.
+            wake()
         }
     }
 

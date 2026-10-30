@@ -1,5 +1,9 @@
 package org.yapyap.routing.inbound
 
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.yapyap.crypto.CryptoException
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -10,14 +14,20 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.ping.PingProvider
+import org.yapyap.routing.policy.NackAction
+import org.yapyap.routing.policy.nackActionFor
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
+import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.uuid.Uuid
 
 internal class InboundEnvelopeProcessor(
     private val ctx: RoutingContext,
@@ -27,7 +37,30 @@ internal class InboundEnvelopeProcessor(
     private val syncHandler: SyncHandler,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
     private val pingProvider: PingProvider,
+    /** Our bootstrap packets acknowledged by a not-yet-known device (see [handleUnknownSourceDisposition]). */
+    private val bootstrapDeliveries: MutableSharedFlow<Uuid> = MutableSharedFlow(extraBufferCapacity = 16),
 ) {
+    /**
+     * Where ACK/NACK sends run while the router is started; null otherwise (sends then
+     * run inline — tests drive the processor directly). A disposition is a full Tor dial
+     * back to the sender, and inbound packets are handled one at a time: sent inline, one
+     * slow dial to a peer held every packet behind it — observed as a burst of 35 messages
+     * stuck behind the first one's ACK until the app was closed.
+     */
+    @Volatile
+    private var dispositionScope: CoroutineScope? = null
+    private var dispositionPermits = Semaphore(ctx.routerConfig.value.dispositionMaxInFlight)
+
+    fun startDispositions(parent: CoroutineScope) {
+        dispositionPermits = Semaphore(ctx.routerConfig.value.dispositionMaxInFlight)
+        dispositionScope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
+    }
+
+    fun stopDispositions() {
+        dispositionScope?.cancel()
+        dispositionScope = null
+    }
+
     suspend fun handleTorInbound(inbound: TorIncomingEnvelope) {
         // No endpoint reconciliation here: the claimed source is unauthenticated at this
         // layer, so the stored mapping is healed only after the packet authenticates
@@ -74,6 +107,9 @@ internal class InboundEnvelopeProcessor(
             return
         }
         val knownDevice = deviceStatus != null
+        if (!knownDevice && inbound.packetType == PacketType.SYSTEM && handleUnknownSourceDisposition(inbound)) {
+            return
+        }
         if (!knownDevice && inbound.packetType != PacketType.BOOTSTRAP) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
@@ -250,7 +286,39 @@ internal class InboundEnvelopeProcessor(
      * sender's retry + our duplicate-replay path re-ACK instead. Downgrades an
      * alarming ENVELOPE_HANDLE_FAILED into an expected transient warn.
      */
+    /**
+     * Sends a disposition without holding up inbound processing (see [dispositionScope]):
+     * at most `dispositionMaxInFlight` at once, each bounded by `dispositionSendBudget`.
+     * Best-effort by design — a lost ACK makes the sender resend, and the duplicate is
+     * answered again.
+     */
     private suspend fun sendDispositionBestEffort(
+        what: String,
+        send: suspend () -> Unit,
+    ) {
+        val scope = dispositionScope
+        if (scope == null) {
+            sendDispositionNow(what, send)
+            return
+        }
+        val permits = dispositionPermits
+        val budget = ctx.routerConfig.value.dispositionSendBudget
+        scope.launch {
+            permits.withPermit {
+                val sent = withTimeoutOrNull(budget) { sendDispositionNow(what, send) }
+                if (sent == null) {
+                    AppLog.warn(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.OUTBOX_DISPATCH_FAILED,
+                        message = "Gave up sending $what disposition within budget; sender retry will re-trigger it",
+                        fields = mapOf("budget" to budget),
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun sendDispositionNow(
         what: String,
         send: suspend () -> Unit,
     ) {
@@ -312,6 +380,45 @@ internal class InboundEnvelopeProcessor(
                 torEndpoint = provenEndpoint,
             )
         }
+    }
+
+    /**
+     * The one SYSTEM exception to the unknown-device policy: an ACK/NACK for a BOOTSTRAP
+     * packet we sent to exactly this device. A recovering device asks a device it has no
+     * row for yet, so it can't verify that device's signature on the reply; dropping the
+     * reply left it re-sending the request every minute with no sign of progress.
+     *
+     * What authenticates the reply instead is the packet id: a random UUID only the
+     * recipient of our request has seen (the Tor stream is end to end). A forged reply
+     * could at worst stop our resends early, after which onboarding times out. Nothing
+     * is ever sent back, so this reveals nothing to strangers. Returns false (and the
+     * packet falls through to the normal drop) for anything else.
+     */
+    private suspend fun handleUnknownSourceDisposition(inbound: BinaryEnvelope): Boolean {
+        val system = runCatching { SystemEnvelope.decode(inbound.payload) }.getOrNull() ?: return false
+        if (system.source != inbound.source || system.target != ctx.localDeviceId) return false
+        val payload = runCatching { system.decodePayload() }.getOrNull() ?: return false
+        val (packetId, acked) = when (payload) {
+            is SystemPayload.PacketAck -> payload.packetId to true
+            is SystemPayload.PacketNack -> payload.packetId to false
+            else -> return false
+        }
+        if (!outboxProcessor.isPendingBootstrapTo(inbound.source, packetId)) return false
+        val remove = acked || nackActionFor((payload as SystemPayload.PacketNack).reason) == NackAction.REMOVE
+        AppLog.info(
+            component = LogComponent.ROUTER,
+            event = if (acked) LogEvent.OUTBOX_ACK_RECEIVED else LogEvent.OUTBOX_NACK_RECEIVED,
+            message = "Disposition for our bootstrap packet from a device not known yet",
+            fields = mapOf(
+                "packetId" to packetId,
+                "sourceDeviceId" to inbound.source,
+                "acked" to acked,
+                "reason" to (payload as? SystemPayload.PacketNack)?.reason,
+            ),
+        )
+        if (remove) outboxProcessor.onOutboundPacketDelivered(packetId)
+        if (acked) bootstrapDeliveries.emit(packetId)
+        return true
     }
 
     private suspend fun applySideEffects(sideEffects: List<InboundSideEffect>) {

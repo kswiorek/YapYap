@@ -22,9 +22,11 @@ import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterConfig
+import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /**
  * Newcomer onboarding handshake: consumes authenticated [Intro]s, seeds the sponsor's
@@ -51,6 +53,11 @@ internal class DefaultOnboardingProvider(
     override val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
     private var collectJob: Job? = null
+    private var deliveryJob: Job? = null
+
+    /** Our recovery request's packet id, while waiting for its delivery confirmation. */
+    @Volatile
+    private var awaitedRequest: Uuid? = null
     private var identityChangesJob: Job? = null
     private var timeoutJob: Job? = null
     private var scope: CoroutineScope? = null
@@ -61,6 +68,10 @@ internal class DefaultOnboardingProvider(
         // the AEAD gate session-less, so nothing is lost; beginSession activates.
         scope.launch {
             if (sessionStore.session() == null) return@launch
+            // Only a session left by a previous run is resumed. A session begun in this
+            // process (beginSession can run before this coroutine does) is already live;
+            // "resuming" it would knock REQUEST_SENT/REQUEST_DELIVERED back to AWAITING_INTRO.
+            if (_state.value != OnboardingState.IDLE) return@launch
             activate()
             resumeInterruptedOnboarding()
         }
@@ -90,6 +101,8 @@ internal class DefaultOnboardingProvider(
     override suspend fun stop() {
         timeoutJob?.cancel()
         timeoutJob = null
+        deliveryJob?.cancel()
+        deliveryJob = null
         collectJob?.cancel()
         collectJob = null
         identityChangesJob?.cancel()
@@ -110,7 +123,34 @@ internal class DefaultOnboardingProvider(
         armTimeout(deadline)
     }
 
+    override suspend fun awaitRequestDelivery(packetId: Uuid) {
+        val owner = scope ?: return
+        awaitedRequest = packetId
+        if (_state.value == OnboardingState.AWAITING_INTRO) {
+            transitionTo(
+                OnboardingState.REQUEST_SENT,
+                "Recovery request sent; waiting for delivery",
+                fields = mapOf("packetId" to packetId),
+            )
+        }
+        if (deliveryJob?.isActive == true) return
+        deliveryJob = owner.launch {
+            router.bootstrapDeliveries.collect { delivered ->
+                if (delivered != awaitedRequest) return@collect
+                awaitedRequest = null
+                val current = _state.value
+                if (current != OnboardingState.REQUEST_SENT && current != OnboardingState.AWAITING_INTRO) return@collect
+                transitionTo(
+                    OnboardingState.REQUEST_DELIVERED,
+                    "Recovery request delivered; waiting for the intro",
+                    fields = mapOf("packetId" to delivered),
+                )
+            }
+        }
+    }
+
     override suspend fun cancelOnboarding() {
+        awaitedRequest = null
         timeoutJob?.cancel()
         timeoutJob = null
         sessionStore.burn()
@@ -182,7 +222,7 @@ internal class DefaultOnboardingProvider(
     /** Burn the secret and surface TIMED_OUT once the persisted deadline passes. */
     private suspend fun onTimeout() {
         val current = _state.value
-        if (current != OnboardingState.AWAITING_INTRO && current != OnboardingState.SYNCING) return
+        if (!current.isWaitingOnboarding()) return
         val session = sessionStore.session() ?: return
         if (clock.now() < session.deadline) {
             // Stale timer (deadline was extended after this arm); re-arm against the new instant.
@@ -240,7 +280,7 @@ internal class DefaultOnboardingProvider(
     private suspend fun onIdentityStateChange(change: IdentityStateChange) {
         if (change !is IdentityStateChange.DeviceAdded) return
         val current = _state.value
-        if (current != OnboardingState.SYNCING && current != OnboardingState.AWAITING_INTRO) return
+        if (!current.isWaitingOnboarding()) return
         val localDeviceId = identityKeyRepository.getLocalDeviceRecord()?.deviceId ?: return
         if (change.deviceId != localDeviceId) return
         timeoutJob?.cancel()
@@ -253,3 +293,10 @@ internal class DefaultOnboardingProvider(
         )
     }
 }
+
+/** An onboarding session is in progress (the timeout applies, our Add event may still land). */
+internal fun OnboardingState.isWaitingOnboarding(): Boolean =
+    this == OnboardingState.AWAITING_INTRO ||
+            this == OnboardingState.REQUEST_SENT ||
+            this == OnboardingState.REQUEST_DELIVERED ||
+            this == OnboardingState.SYNCING

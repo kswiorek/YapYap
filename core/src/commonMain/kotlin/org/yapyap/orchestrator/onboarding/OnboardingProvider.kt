@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.onboarding
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.uuid.Uuid
 
 /** Onboarding lifecycle state, surfaced to the GUI. */
 public enum class OnboardingState {
@@ -10,6 +11,16 @@ public enum class OnboardingState {
 
     /** This node is onboarding as a newcomer and waiting for the sponsor's intro. */
     AWAITING_INTRO,
+
+    /**
+     * Recovery path only: our recovery request is queued to the device we asked and
+     * not yet confirmed. (On the invite path the sponsor contacts us instead, so
+     * there is no request — that path stays in [AWAITING_INTRO].)
+     */
+    REQUEST_SENT,
+
+    /** Recovery path only: the device we asked confirmed our request; waiting for its intro. */
+    REQUEST_DELIVERED,
 
     /** The bootstrap intro was received and the global room is syncing. */
     SYNCING,
@@ -49,6 +60,12 @@ internal interface OnboardingProvider {
      * The caller embeds the secret in the QR invite / recovery request.
      */
     suspend fun beginSession(secret: ByteArray)
+
+    /**
+     * Recovery path: [packetId] is our recovery request, just queued. Enters
+     * REQUEST_SENT, then REQUEST_DELIVERED once the device it went to acknowledges it.
+     */
+    suspend fun awaitRequestDelivery(packetId: Uuid)
 
     /**
      * Burn the secret, back to IDLE. All-modes primitive (GUI passthrough, headless CLI);

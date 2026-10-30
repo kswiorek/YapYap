@@ -173,6 +173,7 @@ private class FakeRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
+    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
 
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
@@ -197,7 +198,7 @@ private class FakeRouter : Router {
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ) = Unit
+    ) = Uuid.random()
 }
 
 private class Harness {

@@ -28,6 +28,9 @@ internal interface PacketOutbox {
     suspend fun listDue(now: Instant): List<OutboxEntry>
     suspend fun pruneExpired(now: Instant): Int
     suspend fun earliestPendingRetryAt(): Instant?
+
+    /** Earliest retry time strictly after [after], ignoring entries already due. */
+    suspend fun earliestPendingRetryAfter(after: Instant): Instant?
     suspend fun relayCacheBytes(): Long
     suspend fun pruneRelayOverCapacity(maxBytes: Long): Int
 }

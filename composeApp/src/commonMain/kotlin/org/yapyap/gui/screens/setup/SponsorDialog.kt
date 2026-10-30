@@ -163,12 +163,15 @@ fun NewcomerStatusBanner(
     val colors = yapColors
     val line = when (state) {
         OnboardingState.AWAITING_INTRO -> "Waiting for a sponsor… share your invite code so they can paste it."
+        OnboardingState.REQUEST_SENT -> "Sending your request to your other device…"
+        OnboardingState.REQUEST_DELIVERED -> "Your other device received the request — finishing setup…"
         OnboardingState.SYNCING -> "Sponsor found — syncing your account…"
         OnboardingState.IDLE, OnboardingState.COMPLETE, OnboardingState.TIMED_OUT -> return
     }
+    val showsInvite = state == OnboardingState.AWAITING_INTRO && onShowCode != null
     Row(
         modifier.fillMaxWidth().background(colors.bgSurfaceHigh)
-            .then(if (onShowCode != null) Modifier.clickable { onShowCode() } else Modifier)
+            .then(if (showsInvite) Modifier.clickable { onShowCode?.invoke() } else Modifier)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -177,23 +180,32 @@ fun NewcomerStatusBanner(
                 line,
                 style = yapType.bodySm.copy(color = colors.textDefault),
             )
-            if (onShowCode != null) {
-                BasicText(
+            when {
+                showsInvite -> BasicText(
                     "Tap to view your invite code.",
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                     modifier = Modifier.padding(top = 2.dp),
                 )
-            } else {
-                // Active onboarding but no staged bytes: setup codes live only in
-                // process memory, so a restart (or an old Done) loses them while
-                // core's session persists. Never a dead end — say so and point
-                // at the way out (cancel → reset → fresh setup).
-                BasicText(
-                    "No invite code saved here — codes don't survive a restart. " +
-                            "Cancel below, reset the app, and join again for a fresh code.",
-                    style = yapType.bodyXs.copy(color = colors.warning),
+                // Recovery path: there is no invite code at all, so never point at one.
+                // Delivery can take minutes while Tor connects; the request keeps retrying.
+                state == OnboardingState.REQUEST_SENT -> BasicText(
+                    "This can take a few minutes while Tor connects — it keeps retrying on its own.",
+                    style = yapType.bodyXs.copy(color = colors.textMuted),
                     modifier = Modifier.padding(top = 2.dp),
                 )
+
+                state == OnboardingState.AWAITING_INTRO -> {
+                    // Invite path with no staged bytes: setup codes live only in
+                    // process memory, so a restart (or an old Done) loses them while
+                    // core's session persists. Never a dead end — say so and point
+                    // at the way out (cancel → reset → fresh setup).
+                    BasicText(
+                        "No invite code saved here — codes don't survive a restart. " +
+                                "Cancel below, reset the app, and join again for a fresh code.",
+                        style = yapType.bodyXs.copy(color = colors.warning),
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
         }
         YapButton(

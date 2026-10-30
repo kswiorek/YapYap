@@ -479,6 +479,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         val relayMessage: Boolean,
         val expiresAt: Instant,
         val blobSize: Long,
+        val targetEndpoint: TorEndpoint? = null,
     )
 
     private val entries = linkedMapOf<Uuid, StoredEntry>()
@@ -502,6 +503,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
                 relayMessage = relayMessage,
                 expiresAt = envelope.expiresAt,
                 blobSize = blobSize,
+                targetEndpoint = targetEndpoint,
             )
         }
         enqueued.add(envelope)
@@ -557,6 +559,9 @@ internal class TrackingPacketOutbox : PacketOutbox {
     override suspend fun earliestPendingRetryAt(): Instant? =
         synchronized(lock) { entries.values.map { it.nextRetryAt }.minOrNull() }
 
+    override suspend fun earliestPendingRetryAfter(after: Instant): Instant? =
+        synchronized(lock) { entries.values.map { it.nextRetryAt }.filter { it > after }.minOrNull() }
+
     override suspend fun relayCacheBytes(): Long =
         synchronized(lock) {
             entries.values.filter { it.relayMessage }.sumOf { it.blobSize }
@@ -588,6 +593,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
             envelope = envelope,
             nextRetryAt = nextRetryAt,
             attempts = attempts,
+            targetEndpoint = targetEndpoint,
         )
 }
 

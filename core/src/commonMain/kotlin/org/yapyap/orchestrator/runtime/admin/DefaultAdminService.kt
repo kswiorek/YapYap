@@ -10,6 +10,7 @@ import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingState
+import org.yapyap.orchestrator.onboarding.isWaitingOnboarding
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
 import org.yapyap.persistence.key.IdentityKeyRepository
@@ -158,7 +159,5 @@ internal class DefaultAdminService(
         _localIsAdmin.value = identityKeyRepository.isLocalAccountAdmin()
     }
 
-    private fun isOnboardingActive(): Boolean =
-        onboardingState.value == OnboardingState.AWAITING_INTRO ||
-                onboardingState.value == OnboardingState.SYNCING
+    private fun isOnboardingActive(): Boolean = onboardingState.value.isWaitingOnboarding()
 }

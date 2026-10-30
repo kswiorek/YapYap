@@ -231,6 +231,32 @@ class DefaultRouterContractTest {
         router.stop()
     }
 
+    /**
+     * An ACK is a Tor dial back to the sender. Inbound packets are handled one at a
+     * time, so an ACK sent inline would hold every packet behind it for as long as that
+     * dial takes — observed as 35 received messages stuck behind the first one's ACK.
+     */
+    @Test
+    fun slowAck_doesNotHoldUpTheNextInboundPackets() = runBlocking {
+        val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
+        val remoteTor = TorEndpoint("remote.onion", 80)
+        val ackGate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        tor.beforeSend = { target, _ -> if (target == remoteTor) ackGate.await() }
+        val recordingDedup = RecordingPacketDeduplicator(InMemoryPacketDeduplicator())
+        val router = routerForInboundTests(tor = tor, remoteTor = remoteTor, dedup = recordingDedup)
+        router.start()
+
+        repeat(3) { tor.tryEmitIncoming(inboundTorMessage(packetId = Uuid.random(), remoteTor = remoteTor)) }
+        delay(400.milliseconds)
+        assertEquals(3, recordingDedup.firstSeenCalls.size, "all three were processed while the first ACK hangs")
+        assertEquals(0, tor.sendsExcludingHeartbeat().size)
+
+        ackGate.complete(Unit)
+        delay(400.milliseconds)
+        assertEquals(3, tor.sendsExcludingHeartbeat().size, "all three ACKs go out once Tor answers")
+        router.stop()
+    }
+
     @Test
     fun duplicateInboundPacket_invokesDedupTwice_secondSeenAsDuplicate_andReSendsAck() = runBlocking {
         val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))

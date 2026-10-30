@@ -276,14 +276,22 @@ private fun typingText(names: List<String>): String = when (names.size) {
 
 // ---- Grouping ----
 
-private sealed interface ChatRow {
+internal sealed interface ChatRow {
     data class Date(val label: String) : ChatRow
     data class Group(val author: AccountId, val items: List<MessageDisplayItem>) : ChatRow
 }
 
-private fun rowKey(row: ChatRow): String = when (row) {
+/**
+ * LazyColumn keys must be unique. A gap shares its orphan message's id (it stands for
+ * that message's missing predecessor), so gap rows need their own prefix: with `grp:`
+ * for both, an orphan starting a new group crashed the list on its duplicate key.
+ */
+internal fun rowKey(row: ChatRow): String = when (row) {
     is ChatRow.Date -> "date:${row.label}"
-    is ChatRow.Group -> "grp:${row.items.first().messageId}"
+    is ChatRow.Group -> {
+        val first = row.items.first()
+        if (first is MessageDisplayItem.Gap) "gap:${first.messageId}" else "grp:${first.messageId}"
+    }
 }
 
 private fun rowType(row: ChatRow): String = when (row) {
@@ -291,7 +299,7 @@ private fun rowType(row: ChatRow): String = when (row) {
     is ChatRow.Group -> "group"
 }
 
-private fun groupItems(items: List<MessageDisplayItem>): List<ChatRow> {
+internal fun groupItems(items: List<MessageDisplayItem>): List<ChatRow> {
     val out = mutableListOf<ChatRow>()
     var lastDay: String? = null
     var currentAuthor: AccountId? = null

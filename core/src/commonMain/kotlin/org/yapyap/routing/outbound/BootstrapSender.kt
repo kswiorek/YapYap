@@ -31,7 +31,7 @@ internal class BootstrapSender(
         target: PeerId,
         targetEndpoint: TorEndpoint? = null,
         sharedSecret: ByteArray? = null,
-    ) {
+    ): Uuid {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
@@ -56,5 +56,6 @@ internal class BootstrapSender(
             relayMessage = false,
             targetEndpoint = targetEndpoint
         )
+        return envelope.packetId
     }
 }

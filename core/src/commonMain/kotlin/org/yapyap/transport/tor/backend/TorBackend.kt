@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.tor.TorIncomingFrame
+import kotlin.time.Duration
 
 internal interface TorBackend {
     val incomingFrames: Flow<TorIncomingFrame>
@@ -38,7 +39,11 @@ internal interface TorBackend {
 
     suspend fun stop()
 
-    suspend fun send(target: TorEndpoint, payload: ByteArray)
+    /**
+     * [budget] caps how long this send may keep retrying, never beyond
+     * `TorBackendConfig.socksRetryTimeout` (null: that configured budget).
+     */
+    suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration? = null)
 
     /**
      * Drops Tor's cached onion lookups (descriptors and remembered "not found"

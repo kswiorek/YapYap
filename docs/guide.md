@@ -145,6 +145,17 @@ Inbound/outbound disposition contract:
   pull-only member in `FanoutReport` — pending display state, never a failure.
   Deliberately no separate staging table: epoch-1 encrypt self-bootstraps, so the
   remaining defer windows are round-trip-scale races the pull path covers.
+- The outbox has no processing round: each due entry is claimed (attempt and next retry recorded
+  first) and sent on its own, so a slow send never delays what is queued behind it. In-flight sends are
+  capped (`outboxMaxInFlight`, `outboxMaxInFlightPerTarget`), and the retry timer ignores overdue
+  entries that can't start yet — finishing sends wake the loop instead. A peer the availability
+  registry considers offline gets a short Tor budget (`offlinePeerSendBudget`); bootstrap packets with
+  an explicit endpoint keep the full one.
+- Unknown-device policy exception: an ACK/NACK from a device with no row is accepted only when it
+  refers to a BOOTSTRAP packet in our outbox addressed to exactly that device (a recovering device
+  can't verify its sponsor's signature yet; the unguessable packet id authenticates the reply). It is
+  never answered. An accepted ACK is reported on `Router.bootstrapDeliveries`, which moves recovery
+  onboarding from `REQUEST_SENT` to `REQUEST_DELIVERED`.
 - Sync rows die when their target arrives in any state (`Inserted` or `BecameOrphan`):
   an arrived orphan's fetch is satisfied and its missing parents get fresh rows. This keeps
   out-of-order delivery (normal for store-and-forward) from leaking sync rows.

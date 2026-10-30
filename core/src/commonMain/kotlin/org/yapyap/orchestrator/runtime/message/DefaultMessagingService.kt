@@ -550,13 +550,13 @@ internal class DefaultMessagingService(
                 // Display list is oldest -> newest; insert before the first item newer than [item].
                 // Composite order (timestamp, messageId) matches the DB display-order index.
                 // messageId is the primary key, so the pair is unique among display items.
+                // An orphan's gap goes right before it: what's missing is its predecessor.
                 val insertIdx = current.indexOfFirst { it.isDisplayAfter(item) }
+                val toInsert = listOfNotNull(orphanGap, item)
                 if (insertIdx == -1) {
-                    current.add(item)
-                    if (orphanGap != null) current.add(orphanGap)
+                    current.addAll(toInsert)
                 } else {
-                    current.add(insertIdx, item)
-                    if (orphanGap != null) current.add(insertIdx + 1, orphanGap)
+                    current.addAll(insertIdx, toInsert)
                 }
 
                 _displayItems.value = current
@@ -587,8 +587,7 @@ internal class DefaultMessagingService(
             val items = mutableListOf<MessageDisplayItem>()
             for (msg in messages) {
                 val item = msg.toDisplayItem() ?: continue
-                items.add(item)
-
+                // An orphan's gap goes right before it: what's missing is its predecessor.
                 val orphanedGap = gapsByOrphanId[msg.messageId]
                 if (orphanedGap != null) {
                     items.add(
@@ -600,6 +599,7 @@ internal class DefaultMessagingService(
                         )
                     )
                 }
+                items.add(item)
             }
             return items
         }

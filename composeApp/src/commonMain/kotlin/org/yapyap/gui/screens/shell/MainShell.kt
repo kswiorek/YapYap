@@ -81,7 +81,11 @@ fun MainShell(
     }
 
     val newcomerState by runtime.onboarding.newcomerState.collectAsState()
-    val cancelOnboarding = {
+    // Cancelling burns the one-time secret: there is no way back short of a reset and a
+    // fresh setup, and a sponsor's intro arriving afterwards is refused. Always confirm.
+    var confirmCancelOnboarding by remember { mutableStateOf(false) }
+    val cancelOnboarding = { confirmCancelOnboarding = true }
+    val reallyCancelOnboarding = {
         scope.launch {
             runCatching { runtime.onboarding.newcomerCancelOnboarding() }
             session.showToast(
@@ -306,6 +310,20 @@ fun MainShell(
             onDismiss = { showSponsor = false },
         )
     }
+    if (confirmCancelOnboarding) {
+        org.yapyap.gui.components.ConfirmDialog(
+            title = "Cancel joining?",
+            body = "Joining can take a few minutes while Tor connects, and keeps retrying on its own. " +
+                    "If you cancel, this setup can't be resumed: you'll need to reset the app and start " +
+                    "again with a new code.",
+            confirmLabel = "Cancel joining",
+            onConfirm = {
+                confirmCancelOnboarding = false
+                reallyCancelOnboarding()
+            },
+            onCancel = { confirmCancelOnboarding = false },
+        )
+    }
     leaveTarget?.let { target ->
         org.yapyap.gui.components.ConfirmDialog(
             title = "Leave this room?",
@@ -418,6 +436,8 @@ private fun PendingInviteOverlay(
             }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                 if (newcomerState == OnboardingState.AWAITING_INTRO ||
+                    newcomerState == OnboardingState.REQUEST_SENT ||
+                    newcomerState == OnboardingState.REQUEST_DELIVERED ||
                     newcomerState == OnboardingState.SYNCING
                 ) {
                     YapButton(

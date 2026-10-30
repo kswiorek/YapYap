@@ -415,6 +415,7 @@ private class RecordingRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
+    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
 
     val sent = mutableListOf<MessagePayload>()
 
@@ -443,7 +444,7 @@ private class RecordingRouter : Router {
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ) = Unit
+    ) = Uuid.random()
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

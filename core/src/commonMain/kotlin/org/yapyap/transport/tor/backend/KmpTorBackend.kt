@@ -452,7 +452,7 @@ internal class KmpTorBackend(
         )
     }
 
-    override suspend fun send(target: TorEndpoint, payload: ByteArray) {
+    override suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration?) {
         val configSnapshot = config.value
         if (payload.size > configSnapshot.maxPayloadBytes) {
             throw TransportException.PayloadTooLarge(
@@ -461,7 +461,8 @@ internal class KmpTorBackend(
             )
         }
 
-        val deadline = TimeSource.Monotonic.markNow() + configSnapshot.socksRetryTimeout
+        val deadline = TimeSource.Monotonic.markNow() +
+                (budget?.coerceAtMost(configSnapshot.socksRetryTimeout) ?: configSnapshot.socksRetryTimeout)
         var attempts = 0
         var lastSocksCode: Int? = null
         while (true) {

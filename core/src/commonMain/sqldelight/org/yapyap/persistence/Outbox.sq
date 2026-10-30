@@ -84,6 +84,13 @@ FROM outbox
 ORDER BY next_retry_at ASC
 LIMIT 1;
 
+getEarliestRetryAfter:
+SELECT next_retry_at
+FROM outbox
+WHERE next_retry_at > ?
+ORDER BY next_retry_at ASC
+LIMIT 1;
+
 CREATE INDEX outbox_message_idx ON outbox(packet_id);
 CREATE INDEX outbox_target_device_idx ON outbox(target_device_id);
 CREATE INDEX outbox_relay_lru_idx ON outbox(is_relay, expires_at);

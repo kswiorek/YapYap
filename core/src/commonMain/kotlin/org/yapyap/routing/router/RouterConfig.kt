@@ -37,6 +37,27 @@ internal data class RouterConfig(
      * peer's outbox this soon instead of after the normal backoff.
      */
     val onionRefreshRetryDelay: Duration = 10.seconds,
+    /** Outbox: sends in progress at once, across all peers (each holds a Tor stream). */
+    val outboxMaxInFlight: Int = 16,
+    /**
+     * Outbox: sends in progress at once to one peer. Small on purpose: ten queued
+     * messages to an offline peer shouldn't all spend their budgets against the
+     * same dead address in parallel.
+     */
+    val outboxMaxInFlightPerTarget: Int = 2,
+    /**
+     * Tor send budget for a peer the availability registry considers offline:
+     * one short try instead of the transport's full budget (Tor answers "not
+     * found" at once, but retrying it inside the send takes minutes).
+     */
+    val offlinePeerSendBudget: Duration = 45.seconds,
+    /** ACK/NACK sends in progress at once (each is a Tor dial back to the sender). */
+    val dispositionMaxInFlight: Int = 8,
+    /**
+     * Give up on one ACK/NACK send after this long. Best-effort: the sender resends
+     * an unacknowledged packet, and its duplicate is answered again.
+     */
+    val dispositionSendBudget: Duration = 30.seconds,
     /** Max messages returned per sync response (responder-side page size). */
     val syncMaxMessages: Int = 20,
     /**
@@ -110,6 +131,11 @@ internal data class RouterConfig(
         require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshness must be > 0" }
         require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelay must be > 0" }
         require(onionRefreshRetryDelay > Duration.ZERO) { "onionRefreshRetryDelay must be > 0" }
+        require(outboxMaxInFlight > 0) { "outboxMaxInFlight must be > 0" }
+        require(outboxMaxInFlightPerTarget > 0) { "outboxMaxInFlightPerTarget must be > 0" }
+        require(offlinePeerSendBudget > Duration.ZERO) { "offlinePeerSendBudget must be > 0" }
+        require(dispositionMaxInFlight > 0) { "dispositionMaxInFlight must be > 0" }
+        require(dispositionSendBudget > Duration.ZERO) { "dispositionSendBudget must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }
         require(sessionAwaitReopenDelay > Duration.ZERO) { "sessionAwaitReopenDelay must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }

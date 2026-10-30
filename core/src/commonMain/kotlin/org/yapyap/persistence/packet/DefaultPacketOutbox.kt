@@ -138,6 +138,11 @@ internal class DefaultPacketOutbox(
             queries.getEarliestRetryAt().executeAsOneOrNull()
         }
 
+    override suspend fun earliestPendingRetryAfter(after: Instant): Instant? =
+        withContext(dbDispatcher) {
+            queries.getEarliestRetryAfter(after).executeAsOneOrNull()
+        }
+
     override suspend fun relayCacheBytes(): Long =
         withContext(dbDispatcher) {
             queries.getCacheSize().executeAsOne()

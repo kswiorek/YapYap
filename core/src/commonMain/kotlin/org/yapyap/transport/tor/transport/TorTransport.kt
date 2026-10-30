@@ -8,6 +8,7 @@ import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.backend.TorRecoveryStep
+import kotlin.time.Duration
 
 internal interface TorTransport {
     val incoming: Flow<TorIncomingEnvelope>
@@ -25,7 +26,8 @@ internal interface TorTransport {
 
     suspend fun stop()
 
-    suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope)
+    /** [budget] caps how long the send may keep retrying (null: the backend's configured budget). */
+    suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration? = null)
 
     /**
      * Drops Tor's cached onion lookups so a peer that was "not found" earlier is

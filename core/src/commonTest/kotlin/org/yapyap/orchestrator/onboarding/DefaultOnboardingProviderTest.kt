@@ -36,6 +36,7 @@ import kotlin.uuid.Uuid
 
 private class FakeOnboardingRouter(
     override val bootstrapPackets: Flow<BootstrapPacketEvent>,
+    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow(),
 ) : Router {
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
@@ -68,7 +69,7 @@ private class FakeOnboardingRouter(
         target: PeerId,
         targetEndpoint: TorEndpoint?,
         sharedSecret: ByteArray?,
-    ) = Unit
+    ) = Uuid.random()
 }
 
 private class NoopSyncCoordinator : SyncCoordinator {
@@ -112,9 +113,10 @@ class DefaultOnboardingProviderTest {
         routerConfig: RouterConfig = RouterConfig(),
         identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
         roomRepository: RoomRepository = FakeRoomRepository(),
+        deliveries: MutableSharedFlow<Uuid> = MutableSharedFlow(extraBufferCapacity = 16),
     ): DefaultOnboardingProvider =
         DefaultOnboardingProvider(
-            router = FakeOnboardingRouter(packets),
+            router = FakeOnboardingRouter(packets, deliveries),
             sessionStore = sessionStore,
             syncCoordinator = NoopSyncCoordinator(),
             identityKeyRepository = identityKeyRepository,
@@ -196,6 +198,67 @@ class DefaultOnboardingProviderTest {
 
         clock.advanceBy(10.minutes)
         advanceTimeBy(10.minutes.inWholeMilliseconds)
+        runCurrent()
+        assertEquals(OnboardingState.IDLE, provider.state.value)
+        provider.stop()
+    }
+
+    @Test
+    fun recoveryRequest_sentThenDelivered_onlyForItsOwnPacket() = runTest {
+        val clock = FakeClock(start)
+        val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
+        val deliveries = MutableSharedFlow<Uuid>(extraBufferCapacity = 16)
+        val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
+        provider.start(this)
+        provider.beginSession(ByteArray(32) { 1 })
+        val request = Uuid.random()
+
+        provider.awaitRequestDelivery(request)
+        runCurrent()
+        assertEquals(OnboardingState.REQUEST_SENT, provider.state.value)
+
+        deliveries.emit(Uuid.random())
+        runCurrent()
+        assertEquals(OnboardingState.REQUEST_SENT, provider.state.value, "someone else's packet changes nothing")
+
+        deliveries.emit(request)
+        runCurrent()
+        assertEquals(OnboardingState.REQUEST_DELIVERED, provider.state.value)
+        provider.stop()
+    }
+
+    @Test
+    fun requestStates_stillTimeOut() = runTest {
+        val clock = FakeClock(start)
+        val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
+        val config = RouterConfig()
+        val provider = providerUnderTest(clock, sessionStore, routerConfig = config)
+        provider.start(this)
+        provider.beginSession(ByteArray(32) { 1 })
+        provider.awaitRequestDelivery(Uuid.random())
+        runCurrent()
+
+        clock.advanceBy(config.bootstrapSessionLifetime + 1.minutes)
+        advanceTimeBy((config.bootstrapSessionLifetime + 1.minutes).inWholeMilliseconds)
+        runCurrent()
+        assertEquals(OnboardingState.TIMED_OUT, provider.state.value)
+        provider.stop()
+    }
+
+    @Test
+    fun cancel_afterDelivery_ignoresALateDelivery() = runTest {
+        val clock = FakeClock(start)
+        val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
+        val deliveries = MutableSharedFlow<Uuid>(extraBufferCapacity = 16)
+        val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
+        provider.start(this)
+        provider.beginSession(ByteArray(32) { 1 })
+        val request = Uuid.random()
+        provider.awaitRequestDelivery(request)
+        runCurrent()
+
+        provider.cancelOnboarding()
+        deliveries.emit(request)
         runCurrent()
         assertEquals(OnboardingState.IDLE, provider.state.value)
         provider.stop()

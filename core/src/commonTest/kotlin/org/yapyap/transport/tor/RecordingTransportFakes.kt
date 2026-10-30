@@ -15,6 +15,7 @@ import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.backend.TorRecoveryStep
 import org.yapyap.transport.tor.transport.TorTransport
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 /** Recording fake — no real Tor mesh. */
@@ -55,6 +56,12 @@ internal class RecordingTorTransport(
     /** One-shot: the next non-heartbeat send throws this. */
     var nextSendError: Throwable? = null
 
+    /** Runs at the start of every send (e.g. to hold one target's send open). */
+    var beforeSend: (suspend (TorEndpoint, BinaryEnvelope) -> Unit)? = null
+
+    /** The budget passed with each non-heartbeat send, in order. */
+    val sendBudgets = mutableListOf<Duration?>()
+
     override suspend fun start(): TorEndpoint {
         startCalls++
         return advertisedEndpoint
@@ -64,11 +71,13 @@ internal class RecordingTorTransport(
         stopCalls++
     }
 
-    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
+    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?) {
         if (failNextSend && !envelope.isHeartbeat()) {
             failNextSend = false
             error("simulated Tor send failure")
         }
+        beforeSend?.invoke(target, envelope)
+        if (!envelope.isHeartbeat()) sendsMutex.withLock { sendBudgets += budget }
         nextSendError?.takeIf { !envelope.isHeartbeat() }?.let {
             nextSendError = null
             throw it
@@ -154,7 +163,7 @@ internal class ConcurrencyTrackingTorTransport(
         stopCalls++
     }
 
-    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope) {
+    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?) {
         sendStatsMutex.withLock {
             activeSends++
             if (activeSends > maxConcurrentSends) {
@@ -218,7 +227,7 @@ internal class RecordingTorBackend : TorBackend {
         stopCalls.add(Unit)
     }
 
-    override suspend fun send(target: TorEndpoint, payload: ByteArray) {
+    override suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration?) {
         sends.add(target to payload.copyOf())
     }
 

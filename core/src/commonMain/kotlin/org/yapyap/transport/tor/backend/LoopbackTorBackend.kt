@@ -12,6 +12,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -107,7 +108,7 @@ internal class LoopbackTorBackend(
         )
     }
 
-    override suspend fun send(target: TorEndpoint, payload: ByteArray) {
+    override suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration?) {
         val localSource = publishedLocalEndpoint ?: error("Loopback Tor backend must be started before send")
         val targetPort = loopbackPortFor(target)
         val selector = requireNotNull(selectorManager) { "Loopback selector manager is not initialized" }
