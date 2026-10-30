@@ -7,6 +7,7 @@ import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.logging.JvmAppLogger
 import org.yapyap.persistence.JvmEncryptedDriverFactory
 import org.yapyap.protocol.DeviceType
+import org.yapyap.transport.network.JvmNetworkMonitor
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.LoopbackTorBackend
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
@@ -32,7 +33,8 @@ public actual class OrchestratorFactory actual constructor(
                     LoopbackTransport.NONE, LoopbackTransport.WEBRTC ->
                         KmpTorBackend(
                             torStateRoot,
-                            config = torConfig
+                            config = torConfig,
+                            networkMonitor = JvmNetworkMonitor,
                         )
                     LoopbackTransport.TOR, LoopbackTransport.ALL ->
                         LoopbackTorBackend(torConfig)

@@ -111,7 +111,7 @@ if (enableAndroid) {
             minSdk = libs.versions.android.minSdk.get().toInt()
             targetSdk = libs.versions.android.targetSdk.get().toInt()
             versionCode = 1
-            versionName = "0.0.3"
+            versionName = "0.0.4"
         }
         packaging {
             resources {
@@ -157,7 +157,7 @@ compose.desktop {
                 TargetFormat.Exe
             )
             packageName = "YapYap"
-            packageVersion = "0.0.3"
+            packageVersion = "0.0.4"
             // Ship the full JDK runtime instead of a jdeps-stripped image.
             // Stripped images break libraries that load JDK classes reflectively
             // (dbus-java SASL needs jdk.security.auth, sqlite needs java.sql, ...):

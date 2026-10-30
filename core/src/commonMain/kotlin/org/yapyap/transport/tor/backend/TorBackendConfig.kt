@@ -55,8 +55,9 @@ internal data class TorBackendConfig(
      */
     val probeInterval: Duration = 45.seconds,
     /**
-     * Delay before re-probing after a failed self-dial once Tor's cached onion
-     * lookups were dropped (NEWNYM). Tor rate-limits NEWNYM to one per 10 s.
+     * Delay before re-probing after a self-dial that timed out (Tor still
+     * working; keep its progress) or found no descriptor (after dropping Tor's
+     * cached lookups with NEWNYM, which Tor rate-limits to one per 10 s).
      */
     val probeRefreshRetryDelay: Duration = 10.seconds,
     /** Budget for a single self-dial probe (dial + rendezvous round trip). */

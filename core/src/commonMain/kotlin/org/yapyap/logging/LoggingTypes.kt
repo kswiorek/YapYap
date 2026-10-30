@@ -80,6 +80,7 @@ internal enum class LogEvent {
     TOR_DAEMON_NOTICE,
     TOR_DAEMON_WARNING,
     TOR_HEALTH_CHANGED,
+    NETWORK_CHANGED,
     TYPING_INDICATOR_RECEIVED,
     TYPING_INDICATOR_SENT,
     TYPING_INDICATOR_DISPATCH_FAILED,
@@ -125,6 +126,7 @@ internal enum class LogComponent {
     DAG,
     ORCHESTRATOR,
     CONFIG,
+    NETWORK,
 }
 
 internal enum class LogLevel {

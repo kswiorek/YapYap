@@ -48,6 +48,12 @@
     their own) before it is published: Tor caches a failed descriptor lookup and holds or refuses the stream for
     minutes. kmp-tor returns the same runtime per data directory for the life of the process, so observers bound
     to a backend instance are subscribed in `start()` and removed in `stop()`, never registered in the builder.
+  - Network changes (desktop: `JvmNetworkMonitor`, which polls interfaces and detects sleep from wall-clock gaps;
+    Android/iOS: none yet) reach Tor two ways. Online/offline goes through kmp-tor's `NetworkObserver`
+    (`TorNetworkObserver`, process-wide) as `DisableNetwork`. A switch or wake-up keeps the device online, so
+    `KmpTorBackend` cycles `DisableNetwork` itself, drops cached onion lookups and re-verifies publication.
+    Setting `DisableNetwork` closes Tor's SOCKS listener and re-enabling reopens it on a new port; the backend
+    re-reads the port (`GETINFO net/listeners/socks`) when a local SOCKS connect fails.
 - WebRTC:
   - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
   - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).
