@@ -20,10 +20,10 @@ import kotlin.time.Duration
  * here to be stamped into the payload — receivers derive their idle-timeout from the announced
  * value, so the router never needs it from config.
  *
- * Per device, either delivers now over an open WebRTC session, or asks the
- * [ProactiveSessionOpener] to pre-warm one so a later tick can deliver. Delivery is
- * WebRTC-only: there is deliberately no Tor fallback and no outbox persistence, since a
- * typing indicator relayed through Tor store-and-forward would be stale on arrival.
+ * Per device, delivers now over the preferred open link (WebRTC first, then a Tor session),
+ * and asks the [ProactiveSessionOpener] to pre-warm a WebRTC session when there is none, so a
+ * later tick can deliver faster. Never dials or persists: a typing indicator that has to wait
+ * for a connection or store-and-forward would be stale on arrival.
  */
 internal class TypingIndicatorDispatcher(
     private val ctx: RoutingContext,
@@ -59,11 +59,8 @@ internal class TypingIndicatorDispatcher(
                     // Per-device isolation: a failure delivering to one device must neither
                     // propagate to the caller nor cancel the sibling sends.
                     try {
-                        if (ctx.webRtcTransport.hasSession(device)) {
-                            systemSender.sendTypingIndicator(device, payload)
-                        } else {
-                            sessionOpener.ensureSession(device)
-                        }
+                        systemSender.sendTypingIndicator(device, payload)
+                        sessionOpener.ensureSession(device)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {

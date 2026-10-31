@@ -102,8 +102,8 @@ internal class OutboundMessenger(
         payload: MessagePayload,
         supplementRelays: Boolean = true,
     ): PeerSendOutcome {
-        // Pre-warm the transport even when protection below fails: a deferred message still
-        // benefits from a WebRTC session that is opening while its crypto session lands.
+        // Pre-warm a WebRTC session even when protection below fails: a deferred message still
+        // benefits from a session that is opening while its crypto session lands.
         sessionOpener.ensureSession(target)
 
         val context = EnvelopeProtectContext(
@@ -163,8 +163,9 @@ internal class OutboundMessenger(
         )
 
         // Supplement the direct attempt with store-and-forward relay deposits when the target has no
-        // live WebRTC session. Relays hold a copy and forward it once the recipient surfaces.
-        val relaysDeposited = if (supplementRelays && !ctx.webRtcTransport.hasSession(target)) {
+        // open link (the entry then waits for one). Relays hold a copy and forward it once the
+        // recipient surfaces.
+        val relaysDeposited = if (supplementRelays && ctx.peerLinks.linksOf(target).isEmpty()) {
             depositToRelays(target, messageEnvelope)
         } else {
             0

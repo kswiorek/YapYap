@@ -250,6 +250,16 @@ internal class PeerAvailabilityRegistry(
         }
     }
 
+    /**
+     * Records that we tried to reach [deviceId] and failed (e.g. a link open that got no
+     * answer). Counts as an unanswered probe for its decay, like [notePingSent], but is no
+     * evidence that we ourselves are up, so it leaves the self-score alone.
+     */
+    @OptIn(InternalCoroutinesApi::class)
+    fun noteProbeAttempted(deviceId: PeerId) {
+        synchronized(lock) { lastPingAt[deviceId] = now() }
+    }
+
     private fun isOnlineLocked(deviceId: PeerId, at: Instant): Boolean {
         val last = lastSeen[deviceId] ?: return false
         return at - last < offlineAfter()

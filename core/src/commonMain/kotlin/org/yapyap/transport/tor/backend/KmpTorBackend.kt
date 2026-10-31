@@ -19,6 +19,7 @@ import io.matthewnelson.kmp.tor.runtime.core.net.Port.Companion.toPort
 import io.matthewnelson.kmp.tor.runtime.core.util.executeAsync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
@@ -63,6 +64,10 @@ internal class KmpTorBackend(
     )
     override val incomingFrames: Flow<TorIncomingFrame> = inboundFlow.asSharedFlow()
 
+    /** Accepted session streams waiting for the transport; drained (closed) on stop. */
+    private val inboundStreams = Channel<TorInboundStream>(capacity = INBOUND_STREAM_QUEUE)
+    override val incomingStreams: Flow<TorInboundStream> = inboundStreams.receiveAsFlow()
+
     private val _publishState = MutableStateFlow(TorPublishState.PUBLISHING)
     override val publishState: StateFlow<TorPublishState> = _publishState.asStateFlow()
 
@@ -106,7 +111,10 @@ internal class KmpTorBackend(
         } else {
             coroutineContext
         }
-        val selector = SelectorManager(selectorContext)
+        // ktor's selector loop blocks its thread in select(): never on Default, where it
+        // would hold one of the few compute threads hostage.
+        val selector =
+            SelectorManager(if (coroutineContext == EmptyCoroutineContext) Dispatchers.IO else selectorContext)
         selectorManager = selector
 
         val listener = aSocket(selector).tcp().bind("127.0.0.1", 0)
@@ -427,6 +435,7 @@ internal class KmpTorBackend(
 
         scope?.cancel()
         scope = null
+        drainInboundStreams()
 
         torRuntime?.let { runtime ->
             runtime.unsubscribe(*instanceObservers)
@@ -460,7 +469,30 @@ internal class KmpTorBackend(
                 limitBytes = configSnapshot.maxPayloadBytes,
             )
         }
+        withDialRetries(target, budget, configSnapshot) {
+            sendFrameOnce(target, payload, configSnapshot)
+        }
+    }
 
+    override suspend fun openStream(target: TorEndpoint, budget: Duration?): TorDuplex {
+        val configSnapshot = config.value
+        return withDialRetries(target, budget, configSnapshot, discard = { it.close() }) {
+            openStreamOnce(target, configSnapshot)
+        }
+    }
+
+    /**
+     * Runs [attempt] (one SOCKS dial) until it succeeds or [budget] (capped by
+     * `socksRetryTimeout`) runs out, retrying transient Tor failures with backoff.
+     * [discard] releases a result that arrives after the attempt was abandoned.
+     */
+    private suspend fun <T> withDialRetries(
+        target: TorEndpoint,
+        budget: Duration?,
+        configSnapshot: TorBackendConfig,
+        discard: (T) -> Unit = {},
+        attempt: suspend () -> T,
+    ): T {
         val deadline = TimeSource.Monotonic.markNow() +
                 (budget?.coerceAtMost(configSnapshot.socksRetryTimeout) ?: configSnapshot.socksRetryTimeout)
         var attempts = 0
@@ -476,10 +508,9 @@ internal class KmpTorBackend(
             val remaining = deadline - TimeSource.Monotonic.markNow()
             if (remaining <= Duration.ZERO) throw budgetExhausted(target, lastSocksCode)
             try {
-                withTimeout(remaining) {
-                    sendWatchingFetch(target, payload, configSnapshot)
+                return withTimeout(remaining) {
+                    attemptWatchingFetch(target, configSnapshot, discard, attempt)
                 }
-                return
             } catch (_: TimeoutCancellationException) {
                 throw budgetExhausted(target, lastSocksCode)
             } catch (error: SocksConnectException) {
@@ -492,7 +523,7 @@ internal class KmpTorBackend(
                     AppLog.error(
                         component = LogComponent.TOR_BACKEND,
                         event = LogEvent.SESSION_FAILED,
-                        message = "SOCKS connect failed for Tor send",
+                        message = "SOCKS connect failed for Tor dial",
                         throwable = error,
                         fields = mapOf(
                             "targetHost" to target.onionAddress,
@@ -519,7 +550,7 @@ internal class KmpTorBackend(
                 AppLog.debug(
                     component = LogComponent.TOR_BACKEND,
                     event = LogEvent.SESSION_FAILED,
-                    message = "SOCKS connect transient failure, retrying Tor send",
+                    message = "SOCKS connect transient failure, retrying Tor dial",
                     fields = mapOf(
                         "targetHost" to target.onionAddress,
                         "targetPort" to target.port,
@@ -556,6 +587,10 @@ internal class KmpTorBackend(
                 // Local SOCKS I/O stalled (slow Tor, not dead Tor): same deal.
                 attempts++
                 retryTransientOrThrow(error, "io-timeout", attempts, deadline, configSnapshot, target)
+            } catch (error: SocksHandshakeTimeoutException) {
+                // Stream dials carry no socket timeout; their SOCKS reply wait is capped instead.
+                attempts++
+                retryTransientOrThrow(error, "io-timeout", attempts, deadline, configSnapshot, target)
             }
         }
     }
@@ -571,25 +606,7 @@ internal class KmpTorBackend(
         configSnapshot: TorBackendConfig,
     ) {
         val localSource = publishedLocalEndpoint ?: error("Tor backend must be started before send")
-        val localSocksPort = requireNotNull(socksPort) { "Tor socks port is not ready" }
-        val selector = requireNotNull(selectorManager) { "Tor selector manager is not initialized" }
-        val socket = try {
-            aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
-                socketTimeout = configSnapshot.socksSocketTimeout.inWholeMilliseconds
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Tor closes its SOCKS listener whenever DisableNetwork is set (going
-            // offline, or our own cycle on a network switch) and reopens it on a
-            // new auto port. Without this every later dial hits the dead port.
-            val current = torRuntime?.let { querySocksPort(it) }
-            if (current != null && current != localSocksPort) {
-                socksPort = current
-                throw SocksPortMovedException(localSocksPort, current)
-            }
-            throw e
-        }
+        val socket = connectToSocks(socketTimeout = configSnapshot.socksSocketTimeout)
         try {
             val input = socket.openReadChannel()
             val output = socket.openWriteChannel(autoFlush = false)
@@ -599,6 +616,57 @@ internal class KmpTorBackend(
             output.flush()
         } finally {
             socket.safeClose()
+        }
+    }
+
+    /**
+     * Single SOCKS dial + stream hello, no retry; same failures as [sendFrameOnce]
+     * (a stalled SOCKS reply as [SocksHandshakeTimeoutException]). The socket gets no read
+     * timeout: an open session is legitimately idle between keepalives.
+     */
+    private suspend fun openStreamOnce(
+        target: TorEndpoint,
+        configSnapshot: TorBackendConfig,
+    ): TorDuplex {
+        val localSource = publishedLocalEndpoint ?: error("Tor backend must be started before dialing")
+        val socket = connectToSocks(socketTimeout = null)
+        try {
+            val input = socket.openReadChannel()
+            val output = socket.openWriteChannel(autoFlush = false)
+            withTimeoutOrNull(configSnapshot.socksSocketTimeout) {
+                performSocks5Handshake(target, input, output)
+            } ?: throw SocksHandshakeTimeoutException()
+            writeTorStreamHello(output, localSource)
+            output.flush()
+            return SocketTorDuplex(socket, input, output)
+        } catch (e: Throwable) {
+            socket.safeClose()
+            throw e
+        }
+    }
+
+    /**
+     * Connects to Tor's local SOCKS port. Tor closes its SOCKS listener whenever
+     * DisableNetwork is set (going offline, or our own cycle on a network switch) and
+     * reopens it on a new auto port; a failed connect re-reads the port and reports
+     * [SocksPortMovedException] so the caller retries at once.
+     */
+    private suspend fun connectToSocks(socketTimeout: Duration?): Socket {
+        val localSocksPort = requireNotNull(socksPort) { "Tor socks port is not ready" }
+        val selector = requireNotNull(selectorManager) { "Tor selector manager is not initialized" }
+        return try {
+            aSocket(selector).tcp().connect("127.0.0.1", localSocksPort) {
+                if (socketTimeout != null) this.socketTimeout = socketTimeout.inWholeMilliseconds
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val current = torRuntime?.let { querySocksPort(it) }
+            if (current != null && current != localSocksPort) {
+                socksPort = current
+                throw SocksPortMovedException(localSocksPort, current)
+            }
+            throw e
         }
     }
 
@@ -1075,26 +1143,41 @@ internal class KmpTorBackend(
 
     /**
      * One send attempt that gives up early when Tor's descriptor fetch for the
-     * target hangs (see [awaitFetchStall]); otherwise exactly [sendFrameOnce].
+     * target hangs (see [awaitFetchStall]); otherwise exactly [block].
      */
-    private suspend fun sendWatchingFetch(
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun <T> attemptWatchingFetch(
         target: TorEndpoint,
-        payload: ByteArray,
         configSnapshot: TorBackendConfig,
-    ): Unit = coroutineScope {
+        discard: (T) -> Unit,
+        block: suspend () -> T,
+    ): T = coroutineScope {
         val since = descriptorFetches.now()
-        val attempt = async {
-            sendFrameOnce(target, payload, configSnapshot)
-            null
-        }
+        val attempt = async { block() }
         val stalled = async { awaitFetchStall(target.onionAddress, since, configSnapshot.descriptorFetchStallTimeout) }
-        val stall = select {
-            attempt.onAwait { it }
+        val outcome: Any? = select<Any?> {
+            attempt.onAwait { AttemptDone(it) }
             stalled.onAwait { it }
         }
-        attempt.cancel()
         stalled.cancel()
-        if (stall != null) throw FetchStalledException(stall.first)
+        if (outcome is AttemptDone<*>) {
+            @Suppress("UNCHECKED_CAST")
+            return@coroutineScope outcome.value as T
+        }
+        attempt.cancel()
+        // Finished in the same instant the stall was declared: don't leak what it opened.
+        if (attempt.isCompleted && !attempt.isCancelled) runCatching { discard(attempt.getCompleted()) }
+        throw FetchStalledException((outcome as Pair<*, *>).first as String)
+    }
+
+    private class AttemptDone<T>(val value: T)
+
+    /** Closes accepted streams the transport never took (it stops before the backend). */
+    private fun drainInboundStreams() {
+        while (true) {
+            val stream = inboundStreams.tryReceive().getOrNull() ?: break
+            stream.duplex.close()
+        }
     }
 
     /**
@@ -1290,7 +1373,8 @@ internal class KmpTorBackend(
     }
 
     /**
-     * Reads one transport frame from an accepted connection and emits it. Genuine parse
+     * Reads an accepted connection's first frame (one-shot) and emits it, or hands an open
+     * session stream to [incomingStreams]; see [handleTorConnection]. Genuine parse
      * failures surface as [TransportException.TorException.TransportFrameError].
      * Cancellation is rethrown untouched — both cancellation hierarchies (the
      * `kotlin.coroutines` one and the kotlinx one carrying [JobCancellationException] from
@@ -1299,32 +1383,7 @@ internal class KmpTorBackend(
      * failure and an uncaught exception.
      */
     internal suspend fun handleInboundConnection(client: Socket) {
-        try {
-            val input = client.openReadChannel()
-            val frame = try {
-                readTorTransportFrame(input, config.value.maxPayloadBytes)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (error: Exception) {
-                AppLog.warn(
-                    component = LogComponent.TOR_BACKEND,
-                    event = LogEvent.ENVELOPE_DECODE_FAILED,
-                    message = "Failed to read inbound Tor transport frame",
-                )
-                AppLog.error(
-                    component = LogComponent.TOR_BACKEND,
-                    event = LogEvent.ENVELOPE_DECODE_FAILED,
-                    message = "Inbound Tor transport frame parse error",
-                    throwable = error,
-                )
-                throw TransportException.TorException.TransportFrameError(error.message ?: "Unknown error")
-            }
-            inboundFlow.emit(frame)
-        } finally {
-            client.safeClose()
-        }
+        handleTorConnection(client, config.value.maxPayloadBytes, inboundFlow, inboundStreams, backendName = "Tor")
     }
 
     private suspend fun performSocks5Handshake(
@@ -1384,6 +1443,8 @@ internal class KmpTorBackend(
 
     private class FetchStalledException(val hsDir: String) : RuntimeException("Descriptor fetch unanswered by $hsDir")
 
+    private class SocksHandshakeTimeoutException : RuntimeException("Tor did not answer the SOCKS connect in time")
+
     private fun budgetExhausted(target: TorEndpoint, lastSocksCode: Int?): TransportException.TorException =
         if (lastSocksCode == NOT_PUBLISHED_SOCKS_CODE) {
             TransportException.TorException.OnionNotFound(target.onionAddress)
@@ -1421,6 +1482,9 @@ internal class KmpTorBackend(
         private const val SOCKS_LISTENERS_KEY: String = "net/listeners/socks"
 
         private val SOCKS_REOPEN_TIMEOUT: Duration = 10_000L.milliseconds
+
+        /** Accepted streams queued for the transport before new ones are refused. */
+        private const val INBOUND_STREAM_QUEUE: Int = 64
 
         /** How often a running probe checks for an unanswered descriptor fetch. */
         private val FETCH_STALL_POLL: Duration = 1_000L.milliseconds

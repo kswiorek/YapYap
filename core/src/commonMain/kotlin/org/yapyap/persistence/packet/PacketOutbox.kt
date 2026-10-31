@@ -23,6 +23,9 @@ internal interface PacketOutbox {
     suspend fun markDelivered(packetId: Uuid)
     suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant)
     suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant)
+
+    /** Moves [packetId]'s next retry to [nextRetryAt] without counting an attempt. */
+    suspend fun deferRetry(packetId: Uuid, nextRetryAt: Instant)
     suspend fun listAllForTarget(target: PeerId): List<OutboxEntry>
 
     suspend fun listDue(now: Instant): List<OutboxEntry>

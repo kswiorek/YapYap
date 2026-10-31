@@ -10,10 +10,9 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.transport.tor.backend.TorBackend
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
+import org.yapyap.transport.TransportException
+import org.yapyap.transport.session.SessionPhase
+import org.yapyap.transport.tor.backend.*
 import org.yapyap.transport.tor.transport.TorTransport
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -44,6 +43,40 @@ internal class RecordingTorTransport(
         return refreshOnionLookupsResult
     }
 
+    // Sessions: every endpoint counts as linked unless listed in [unlinkedEndpoints], so router
+    // tests that predate sessions see the "always reachable" mesh they assume.
+    private val sessionStatesMutable = MutableStateFlow<Map<TorEndpoint, TorSessionState>>(emptyMap())
+    override val sessionStates: StateFlow<Map<TorEndpoint, TorSessionState>> = sessionStatesMutable.asStateFlow()
+
+    /** Endpoints that report no session (and so make the router park or one-shot instead). */
+    val unlinkedEndpoints = mutableSetOf<TorEndpoint>()
+    val openSessionCalls = mutableListOf<TorEndpoint>()
+    val adoptCalls = mutableListOf<Pair<TorLinkId, TorEndpoint>>()
+
+    /** The `via` link passed with each send, in order (null when none). */
+    val sendVias = mutableListOf<TorLinkId?>()
+
+    override fun hasSession(key: TorEndpoint): Boolean = key !in unlinkedEndpoints
+
+    override suspend fun openSession(key: TorEndpoint) {
+        openSessionCalls.add(key)
+    }
+
+    override suspend fun closeSession(key: TorEndpoint) {
+        unlinkedEndpoints.add(key)
+    }
+
+    override fun adoptInbound(link: TorLinkId, endpoint: TorEndpoint): Boolean {
+        adoptCalls.add(link to endpoint)
+        return true
+    }
+
+    /** Publishes a session state (e.g. CONNECTED) for [endpoint], updating [hasSession] to match. */
+    fun setSessionState(endpoint: TorEndpoint, phase: SessionPhase, reason: String? = null) {
+        if (phase == SessionPhase.CONNECTED) unlinkedEndpoints.remove(endpoint) else unlinkedEndpoints.add(endpoint)
+        sessionStatesMutable.value += endpoint to TorSessionState(endpoint, phase, reason)
+    }
+
     var startCalls = 0
         private set
     var stopCalls = 0
@@ -71,7 +104,8 @@ internal class RecordingTorTransport(
         stopCalls++
     }
 
-    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?) {
+    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?, via: TorLinkId?) {
+        sendsMutex.withLock { sendVias += via }
         if (failNextSend && !envelope.isHeartbeat()) {
             failNextSend = false
             error("simulated Tor send failure")
@@ -143,6 +177,14 @@ internal class ConcurrencyTrackingTorTransport(
         return refreshOnionLookupsResult
     }
 
+    override val sessionStates: StateFlow<Map<TorEndpoint, TorSessionState>> =
+        MutableStateFlow<Map<TorEndpoint, TorSessionState>>(emptyMap()).asStateFlow()
+
+    override fun hasSession(key: TorEndpoint): Boolean = true
+    override suspend fun openSession(key: TorEndpoint) = Unit
+    override suspend fun closeSession(key: TorEndpoint) = Unit
+    override fun adoptInbound(link: TorLinkId, endpoint: TorEndpoint): Boolean = true
+
     private val sendStatsMutex = Mutex()
     private var activeSends = 0
     var maxConcurrentSends = 0
@@ -163,7 +205,7 @@ internal class ConcurrencyTrackingTorTransport(
         stopCalls++
     }
 
-    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?) {
+    override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?, via: TorLinkId?) {
         sendStatsMutex.withLock {
             activeSends++
             if (activeSends > maxConcurrentSends) {
@@ -194,6 +236,15 @@ internal class RecordingTorBackend : TorBackend {
 
     private val framesMutable = MutableSharedFlow<TorIncomingFrame>(extraBufferCapacity = 64)
     override val incomingFrames = framesMutable.asSharedFlow()
+
+    override val incomingStreams: Flow<TorInboundStream> = emptyFlow()
+
+    val openStreamCalls = mutableListOf<TorEndpoint>()
+
+    override suspend fun openStream(target: TorEndpoint, budget: Duration?): TorDuplex {
+        openStreamCalls.add(target)
+        throw TransportException.TorException.SocksError("recording backend opens no streams")
+    }
 
     override val publishState: StateFlow<TorPublishState> =
         MutableStateFlow(TorPublishState.PUBLISHING).asStateFlow()

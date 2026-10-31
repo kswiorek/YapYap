@@ -61,6 +61,7 @@ class OutboxConcurrencyTest {
         val clock: FakeClock,
         val processor: OutboxProcessor,
         val slowGate: CompletableDeferred<Unit>,
+        val noLinkPeers: List<PeerId>,
     )
 
     private fun TestScope.harness(
@@ -73,6 +74,7 @@ class OutboxConcurrencyTest {
         tor.beforeSend = { target, _ -> if (target == slowTor) slowGate.await() }
         val outbox = CountingOutbox()
         val clock = FakeClock(epochSeconds(nowSeconds))
+        val noLinkPeers = mutableListOf<PeerId>()
         val identity = FakeIdentityResolverForRouter(
             localDevice = DeviceIdentityRecord(
                 deviceId = local,
@@ -89,10 +91,11 @@ class OutboxConcurrencyTest {
             clock = clock,
             routerConfig = routerConfig,
             isPeerOnline = online,
+            onNoLink = { noLinkPeers += it },
         )
         if (startLoop) processor.runIn(backgroundScope)
         runCurrent()
-        return Harness(tor, outbox, clock, processor, slowGate)
+        return Harness(tor, outbox, clock, processor, slowGate, noLinkPeers)
     }
 
     private fun envelope(target: PeerId, type: PacketType = PacketType.MESSAGE) = BinaryEnvelope(
@@ -188,17 +191,46 @@ class OutboxConcurrencyTest {
     }
 
     @Test
-    fun offlinePeer_getsTheShortBudget_bootstrapAndOnlinePeersDont() = runTest {
-        val h = harness(online = { it == fastPeer })
+    fun peerWithoutLink_waitsForOne_withoutDialingOrCountingAnAttempt() = runTest {
+        val h = harness()
         h.slowGate.complete(Unit)
+        h.tor.unlinkedEndpoints += slowTor
         h.enqueue(slowPeer)
         h.enqueue(fastPeer)
+        runCurrent()
+
+        assertEquals(0, h.sendsTo(slowTor), "no link: the outbox must not dial")
+        assertEquals(1, h.sendsTo(fastTor), "a linked peer is unaffected")
+        assertEquals(listOf(slowPeer), h.noLinkPeers, "the link keeper hears about the unlinked peer")
+        val parked = h.outbox.delegate.listAllForTarget(slowPeer).single()
+        assertEquals(0L, parked.attempts, "a missing link is no attempt at this packet")
+        assertEquals(h.clock.now() + RouterConfig().noLinkRecheckDelay, parked.nextRetryAt)
+    }
+
+    @Test
+    fun parkedEntries_goAsSoonAsTheirLinkComesUp() = runTest {
+        val h = harness()
+        h.slowGate.complete(Unit)
+        h.tor.unlinkedEndpoints += slowTor
+        h.enqueue(slowPeer)
+        runCurrent()
+        assertEquals(0, h.sendsTo(slowTor))
+
+        h.tor.unlinkedEndpoints -= slowTor
+        h.processor.onPeerOnline(slowPeer)
+        runCurrent()
+        assertEquals(1, h.sendsTo(slowTor))
+    }
+
+    @Test
+    fun bootstrapEntry_withExplicitEndpoint_stillDialsWithoutALink() = runTest {
+        val h = harness()
+        h.slowGate.complete(Unit)
+        h.tor.unlinkedEndpoints += slowTor
         h.enqueue(slowPeer, targetEndpoint = slowTor)
         runCurrent()
-        assertEquals(
-            listOf(RouterConfig().offlinePeerSendBudget, null, null).sortedBy { it?.inWholeSeconds ?: -1 },
-            h.tor.sendBudgets.sortedBy { it?.inWholeSeconds ?: -1 },
-        )
+        assertEquals(1, h.sendsTo(slowTor), "a newcomer has no link to wait for: one-shot dial")
+        assertEquals(listOf<kotlin.time.Duration?>(null), h.tor.sendBudgets, "with the transport's full budget")
     }
 
     @Test

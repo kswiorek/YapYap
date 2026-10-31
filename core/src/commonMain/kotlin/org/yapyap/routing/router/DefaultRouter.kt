@@ -19,17 +19,20 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.*
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.LinkKeeperConfig
 import org.yapyap.routing.outbound.*
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
+import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.policy.SessionOrTorPolicy
 import org.yapyap.routing.sync.RemovalRePusher
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
+import org.yapyap.transport.tor.TorSessionState
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.backend.TorRecoveryStep
@@ -51,7 +54,7 @@ internal class DefaultRouter(
     val clock: Clock = Clock.System,
     val routerConfig: StateFlow<RouterConfig>,
     val transportLimits: StateFlow<TransportLimits>,
-    val transportPolicy: OutboundPolicy = SessionOrTorPolicy(routerConfig),
+    val transportPolicy: OutboundPolicy = LinkPreferencePolicy(routerConfig),
     val syncPayloadProvider: SyncPayloadProvider,
     val frontierSnapshotProvider: FrontierSnapshotProvider,
     val peerAvailabilityStore: PeerAvailabilityStore,
@@ -91,13 +94,14 @@ internal class DefaultRouter(
 
     private val pingPayloadFlow =
         MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 64, replay = 4)
-    private val outboxProcessor = OutboxProcessor(
+    private val outboxProcessor: OutboxProcessor = OutboxProcessor(
         ctx = routingContext,
         dispatcher = envelopeDispatcher,
         transportPolicy = transportPolicy,
         packetOutbox = packetOutbox,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
         isPeerOnline = { peerAvailabilityRegistry.isOnline(it) },
+        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
     )
 
     private val bootstrapSender = BootstrapSender(routingContext, outboxProcessor)
@@ -179,6 +183,36 @@ internal class DefaultRouter(
 
     private val peerPolicy = DefaultSyncPeerPolicy(routingContext, peerAvailabilityRegistry)
 
+    /**
+     * Keeps a Tor link open to every active peer, so sends, pings and replies ride an open
+     * stream instead of dialing. WebRTC sessions stay on-demand ([proactiveSessionOpener]).
+     */
+    private val torLinkKeeper: LinkKeeper = LinkKeeper(
+        name = "Tor",
+        sessions = routingContext.peerLinks.tor,
+        targets = { identityResolver.getAllActivePeers().filter { it != routingContext.localDeviceId } },
+        ready = torTransport.health.map { it == TorHealth.Ready },
+        config = routerConfig
+            .map { it.torLinkKeeperConfig() }
+            .stateIn(scope, SharingStarted.Eagerly, routerConfig.value.torLinkKeeperConfig()),
+        clock = clock,
+        onOpened = { peer ->
+            // Their app accepted our stream: they're up. The ping carries our frontiers
+            // (sync on connect) and lets them adopt this stream as their link to us.
+            peerAvailabilityRegistry.markReachable(peer, clock.now())
+            pingProvider.pingPeer(peer)
+        },
+        onFailed = { peer, state ->
+            peerAvailabilityRegistry.noteProbeAttempted(peer)
+            // Not found, yet the peer is online (it reached us some other way): Tor's cached
+            // miss is stale. Drop it (throttled; global) and retry soon instead of backing off.
+            val staleMiss = state?.reason == TorSessionState.REASON_ONION_NOT_FOUND &&
+                    peerAvailabilityRegistry.isOnline(peer) &&
+                    torTransport.refreshOnionLookups()
+            if (staleMiss) routerConfig.value.onionRefreshRetryDelay else null
+        },
+    )
+
     private val syncProcessor = SyncRetryProcessor(
         ctx = routingContext,
         pendingSyncs = syncRepository,
@@ -196,6 +230,8 @@ internal class DefaultRouter(
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcOutgoingJob: Job? = null
     private var onlinePeerJob: Job? = null
+    private var linkUpJob: Job? = null
+    private var torLinkKeeperJob: Job? = null
     private var outboxRetryJob: Job? = null
     private var syncRetryJob: Job? = null
 
@@ -284,11 +320,10 @@ internal class DefaultRouter(
             }
         }
 
-        // No session-connected outbox acceleration here by design: a session can only
-        // establish after authenticated signal traffic, which already fired the
-        // peer-availability transition (see WebRtcTransport.sessionStates). The residual
-        // value of such a trigger is bounded by one outbox retry delay on already-failed
-        // sends, so it was removed rather than kept as semantic noise.
+        // Any link coming up (either transport) releases the peer's waiting outbox entries.
+        linkUpJob = scope.launch {
+            routingContext.peerLinks.linkUps.collect { up -> outboxProcessor.onPeerOnline(up.peer) }
+        }
         onlinePeerJob = scope.launch {
             peerAvailabilityRegistry.onlineEvents.collect { state ->
                 outboxProcessor.onPeerOnline(state)
@@ -303,6 +338,8 @@ internal class DefaultRouter(
 
         peerAvailabilityRegistry.start(scope, localDeviceIdentity!!.deviceId)
 
+        torLinkKeeperJob = torLinkKeeper.runIn(scope)
+
         AppLog.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STARTED,
@@ -316,12 +353,13 @@ internal class DefaultRouter(
         if (!started) return
         inboundEnvelopeProcessor.stopDispositions()
 
+        torLinkKeeper.stop()
         pingProvider.stop()
         peerAvailabilityRegistry.stop()
-        // Bounded: logOff fans out over Tor with the full 35s inner send
-        // budget per dead peer — unbounded it burns the whole shutdown budget
-        // (and the UI-thread wait above it) and starves the Tor stop below,
-        // orphaning the daemon. Peers expire us via sweep regardless.
+        // Bounded: logOff only goes to linked peers, but a stalled stream write
+        // must still never burn the shutdown budget (and the UI-thread wait above
+        // it) and starve the Tor stop below, orphaning the daemon. Peers expire
+        // us via sweep regardless.
         runCatching {
             withTimeoutOrNull(8_000) { pingProvider.logOff() }
         }
@@ -350,6 +388,8 @@ internal class DefaultRouter(
             torIncomingJob,
             webRtcIncomingEnvelopeJob,
             webRtcOutgoingJob,
+            linkUpJob,
+            torLinkKeeperJob,
             outboxRetryJob,
             syncRetryJob,
         ).forEach { it.cancelAndJoin() }
@@ -357,6 +397,8 @@ internal class DefaultRouter(
         torIncomingJob = null
         webRtcIncomingEnvelopeJob = null
         webRtcOutgoingJob = null
+        linkUpJob = null
+        torLinkKeeperJob = null
         outboxRetryJob = null
         syncRetryJob = null
         scope.cancel()
@@ -374,6 +416,9 @@ internal class DefaultRouter(
 
     override suspend fun announceOnline() {
         check(started) { "Router must be started before announcing online" }
+        // Peers without a link get one opened (now, not after their backoff); each successful
+        // open pings that peer.
+        torLinkKeeper.nudgeAll(resetBackoff = true)
         // Best-effort: a transient send failure to one peer must not propagate out of the announce.
         runCatching { pingProvider.ping() }
     }
@@ -407,3 +452,11 @@ internal class DefaultRouter(
 
     override val bootstrapDeliveries: Flow<Uuid> = bootstrapDeliveryFlow.asSharedFlow()
 }
+
+private fun RouterConfig.torLinkKeeperConfig() = LinkKeeperConfig(
+    retryDelay = torLinkRetryDelay,
+    maxRetryDelay = torLinkMaxRetryDelay,
+    maxConcurrentOpens = torLinkMaxConcurrentOpens,
+    openTimeout = torLinkOpenTimeout,
+    recheckInterval = linkKeeperRecheckInterval,
+)

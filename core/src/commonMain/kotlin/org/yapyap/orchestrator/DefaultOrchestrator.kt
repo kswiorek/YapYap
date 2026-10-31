@@ -407,7 +407,7 @@ internal class DefaultOrchestrator(
 
     private suspend fun init() {
         _bootProgress.value = BootProgress(BootPhase.ROUTER, 0, 0)
-        torTransport = DefaultTorTransport(torBackend)
+        torTransport = DefaultTorTransport(torBackend, configStore.torConfig)
         webRtcTransport = DefaultWebRtcTransport(webRtcBackend)
         AppLog.info(
             component = LogComponent.ORCHESTRATOR,

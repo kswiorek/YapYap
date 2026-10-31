@@ -11,7 +11,8 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
+import org.yapyap.transport.session.SessionPhase
+import org.yapyap.transport.session.SessionTransport
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -27,7 +28,9 @@ internal sealed interface SessionOutcome {
 }
 
 /**
- * Decides when to proactively open WebRTC sessions and owns the retry policy around it.
+ * Decides when to open sessions on demand (on a transport where links are not kept open all
+ * the time — WebRTC by default) and owns the retry policy around it. Its counterpart for
+ * links kept open in the background is [org.yapyap.routing.link.LinkKeeper].
  *
  * Two modes:
  * - [ensureSession] (BEST_EFFORT, typing / fast conversations): freshness-gated and
@@ -37,7 +40,7 @@ internal sealed interface SessionOutcome {
  *   and retries until the session is usable or the budget expires.
  *
  * Deduplication of concurrent opens is NOT owned here: the backend's session map makes
- * [openSession][org.yapyap.transport.webrtc.transport.WebRtcTransport.openSession] idempotent.
+ * [openSession][SessionTransport.openSession] idempotent.
  * The one piece of state kept here is a per-peer backoff timestamp, because after a session
  * FAILS or is closed the backend forgets it and repeated ticks would otherwise re-offer
  * every interval.
@@ -45,6 +48,7 @@ internal sealed interface SessionOutcome {
 internal class ProactiveSessionOpener(
     private val ctx: RoutingContext,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
+    private val sessions: SessionTransport<PeerId> = ctx.webRtcTransport,
 ) {
     @OptIn(InternalCoroutinesApi::class)
     private val backoffLock = SynchronizedObject()
@@ -63,7 +67,7 @@ internal class ProactiveSessionOpener(
      * Returns immediately; connection progress is observed by later calls.
      */
     suspend fun ensureSession(peerId: PeerId) {
-        if (ctx.webRtcTransport.hasSession(peerId)) return
+        if (sessions.hasSession(peerId)) return
 
         val now = ctx.clock.now()
         val config = ctx.routerConfig.value
@@ -78,12 +82,12 @@ internal class ProactiveSessionOpener(
         if (now - lastSeen >= config.proactiveSessionFreshness) return
 
         recordAttempt(peerId, now)
-        runCatching { ctx.webRtcTransport.openSession(peerId) }
+        runCatching { sessions.openSession(peerId) }
             .onSuccess {
                 AppLog.info(
                     component = LogComponent.ROUTER,
                     event = LogEvent.PROACTIVE_SESSION_OPENING,
-                    message = "Proactively opening WebRTC session",
+                    message = "Proactively opening session",
                     fields = mapOf("peerId" to peerId, "lastSeen" to lastSeen),
                 )
             }
@@ -92,7 +96,7 @@ internal class ProactiveSessionOpener(
                 AppLog.warn(
                     component = LogComponent.ROUTER,
                     event = LogEvent.SESSION_FAILED,
-                    message = "Proactive WebRTC session open failed",
+                    message = "Proactive session open failed",
                     fields = mapOf("peerId" to peerId, "error" to e.toString()),
                 )
             }
@@ -115,7 +119,7 @@ internal class ProactiveSessionOpener(
      *   [SessionOutcome.Timeout] once the budget is exhausted.
      */
     suspend fun awaitSession(peerId: PeerId, timeout: Duration): SessionOutcome {
-        if (ctx.webRtcTransport.hasSession(peerId)) return SessionOutcome.Connected
+        if (sessions.hasSession(peerId)) return SessionOutcome.Connected
 
         val reopenInterval = ctx.routerConfig.value.sessionAwaitReopenDelay
         val deadline = ctx.clock.now() + timeout
@@ -123,7 +127,7 @@ internal class ProactiveSessionOpener(
             if (ctx.clock.now() >= deadline) return SessionOutcome.Timeout
 
             try {
-                ctx.webRtcTransport.openSession(peerId)
+                sessions.openSession(peerId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -137,8 +141,8 @@ internal class ProactiveSessionOpener(
 
             val wait = minOf(reopenInterval, (deadline - ctx.clock.now()).coerceAtLeast(Duration.ZERO))
             val connected = withTimeoutOrNull(wait) {
-                ctx.webRtcTransport.sessionStatesOf(peerId)
-                    .first { it.phase == WebRtcSessionPhase.CONNECTED && ctx.webRtcTransport.hasSession(peerId) }
+                sessions.sessionStatesOf(peerId)
+                    .first { it.phase == SessionPhase.CONNECTED && sessions.hasSession(peerId) }
             }
             if (connected != null) return SessionOutcome.Connected
         }

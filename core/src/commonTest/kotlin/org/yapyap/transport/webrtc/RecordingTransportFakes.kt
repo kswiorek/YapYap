@@ -52,8 +52,8 @@ internal class RecordingWebRtcTransport : WebRtcTransport {
         stopCalls.add(Unit)
     }
 
-    override suspend fun openSession(target: PeerId) {
-        openSessionCalls.add(target)
+    override suspend fun openSession(key: PeerId) {
+        openSessionCalls.add(key)
     }
 
     /**
@@ -75,18 +75,18 @@ internal class RecordingWebRtcTransport : WebRtcTransport {
         sendEnvelopeCalls.add(targetId to envelope)
     }
 
-    override suspend fun closeSession(targetId: PeerId) {
-        closeSessionCalls.add(targetId)
-        simulateEnvelopeChannelClosed(targetId)
+    override suspend fun closeSession(key: PeerId) {
+        closeSessionCalls.add(key)
+        simulateEnvelopeChannelClosed(key)
     }
 
     override suspend fun handleBootstrapSignal(signal: WebRtcSignal) {
         handleBootstrapCalls.add(signal)
     }
 
-    override fun hasSession(peerId: PeerId): Boolean {
-        hasSessionCalls.add(peerId)
-        return peerId in openChannelPeers
+    override fun hasSession(key: PeerId): Boolean {
+        hasSessionCalls.add(key)
+        return key in openChannelPeers
     }
 
     override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
@@ -151,8 +151,8 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
         stopCalls.add(Unit)
     }
 
-    override suspend fun openSession(target: PeerId) {
-        openSessionCalls.add(target)
+    override suspend fun openSession(key: PeerId) {
+        openSessionCalls.add(key)
     }
 
     /** Simulates the envelope data channel reaching OPEN for [peer]; hasSession(peer) becomes true. */

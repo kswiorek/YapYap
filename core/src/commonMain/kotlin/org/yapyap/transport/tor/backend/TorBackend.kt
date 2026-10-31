@@ -9,7 +9,14 @@ import org.yapyap.transport.tor.TorIncomingFrame
 import kotlin.time.Duration
 
 internal interface TorBackend {
+    /** One-shot frames (one frame per connection, see [TOR_TRANSPORT_FRAME_MAGIC]). */
     val incomingFrames: Flow<TorIncomingFrame>
+
+    /**
+     * Accepted session streams (see [TOR_STREAM_MAGIC]); the collector owns each one and
+     * must close it. Single consumer: streams nobody takes are closed by the backend.
+     */
+    val incomingStreams: Flow<TorInboundStream>
 
     /**
      * Whether our own onion is dialable yet. Starts PUBLISHING on every start
@@ -44,6 +51,14 @@ internal interface TorBackend {
      * `TorBackendConfig.socksRetryTimeout` (null: that configured budget).
      */
     suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration? = null)
+
+    /**
+     * Dials [target] and writes the stream hello, returning the open connection. Retries
+     * within [budget] exactly like [send] (null: `TorBackendConfig.socksRetryTimeout`).
+     * Unlike [send]'s connections, the returned stream has no socket read timeout: idle
+     * detection is the caller's (keepalives).
+     */
+    suspend fun openStream(target: TorEndpoint, budget: Duration? = null): TorDuplex
 
     /**
      * Drops Tor's cached onion lookups (descriptors and remembered "not found"

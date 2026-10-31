@@ -35,6 +35,11 @@ internal class OutboxProcessor(
     maxIdlePoll: StateFlow<Duration>,
     /** Peer-level presence (router availability registry): evidence a "not found" onion is stale. */
     private val isPeerOnline: (PeerId) -> Boolean = { false },
+    /**
+     * A due entry found no open link to its peer and was parked; whoever keeps links open
+     * may want to try that peer now.
+     */
+    private val onNoLink: suspend (PeerId) -> Unit = {},
 ) {
     /**
      * Peers whose last Tor dispatch failed with [TransportException.TorException.OnionNotFound].
@@ -107,6 +112,7 @@ internal class OutboxProcessor(
         wake()
     }
 
+    /** [peerId] proved it is up (inbound traffic) or a link to it opened: its entries go now. */
     suspend fun onPeerOnline(peerId: PeerId) {
         val now = ctx.clock.now()
         // The peer just proved it's up; a miss Tor cached while it was down is now stale.
@@ -165,7 +171,10 @@ internal class OutboxProcessor(
             )
         }
         if (started.isEmpty()) return
-        val claimed = started.map { entry -> claim(entry, now) }
+        val claimed = started.mapNotNull { entry -> claim(entry, now) }
+        val parked = started.filter { entry -> claimed.none { it.entry === entry } }
+        if (parked.isNotEmpty()) park(parked, now)
+        if (claimed.isEmpty()) return
         val scope = dispatchScope
         if (scope != null) {
             claimed.forEach { dispatch -> scope.launch { send(dispatch) } }
@@ -198,38 +207,57 @@ internal class OutboxProcessor(
     private class ClaimedDispatch(
         val entry: OutboxEntry,
         val transport: RouterTransport,
-        val torBudget: Duration?,
         val now: Instant,
         val nextRetryAt: Instant,
     )
 
-    private suspend fun claim(entry: OutboxEntry, now: Instant): ClaimedDispatch {
+    /**
+     * Records the attempt and picks the link, or returns null when no link to the peer is
+     * open: sends never dial a peer themselves (keeping links open happens in the background,
+     * see [org.yapyap.routing.link.LinkKeeper]), so the entry waits — see [park]. Entries with
+     * an explicit endpoint (bootstrap to a newcomer, never a linked peer) are the exception
+     * and go out as a one-shot Tor dial.
+     */
+    private suspend fun claim(entry: OutboxEntry, now: Instant): ClaimedDispatch? {
         val envelope = entry.envelope
-        val config = ctx.routerConfig.value
         val outbound = transportPolicy.resolve(
             target = envelope.target,
+            links = ctx.peerLinks.linksOf(envelope.target),
             retries = entry.attempts,
-            hasWebRtcSession = ctx.webRtcTransport.hasSession(envelope.target),
         )
+        val transport = outbound.transport
+            ?: if (entry.targetEndpoint != null) RouterTransport.TOR else return null
         val nextRetryAt = now + outbound.retryDelay
         packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
-        // A peer the registry considers offline gets one short try: a "not found"
-        // there would otherwise retry inside Tor for the full send budget. Packets
-        // with an explicit endpoint (bootstrap to a newcomer, never in the registry)
-        // keep the full budget.
-        val torBudget = if (entry.targetEndpoint == null && !isPeerOnline(envelope.target)) {
-            config.offlinePeerSendBudget
-        } else {
-            null
-        }
-        return ClaimedDispatch(entry, outbound.transport, torBudget, now, nextRetryAt)
+        return ClaimedDispatch(entry, transport, now, nextRetryAt)
+    }
+
+    /**
+     * Entries whose peer has no open link: pushed back by `noLinkRecheckDelay` without
+     * counting an attempt (a missing link says nothing about this packet), released from
+     * the in-flight set, and their peers reported through [onNoLink]. A link coming up
+     * makes them due at once ([onPeerOnline]); the delay is only a safety net. Delivery
+     * meanwhile rides on relay deposits and the pull path.
+     */
+    private suspend fun park(entries: List<OutboxEntry>, now: Instant) {
+        val until = now + ctx.routerConfig.value.noLinkRecheckDelay
+        entries.forEach { packetOutbox.deferRetry(it.packetId, until) }
+        inFlightLock.withLock { entries.forEach { inFlight.remove(it.packetId) } }
+        val peers = entries.map { it.envelope.target }.distinct()
+        AppLog.debug(
+            component = LogComponent.ROUTER,
+            event = LogEvent.OUTBOX_PROCESSED,
+            message = "No open link; outbox entries wait for one",
+            fields = mapOf("count" to entries.size, "peers" to peers.size, "recheckAt" to until),
+        )
+        peers.forEach { peer -> runCatching { onNoLink(peer) } }
     }
 
     private suspend fun send(dispatch: ClaimedDispatch) {
         val envelope = dispatch.entry.envelope
         try {
             runCatching {
-                dispatcher.dispatch(envelope, dispatch.transport, dispatch.entry.targetEndpoint, dispatch.torBudget)
+                dispatcher.dispatch(envelope, dispatch.transport, dispatch.entry.targetEndpoint)
             }.onSuccess {
                 if (dispatch.transport == RouterTransport.TOR) notFoundPeers.update { it - envelope.target }
                 AppLog.debug(

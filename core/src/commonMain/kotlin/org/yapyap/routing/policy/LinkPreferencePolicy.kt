@@ -5,26 +5,23 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RouterTransport
 
-internal class SessionOrTorPolicy(
+/** Uses the most preferred open link (`RouterConfig.linkPreference`). */
+internal class LinkPreferencePolicy(
     private val config: StateFlow<RouterConfig>,
 ) : OutboundPolicy {
     override fun resolve(
         target: PeerId,
-        hasWebRtcSession: Boolean,
+        links: Set<RouterTransport>,
         retries: Long,
         forced: RouterTransport?
     ): ResolvedOutbound {
         val configSnapshot = config.value
-        val transport: RouterTransport = forced ?: if (hasWebRtcSession) {
-            RouterTransport.WEBRTC
-        } else {
-            RouterTransport.TOR
-        }
+        val transport = forced ?: configSnapshot.linkPreference.firstOrNull { it in links }
 
         var retryDelay = configSnapshot.standbyRetryDelay
 
         if (retries <= configSnapshot.fastRetryBudget) {
-            retryDelay = configSnapshot.getRetryDelay(transport)
+            retryDelay = configSnapshot.getRetryDelay(transport ?: RouterTransport.TOR)
         }
 
         return ResolvedOutbound(transport, retryDelay)

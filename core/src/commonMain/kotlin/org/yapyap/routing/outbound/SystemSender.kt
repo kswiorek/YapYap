@@ -16,6 +16,7 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.transport.tor.TorLinkId
 import kotlin.uuid.Uuid
 
 internal class SystemSender(
@@ -28,9 +29,10 @@ internal class SystemSender(
         transport: RouterTransport,
         nackReason: PacketNackReason?,
         endpointOverride: TorEndpoint? = null,
+        torReplyLink: TorLinkId? = null,
     ) {
         if (nackReason == null) {
-            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport, endpointOverride)
+            sendAck(inbound.packetId, inbound.source, inbound.packetType, transport, endpointOverride, torReplyLink)
         } else {
             sendNack(
                 inbound.packetId,
@@ -40,6 +42,7 @@ internal class SystemSender(
                 transport,
                 endpointOverride = endpointOverride,
                 persistReason = false,
+                torReplyLink = torReplyLink,
             )
         }
     }
@@ -48,6 +51,8 @@ internal class SystemSender(
      * @param endpointOverride out-of-band endpoint for sources with no local devices row
      *   (bootstrap ACKs/NACKs back to a newcomer/recovering device) — the transport-proven
      *   inbound endpoint, sent to verbatim instead of the DB lookup.
+     * @param torReplyLink the Tor stream the acknowledged packet arrived on: answered on it
+     *   while it is open, so the reply needs no dial of its own.
      */
     suspend fun sendAck(
         packetId: Uuid,
@@ -55,6 +60,7 @@ internal class SystemSender(
         packetType: PacketType,
         transport: RouterTransport,
         endpointOverride: TorEndpoint? = null,
+        torReplyLink: TorLinkId? = null,
     ) {
         val ackContext = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
@@ -66,7 +72,7 @@ internal class SystemSender(
             packetId,
             packetType,
         )
-        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride)
+        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride, torReplyLink)
         AppLog.info(
             LogComponent.ROUTER,
             LogEvent.ACK_SENT,
@@ -89,6 +95,7 @@ internal class SystemSender(
         endpointOverride: TorEndpoint? = null,
         persistReason: Boolean = true,
         reasonText: String? = null,
+        torReplyLink: TorLinkId? = null,
     ) {
         if (persistReason) {
             ctx.packetDeduplicator.markNacked(packetId, source, reason)
@@ -106,7 +113,7 @@ internal class SystemSender(
             reason,
             reasonText = reasonText,
         )
-        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride)
+        sendSystemEnvelope(ackPayload, transport, ackContext, endpointOverride, torReplyLink)
         AppLog.info(
             LogComponent.ROUTER,
             LogEvent.NACK_SENT,
@@ -128,12 +135,7 @@ internal class SystemSender(
             createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
-        val transport = transportPolicy.resolve(
-            target,
-            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
-            retries = 0
-        ).transport
-        sendSystemEnvelope(request, transport, context)
+        sendSystemEnvelope(request, transportFor(target), context)
     }
 
     suspend fun sendSyncNack(target: PeerId, payload: SystemPayload.SyncNack) {
@@ -143,24 +145,19 @@ internal class SystemSender(
             createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
-        val transport = transportPolicy.resolve(
-            target,
-            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
-            retries = 0
-        ).transport
-        sendSystemEnvelope(payload, transport, context)
+        sendSystemEnvelope(payload, transportFor(target), context)
     }
 
     /**
-     * Sends a fire-and-forget typing indicator. Delivery is WebRTC-only: peers without an open
-     * WebRTC session are silently skipped (no Tor fallback, no outbox persistence) since a typing
-     * indicator delivered over Tor store-and-forward would be stale by the time it arrives.
+     * Sends a fire-and-forget typing indicator over the preferred open link. Peers with no link
+     * are silently skipped (no one-shot dial, no outbox persistence): an indicator that has to
+     * wait for a connection would be stale by the time it arrives.
      */
     suspend fun sendTypingIndicator(
         target: PeerId,
         payload: SystemPayload.TypingIndicator,
     ) {
-        if (!ctx.webRtcTransport.hasSession(target)) return
+        val transport = transportPolicy.resolve(target, ctx.peerLinks.linksOf(target), retries = 0).transport ?: return
 
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
@@ -168,13 +165,14 @@ internal class SystemSender(
             createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
-        sendSystemEnvelope(payload, RouterTransport.WEBRTC, context)
+        sendSystemEnvelope(payload, transport, context)
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.TYPING_INDICATOR_SENT,
-            message = "Typing indicator sent over WebRTC",
+            message = "Typing indicator sent",
             fields = mapOf(
                 "target" to target,
+                "transport" to transport,
                 "roomId" to payload.roomId,
                 "intervalMillis" to payload.intervalMillis,
             ),
@@ -192,13 +190,7 @@ internal class SystemSender(
             securityScheme = SignalSecurityScheme.SIGNED,
         )
 
-        val transport = transportPolicy.resolve(
-            target,
-            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
-            retries = 0
-        ).transport
-
-        sendSystemEnvelope(payload, transport, context)
+        sendSystemEnvelope(payload, transportFor(target), context)
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.PING_SENT,
@@ -219,20 +211,22 @@ internal class SystemSender(
             securityScheme = SignalSecurityScheme.SIGNED,
         )
 
-        val transport = transportPolicy.resolve(
-            target,
-            hasWebRtcSession = ctx.webRtcTransport.hasSession(target),
-            retries = 0
-        ).transport
-
-        sendSystemEnvelope(SystemPayload.LogOff, transport, context)
+        sendSystemEnvelope(SystemPayload.LogOff, transportFor(target), context)
     }
+
+    /**
+     * The preferred open link to [target]; with none, a one-shot Tor dial. System traffic is
+     * never parked waiting for a link (pings, sync requests and log-offs are best-effort).
+     */
+    private suspend fun transportFor(target: PeerId): RouterTransport =
+        transportPolicy.resolve(target, ctx.peerLinks.linksOf(target), retries = 0).transport ?: RouterTransport.TOR
 
     private suspend fun sendSystemEnvelope(
         payload: SystemPayload,
         transport: RouterTransport,
         context: EnvelopeProtectContext,
         endpointOverride: TorEndpoint? = null,
+        torReplyLink: TorLinkId? = null,
     ) {
         val protected = ctx.envelopeProtectionService.protectSystem(payload, context)
         val now = ctx.clock.now()
@@ -246,6 +240,6 @@ internal class SystemSender(
             target = context.targetDeviceId,
             payload = protected.encode(),
         )
-        dispatcher.dispatch(envelope, transport, endpointOverride)
+        dispatcher.dispatch(envelope, transport, endpointOverride, torReplyLink = torReplyLink)
     }
 }

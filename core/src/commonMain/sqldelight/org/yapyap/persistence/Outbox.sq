@@ -49,6 +49,11 @@ SET next_retry_at = :now
 WHERE target_device_id = :target
   AND next_retry_at > :now;
 
+deferRetry:
+UPDATE outbox
+SET next_retry_at = ?
+WHERE packet_id = ?;
+
 updateAttempt:
 UPDATE outbox
 SET last_attempt_at = ?, retry_count = retry_count + 1, next_retry_at = ?

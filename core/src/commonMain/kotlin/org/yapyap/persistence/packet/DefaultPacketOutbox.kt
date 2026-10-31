@@ -106,6 +106,12 @@ internal class DefaultPacketOutbox(
         }
     }
 
+    override suspend fun deferRetry(packetId: Uuid, nextRetryAt: Instant) {
+        withContext(dbDispatcher) {
+            queries.deferRetry(next_retry_at = nextRetryAt, packet_id = packetId)
+        }
+    }
+
     override suspend fun listAllForTarget(target: PeerId): List<OutboxEntry> =
         withContext(dbDispatcher) {
             queries.getAllForTargetDevice(target.id).executeAsList().mapNotNull { mapRowOrDrop(it) }

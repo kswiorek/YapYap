@@ -27,5 +27,8 @@ internal sealed class TransportException(message: String) : Exception(message) {
         class SocksConnectionTimeout : TorException("Socks timeout")
         class TorRuntimeError(message: String) : TorException(message)
         class TransportFrameError(message: String) : TorException("Failed to parse transport frame: $message")
+
+        /** A Tor session (long-lived stream) to the target ended or stalled mid-write. */
+        class SessionClosed(message: String) : TorException(message)
     }
 }

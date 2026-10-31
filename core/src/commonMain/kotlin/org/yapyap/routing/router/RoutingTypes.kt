@@ -14,6 +14,7 @@ import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
+import org.yapyap.routing.link.PeerLinks
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.time.Clock
@@ -147,6 +148,9 @@ internal class RoutingContext(
     val transportLimits: StateFlow<TransportLimits>,
 ) {
     lateinit var localDeviceIdentity: DeviceIdentityRecord
+
+    /** Live links to peers across both transports; see [PeerLinks]. */
+    val peerLinks: PeerLinks by lazy { PeerLinks(identityResolver, webRtcTransport, torTransport) }
 
     val localDeviceId: PeerId
         get() = localDeviceIdentity.deviceId

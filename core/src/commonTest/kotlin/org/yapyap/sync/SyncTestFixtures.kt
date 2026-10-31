@@ -27,7 +27,7 @@ import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
-import org.yapyap.routing.policy.SessionOrTorPolicy
+import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncPayloadProvider
@@ -286,7 +286,7 @@ internal fun buildSyncRoutingStack(
     ctx.localDeviceIdentity = localDevice
 
     val dispatcher = EnvelopeDispatcher(ctx)
-    val policy = SessionOrTorPolicy(MutableStateFlow(RouterConfig()))
+    val policy = LinkPreferencePolicy(MutableStateFlow(RouterConfig()))
     val outbox = TrackingPacketOutbox()
     val outboxProcessor = OutboxProcessor(ctx, dispatcher, policy, outbox, maxIdlePoll = MutableStateFlow(60.seconds))
     val availabilityRegistry =

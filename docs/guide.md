@@ -39,7 +39,36 @@
 
 ### Transport layer implementation status
 
+- Sessions ("links"): Tor delivers over long-lived streams, not one connection per packet. Tor runs many
+  streams concurrently, but setting one up to an onion takes seconds, and to an offline peer it can hang for
+  minutes. So connections are kept open in the background, and sends only use connections that are already
+  open.
+    - Both session transports implement one contract (`SessionTransport<K>` in `transport/session`): per-remote
+      `sessionStates` where `CONNECTED` holds iff `hasSession`, plus idempotent, asynchronous
+      `openSession`/`closeSession`. WebRTC keys sessions by device id, Tor by onion endpoint.
+    - The router sees them per device through `PeerLinks` (`routing/link`). Transport choice (`OutboundPolicy`)
+      takes the most preferred open link (`RouterConfig.linkPreference`: WebRTC, then Tor). With no link, outbox
+      entries wait (deferred without counting an attempt) and relay deposits plus the pull path cover delivery;
+      best-effort system traffic falls back to a one-shot Tor dial. Any link coming up wakes the peer's outbox
+      entries.
+    - `LinkKeeper` keeps links open to a target set over any session transport, with per-peer exponential
+      backoff, capped concurrent opens, prompt reopen when a link drops, and a readiness gate. The router runs one
+      for Tor (all active peers, gated on `TorHealth.Ready`). WebRTC sessions stay on-demand (`ProactiveSessionOpener`).
+    - Pings go only to linked peers. A successful link open pings the peer, which syncs frontiers on connect. A
+      failed open counts as an unanswered probe for availability scoring.
 - Tor:
+    - Wire: a connection starts with a magic int. One-shot frames (`TOR_TRANSPORT_FRAME_MAGIC`: one frame, then
+      close) are still accepted and still used for bootstrap targets, peers without a session and the self-probe.
+      Streams (`TOR_STREAM_MAGIC`) start with a hello naming the dialer's endpoint, then carry records (`ACCEPT`,
+      `DATA`, `KEEPALIVE`; unknown types are skipped). Peers running a build without streams can't
+      accept sessions, so mixed-version devices fall back to relays and the pull path.
+    - A stream we dialed is a session once the far end's app sends `ACCEPT`. A stream someone else dialed only
+      carries replies (ACK/NACK go back on the stream the packet arrived on) until the router adopts it. It adopts
+      a stream once an authenticated ping from the claimed device arrives on it: pings are never relayed, so this
+      proves who dialed. When both sides dial each other, the side with the higher onion closes its own dialed
+      stream after adopting the other.
+    - Idle streams exchange keepalives, and a stream with nothing received for `sessionIdleTimeout` is closed:
+      Tor gives no timely signal when the far end disappears.
   - Tor backend + Tor transport abstraction implemented.
   - Integration tests exist (including live loopback Tor test).
   - `TorBackend.start()` returns once the daemon's SOCKS listener is up and the onion is added; it does not wait
@@ -68,11 +97,11 @@
   - Stale onion lookups: Tor remembers "descriptor not found" for minutes, and a directory relay that never
     answers holds a stream for Tor's full two-minute SOCKS timeout. The backend tracks unanswered `HS_DESC`
     fetches per onion (`DescriptorFetchTracker`) and ends a send attempt or self-probe stuck on one for
-    `descriptorFetchStallTimeout` (20 s). SOCKS code 4 surfaces as `TorException.OnionNotFound`; the router's
-    outbox remembers such peers and, when the availability registry says the peer is online (or it comes
-    online), asks `TorTransport.refreshOnionLookups()` to drop the cached miss and retries after
-    `onionRefreshRetryDelay`. NEWNYM is global, so refreshes requested from outside the backend's own
-    recovery are throttled (`onionLookupRefreshMinInterval`, 30 s).
+    `descriptorFetchStallTimeout` (20 s). SOCKS code 4 surfaces as `TorException.OnionNotFound`. When a Tor link
+    open fails this way for a peer the availability registry says is online, the router asks
+    `TorTransport.refreshOnionLookups()` to drop the cached miss and retries after `onionRefreshRetryDelay`. NEWNYM
+    is global (it also discards warm circuits to every other peer), so refreshes requested from outside the
+    backend's own recovery are throttled (`onionLookupRefreshMinInterval`, 30 s).
 - WebRTC:
   - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
   - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).
@@ -80,12 +109,10 @@
   - Live Tor + WebRTC integration test implemented.
   - AV contracts/types are implemented end-to-end at transport API level (session request/accept/reject/state/control
     flow), with backend media-track handling still not complete.
-  - Session state contract: `sessionStates` is a per-peer last-known-state map where `CONNECTED` holds iff
-    the envelope data channel is open (same predicate as `hasSession`); the backend is the single writer of
-    state, so subscribers may treat replayed states as ground truth. `ProactiveSessionOpener.awaitSession`
-    is event-driven on this stream (with a slow re-open safety net for silently lost signaling), and no
-    session-connected outbox acceleration is wired — session establishment implies prior signal traffic,
-    which already fired the peer-availability transition.
+  - Session state contract: the shared `SessionTransport` one (`CONNECTED` iff the envelope data channel is
+    open); the backend is the single writer of state, so subscribers may treat replayed states as ground truth.
+    `ProactiveSessionOpener.awaitSession` is event-driven on this stream (with a slow re-open safety net for
+    silently lost signaling).
 - Test note: some live/native WebRTC tests can be flaky with thread attach warnings from webrtc-java.
 
 ### Crypto + identity + persistence status
@@ -148,9 +175,9 @@ Inbound/outbound disposition contract:
 - The outbox has no processing round: each due entry is claimed (attempt and next retry recorded
   first) and sent on its own, so a slow send never delays what is queued behind it. In-flight sends are
   capped (`outboxMaxInFlight`, `outboxMaxInFlightPerTarget`), and the retry timer ignores overdue
-  entries that can't start yet — finishing sends wake the loop instead. A peer the availability
-  registry considers offline gets a short Tor budget (`offlinePeerSendBudget`); bootstrap packets with
-  an explicit endpoint keep the full one.
+  entries that can't start yet — finishing sends wake the loop instead. Sends never open a connection:
+  an entry whose peer has no open link waits for one (`noLinkRecheckDelay` is only a safety net).
+  Bootstrap packets with an explicit endpoint are the exception and go out as one-shot Tor dials.
 - Unknown-device policy exception: an ACK/NACK from a device with no row is accepted only when it
   refers to a BOOTSTRAP packet in our outbox addressed to exactly that device (a recovering device
   can't verify its sponsor's signature yet; the unguessable packet id authenticates the reply). It is

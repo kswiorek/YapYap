@@ -240,9 +240,9 @@ internal class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun openSession(target: PeerId) {
+    override suspend fun openSession(key: PeerId) {
         check(started) { "WebRTC transport must be started before opening session" }
-        backend.openSession(target = target)
+        backend.openSession(target = key)
     }
 
     override suspend fun sendEnvelope(targetId: PeerId, envelope: BinaryEnvelope) {
@@ -259,9 +259,9 @@ internal class DefaultWebRtcTransport(
         )
     }
 
-    override suspend fun closeSession(targetId: PeerId) {
+    override suspend fun closeSession(key: PeerId) {
         check(started) { "WebRTC transport must be started before closing session" }
-        backend.closeSession(targetId)
+        backend.closeSession(key)
     }
 
     override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
@@ -367,8 +367,8 @@ internal class DefaultWebRtcTransport(
         }
     }
 
-    override fun hasSession(peerId: PeerId): Boolean {
-        return backend.hasSession(peerId)
+    override fun hasSession(key: PeerId): Boolean {
+        return backend.hasSession(key)
     }
 
     private suspend fun handleIncomingFrame(frame: WebRtcDataFrame) {

@@ -4,6 +4,7 @@ import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -40,6 +41,9 @@ internal class LoopbackTorBackend(
     )
     override val incomingFrames: Flow<TorIncomingFrame> = incomingFlow.asSharedFlow()
 
+    private val inboundStreams = Channel<TorInboundStream>(capacity = INBOUND_STREAM_QUEUE)
+    override val incomingStreams: Flow<TorInboundStream> = inboundStreams.receiveAsFlow()
+
     // Loopback is dialable the moment the socket binds — no descriptor dance.
     private val _publishState = MutableStateFlow(TorPublishState.PUBLISHING)
     override val publishState: StateFlow<TorPublishState> = _publishState.asStateFlow()
@@ -63,7 +67,9 @@ internal class LoopbackTorBackend(
     override suspend fun start(): TorEndpoint {
         check(acceptSocket == null) { "Loopback Tor backend already started" }
 
-        val selector = SelectorManager(Dispatchers.Default)
+        // ktor's selector loop blocks its thread in select(): never on Default (several
+        // loopback instances in one process would starve it).
+        val selector = SelectorManager(Dispatchers.IO)
         selectorManager = selector
 
         val listener = aSocket(selector).tcp().bind(LOOPBACK_HOST, 0)
@@ -97,6 +103,10 @@ internal class LoopbackTorBackend(
 
         scope?.cancel()
         scope = null
+        while (true) {
+            val stream = inboundStreams.tryReceive().getOrNull() ?: break
+            stream.duplex.close()
+        }
 
         publishedLocalEndpoint = null
         _publishState.value = TorPublishState.PUBLISHING
@@ -147,46 +157,54 @@ internal class LoopbackTorBackend(
         }
     }
 
+    override suspend fun openStream(target: TorEndpoint, budget: Duration?): TorDuplex {
+        val localSource = publishedLocalEndpoint ?: error("Loopback Tor backend must be started before dialing")
+        val targetPort = loopbackPortFor(target)
+        val selector = requireNotNull(selectorManager) { "Loopback selector manager is not initialized" }
+        try {
+            return withTimeout(SEND_TIMEOUT) {
+                // No socket timeout: an open session is legitimately idle between keepalives.
+                val socket = aSocket(selector).tcp().connect(LOOPBACK_HOST, targetPort)
+                try {
+                    val duplex = SocketTorDuplex(socket)
+                    writeTorStreamHello(duplex.output, localSource)
+                    duplex.output.flush()
+                    duplex
+                } catch (e: Throwable) {
+                    socket.close()
+                    throw e
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw TransportException.LoopbackError("timed out dialing ${target.onionAddress}")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw TransportException.LoopbackError("failed to dial ${target.onionAddress}: ${e.message}")
+        }
+    }
+
     private suspend fun acceptInboundConnections(listener: ServerSocket) {
         while (scope?.isActive == true) {
             val client = runCatching { listener.accept() }.getOrElse { break }
             scope?.launch {
-                handleInboundConnection(client)
-            }
-        }
-    }
-
-    /**
-     * Same cancellation discipline as the real backend: genuine parse failures surface
-     * as [TransportException.TorException.TransportFrameError], while cancellation from
-     * backend shutdown is rethrown untouched so an orderly stop never becomes a child failure.
-     */
-    private suspend fun handleInboundConnection(client: Socket) {
-        try {
-            val input = client.openReadChannel()
-            val frame = try {
-                readTorTransportFrame(input, config.value.maxPayloadBytes)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                AppLog.warn(
-                    component = LogComponent.TOR_BACKEND,
-                    event = LogEvent.ENVELOPE_DECODE_FAILED,
-                    message = "Failed to read inbound loopback transport frame",
+                handleTorConnection(
+                    client,
+                    config.value.maxPayloadBytes,
+                    incomingFlow,
+                    inboundStreams,
+                    backendName = "loopback",
                 )
-                throw TransportException.TorException.TransportFrameError(e.message ?: "Unknown error")
             }
-            incomingFlow.emit(frame)
-        } finally {
-            client.close()
         }
     }
 
     companion object {
         const val LOOPBACK_HOST: String = "127.0.0.1"
         private val SEND_TIMEOUT = 10.seconds
+        private const val INBOUND_STREAM_QUEUE: Int = 64
         private const val SOCKET_TIMEOUT_MS: Long = 30_000L
 
         private val LOOPBACK_ADDRESS = Regex("^loopback-(\\d{1,5})\\.onion$")

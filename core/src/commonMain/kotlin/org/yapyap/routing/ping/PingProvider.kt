@@ -48,29 +48,39 @@ internal class PingProvider(
         pingLoopJob = null
     }
 
-    suspend fun ping() = fanOutToAllPeers(
+    /**
+     * Pings every peer with an open link. A peer without one isn't pinged: reaching it is the
+     * link keeper's job (a successful open pings it, a failed one counts as an unanswered
+     * probe), so a ping round never waits on dials to offline peers.
+     */
+    suspend fun ping() = fanOutToLinkedPeers(
         noPeersEvent = LogEvent.PING_NO_PEERS,
-        noPeersMessage = "No peers to ping",
+        noPeersMessage = "No linked peers to ping",
     ) { sendPing(it) }
 
-    suspend fun logOff() = fanOutToAllPeers(
+    /** Pings one peer now (e.g. right after a link to it opened). */
+    suspend fun pingPeer(peerId: PeerId) = sendPing(peerId)
+
+    /** Tells every linked peer we're going away (unlinked ones will notice us gone anyway). */
+    suspend fun logOff() = fanOutToLinkedPeers(
         noPeersEvent = LogEvent.PING_NO_PEERS,
-        noPeersMessage = "No peers to notify of log-off",
+        noPeersMessage = "No linked peers to notify of log-off",
     ) { sendLogOff(it) }
 
     /**
-     * Fans a best-effort action out to every known peer. Failures to individual peers are caught
-     * and swallowed so that one unreachable device cannot cancel the sends to the remaining peers
-     * (and cannot, for example, abort the rest of a router shutdown from [logOff]).
+     * Fans a best-effort action out to every known peer with an open link. Failures to individual
+     * peers are caught and swallowed so that one device cannot cancel the sends to the remaining
+     * peers (and cannot, for example, abort the rest of a router shutdown from [logOff]).
      */
-    private suspend fun fanOutToAllPeers(
+    private suspend fun fanOutToLinkedPeers(
         noPeersEvent: LogEvent,
         noPeersMessage: String,
         block: suspend (PeerId) -> Unit,
     ) {
-        val peers = ctx.identityResolver.getAllActivePeers().filter { it != ctx.localDeviceId }
+        val peers = ctx.identityResolver.getAllActivePeers()
+            .filter { it != ctx.localDeviceId && ctx.peerLinks.linksOf(it).isNotEmpty() }
         if (peers.isEmpty()) {
-            AppLog.warn(
+            AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = noPeersEvent,
                 message = noPeersMessage,

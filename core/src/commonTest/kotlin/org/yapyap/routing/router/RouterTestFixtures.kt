@@ -36,7 +36,7 @@ import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
-import org.yapyap.routing.policy.SessionOrTorPolicy
+import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
@@ -534,6 +534,13 @@ internal class TrackingPacketOutbox : PacketOutbox {
         }
     }
 
+    val deferRetryCalls = mutableListOf<Pair<Uuid, Instant>>()
+
+    override suspend fun deferRetry(packetId: Uuid, nextRetryAt: Instant) {
+        deferRetryCalls.add(packetId to nextRetryAt)
+        synchronized(lock) { entries[packetId]?.nextRetryAt = nextRetryAt }
+    }
+
     override suspend fun listAllForTarget(target: PeerId): List<OutboxEntry> =
         synchronized(lock) {
             entries.values
@@ -783,6 +790,7 @@ internal fun outboxProcessorUnderTest(
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     isPeerOnline: (PeerId) -> Boolean = { false },
+    onNoLink: suspend (PeerId) -> Unit = {},
 ): OutboxProcessor {
     val ctx =
         RoutingContext(
@@ -798,10 +806,11 @@ internal fun outboxProcessorUnderTest(
     return OutboxProcessor(
         ctx = ctx,
         dispatcher = EnvelopeDispatcher(ctx),
-        transportPolicy = SessionOrTorPolicy(MutableStateFlow(routerConfig)),
+        transportPolicy = LinkPreferencePolicy(MutableStateFlow(routerConfig)),
         packetOutbox = outbox,
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
         isPeerOnline = isPeerOnline,
+        onNoLink = onNoLink,
     )
 }
 

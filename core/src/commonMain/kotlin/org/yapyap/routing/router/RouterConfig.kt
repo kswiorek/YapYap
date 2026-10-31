@@ -46,11 +46,30 @@ internal data class RouterConfig(
      */
     val outboxMaxInFlightPerTarget: Int = 2,
     /**
-     * Tor send budget for a peer the availability registry considers offline:
-     * one short try instead of the transport's full budget (Tor answers "not
-     * found" at once, but retrying it inside the send takes minutes).
+     * Transports in order of preference for any send to a peer with more than one open link.
+     * A send never opens a link itself; with none open, outbox entries wait for one
+     * (see [noLinkRecheckDelay]) and system traffic falls back to a one-shot Tor dial.
      */
-    val offlinePeerSendBudget: Duration = 45.seconds,
+    val linkPreference: List<RouterTransport> = listOf(RouterTransport.WEBRTC, RouterTransport.TOR),
+    /**
+     * Outbox entries for a peer with no open link wait this long before being looked at
+     * again. Only a safety net: a link coming up wakes the peer's entries at once.
+     */
+    val noLinkRecheckDelay: Duration = 10.minutes,
+    /** Tor links (kept open to every active peer): wait after the first failed open, doubling per failure. */
+    val torLinkRetryDelay: Duration = 15.seconds,
+    /** Tor links: cap on the wait between opens to a peer that keeps failing. */
+    val torLinkMaxRetryDelay: Duration = 10.minutes,
+    /** Tor links: opens (dials) in progress at once. */
+    val torLinkMaxConcurrentOpens: Int = 8,
+    /**
+     * Tor links: how long one open may take before it counts as failed. Covers the
+     * transport's dial budget plus the far end's accept (`TorBackendConfig.sessionDialBudget`,
+     * `sessionAcceptTimeout`).
+     */
+    val torLinkOpenTimeout: Duration = 2.minutes,
+    /** Link keepers re-check their peers at least this often (new devices, due retries). */
+    val linkKeeperRecheckInterval: Duration = 60.seconds,
     /** ACK/NACK sends in progress at once (each is a Tor dial back to the sender). */
     val dispositionMaxInFlight: Int = 8,
     /**
@@ -133,7 +152,13 @@ internal data class RouterConfig(
         require(onionRefreshRetryDelay > Duration.ZERO) { "onionRefreshRetryDelay must be > 0" }
         require(outboxMaxInFlight > 0) { "outboxMaxInFlight must be > 0" }
         require(outboxMaxInFlightPerTarget > 0) { "outboxMaxInFlightPerTarget must be > 0" }
-        require(offlinePeerSendBudget > Duration.ZERO) { "offlinePeerSendBudget must be > 0" }
+        require(linkPreference.isNotEmpty()) { "linkPreference must not be empty" }
+        require(noLinkRecheckDelay > Duration.ZERO) { "noLinkRecheckDelay must be > 0" }
+        require(torLinkRetryDelay > Duration.ZERO) { "torLinkRetryDelay must be > 0" }
+        require(torLinkMaxRetryDelay >= torLinkRetryDelay) { "torLinkMaxRetryDelay must be >= torLinkRetryDelay" }
+        require(torLinkMaxConcurrentOpens > 0) { "torLinkMaxConcurrentOpens must be > 0" }
+        require(torLinkOpenTimeout > Duration.ZERO) { "torLinkOpenTimeout must be > 0" }
+        require(linkKeeperRecheckInterval > Duration.ZERO) { "linkKeeperRecheckInterval must be > 0" }
         require(dispositionMaxInFlight > 0) { "dispositionMaxInFlight must be > 0" }
         require(dispositionSendBudget > Duration.ZERO) { "dispositionSendBudget must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }

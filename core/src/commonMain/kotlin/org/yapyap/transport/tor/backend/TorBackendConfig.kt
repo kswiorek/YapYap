@@ -115,6 +115,27 @@ internal data class TorBackendConfig(
     /** Supervisor: how often to silently re-prove our onion is dialable while healthy. */
     val reachabilityRecheckInterval: Duration = 15.minutes,
     val defaultTorPort: Int = 80,
+    /**
+     * Sessions (long-lived streams, see `TorTransport`): how long one session dial may keep
+     * retrying before the session reports FAILED. Shorter than [socksRetryTimeout] on
+     * purpose: whoever keeps sessions open retries later with its own backoff, and a dead
+     * peer shouldn't hold a dial slot for minutes.
+     */
+    val sessionDialBudget: Duration = 60.seconds,
+    /** Sessions: how long a dialed stream may wait for the far end's ACCEPT record. */
+    val sessionAcceptTimeout: Duration = 30.seconds,
+    /** Sessions: a keepalive goes out after this long without anything written. */
+    val sessionKeepaliveInterval: Duration = 45.seconds,
+    /**
+     * Sessions: a stream with nothing received for this long is closed as dead. Tor gives no
+     * timely signal when the far end vanishes (lid closed, network gone), so this bounds how
+     * long writes can disappear into a dead stream. Must exceed [sessionKeepaliveInterval].
+     */
+    val sessionIdleTimeout: Duration = 2.minutes,
+    /** Sessions: a single record write stuck this long (far end not reading) closes the stream. */
+    val sessionWriteTimeout: Duration = 30.seconds,
+    /** Sessions: accepted streams held at once; further inbound streams are refused. */
+    val maxInboundSessions: Int = 128,
 ) {
     init {
         require(startupTimeout > 0L.milliseconds) { "startupTimeoutMillis must be > 0" }
@@ -128,6 +149,12 @@ internal data class TorBackendConfig(
         require(descriptorFetchStallTimeout > 0L.milliseconds) { "descriptorFetchStallTimeout must be > 0" }
         require(onionLookupRefreshMinInterval > 0L.milliseconds) { "onionLookupRefreshMinInterval must be > 0" }
         require(probeBudget > 0L.milliseconds) { "probeBudgetMillis must be > 0" }
+        require(sessionDialBudget > Duration.ZERO) { "sessionDialBudget must be > 0" }
+        require(sessionAcceptTimeout > Duration.ZERO) { "sessionAcceptTimeout must be > 0" }
+        require(sessionKeepaliveInterval > Duration.ZERO) { "sessionKeepaliveInterval must be > 0" }
+        require(sessionIdleTimeout > sessionKeepaliveInterval) { "sessionIdleTimeout must exceed sessionKeepaliveInterval" }
+        require(sessionWriteTimeout > Duration.ZERO) { "sessionWriteTimeout must be > 0" }
+        require(maxInboundSessions > 0) { "maxInboundSessions must be > 0" }
         require(uploadGracePeriod > 0L.milliseconds) { "uploadGracePeriodMillis must be > 0" }
         require(publishTimeout > 0L.milliseconds) { "publishTimeoutMillis must be > 0" }
         require(bootstrapStallTimeout > 0L.milliseconds) { "bootstrapStallTimeout must be > 0" }

@@ -1,14 +1,11 @@
 package org.yapyap.transport.webrtc.types
 
 import org.yapyap.protocol.PeerId
+import org.yapyap.transport.session.SessionPhase
+import org.yapyap.transport.session.SessionStatus
 
-internal enum class WebRtcSessionPhase {
-    NEGOTIATING,
-    CONNECTED,
-    REJECTED,
-    CLOSED,
-    FAILED,
-}
+/** WebRTC sessions use the transport-agnostic lifecycle (see [SessionPhase]). */
+internal typealias WebRtcSessionPhase = SessionPhase
 
 /**
  * Last-known session lifecycle state for one remote peer.
@@ -24,9 +21,9 @@ internal enum class WebRtcSessionPhase {
  */
 internal data class WebRtcSessionState(
     val peerId: PeerId,
-    val phase: WebRtcSessionPhase,
-    val reason: String? = null,
-)
+    override val phase: WebRtcSessionPhase,
+    override val reason: String? = null,
+) : SessionStatus
 
 internal sealed interface WebRtcSessionEvent {
     val peer: PeerId

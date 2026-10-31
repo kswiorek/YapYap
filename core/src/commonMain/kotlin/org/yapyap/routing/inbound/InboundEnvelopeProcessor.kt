@@ -24,6 +24,7 @@ import org.yapyap.routing.policy.nackActionFor
 import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
+import org.yapyap.transport.tor.TorLinkId
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
@@ -42,10 +43,11 @@ internal class InboundEnvelopeProcessor(
 ) {
     /**
      * Where ACK/NACK sends run while the router is started; null otherwise (sends then
-     * run inline — tests drive the processor directly). A disposition is a full Tor dial
-     * back to the sender, and inbound packets are handled one at a time: sent inline, one
-     * slow dial to a peer held every packet behind it — observed as a burst of 35 messages
-     * stuck behind the first one's ACK until the app was closed.
+     * run inline — tests drive the processor directly). A disposition usually goes back on
+     * the stream its packet arrived on, but without one it is a full Tor dial back to the
+     * sender, and inbound packets are handled one at a time: sent inline, one slow dial to a
+     * peer held every packet behind it — observed as a burst of 35 messages stuck behind the
+     * first one's ACK until the app was closed.
      */
     @Volatile
     private var dispositionScope: CoroutineScope? = null
@@ -66,7 +68,12 @@ internal class InboundEnvelopeProcessor(
         // layer, so the stored mapping is healed only after the packet authenticates
         // (see reconcileSourceEndpoint). Unknown sources need no mapping — their
         // endpoints arrive via authenticated channels (see endpoint-claim policy there).
-        handle(inbound.envelope, RouterTransport.TOR, provenSourceEndpoint = inbound.source)
+        handle(
+            inbound.envelope,
+            RouterTransport.TOR,
+            provenSourceEndpoint = inbound.source,
+            arrivalLink = inbound.link,
+        )
     }
 
     suspend fun handleWebRtcInbound(inbound: WebRtcIncomingEnvelope) {
@@ -80,11 +87,15 @@ internal class InboundEnvelopeProcessor(
      *   recovering device) without a DB lookup, and — once the packet authenticates — to
      *   heal the source's stored mapping (Tor onion rotation). It is preferred over the
      *   stored row because it is the freshest transport evidence available.
+     * @param arrivalLink the Tor stream the packet arrived on (null: one-shot frame, or
+     *   WebRTC). Dispositions are answered on it, and an authenticated ping on it makes it
+     *   the sender's Tor link (see [adoptArrivalLink]).
      */
     suspend fun handle(
         inbound: BinaryEnvelope,
         transport: RouterTransport,
         provenSourceEndpoint: TorEndpoint? = null,
+        arrivalLink: TorLinkId? = null,
     ) {
 
         // Unknown-device policy [Sprint 4]: a source with no devices row is untrusted by
@@ -154,6 +165,7 @@ internal class InboundEnvelopeProcessor(
                         transport,
                         ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
                         endpointOverride = provenSourceEndpoint,
+                        torReplyLink = arrivalLink,
                     )
                 }
             }
@@ -178,7 +190,8 @@ internal class InboundEnvelopeProcessor(
                         inbound.packetType,
                         PacketNackReason.EXPIRED,
                         transport,
-                        endpointOverride = provenSourceEndpoint
+                        endpointOverride = provenSourceEndpoint,
+                        torReplyLink = arrivalLink,
                     )
                 }
             }
@@ -204,7 +217,8 @@ internal class InboundEnvelopeProcessor(
                         inbound.packetType,
                         PacketNackReason.WRONG_TARGET,
                         transport,
-                        endpointOverride = provenSourceEndpoint
+                        endpointOverride = provenSourceEndpoint,
+                        torReplyLink = arrivalLink,
                     )
                 }
             }
@@ -226,14 +240,17 @@ internal class InboundEnvelopeProcessor(
             InboundHandleResult.Rejected(PacketNackReason.UNSUPPORTED_TYPE)
         }
 
-        applySideEffects(handleResult.sideEffects)
-
+        // Before the side effects: a ping's echo (a side effect) should already go out on the
+        // link adopted here.
         if (handleResult is InboundHandleResult.Success
             && handleResult.sourceAuthenticated
             && provenSourceEndpoint != null
         ) {
             reconcileSourceEndpoint(inbound.source, provenSourceEndpoint)
+            if (arrivalLink != null) adoptArrivalLink(inbound.source, handleResult, arrivalLink, provenSourceEndpoint)
         }
+
+        applySideEffects(handleResult.sideEffects)
 
         when (handleResult) {
             is InboundHandleResult.Success ->
@@ -244,7 +261,8 @@ internal class InboundEnvelopeProcessor(
                             inbound.source,
                             inbound.packetType,
                             transport,
-                            endpointOverride = provenSourceEndpoint
+                            endpointOverride = provenSourceEndpoint,
+                            torReplyLink = arrivalLink,
                         )
                     }
                 }
@@ -273,6 +291,7 @@ internal class InboundEnvelopeProcessor(
                             handleResult.reason,
                             transport,
                             endpointOverride = provenSourceEndpoint,
+                            torReplyLink = arrivalLink,
                         )
                     }
                 }
@@ -364,6 +383,7 @@ internal class InboundEnvelopeProcessor(
             )
             return
         }
+        ctx.peerLinks.bindTorEndpoint(source, provenEndpoint)
         if (provenEndpoint != knownEndpoint) {
             AppLog.info(
                 component = LogComponent.ROUTER,
@@ -378,6 +398,32 @@ internal class InboundEnvelopeProcessor(
             ctx.identityResolver.updatePeerTorEndpoint(
                 deviceId = source,
                 torEndpoint = provenEndpoint,
+            )
+        }
+    }
+
+    /**
+     * Makes the inbound Tor stream [link] the Tor link to [source] when [result] carries an
+     * authenticated ping from [source] itself. A ping is never relayed (unlike messages, which
+     * relays forward on their own streams), and only [source] and we ever see its pings to us,
+     * so a signed ping arriving on a stream proves [source] dialed that stream. From then on
+     * our own traffic to [source] can use it — no dial of our own needed.
+     */
+    private fun adoptArrivalLink(
+        source: PeerId,
+        result: InboundHandleResult.Success,
+        link: TorLinkId,
+        endpoint: TorEndpoint,
+    ) {
+        val heartbeatFromSource =
+            result.sideEffects.any { it is InboundSideEffect.PeerHeartbeat && it.peerId == source }
+        if (!heartbeatFromSource) return
+        if (ctx.peerLinks.adoptTorLink(source, link, endpoint)) {
+            AppLog.debug(
+                component = LogComponent.ROUTER,
+                event = LogEvent.SESSION_STATE_CHANGED,
+                message = "Peer's inbound Tor stream adopted as its link",
+                fields = mapOf("peerId" to source, "endpoint" to endpoint),
             )
         }
     }
