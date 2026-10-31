@@ -87,7 +87,7 @@ internal class InboundEnvelopeProcessor(
      *   recovering device) without a DB lookup, and — once the packet authenticates — to
      *   heal the source's stored mapping (Tor onion rotation). It is preferred over the
      *   stored row because it is the freshest transport evidence available.
-     * @param arrivalLink the Tor stream the packet arrived on (null: one-shot frame, or
+     * @param arrivalLink the Tor stream the packet arrived on (null: an older build's one-shot frame, or
      *   WebRTC). Dispositions are answered on it, and an authenticated ping on it makes it
      *   the sender's Tor link (see [adoptArrivalLink]).
      */

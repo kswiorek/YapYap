@@ -106,6 +106,7 @@ internal class DefaultIdentityKeyRepository(
     ) {
         withContext(dbDispatcher) {
             val queries = database.identityQueries
+            var reboundFrom: AccountId? = null
             database.transaction {
                 val existing = queries.selectDeviceById(deviceId).executeAsOneOrNull()
                 // Fresh rows take the event endpoint; confirmed rows keep a live-updated onion
@@ -128,6 +129,9 @@ internal class DefaultIdentityKeyRepository(
                     last_seen_timestamp = existing?.last_seen_timestamp ?: defaults.lastSeenTimestamp,
                     provisional = false,
                 )
+                if (existing?.is_local_device == true) {
+                    reboundFrom = rebindLocalAccountLocked(accountId)
+                }
             }
             AppLog.info(
                 component = LogComponent.DATABASE,
@@ -135,7 +139,55 @@ internal class DefaultIdentityKeyRepository(
                 message = "Committed chain-derived device identity record",
                 fields = mapOf("deviceId" to deviceId, "accountId" to accountId, "status" to status),
             )
+            reboundFrom?.let { previous ->
+                AppLog.info(
+                    component = LogComponent.DATABASE,
+                    event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+                    message = "Local device confirmed under another account; local account rebound",
+                    fields = mapOf("from" to previous, "to" to accountId),
+                )
+            }
         }
+    }
+
+    override suspend fun rebindLocalAccountToLocalDevice(): AccountId? =
+        withContext(dbDispatcher) {
+            val previous = database.transactionWithResult {
+                val device = database.identityQueries.selectLocalDevice().executeAsOneOrNull()
+                if (device == null || device.provisional) null else rebindLocalAccountLocked(device.account_id)
+            }
+            if (previous != null) {
+                AppLog.info(
+                    component = LogComponent.DATABASE,
+                    event = LogEvent.IDENTITY_ACCOUNT_RECORD_CREATED,
+                    message = "Local account rebound to the confirmed local device's account",
+                    fields = mapOf("from" to previous),
+                )
+            }
+            previous
+        }
+
+    /**
+     * The chain is authoritative about which account our device belongs to: once it confirms
+     * the local device under [accountId], that account is the local one. A device added to an
+     * existing account starts on a key-less stand-in row (its account is only known from the
+     * sponsor's AddDevice), which is replaced here: memberships carry over and the stand-in
+     * row is dropped once nothing references it. Returns the previous local account id when it
+     * changed. Must run inside a transaction, after [accountId]'s row is committed.
+     */
+    private fun rebindLocalAccountLocked(accountId: AccountId): AccountId? {
+        val identity = database.identityQueries
+        val previous = identity.selectLocalAccount().executeAsOneOrNull()?.account_id
+        if (previous == accountId) return null
+        if (identity.selectAccountById(accountId).executeAsOneOrNull() == null) return null
+        identity.setLocalAccount(accountId)
+        if (previous != null) {
+            val rooms = database.roomQueries
+            rooms.copyRoomMembersToAccount(toAccountId = accountId, fromAccountId = previous)
+            rooms.deleteRoomMembersOfAccount(previous)
+            identity.deleteAccountIfUnreferenced(previous)
+        }
+        return previous
     }
 
     override suspend fun tombstoneAccount(accountId: AccountId) {

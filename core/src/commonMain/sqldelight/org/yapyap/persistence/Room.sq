@@ -97,6 +97,16 @@ UPDATE rooms SET space_id = :spaceId WHERE room_id = :roomId;
 deleteRoomMembersNotIn:
 DELETE FROM room_members WHERE room_id = :roomId AND account_id NOT IN :keep;
 
+-- Local-account rebind: carries one account's memberships over to another (rows the target
+-- already has win), then the source's rows go.
+copyRoomMembersToAccount:
+INSERT OR IGNORE INTO room_members (room_id, account_id, role, status, removal_node_id, joined_timestamp)
+SELECT room_id, :toAccountId, role, status, removal_node_id, joined_timestamp
+FROM room_members WHERE account_id = :fromAccountId;
+
+deleteRoomMembersOfAccount:
+DELETE FROM room_members WHERE account_id = :accountId;
+
 deleteAllRoomMembers:
 DELETE FROM room_members WHERE room_id = :roomId;
 

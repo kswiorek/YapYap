@@ -20,7 +20,7 @@ internal class EnvelopeDispatcher(
          * unknown sources (transport-proven inbound endpoint).
          */
         endpointOverride: TorEndpoint? = null,
-        /** Cap on a one-shot Tor dial (null: the transport's own budget). */
+        /** Cap on an on-demand Tor dial (null: the transport's own budget). */
         torBudget: Duration? = null,
         /** Tor stream to reply on (the one the packet being answered arrived on), when still open. */
         torReplyLink: TorLinkId? = null,

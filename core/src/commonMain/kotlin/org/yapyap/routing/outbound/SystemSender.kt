@@ -150,7 +150,7 @@ internal class SystemSender(
 
     /**
      * Sends a fire-and-forget typing indicator over the preferred open link. Peers with no link
-     * are silently skipped (no one-shot dial, no outbox persistence): an indicator that has to
+     * are silently skipped (no dial, no outbox persistence): an indicator that has to
      * wait for a connection would be stale by the time it arrives.
      */
     suspend fun sendTypingIndicator(
@@ -215,8 +215,8 @@ internal class SystemSender(
     }
 
     /**
-     * The preferred open link to [target]; with none, a one-shot Tor dial. System traffic is
-     * never parked waiting for a link (pings, sync requests and log-offs are best-effort).
+     * The preferred open link to [target]; with none, Tor dials a stream on demand. System
+     * traffic is never parked waiting for a link (sync requests and replies are time-bound).
      */
     private suspend fun transportFor(target: PeerId): RouterTransport =
         transportPolicy.resolve(target, ctx.peerLinks.linksOf(target), retries = 0).transport ?: RouterTransport.TOR

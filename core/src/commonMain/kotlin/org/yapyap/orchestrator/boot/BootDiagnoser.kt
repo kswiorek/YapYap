@@ -13,6 +13,9 @@ import kotlin.time.Clock
  * - no rows + no keys → [BootDiagnosis.SetupRequired] (fresh and wiped are identical)
  * - rows + keys + key→ID binding + active SPK + self not BANNED → [BootDiagnosis.Healthy]
  *   (`null` status means "not yet known", never removed)
+ * - the account key is held only by the account's first device: a device added to an
+ *   existing account has neither half, and instead its device row must belong to the local
+ *   account (a confirmed device under another account is rebound — the second benign repair)
  * - anything partial, a key→ID mismatch, or a missing active SPK →
  *   `ResetRequired(INCONSISTENT_STORAGE)`
  * - self device/account BANNED → `ResetRequired(SELF_BANNED)`
@@ -34,9 +37,10 @@ internal class BootDiagnoser(
         val deviceSigningPriv = keyStore.getKey(deviceSigningPrivateRef())
         val deviceEncryptionPriv = keyStore.getKey(deviceEncryptionPrivateRef())
         val accountSigningPriv = keyStore.getKey(accountSigningPrivateRef())
+        val accountSigningPub = keyStore.getKey(accountSigningPublicRef())
 
-        if (deviceRow == null && accountRow == null &&
-            deviceSigningPriv == null && deviceEncryptionPriv == null && accountSigningPriv == null
+        if (deviceRow == null && accountRow == null && deviceSigningPriv == null &&
+            deviceEncryptionPriv == null && accountSigningPriv == null && accountSigningPub == null
         ) {
             return BootDiagnosis.SetupRequired
         }
@@ -46,7 +50,9 @@ internal class BootDiagnoser(
             if (accountRow == null) add("account row")
             if (deviceSigningPriv == null) add("device signing key")
             if (deviceEncryptionPriv == null) add("device encryption key")
-            if (accountSigningPriv == null) add("account signing key")
+            // Both halves absent is a key-less device (added to an existing account); one
+            // half alone is a partial keystore.
+            if (accountSigningPriv == null && accountSigningPub != null) add("account signing key")
         }
         if (missing.isNotEmpty()) {
             return BootDiagnosis.ResetRequired(
@@ -57,18 +63,35 @@ internal class BootDiagnoser(
 
         // Key→ID binding: the rows must belong to the keys we hold.
         val device = checkNotNull(deviceRow)
-        val account = checkNotNull(accountRow)
+        var account = checkNotNull(accountRow)
         val derivedDeviceId = cryptoProvider.peerIdFromPublicKey(
             cryptoProvider.privateSigningKeyToPublicKey(checkNotNull(deviceSigningPriv)),
         )
-        val derivedAccountId = cryptoProvider.accountIdFromPublicKey(
-            cryptoProvider.privateSigningKeyToPublicKey(checkNotNull(accountSigningPriv)),
-        )
-        if (derivedDeviceId != device.deviceId || derivedAccountId != account.accountId) {
+        val derivedAccountId = accountSigningPriv?.let {
+            cryptoProvider.accountIdFromPublicKey(cryptoProvider.privateSigningKeyToPublicKey(it))
+        }
+        if (derivedDeviceId != device.deviceId || (derivedAccountId != null && derivedAccountId != account.accountId)) {
             return BootDiagnosis.ResetRequired(
                 reason = ResetReason.INCONSISTENT_STORAGE,
                 details = "Key/row ID mismatch (keys do not derive the stored device/account IDs)",
             )
+        }
+        if (derivedAccountId == null) {
+            // Key-less device: no key ties the account row to us, the device row's account does.
+            // Stores from before the projector rebound the local account on confirmation still
+            // point at the pre-confirmation stand-in; the chain's answer is repaired in.
+            if (identityRepository.getAccountIdForDevice(device.deviceId) != account.accountId &&
+                identityRepository.rebindLocalAccountToLocalDevice() != null
+            ) {
+                account = identityRepository.getLocalAccountRecord() ?: account
+            }
+            val deviceAccount = identityRepository.getAccountIdForDevice(device.deviceId)
+            if (deviceAccount != account.accountId) {
+                return BootDiagnosis.ResetRequired(
+                    reason = ResetReason.INCONSISTENT_STORAGE,
+                    details = "Local device belongs to account $deviceAccount, local account is ${account.accountId}",
+                )
+            }
         }
 
         val deviceStatus = identityRepository.getDeviceStatus(device.deviceId)

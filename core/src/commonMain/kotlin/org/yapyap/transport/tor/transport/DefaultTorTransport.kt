@@ -24,14 +24,18 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 /**
- * Tor transport over a [TorBackend]: one-shot frames plus sessions (long-lived streams with
- * the record protocol in [TorStreamRecordType]).
+ * Tor transport over a [TorBackend]: every envelope travels on a stream (the record protocol
+ * in [TorStreamRecordType]); one-shot frames from older builds are still received.
  *
  * Every open stream is a *link*. A link we dialed becomes the session to its target once the
  * far end sends ACCEPT; a link someone dialed us on only carries replies until
  * [adoptInbound] makes it the session to an authenticated endpoint. Each link sends
  * keepalives when idle and closes once nothing has arrived for `sessionIdleTimeout`, which is
  * how a vanished peer is noticed.
+ *
+ * A send with no link to its target dials one on demand. Such a link, like an inbound one
+ * that was never adopted, is *transient*: it closes after `transientLinkIdleTimeout` without
+ * envelopes, unless [openSession] asked for that endpoint (then it is kept like any session).
  *
  * When both sides dial each other, both links stay usable; the side whose onion sorts higher
  * closes its own dialed link once it has adopted the other one, so the pair converges on the
@@ -65,6 +69,12 @@ internal class DefaultTorTransport(
     private val lock = SynchronizedObject()
     private val links = mutableMapOf<TorLinkId, Link>()
     private val dialing = mutableMapOf<TorEndpoint, Job>()
+
+    /** Endpoints [openSession] asked for: their links are kept, not transient. */
+    private val requested = mutableSetOf<TorEndpoint>()
+
+    /** Why the last dial to an endpoint failed, for a send that was waiting on it. */
+    private val dialFailures = mutableMapOf<TorEndpoint, Exception>()
     private var nextLinkId = 1L
 
     private val _sessionStates = MutableStateFlow<Map<TorEndpoint, TorSessionState>>(emptyMap())
@@ -85,6 +95,10 @@ internal class DefaultTorTransport(
 
         @Volatile
         var lastSent: TimeMark = TimeSource.Monotonic.markNow()
+
+        /** Last envelope either way (keepalives and ACCEPT excluded): what a transient link lives on. */
+        @Volatile
+        var lastData: TimeMark = TimeSource.Monotonic.markNow()
 
         @Volatile
         var closed = false
@@ -114,20 +128,8 @@ internal class DefaultTorTransport(
         scope = localScope
 
         frameCollectorJob = localScope.launch {
-            backend.incomingFrames.collect { frame ->
-                // Self-dial reachability probes are backend business, not envelopes:
-                // swallow silently so they never warn like corrupt traffic.
-                if (probeNonceOrNull(frame.payload) != null) {
-                    AppLog.debug(
-                        component = LogComponent.TOR_TRANSPORT,
-                        event = LogEvent.INBOUND_ENVELOPE_RECEIVED,
-                        message = "Skipped self-dial reachability probe frame",
-                        fields = mapOf("source" to frame.source.onionAddress),
-                    )
-                    return@collect
-                }
-                emitEnvelope(frame.source, frame.payload, link = null)
-            }
+            // Older builds' one-shot frames: no link, so replies to them dial back.
+            backend.incomingFrames.collect { frame -> emitEnvelope(frame.source, frame.payload, link = null) }
         }
         localScope.launch {
             backend.incomingStreams.collect { stream -> acceptInbound(stream) }
@@ -149,6 +151,8 @@ internal class DefaultTorTransport(
         val open = synchronized(lock) {
             dialing.values.forEach { it.cancel() }
             dialing.clear()
+            requested.clear()
+            dialFailures.clear()
             links.values.toList()
         }
         open.forEach { closeLink(it, "transport stopped") }
@@ -170,12 +174,18 @@ internal class DefaultTorTransport(
     override suspend fun send(target: TorEndpoint, envelope: BinaryEnvelope, budget: Duration?, via: TorLinkId?) {
         check(started) { "Tor transport must be started before send" }
         val payload = envelope.encode()
+        val limit = config.value.maxPayloadBytes
+        if (payload.size > limit) throw TransportException.PayloadTooLarge(sizeBytes = payload.size, limitBytes = limit)
         val path = when {
             via != null && sendOnLink(linkOrNull(via), payload) -> "reply-link"
             sendOnSession(target, payload) -> "session"
             else -> {
-                backend.send(target = target, payload = payload, budget = budget)
-                "one-shot"
+                dialAndAwait(target, budget)
+                if (!sendOnSession(target, payload)) {
+                    throw synchronized(lock) { dialFailures.remove(target) }
+                        ?: TransportException.TorException.SessionClosed("no Tor stream to ${target.onionAddress}")
+                }
+                "dialed"
             }
         }
         AppLog.debug(
@@ -191,21 +201,40 @@ internal class DefaultTorTransport(
         )
     }
 
+    /** Dials [target] (or joins a dial already under way) and waits for it to connect or fail. */
+    private suspend fun dialAndAwait(target: TorEndpoint, budget: Duration?) {
+        val job = synchronized(lock) {
+            if (sessionLinkLocked(target) != null) return
+            dialFailures.remove(target)
+            startDialLocked(target, budget) ?: return
+        }
+        job.join()
+    }
+
+    /** Null when the transport is stopped. Must hold [lock]. */
+    private fun startDialLocked(target: TorEndpoint, budget: Duration?): Job? {
+        dialing[target]?.let { return it }
+        val localScope = scope ?: return null
+        setStateLocked(target, SessionPhase.NEGOTIATING, null)
+        val job = localScope.launch(start = CoroutineStart.LAZY) { dial(target, budget) }
+        dialing[target] = job
+        job.start()
+        return job
+    }
+
     override fun hasSession(key: TorEndpoint): Boolean = synchronized(lock) { sessionLinkLocked(key) != null }
 
     override suspend fun openSession(key: TorEndpoint) {
         check(started) { "Tor transport must be started before opening a session" }
-        val localScope = scope ?: return
-        val job = synchronized(lock) {
-            if (sessionLinkLocked(key) != null || key in dialing) return
-            setStateLocked(key, SessionPhase.NEGOTIATING, null)
-            localScope.launch(start = CoroutineStart.LAZY) { dial(key) }.also { dialing[key] = it }
+        synchronized(lock) {
+            requested += key
+            if (sessionLinkLocked(key) == null) startDialLocked(key, budget = null)
         }
-        job.start()
     }
 
     override suspend fun closeSession(key: TorEndpoint) {
         val toClose = synchronized(lock) {
+            requested -= key
             dialing.remove(key)?.cancel()
             links.values.filter { it.sessionKey == key }
         }
@@ -250,11 +279,11 @@ internal class DefaultTorTransport(
 
     // ---- links ---------------------------------------------------------------------------
 
-    private suspend fun dial(target: TorEndpoint) {
+    private suspend fun dial(target: TorEndpoint, budget: Duration?) {
         val configSnapshot = config.value
         var link: Link? = null
         try {
-            val duplex = backend.openStream(target, configSnapshot.sessionDialBudget)
+            val duplex = backend.openStream(target, budget ?: configSnapshot.sessionDialBudget)
             link = register(duplex, remote = target, outbound = true)
             if (link == null) {
                 duplex.close()
@@ -265,7 +294,11 @@ internal class DefaultTorTransport(
             val accepted = withTimeoutOrNull(configSnapshot.sessionAcceptTimeout) { link.accepted.await() }
             if (accepted == null) {
                 closeLink(link, "not accepted")
-                markDialFailed(target, "far end did not accept the stream")
+                markDialFailed(
+                    target,
+                    "far end did not accept the stream",
+                    TransportException.TorException.SessionClosed("${target.onionAddress} did not accept the stream"),
+                )
             }
         } catch (e: CancellationException) {
             link?.let { closeLink(it, "dial cancelled") }
@@ -276,7 +309,7 @@ internal class DefaultTorTransport(
                 is TransportException.TorException.OnionNotFound -> TorSessionState.REASON_ONION_NOT_FOUND
                 else -> e.message ?: e::class.simpleName ?: "dial failed"
             }
-            markDialFailed(target, reason)
+            markDialFailed(target, reason, e)
         } finally {
             val self = currentCoroutineContext()[Job]
             synchronized(lock) { if (dialing[target] === self) dialing.remove(target) }
@@ -298,10 +331,15 @@ internal class DefaultTorTransport(
         startLink(link)
     }
 
-    /** Null when stopped, or (inbound) when `maxInboundSessions` streams are already open. */
+    /** Null when stopped, or (inbound) when the inbound or unadopted-inbound cap is reached. */
     private fun register(duplex: TorDuplex, remote: TorEndpoint, outbound: Boolean): Link? = synchronized(lock) {
         if (!started) return null
-        if (!outbound && links.values.count { !it.outbound } >= config.value.maxInboundSessions) return null
+        if (!outbound) {
+            val configSnapshot = config.value
+            val inbound = links.values.filter { !it.outbound }
+            if (inbound.size >= configSnapshot.maxInboundSessions) return null
+            if (inbound.count { it.sessionKey == null } >= configSnapshot.maxUnadoptedInbound) return null
+        }
         val link = Link(TorLinkId(nextLinkId++), remote, outbound, duplex)
         links[link.id] = link
         link
@@ -336,7 +374,10 @@ internal class DefaultTorTransport(
             link.lastReceived = TimeSource.Monotonic.markNow()
             when (record.type) {
                 TorStreamRecordType.ACCEPT -> if (link.outbound && !link.accepted.isCompleted) onAccepted(link)
-                TorStreamRecordType.DATA -> emitEnvelope(link.remote, record.payload, link.id)
+                TorStreamRecordType.DATA -> {
+                    link.lastData = TimeSource.Monotonic.markNow()
+                    emitEnvelope(link.remote, record.payload, link.id)
+                }
                 TorStreamRecordType.KEEPALIVE, null -> Unit
             }
         }
@@ -349,10 +390,19 @@ internal class DefaultTorTransport(
             if (link.lastReceived.elapsedNow() >= configSnapshot.sessionIdleTimeout) {
                 throw TransportException.TorException.SessionClosed("nothing received for ${configSnapshot.sessionIdleTimeout}")
             }
+            if (isTransient(link) && link.lastData.elapsedNow() >= configSnapshot.transientLinkIdleTimeout) {
+                throw TransportException.TorException.SessionClosed("transient, unused for ${configSnapshot.transientLinkIdleTimeout}")
+            }
             if (link.lastSent.elapsedNow() >= configSnapshot.sessionKeepaliveInterval) {
                 writeRecord(link, TorStreamRecordType.KEEPALIVE)
             }
         }
+    }
+
+    /** Dialed for a send nobody asked to keep, or inbound and never adopted. */
+    private fun isTransient(link: Link): Boolean = synchronized(lock) {
+        val key = link.sessionKey
+        if (link.outbound) key !in requested else key == null
     }
 
     private fun onAccepted(link: Link) {
@@ -406,10 +456,9 @@ internal class DefaultTorTransport(
 
     private suspend fun sendOnLink(link: Link?, payload: ByteArray): Boolean {
         if (link == null || link.closed) return false
-        val limit = config.value.maxPayloadBytes
-        if (payload.size > limit) throw TransportException.PayloadTooLarge(sizeBytes = payload.size, limitBytes = limit)
         return try {
             writeRecord(link, TorStreamRecordType.DATA, payload)
+            link.lastData = TimeSource.Monotonic.markNow()
             true
         } catch (e: TransportException.TorException.SessionClosed) {
             false
@@ -476,8 +525,9 @@ internal class DefaultTorTransport(
         }
     }
 
-    private fun markDialFailed(target: TorEndpoint, reason: String) {
+    private fun markDialFailed(target: TorEndpoint, reason: String, error: Exception) {
         synchronized(lock) {
+            dialFailures[target] = error
             if (sessionLinkLocked(target) == null) setStateLocked(target, SessionPhase.FAILED, reason)
         }
         AppLog.debug(

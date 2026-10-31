@@ -114,7 +114,33 @@ internal class InMemoryIdentityKeyRepository(
         provisionalDevices.remove(deviceId.id)
         deviceToAccount[deviceId.id] = accountId.id
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(deviceId.id)
-        if (localDevice?.deviceId == deviceId) localDevice = merged
+        if (localDevice?.deviceId == deviceId) {
+            localDevice = merged
+            rebindLocalAccount(accountId)
+        }
+    }
+
+    override suspend fun rebindLocalAccountToLocalDevice(): AccountId? {
+        val device = localDevice ?: return null
+        if (device.deviceId.id in provisionalDevices) return null
+        val accountId = deviceToAccount[device.deviceId.id]?.let { AccountId(it) } ?: return null
+        return rebindLocalAccount(accountId)
+    }
+
+    /** Mirrors the SQLDelight rebind: the confirmed local device's account becomes local; the stand-in goes. */
+    private fun rebindLocalAccount(accountId: AccountId): AccountId? {
+        val previous = localAccount?.accountId
+        if (previous == accountId) return null
+        val record = accounts[accountId.id] ?: return null
+        localAccount = record
+        localRole = accountRoles[accountId.id] ?: AccountRole.MEMBER
+        if (previous != null && deviceToAccount.values.none { it == previous.id }) {
+            accounts.remove(previous.id)
+            accountRoles.remove(previous.id)
+            identityStatuses.remove(previous.id)
+            provisionalAccounts.remove(previous.id)
+        }
+        return previous
     }
 
     override suspend fun tombstoneAccount(accountId: AccountId) {

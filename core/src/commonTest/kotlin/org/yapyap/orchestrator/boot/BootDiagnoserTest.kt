@@ -4,7 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.key.*
-import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
@@ -18,6 +18,7 @@ class BootDiagnoserTest {
 
     private companion object {
         const val SPK_ID = "yapyap:spk-test"
+        val STAND_IN = AccountId("placeholder")
     }
 
     private class Fixture {
@@ -38,6 +39,7 @@ class BootDiagnoserTest {
             keyStore.putKey(deviceSigningPrivateRef(), deviceSigning.privateKey)
             keyStore.putKey(deviceEncryptionPrivateRef(), deviceEncryption.privateKey)
             keyStore.putKey(accountSigningPrivateRef(), accountSigning.privateKey)
+            keyStore.putKey(accountSigningPublicRef(), accountSigning.publicKey)
             if (withSpkKey) keyStore.putKey(signedPreKeyPrivateRef(SPK_ID), spkPair.privateKey)
             repo.insertLocalAccount(
                 AccountIdentityRecord(
@@ -66,6 +68,104 @@ class BootDiagnoserTest {
                 provisional = provisional,
             )
         }
+
+        /**
+         * A device added to an existing account: device keys only, a key-less stand-in local
+         * account, and the device row under that stand-in until the fold confirms it.
+         */
+        suspend fun seedKeylessDevice(): PeerId {
+            val deviceSigning = crypto.generateSigningKeyPair()
+            val deviceEncryption = crypto.generateEncryptionKeyPair()
+            val deviceId = crypto.peerIdFromPublicKey(deviceSigning.publicKey)
+            val spkPair = crypto.generateEncryptionKeyPair()
+            keyStore.putKey(deviceSigningPrivateRef(), deviceSigning.privateKey)
+            keyStore.putKey(deviceEncryptionPrivateRef(), deviceEncryption.privateKey)
+            keyStore.putKey(signedPreKeyPrivateRef(SPK_ID), spkPair.privateKey)
+            repo.insertLocalAccount(AccountIdentityRecord(STAND_IN, "placeholder"))
+            repo.insertLocalDevice(
+                STAND_IN,
+                DeviceIdentityRecord(
+                    deviceId,
+                    IdentityPublicKeyRecord(IdentityKeyPurpose.SIGNING, deviceSigning.publicKey),
+                    IdentityPublicKeyRecord(IdentityKeyPurpose.ENCRYPTION, deviceEncryption.publicKey),
+                    signedPreKey = SignedPreKeyRecord(
+                        keyId = SPK_ID,
+                        publicKey = spkPair.publicKey,
+                        signature = crypto.signDetached(deviceSigning.privateKey, spkPair.publicKey),
+                        privateKey = spkPair.privateKey,
+                        deviceId = deviceId,
+                        isActive = true,
+                    ),
+                ),
+                provisional = true,
+            )
+            return deviceId
+        }
+
+        /** The sponsor's AddDevice lands: the fold commits the real account, then our device under it. */
+        suspend fun confirmUnder(deviceId: PeerId, accountId: AccountId) {
+            val accountKey = crypto.generateSigningKeyPair().publicKey
+            repo.upsertChainAccount(accountId, accountKey, AccountRole.OWNER, IdentityStatus.ACTIVE, "alice")
+            val device = checkNotNull(repo.localDevice)
+            repo.upsertChainDevice(
+                deviceId = deviceId,
+                accountId = accountId,
+                deviceType = DeviceType.DESKTOP,
+                torEndpoint = TorEndpoint("self.onion", 80),
+                signingPublicKey = device.signing.publicKey,
+                encryptionPublicKey = device.encryption.publicKey,
+                status = IdentityStatus.ACTIVE,
+            )
+        }
+    }
+
+    private val realAccount = AccountId("a".repeat(64))
+
+    @Test
+    fun keylessDevice_midOnboarding_returnsHealthy() = runTest {
+        val fixture = Fixture()
+        fixture.seedKeylessDevice()
+        fixture.sessionStore.setActiveSecret(ByteArray(32) { 7 }, t0 + 5.minutes)
+
+        assertEquals(BootDiagnosis.Healthy, fixture.diagnoser.diagnose())
+    }
+
+    @Test
+    fun keylessDevice_confirmed_returnsHealthy_onTheRealAccount() = runTest {
+        val fixture = Fixture()
+        val deviceId = fixture.seedKeylessDevice()
+        fixture.confirmUnder(deviceId, realAccount)
+
+        assertEquals(BootDiagnosis.Healthy, fixture.diagnoser.diagnose())
+        assertEquals(realAccount, fixture.repo.getLocalAccountRecord()?.accountId)
+    }
+
+    @Test
+    fun keylessDevice_storeFromBeforeTheRebind_isRepaired() = runTest {
+        // Written by a build that never rebound: confirmed under the real account, yet the
+        // local account is still the stand-in.
+        val fixture = Fixture()
+        val deviceId = fixture.seedKeylessDevice()
+        val standIn = checkNotNull(fixture.repo.localAccount)
+        fixture.confirmUnder(deviceId, realAccount)
+        fixture.repo.localAccount = standIn
+        fixture.repo.accounts[STAND_IN.id] = standIn
+
+        assertEquals(BootDiagnosis.Healthy, fixture.diagnoser.diagnose())
+        assertEquals(realAccount, fixture.repo.getLocalAccountRecord()?.accountId)
+    }
+
+    @Test
+    fun keylessDevice_underAnotherAccountWhileProvisional_returnsInconsistentStorage() = runTest {
+        val fixture = Fixture()
+        val deviceId = fixture.seedKeylessDevice()
+        fixture.sessionStore.setActiveSecret(ByteArray(32) { 7 }, t0 + 5.minutes)
+        fixture.repo.insertLocalAccount(AccountIdentityRecord(realAccount, "someone"))
+
+        val diagnosis = fixture.diagnoser.diagnose()
+        assertIs<BootDiagnosis.ResetRequired>(diagnosis)
+        assertEquals(ResetReason.INCONSISTENT_STORAGE, diagnosis.reason)
+        assertEquals(STAND_IN, fixture.repo.getAccountIdForDevice(deviceId))
     }
 
     @Test

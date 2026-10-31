@@ -48,7 +48,7 @@ internal data class RouterConfig(
     /**
      * Transports in order of preference for any send to a peer with more than one open link.
      * A send never opens a link itself; with none open, outbox entries wait for one
-     * (see [noLinkRecheckDelay]) and system traffic falls back to a one-shot Tor dial.
+     * (see [noLinkRecheckDelay]) and system traffic has Tor dial a stream on demand.
      */
     val linkPreference: List<RouterTransport> = listOf(RouterTransport.WEBRTC, RouterTransport.TOR),
     /**

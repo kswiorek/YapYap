@@ -185,11 +185,12 @@ internal class DefaultIdentityResolver(
         ) ?: throw CryptoException.MissingKey(keyId, purpose, KeyType.PRIVATE)
     }
 
+    /** Only the account's first device holds the account key; any later device throws here. */
     override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray {
-        val keyId = LOCAL_DEVICE_KEY_PREFIX + purpose.name.lowercase()
+        val keyId = LOCAL_ACCOUNT_KEY_PREFIX + purpose.name.lowercase()
         return privateKeyStore.getKey(
             ref = KeyReference(
-                keyId = LOCAL_ACCOUNT_KEY_PREFIX + purpose.name.lowercase(),
+                keyId = keyId,
                 purpose = purpose,
                 type = KeyType.PRIVATE,
             )

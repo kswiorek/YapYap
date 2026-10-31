@@ -53,6 +53,8 @@ internal interface IdentityKeyRepository {
      * (`is_local_device`, SPK pointer, push token, reliability, last-seen).
      * A live-updated onion is preserved on confirmed rows (Tor rotation has no chain event);
      * provisional rows are fixed up to the event values wholesale.
+     * Committing the local device makes [accountId] the local account (the chain decides which
+     * account a device belongs to), replacing a pre-confirmation stand-in account row.
      */
     suspend fun upsertChainDevice(
         deviceId: PeerId,
@@ -77,6 +79,13 @@ internal interface IdentityKeyRepository {
     suspend fun getLocalDeviceRecord(): DeviceIdentityRecord?
 
     suspend fun getLocalAccountRecord(): AccountIdentityRecord?
+
+    /**
+     * Repair for stores written before the rebind in [upsertChainDevice] existed: when the
+     * local device is chain-confirmed under an account other than the local one, makes that
+     * account local. Returns the previous local account id when it changed, else null.
+     */
+    suspend fun rebindLocalAccountToLocalDevice(): AccountId?
 
     /** Local account's admin flag (false when absent; OWNER implies admin) — the sponsor's fail-fast read. Chain-owned; seeded locally, projector-corrected. */
     suspend fun isLocalAccountAdmin(): Boolean

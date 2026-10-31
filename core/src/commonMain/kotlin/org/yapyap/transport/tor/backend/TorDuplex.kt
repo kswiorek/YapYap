@@ -44,9 +44,9 @@ internal class SocketTorDuplex(
 
 /**
  * Accept-side handling shared by every socket backend: reads the connection's first int and
- * either reads one frame and emits it to [frames] (one-shot), or reads the stream hello and
- * hands the open connection to [streams] (session). Closes the socket unless a stream was
- * handed off. A malformed connection surfaces as
+ * either hands the open stream to [streams] (session), answers our own reachability probe
+ * (echoes its nonce), or reads one frame from an older build and emits it to [frames]. Closes
+ * the socket unless a stream was handed off. A malformed connection surfaces as
  * [org.yapyap.transport.TransportException.TorException.TransportFrameError]; cancellation
  * (both hierarchies) is rethrown untouched so backend shutdown never becomes a child failure.
  */
@@ -60,10 +60,11 @@ internal suspend fun handleTorConnection(
     var handedOff = false
     try {
         val input = client.openReadChannel()
-        val received = try {
+        val received: Any = try {
             when (val magic = input.readInt()) {
-                TOR_TRANSPORT_FRAME_MAGIC -> readTorTransportFrameBody(input, maxPayloadBytes)
                 TOR_STREAM_MAGIC -> TorInboundStream(readTorStreamHelloBody(input), SocketTorDuplex(client, input))
+                TOR_PROBE_MAGIC -> ProbeNonce(input.readExact(TOR_PROBE_NONCE_SIZE))
+                TOR_TRANSPORT_FRAME_MAGIC -> readTorTransportFrameBody(input, maxPayloadBytes)
                 else -> throw IllegalArgumentException("Invalid Tor transport magic 0x${magic.toUInt().toString(16)}")
             }
         } catch (e: CancellationException) {
@@ -80,7 +81,6 @@ internal suspend fun handleTorConnection(
             throw TransportException.TorException.TransportFrameError(error.message ?: "Unknown error")
         }
         when (received) {
-            is TorIncomingFrame -> frames.emit(received)
             is TorInboundStream -> {
                 handedOff = streams.trySend(received).isSuccess
                 if (!handedOff) {
@@ -92,8 +92,18 @@ internal suspend fun handleTorConnection(
                     )
                 }
             }
+
+            is ProbeNonce -> {
+                val output = client.openWriteChannel(autoFlush = false)
+                output.writeFully(received.nonce)
+                output.flush()
+            }
+
+            is TorIncomingFrame -> frames.emit(received)
         }
     } finally {
         if (!handedOff) runCatching { client.close() }
     }
 }
+
+private class ProbeNonce(val nonce: ByteArray)

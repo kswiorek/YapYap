@@ -246,6 +246,109 @@ class TorSessionLoopbackTest {
         }
     }
 
+    @Test
+    fun sendWithoutASession_dialsAStream_andTheReplyRidesIt() = runBlocking<Unit> {
+        val a = transport()
+        val b = transport()
+        try {
+            a.start()
+            val endpointB = b.start()
+            assertFalse(a.hasSession(endpointB))
+
+            val sent = envelope(5)
+            val atB = withTimeout(10.seconds) {
+                val received =
+                    async(start = CoroutineStart.UNDISPATCHED) { b.incoming.first { it.envelope.packetId == sent.packetId } }
+                a.send(endpointB, sent)
+                received.await()
+            }
+            val link = assertNotNull(atB.link, "dialed on demand: a stream, not a one-shot frame")
+
+            val reply = envelope(6)
+            withTimeout(10.seconds) {
+                val received =
+                    async(start = CoroutineStart.UNDISPATCHED) { a.incoming.first { it.envelope.packetId == reply.packetId } }
+                b.send(atB.source, reply, via = link)
+                received.await()
+            }
+        } finally {
+            stopAll(a, b)
+        }
+    }
+
+    @Test
+    fun sendToNobody_throwsTheDialFailure() = runBlocking<Unit> {
+        val a = transport()
+        try {
+            a.start()
+            val dead = TorEndpoint("loopback-${freePort()}.onion", 80)
+            assertFails { withTimeout(20.seconds) { a.send(dead, envelope()) } }
+            assertFalse(a.hasSession(dead))
+        } finally {
+            stopAll(a)
+        }
+    }
+
+    @Test
+    fun linksNobodyAskedFor_closeOnceUnused_requestedOnesStay() = runBlocking<Unit> {
+        val fast = MutableStateFlow(
+            TorBackendConfig(
+                sessionKeepaliveInterval = 100.milliseconds,
+                sessionIdleTimeout = 5.seconds,
+                transientLinkIdleTimeout = 500.milliseconds,
+            ),
+        )
+        val a = transport(fast)
+        val b = transport(fast)
+        val c = transport(fast)
+        try {
+            val endpointA = a.start()
+            val endpointB = b.start()
+            val endpointC = c.start()
+
+            a.send(endpointB, envelope())            // on demand: transient
+            a.openSession(endpointC)                 // asked for: kept
+            a.awaitPhase(endpointC, SessionPhase.CONNECTED)
+            assertTrue(a.hasSession(endpointB))
+            // C's end is unadopted (so transient) until the upper layer authenticates A on it.
+            val hello = envelope(7)
+            val atC = withTimeout(10.seconds) {
+                val received =
+                    async(start = CoroutineStart.UNDISPATCHED) { c.incoming.first { it.envelope.packetId == hello.packetId } }
+                a.send(endpointC, hello)
+                received.await()
+            }
+            assertTrue(c.adoptInbound(atC.link!!, endpointA))
+
+            val closed = a.awaitPhase(endpointB, SessionPhase.CLOSED)
+            assertTrue(closed.reason.orEmpty().contains("transient"), "closed as unused: ${closed.reason}")
+            delay(1_000)
+            assertTrue(a.hasSession(endpointC), "a requested session outlives the transient timeout")
+        } finally {
+            stopAll(a, b, c)
+        }
+    }
+
+    @Test
+    fun unadoptedInboundStreams_areCapped() = runBlocking<Unit> {
+        val capped = MutableStateFlow(TorBackendConfig(maxUnadoptedInbound = 2))
+        val hub = transport(capped)
+        val dialers = List(3) { transport() }
+        try {
+            val endpointHub = hub.start()
+            dialers.forEach { it.start() }
+            dialers.take(2).forEach { dialer ->
+                dialer.openSession(endpointHub)
+                dialer.awaitPhase(endpointHub, SessionPhase.CONNECTED)
+            }
+            dialers[2].openSession(endpointHub)
+            val refused = dialers[2].awaitPhase(endpointHub, SessionPhase.FAILED)
+            assertNotNull(refused.reason)
+        } finally {
+            stopAll(hub, *dialers.toTypedArray())
+        }
+    }
+
     /**
      * The scenario the session design exists for: one device fanning a packet out to 40
      * peers, a quarter of which are gone. With sessions held open, the live peers get it

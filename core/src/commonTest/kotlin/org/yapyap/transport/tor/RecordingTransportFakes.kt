@@ -266,7 +266,6 @@ internal class RecordingTorBackend : TorBackend {
 
     val startCalls = mutableListOf<Int?>()
     val stopCalls = mutableListOf<Unit>()
-    val sends = mutableListOf<Pair<TorEndpoint, ByteArray>>()
     var nextEndpoint: TorEndpoint = TorEndpoint("backend.onion", 9050)
 
     override suspend fun start(): TorEndpoint {
@@ -276,10 +275,6 @@ internal class RecordingTorBackend : TorBackend {
 
     override suspend fun stop() {
         stopCalls.add(Unit)
-    }
-
-    override suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration?) {
-        sends.add(target to payload.copyOf())
     }
 
     fun tryEmitFrame(frame: TorIncomingFrame): Boolean = framesMutable.tryEmit(frame)

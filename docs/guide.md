@@ -49,7 +49,7 @@
     - The router sees them per device through `PeerLinks` (`routing/link`). Transport choice (`OutboundPolicy`)
       takes the most preferred open link (`RouterConfig.linkPreference`: WebRTC, then Tor). With no link, outbox
       entries wait (deferred without counting an attempt) and relay deposits plus the pull path cover delivery;
-      best-effort system traffic falls back to a one-shot Tor dial. Any link coming up wakes the peer's outbox
+      system traffic has Tor dial a stream on demand. Any link coming up wakes the peer's outbox
       entries.
     - `LinkKeeper` keeps links open to a target set over any session transport, with per-peer exponential
       backoff, capped concurrent opens, prompt reopen when a link drops, and a readiness gate. The router runs one
@@ -57,11 +57,16 @@
     - Pings go only to linked peers. A successful link open pings the peer, which syncs frontiers on connect. A
       failed open counts as an unanswered probe for availability scoring.
 - Tor:
-    - Wire: a connection starts with a magic int. One-shot frames (`TOR_TRANSPORT_FRAME_MAGIC`: one frame, then
-      close) are still accepted and still used for bootstrap targets, peers without a session and the self-probe.
-      Streams (`TOR_STREAM_MAGIC`) start with a hello naming the dialer's endpoint, then carry records (`ACCEPT`,
-      `DATA`, `KEEPALIVE`; unknown types are skipped). Peers running a build without streams can't
-      accept sessions, so mixed-version devices fall back to relays and the pull path.
+    - Wire: a connection starts with a magic int. Every connection we dial to a peer is a stream (`TOR_STREAM_MAGIC`): a
+      hello naming the dialer's endpoint, then records (`ACCEPT`, `DATA`, `KEEPALIVE`;
+      unknown types are skipped). The self-reachability probe (`TOR_PROBE_MAGIC`) is a connection to our own onion
+      whose nonce our listener echoes back. One-shot frames (`TOR_TRANSPORT_FRAME_MAGIC`: one frame, then close)
+      are no longer sent but still accepted from older builds; receiving them can be dropped once no such builds
+      remain. Older builds can't accept streams, so to them mixed-version devices rely on relays and the pull path.
+    - A send with no session dials a stream on demand (bootstrap targets, system traffic to an unlinked peer).
+      Streams nobody asked to keep — dialed on demand, or inbound and not adopted — are transient: they close after
+      `transientLinkIdleTimeout` without envelopes. Unadopted inbound streams have their own cap
+      (`maxUnadoptedInbound`).
     - A stream we dialed is a session once the far end's app sends `ACCEPT`. A stream someone else dialed only
       carries replies (ACK/NACK go back on the stream the packet arrived on) until the router adopts it. It adopts
       a stream once an authenticated ping from the claimed device arrives on it: pings are never relayed, so this
@@ -125,6 +130,12 @@
   - 1-on-1 E2EE: X3DH handshake, Double Ratchet, `DefaultCryptoSessionManager`,
     `SignedAndEncryptedMessageProtection` (see [`e2ee.md`](e2ee.md)).
   - SQLDelight-backed `DefaultIdentityPublicKeyRepository` storing per-device signing/encryption key metadata.
+  - The account signing key exists only on the account's first device (genesis, new account, or recovery-key
+    import). A device added to an existing account never holds it: it starts on a key-less stand-in local
+    account row, and when the fold confirms the device under its real account, that account becomes the local
+    one (the stand-in row and its memberships are folded into it). Boot diagnosis accepts a device with neither
+    half of the account key as long as its device row belongs to the local account, and rebinds stores written
+    before this existed.
   - SQLDelight-backed `DefaultCryptoSessionStore` for ratchet session persistence.
   - JVM key stores:
     - `DefaultMasterKeyProvider` over `DefaultKeyStore` (OS keyring-backed DB master key
@@ -177,7 +188,7 @@ Inbound/outbound disposition contract:
   capped (`outboxMaxInFlight`, `outboxMaxInFlightPerTarget`), and the retry timer ignores overdue
   entries that can't start yet — finishing sends wake the loop instead. Sends never open a connection:
   an entry whose peer has no open link waits for one (`noLinkRecheckDelay` is only a safety net).
-  Bootstrap packets with an explicit endpoint are the exception and go out as one-shot Tor dials.
+  Bootstrap packets with an explicit endpoint are the exception: Tor dials a stream for them on demand.
 - Unknown-device policy exception: an ACK/NACK from a device with no row is accepted only when it
   refers to a BOOTSTRAP packet in our outbox addressed to exactly that device (a recovering device
   can't verify its sponsor's signature yet; the unguessable packet id authenticates the reply). It is

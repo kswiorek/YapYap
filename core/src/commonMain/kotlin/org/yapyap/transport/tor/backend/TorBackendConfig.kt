@@ -136,6 +136,14 @@ internal data class TorBackendConfig(
     val sessionWriteTimeout: Duration = 30.seconds,
     /** Sessions: accepted streams held at once; further inbound streams are refused. */
     val maxInboundSessions: Int = 128,
+    /**
+     * Streams nobody asked to keep — dialed on demand for a send to an endpoint without a
+     * session, or accepted from a dialer that hasn't authenticated (adoption) — close after
+     * this long without carrying an envelope either way. Keepalives don't count.
+     */
+    val transientLinkIdleTimeout: Duration = 30.seconds,
+    /** Sessions: inbound streams not (yet) adopted, held at once; the cheap thing for a stranger to hoard. */
+    val maxUnadoptedInbound: Int = 32,
 ) {
     init {
         require(startupTimeout > 0L.milliseconds) { "startupTimeoutMillis must be > 0" }
@@ -155,6 +163,8 @@ internal data class TorBackendConfig(
         require(sessionIdleTimeout > sessionKeepaliveInterval) { "sessionIdleTimeout must exceed sessionKeepaliveInterval" }
         require(sessionWriteTimeout > Duration.ZERO) { "sessionWriteTimeout must be > 0" }
         require(maxInboundSessions > 0) { "maxInboundSessions must be > 0" }
+        require(transientLinkIdleTimeout > Duration.ZERO) { "transientLinkIdleTimeout must be > 0" }
+        require(maxUnadoptedInbound in 1..maxInboundSessions) { "maxUnadoptedInbound must be in 1..maxInboundSessions" }
         require(uploadGracePeriod > 0L.milliseconds) { "uploadGracePeriodMillis must be > 0" }
         require(publishTimeout > 0L.milliseconds) { "publishTimeoutMillis must be > 0" }
         require(bootstrapStallTimeout > 0L.milliseconds) { "bootstrapStallTimeout must be > 0" }

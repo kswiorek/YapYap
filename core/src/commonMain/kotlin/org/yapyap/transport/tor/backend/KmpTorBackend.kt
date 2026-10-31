@@ -461,19 +461,6 @@ internal class KmpTorBackend(
         )
     }
 
-    override suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration?) {
-        val configSnapshot = config.value
-        if (payload.size > configSnapshot.maxPayloadBytes) {
-            throw TransportException.PayloadTooLarge(
-                sizeBytes = payload.size,
-                limitBytes = configSnapshot.maxPayloadBytes,
-            )
-        }
-        withDialRetries(target, budget, configSnapshot) {
-            sendFrameOnce(target, payload, configSnapshot)
-        }
-    }
-
     override suspend fun openStream(target: TorEndpoint, budget: Duration?): TorDuplex {
         val configSnapshot = config.value
         return withDialRetries(target, budget, configSnapshot, discard = { it.close() }) {
@@ -596,32 +583,9 @@ internal class KmpTorBackend(
     }
 
     /**
-     * Single SOCKS dial + frame write, no retry. Throws [SocksConnectException]
-     * on a Tor error reply, [ClosedByteChannelException]/[SocketTimeoutException]
-     * when the local Tor side drops or stalls the connection.
-     */
-    private suspend fun sendFrameOnce(
-        target: TorEndpoint,
-        payload: ByteArray,
-        configSnapshot: TorBackendConfig,
-    ) {
-        val localSource = publishedLocalEndpoint ?: error("Tor backend must be started before send")
-        val socket = connectToSocks(socketTimeout = configSnapshot.socksSocketTimeout)
-        try {
-            val input = socket.openReadChannel()
-            val output = socket.openWriteChannel(autoFlush = false)
-
-            performSocks5Handshake(target, input, output)
-            writeTorTransportFrame(output, localSource, payload)
-            output.flush()
-        } finally {
-            socket.safeClose()
-        }
-    }
-
-    /**
-     * Single SOCKS dial + stream hello, no retry; same failures as [sendFrameOnce]
-     * (a stalled SOCKS reply as [SocksHandshakeTimeoutException]). The socket gets no read
+     * Single SOCKS dial + stream hello, no retry. Throws [SocksConnectException] on a Tor
+     * error reply, [ClosedByteChannelException] when the local Tor side drops the connection,
+     * [SocksHandshakeTimeoutException] when its reply stalls. The socket gets no read
      * timeout: an open session is legitimately idle between keepalives.
      */
     private suspend fun openStreamOnce(
@@ -1078,43 +1042,59 @@ internal class KmpTorBackend(
 
     private enum class ProbeOutcome { REACHABLE, NOT_FOUND, FETCH_STALLED, TIMED_OUT, FAILED }
 
-    /** The send + loop-back half of a probe; see [checkSelfReachability]. */
+    /**
+     * The dial + echo half of a probe; see [checkSelfReachability]. Our own listener answers a
+     * probe connection by writing its nonce back ([handleTorConnection]), so reading the nonce
+     * back proves the whole rendezvous path to us works.
+     */
     private suspend fun selfDialOnce(
         local: TorEndpoint,
         nonce: ByteArray,
-        payload: ByteArray,
         configSnapshot: TorBackendConfig,
-    ): ProbeOutcome = coroutineScope {
-        val wait = async {
-            inboundFlow.first { frame ->
-                probeNonceOrNull(frame.payload)?.contentEquals(nonce) == true
+    ): ProbeOutcome {
+        val socket = try {
+            connectToSocks(socketTimeout = configSnapshot.socksSocketTimeout)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return probeFailed(e)
+        }
+        return try {
+            val input = socket.openReadChannel()
+            val output = socket.openWriteChannel(autoFlush = false)
+            performSocks5Handshake(local, input, output)
+            writeTorProbe(output, nonce)
+            output.flush()
+            if (input.readExact(TOR_PROBE_NONCE_SIZE).contentEquals(nonce)) {
+                ProbeOutcome.REACHABLE
+            } else {
+                probeFailed(IllegalStateException("probe echo did not match"))
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            probeFailed(e)
+        } finally {
+            socket.safeClose()
         }
-        // Let the collector subscribe before the frame can loop back.
-        yield()
-        try {
-            sendFrameOnce(local, payload, configSnapshot)
-        } catch (sendError: Exception) {
-            if (sendError is CancellationException) throw sendError
-            if (sendError is kotlinx.coroutines.CancellationException) throw sendError
-            wait.cancel()
-            val socksCode = (sendError as? SocksConnectException)?.code
-            val outcome =
-                if (socksCode == NOT_PUBLISHED_SOCKS_CODE) ProbeOutcome.NOT_FOUND else ProbeOutcome.FAILED
-            AppLog.debug(
-                component = LogComponent.TOR_BACKEND,
-                event = LogEvent.SESSION_FAILED,
-                message = "Self-dial probe failed",
-                fields = mapOf(
-                    "outcome" to outcome,
-                    "socksCode" to socksCode,
-                    "error" to sendError.toString()
-                ),
-            )
-            return@coroutineScope outcome
-        }
-        wait.await()
-        ProbeOutcome.REACHABLE
+    }
+
+    private fun probeFailed(error: Exception): ProbeOutcome {
+        val socksCode = (error as? SocksConnectException)?.code
+        val outcome = if (socksCode == NOT_PUBLISHED_SOCKS_CODE) ProbeOutcome.NOT_FOUND else ProbeOutcome.FAILED
+        AppLog.debug(
+            component = LogComponent.TOR_BACKEND,
+            event = LogEvent.SESSION_FAILED,
+            message = "Self-dial probe failed",
+            fields = mapOf(
+                "outcome" to outcome,
+                "socksCode" to socksCode,
+                "error" to error.toString()
+            ),
+        )
+        return outcome
     }
 
     /**
@@ -1181,8 +1161,8 @@ internal class KmpTorBackend(
     }
 
     /**
-     * One self-dial round trip to our own onion: raw probe frame out through
-     * SOCKS, matched looped-back frame in via [inboundFlow]. Single shot, no
+     * One self-dial round trip to our own onion: a probe connection out through
+     * SOCKS, its nonce echoed back by our own listener. Single shot, no
      * inner retry (the verifier loop owns the cadence). Anything but
      * [ProbeOutcome.REACHABLE] only means "not proven this time", never
      * "unreachable"; the outcome tells the loop how to retry.
@@ -1191,12 +1171,11 @@ internal class KmpTorBackend(
         val local = publishedLocalEndpoint ?: return ProbeOutcome.FAILED
         val configSnapshot = config.value
         val nonce = Random.nextBytes(TOR_PROBE_NONCE_SIZE)
-        val payload = buildProbePayload(nonce)
         return try {
             withTimeout(configSnapshot.probeTimeout) {
                 coroutineScope {
                     val since = descriptorFetches.now()
-                    val attempt = async { selfDialOnce(local, nonce, payload, configSnapshot) }
+                    val attempt = async { selfDialOnce(local, nonce, configSnapshot) }
                     // A directory relay that never answers our descriptor fetch holds the
                     // probe's stream until Tor's own two-minute timeout; end the probe
                     // early instead, so the caller can refresh lookups and try other relays.
@@ -1373,8 +1352,8 @@ internal class KmpTorBackend(
     }
 
     /**
-     * Reads an accepted connection's first frame (one-shot) and emits it, or hands an open
-     * session stream to [incomingStreams]; see [handleTorConnection]. Genuine parse
+     * Hands an accepted session stream to [incomingStreams], answers a self-probe, or
+     * emits an older build's one-shot frame; see [handleTorConnection]. Genuine parse
      * failures surface as [TransportException.TorException.TransportFrameError].
      * Cancellation is rethrown untouched — both cancellation hierarchies (the
      * `kotlin.coroutines` one and the kotlinx one carrying [JobCancellationException] from

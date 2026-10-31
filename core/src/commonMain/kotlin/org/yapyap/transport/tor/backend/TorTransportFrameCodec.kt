@@ -5,36 +5,35 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.tor.TorIncomingFrame
 
 /**
- * Wire codec for the YapYap Tor transport frame, shared by the real
- * ([KmpTorBackend]) and loopback ([LoopbackTorBackend]) backends so the two
- * can never drift apart.
+ * Wire codec for the YapYap Tor transport, shared by the real ([KmpTorBackend]) and loopback
+ * ([LoopbackTorBackend]) backends so the two can never drift apart. A connection's first int
+ * says what it carries:
  *
- * Frame layout: magic int, source host length byte, source host bytes,
+ * - [TOR_STREAM_MAGIC]: a stream (session), the only thing this build dials to peers.
+ * - [TOR_PROBE_MAGIC]: our own reachability probe, answered by the backend itself.
+ * - [TOR_TRANSPORT_FRAME_MAGIC]: a one-shot frame from an older build (receive-only).
+ *
+ * One-shot frame layout: magic int, source host length byte, source host bytes,
  * source port short, payload length int, payload bytes.
  */
 internal const val TOR_TRANSPORT_FRAME_MAGIC: Int = 0x59595431
 
 /**
- * Reachability-probe marker: self-dial frames carry `MAGIC + 16-byte nonce`
- * as the frame payload so the sender can match its own looped-back frame.
- * [DefaultTorTransport] skips these before envelope decode (silent, no warn).
+ * Self-dial reachability probe: the dialer writes this magic and a [TOR_PROBE_NONCE_SIZE]-byte
+ * nonce, and the listening backend writes the nonce straight back and closes. Getting it back
+ * proves the connection went through Tor's rendezvous all the way to our own listener.
  */
-internal val TOR_PROBE_MAGIC: ByteArray = "YAPROBE1".encodeToByteArray()
-
-internal fun buildProbePayload(nonce: ByteArray): ByteArray {
-    require(nonce.size == TOR_PROBE_NONCE_SIZE) { "probe nonce must be $TOR_PROBE_NONCE_SIZE bytes" }
-    return TOR_PROBE_MAGIC + nonce
-}
-
-/** Returns the probe nonce, or null when [payload] is not a probe frame. */
-internal fun probeNonceOrNull(payload: ByteArray): ByteArray? {
-    if (payload.size < TOR_PROBE_MAGIC.size + TOR_PROBE_NONCE_SIZE) return null
-    if (!payload.copyOfRange(0, TOR_PROBE_MAGIC.size).contentEquals(TOR_PROBE_MAGIC)) return null
-    return payload.copyOfRange(TOR_PROBE_MAGIC.size, TOR_PROBE_MAGIC.size + TOR_PROBE_NONCE_SIZE)
-}
+internal const val TOR_PROBE_MAGIC: Int = 0x59595433
 
 internal const val TOR_PROBE_NONCE_SIZE: Int = 16
 
+internal suspend fun writeTorProbe(output: ByteWriteChannel, nonce: ByteArray) {
+    require(nonce.size == TOR_PROBE_NONCE_SIZE) { "probe nonce must be $TOR_PROBE_NONCE_SIZE bytes" }
+    output.writeInt(TOR_PROBE_MAGIC)
+    output.writeFully(nonce)
+}
+
+/** Older builds' sender side of the one-shot frame; this build only reads them (and tests write them). */
 internal suspend fun writeTorTransportFrame(
     output: ByteWriteChannel,
     source: TorEndpoint,
@@ -88,8 +87,8 @@ internal suspend fun ByteReadChannel.readExact(count: Int): ByteArray {
 
 /**
  * Stream (session) protocol: a long-lived connection carrying many records, as opposed to the
- * one-shot frame above (one frame, then close). A connection's first int tells the receiver
- * which of the two it is, so both share one listener and old one-shot senders keep working.
+ * one-shot frame above (one frame, then close). Every connection this build dials to a peer is
+ * a stream; older builds' one-shot frames still share the listener.
  *
  * Layout: the dialer writes the hello — magic int, source host length byte, source host bytes,
  * source port short (the one-shot frame header without its payload) — and then both sides

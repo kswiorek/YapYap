@@ -9,7 +9,10 @@ import org.yapyap.transport.tor.TorIncomingFrame
 import kotlin.time.Duration
 
 internal interface TorBackend {
-    /** One-shot frames (one frame per connection, see [TOR_TRANSPORT_FRAME_MAGIC]). */
+    /**
+     * One-shot frames from older builds (one frame per connection, see
+     * [TOR_TRANSPORT_FRAME_MAGIC]). Receive-only: this build dials streams.
+     */
     val incomingFrames: Flow<TorIncomingFrame>
 
     /**
@@ -39,7 +42,7 @@ internal interface TorBackend {
 
     /**
      * Launches the daemon and adds our onion, then returns its endpoint. Does not
-     * wait for bootstrap: progress is reported through [health], and sends made
+     * wait for bootstrap: progress is reported through [health], and dials made
      * before bootstrap completes fail like any other transient Tor error.
      */
     suspend fun start(): TorEndpoint
@@ -47,15 +50,9 @@ internal interface TorBackend {
     suspend fun stop()
 
     /**
-     * [budget] caps how long this send may keep retrying, never beyond
-     * `TorBackendConfig.socksRetryTimeout` (null: that configured budget).
-     */
-    suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration? = null)
-
-    /**
      * Dials [target] and writes the stream hello, returning the open connection. Retries
-     * within [budget] exactly like [send] (null: `TorBackendConfig.socksRetryTimeout`).
-     * Unlike [send]'s connections, the returned stream has no socket read timeout: idle
+     * transient Tor failures within [budget], never beyond `TorBackendConfig.socksRetryTimeout`
+     * (null: that configured budget). The returned stream has no socket read timeout: idle
      * detection is the caller's (keepalives).
      */
     suspend fun openStream(target: TorEndpoint, budget: Duration? = null): TorDuplex

@@ -216,7 +216,7 @@ internal class OutboxProcessor(
      * open: sends never dial a peer themselves (keeping links open happens in the background,
      * see [org.yapyap.routing.link.LinkKeeper]), so the entry waits — see [park]. Entries with
      * an explicit endpoint (bootstrap to a newcomer, never a linked peer) are the exception
-     * and go out as a one-shot Tor dial.
+     * and have Tor dial a stream on demand.
      */
     private suspend fun claim(entry: OutboxEntry, now: Instant): ClaimedDispatch? {
         val envelope = entry.envelope

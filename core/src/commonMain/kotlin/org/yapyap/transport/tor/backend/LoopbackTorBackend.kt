@@ -20,10 +20,9 @@ import kotlin.time.Duration.Companion.seconds
  * Loopback [TorBackend] for local development and GUI testing without a Tor daemon.
  *
  * Each instance binds `127.0.0.1` on an OS-assigned free port and advertises a
- * self-describing endpoint of the form `loopback-<port>.onion`. `send` opens a plain
- * TCP connection straight to the target's port using the same transport frame codec
- * as the real backend, so the full inbound path (including peer endpoint
- * reconciliation) is exercised. No files are written, no bootstrap wait: `start()`
+ * self-describing endpoint of the form `loopback-<port>.onion`. `openStream` opens a plain
+ * TCP connection straight to the target's port using the same wire codec as the real
+ * backend, so the full inbound path (including peer endpoint reconciliation) is exercised. No files are written, no bootstrap wait: `start()`
  * returns in milliseconds.
  *
  * Loopback is bound to the loopback interface only — traffic never leaves the host —
@@ -118,51 +117,14 @@ internal class LoopbackTorBackend(
         )
     }
 
-    override suspend fun send(target: TorEndpoint, payload: ByteArray, budget: Duration?) {
-        val localSource = publishedLocalEndpoint ?: error("Loopback Tor backend must be started before send")
-        val targetPort = loopbackPortFor(target)
-        val selector = requireNotNull(selectorManager) { "Loopback selector manager is not initialized" }
-        if (payload.size > config.value.maxPayloadBytes) {
-            throw TransportException.PayloadTooLarge(
-                sizeBytes = payload.size,
-                limitBytes = config.value.maxPayloadBytes,
-            )
-        }
-
-        try {
-            // Fail fast by design: a dead peer in dev should surface immediately,
-            // not stall like the real backend's multi-minute SOCKS retry loop.
-            withTimeout(SEND_TIMEOUT) {
-                val socket = aSocket(selector).tcp().connect(LOOPBACK_HOST, targetPort) {
-                    socketTimeout = SOCKET_TIMEOUT_MS
-                }
-                try {
-                    val output = socket.openWriteChannel(autoFlush = false)
-                    writeTorTransportFrame(output, localSource, payload)
-                    output.flush()
-                } finally {
-                    socket.close()
-                }
-            }
-        } catch (e: TimeoutCancellationException) {
-            throw TransportException.LoopbackError("timed out sending to ${target.onionAddress}")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw TransportException.LoopbackError(
-                "failed to send to ${target.onionAddress}: ${e.message}",
-            )
-        }
-    }
-
     override suspend fun openStream(target: TorEndpoint, budget: Duration?): TorDuplex {
         val localSource = publishedLocalEndpoint ?: error("Loopback Tor backend must be started before dialing")
         val targetPort = loopbackPortFor(target)
         val selector = requireNotNull(selectorManager) { "Loopback selector manager is not initialized" }
         try {
-            return withTimeout(SEND_TIMEOUT) {
+            // Fail fast by design: a dead peer in dev should surface immediately,
+            // not stall like the real backend's multi-minute SOCKS retry loop.
+            return withTimeout(DIAL_TIMEOUT) {
                 // No socket timeout: an open session is legitimately idle between keepalives.
                 val socket = aSocket(selector).tcp().connect(LOOPBACK_HOST, targetPort)
                 try {
@@ -203,9 +165,8 @@ internal class LoopbackTorBackend(
 
     companion object {
         const val LOOPBACK_HOST: String = "127.0.0.1"
-        private val SEND_TIMEOUT = 10.seconds
+        private val DIAL_TIMEOUT = 10.seconds
         private const val INBOUND_STREAM_QUEUE: Int = 64
-        private const val SOCKET_TIMEOUT_MS: Long = 30_000L
 
         private val LOOPBACK_ADDRESS = Regex("^loopback-(\\d{1,5})\\.onion$")
 

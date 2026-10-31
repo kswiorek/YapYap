@@ -230,6 +230,18 @@ SELECT *
 FROM accounts
 WHERE is_local_account = 1;
 
+-- Local-account rebind (the local device was confirmed under another account): exactly one
+-- row carries the local flag.
+setLocalAccount:
+UPDATE accounts SET is_local_account = (account_id = :accountId);
+
+-- Drops an account row nothing points at any more (the pre-confirmation local stand-in).
+deleteAccountIfUnreferenced:
+DELETE FROM accounts
+WHERE account_id = :accountId
+  AND NOT EXISTS (SELECT 1 FROM devices WHERE account_id = :accountId)
+  AND NOT EXISTS (SELECT 1 FROM room_members WHERE account_id = :accountId);
+
 selectDevicesByAccountId:
 SELECT *
 FROM devices

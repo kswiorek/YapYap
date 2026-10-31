@@ -13,7 +13,8 @@ internal data class TorIncomingFrame(
 
 /**
  * @param source the endpoint the packet arrived from: the onion we dialed (session we opened),
- *   or the endpoint the dialer claims (one-shot frame, or a stream someone else opened).
+ *   or the endpoint the dialer claims (a stream someone else opened, or an older build's
+ *   one-shot frame).
  * @param link the open stream it arrived on, null for one-shot frames. Replies sent with
  *   `via = link` go back to whoever actually sent the packet, without a new dial.
  */

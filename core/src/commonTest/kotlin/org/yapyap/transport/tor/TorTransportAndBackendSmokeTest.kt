@@ -7,7 +7,6 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
@@ -42,18 +41,15 @@ class TorTransportAndBackendSmokeTest {
     }
 
     @Test
-    fun recordingTorBackend_recordsLifecycleAndPayloads() = runBlocking {
+    fun recordingTorBackend_recordsLifecycleAndDials() = runBlocking {
         val b = RecordingTorBackend()
         val ep = b.start()
         assertEquals(b.nextEndpoint, ep)
         assertEquals(listOf<Int?>(80), b.startCalls)
 
         val tgt = TorEndpoint("peer.onion", 443)
-        val payload = byteArrayOf(1, 2, 3)
-        b.send(tgt, payload)
-        assertEquals(1, b.sends.size)
-        assertEquals(tgt, b.sends[0].first)
-        assertContentEquals(payload, b.sends[0].second)
+        runCatching { b.openStream(tgt) }
+        assertEquals(listOf(tgt), b.openStreamCalls)
 
         b.stop()
         assertEquals(1, b.stopCalls.size)

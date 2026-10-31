@@ -44,6 +44,10 @@ internal fun deviceEncryptionPrivateRef(): KeyReference =
 internal fun accountSigningPrivateRef(): KeyReference =
     localAccountKeyRef(IdentityKeyPurpose.SIGNING, KeyType.PRIVATE)
 
+/** Local account signing public key: present exactly when the private half should be (first device). */
+internal fun accountSigningPublicRef(): KeyReference =
+    localAccountKeyRef(IdentityKeyPurpose.SIGNING, KeyType.PUBLIC)
+
 internal fun signedPreKeyPrivateRef(spkId: String): KeyReference =
     KeyReference(keyId = spkId, purpose = IdentityKeyPurpose.ENCRYPTION, type = KeyType.PRIVATE)
 

@@ -21,8 +21,12 @@ import kotlin.time.Duration
  *   both ways. A session we dialed is CONNECTED once the far end's app accepts it. A stream
  *   someone else dialed is only a session after [adoptInbound]: its claimed source endpoint is
  *   unauthenticated, so the layer that can verify who sent its packets decides.
- * - **One-shot** ([send] without a session): one dial per envelope, as for a bootstrap
- *   target or a peer with no session.
+ * - **On demand** ([send] without a session): dials a transient stream for the envelope, as
+ *   for a bootstrap target or a peer with no session; it closes again once unused, and the
+ *   far end can reply on it.
+ *
+ * Every connection this transport dials is a stream; one-shot frames from older builds are
+ * still received (with no link to reply on).
  */
 internal interface TorTransport : SessionTransport<TorEndpoint> {
     val incoming: Flow<TorIncomingEnvelope>
@@ -44,8 +48,9 @@ internal interface TorTransport : SessionTransport<TorEndpoint> {
 
     /**
      * Sends over the first usable of: the stream [via] (a reply on the stream a packet
-     * arrived on), a session to [target], a one-shot dial. [budget] caps how long a one-shot
-     * dial may keep retrying (null: the backend's configured budget).
+     * arrived on), a session to [target], a stream dialed now (joining a dial already under
+     * way). [budget] caps how long that dial may keep retrying (null: the session dial
+     * budget). Throws the dial's failure when no stream comes up.
      */
     suspend fun send(
         target: TorEndpoint,

@@ -19,7 +19,7 @@ internal interface OutboundPolicy {
 
 /**
  * @param transport the open link to use; null when no link is open — the caller waits for
- *   one (outbox) or falls back to a one-shot Tor dial (system traffic, bootstrap).
+ *   one (outbox) or has Tor dial one on demand (system traffic, bootstrap).
  */
 internal data class ResolvedOutbound(
     val transport: RouterTransport?,
