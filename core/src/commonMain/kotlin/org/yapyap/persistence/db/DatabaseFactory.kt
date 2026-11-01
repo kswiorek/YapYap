@@ -37,7 +37,7 @@ internal class DatabaseFactory(
 ) {
     fun createConnection(): DatabaseConnection {
         val driver = driverFactory.createDriver()
-        initializer.initialize(driver)
+        val created = initializer.initialize(driver)
         AppLog.info(
             component = LogComponent.DATABASE,
             event = LogEvent.DATABASE_INITIALIZED,
@@ -135,6 +135,7 @@ internal class DatabaseFactory(
                 ),
             ),
             driver = driver,
+            created = created,
         )
     }
 }
@@ -183,4 +184,6 @@ internal class PeerIdAdapter : ColumnAdapter<PeerId, String> {
 internal data class DatabaseConnection(
     val database: YapYapDatabase,
     val driver: SqlDriver,
+    /** The schema was created on this open: the store holds nothing from before. */
+    val created: Boolean = false,
 )

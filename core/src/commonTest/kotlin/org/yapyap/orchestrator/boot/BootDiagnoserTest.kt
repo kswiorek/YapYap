@@ -7,9 +7,7 @@ import org.yapyap.persistence.key.*
 import org.yapyap.protocol.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.*
 import kotlin.time.Duration.Companion.minutes
 
 class BootDiagnoserTest {
@@ -173,6 +171,44 @@ class BootDiagnoserTest {
         val fixture = Fixture()
 
         assertEquals(BootDiagnosis.SetupRequired, fixture.diagnoser.diagnose())
+    }
+
+    /** The data directory was deleted while the OS keyring kept the identity keys. */
+    private suspend fun Fixture.leaveKeysWithoutRows() {
+        val crypto = DefaultCryptoProvider()
+        keyStore.putKey(masterKeyRef(), ByteArray(32) { 1 })
+        keyStore.putKey(deviceSigningPrivateRef(), crypto.generateSigningKeyPair().privateKey)
+        keyStore.putKey(deviceEncryptionPrivateRef(), crypto.generateEncryptionKeyPair().privateKey)
+        val account = crypto.generateSigningKeyPair()
+        keyStore.putKey(accountSigningPrivateRef(), account.privateKey)
+        keyStore.putKey(accountSigningPublicRef(), account.publicKey)
+    }
+
+    @Test
+    fun newStore_leftoverKeys_areClearedAndSetupRequired() = runTest {
+        val fixture = Fixture()
+        fixture.leaveKeysWithoutRows()
+
+        assertEquals(BootDiagnosis.SetupRequired, fixture.diagnoser.diagnose(storeIsNew = true))
+        for (ref in localIdentityKeyRefs()) assertNull(fixture.keyStore.getKey(ref), "${ref.keyId} cleared")
+        assertNotNull(fixture.keyStore.getKey(masterKeyRef()), "the new store's master key stays")
+    }
+
+    @Test
+    fun existingStore_keysWithoutRows_returnsInconsistentStorage() = runTest {
+        // An existing store that lost its rows is not a leftover keyring: nothing is deleted.
+        val fixture = Fixture()
+        fixture.leaveKeysWithoutRows()
+
+        val diagnosis = fixture.diagnoser.diagnose()
+        assertIs<BootDiagnosis.ResetRequired>(diagnosis)
+        assertEquals(ResetReason.INCONSISTENT_STORAGE, diagnosis.reason)
+        assertNotNull(fixture.keyStore.getKey(deviceSigningPrivateRef()))
+    }
+
+    @Test
+    fun newStore_noKeys_returnsSetupRequired() = runTest {
+        assertEquals(BootDiagnosis.SetupRequired, Fixture().diagnoser.diagnose(storeIsNew = true))
     }
 
     @Test

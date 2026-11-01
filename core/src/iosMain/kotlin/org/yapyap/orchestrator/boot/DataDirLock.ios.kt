@@ -1,14 +1,13 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package org.yapyap.orchestrator.boot
 
-import kotlinx.cinterop.ByteVar
-import kotlinx.cinterop.allocArray
-import kotlinx.cinterop.cstr
-import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.*
 import kotlinx.io.files.Path
 import platform.posix.*
 
 internal actual fun acquireDataDirLock(directory: Path): DataDirLock? {
-    val path = directory.toString() + "/app.lock"
+    val path = directory.toString() + "/" + DATA_DIR_LOCK_FILE
     val fd = open(path, O_RDWR or O_CREAT, 0x180)
     if (fd < 0) return null
     if (flock(fd, LOCK_EX or LOCK_NB) != 0) {
@@ -31,7 +30,7 @@ internal actual fun acquireDataDirLock(directory: Path): DataDirLock? {
 }
 
 internal actual fun readDataDirLockHolder(directory: Path): Long? = runCatching {
-    val fd = open(directory.toString() + "/app.lock", O_RDONLY)
+    val fd = open(directory.toString() + "/" + DATA_DIR_LOCK_FILE, O_RDONLY)
     if (fd < 0) return null
     try {
         memScoped {

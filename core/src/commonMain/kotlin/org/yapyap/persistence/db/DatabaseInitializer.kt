@@ -10,13 +10,14 @@ import org.yapyap.logging.LogEvent
 internal class DatabaseInitializer(
     private val schema: SqlSchema<QueryResult.Value<Unit>>,
 ) {
-    fun initialize(driver: SqlDriver) {
+    /** Brings the schema up to date; true when the schema was created (the store was new). */
+    fun initialize(driver: SqlDriver): Boolean {
         enableForeignKeys(driver)
 
         val currentVersion = readUserVersion(driver)
         val targetVersion = schema.version
 
-        when {
+        return when {
             currentVersion == 0L -> {
                 schema.create(driver)
                 setUserVersion(driver, targetVersion)
@@ -26,6 +27,7 @@ internal class DatabaseInitializer(
                     message = "Database schema created",
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
+                true
             }
 
             currentVersion < targetVersion -> {
@@ -37,14 +39,18 @@ internal class DatabaseInitializer(
                     message = "Database schema migrated",
                     fields = mapOf("fromVersion" to currentVersion, "toVersion" to targetVersion),
                 )
+                false
             }
 
-            else -> AppLog.debug(
-                component = LogComponent.DATABASE,
-                event = LogEvent.DATABASE_INITIALIZED,
-                message = "Database schema already up to date",
-                fields = mapOf("version" to currentVersion),
-            )
+            else -> {
+                AppLog.debug(
+                    component = LogComponent.DATABASE,
+                    event = LogEvent.DATABASE_INITIALIZED,
+                    message = "Database schema already up to date",
+                    fields = mapOf("version" to currentVersion),
+                )
+                false
+            }
         }
     }
 

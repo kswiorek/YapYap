@@ -61,8 +61,10 @@ internal fun oneTimePreKeyPrivateRef(opkId: String): KeyReference =
  * previous partial wipe) linger — harmless, as fresh provisioning mints new IDs
  * and the master-key wipe cryptographically retires the old DB.
  */
-internal fun wellKnownKeyRefs(): List<KeyReference> = listOf(
-    masterKeyRef(),
+internal fun wellKnownKeyRefs(): List<KeyReference> = listOf(masterKeyRef()) + localIdentityKeyRefs()
+
+/** The local device and account keys: everything well-known except the DB master key. */
+internal fun localIdentityKeyRefs(): List<KeyReference> = listOf(
     localDeviceKeyRef(IdentityKeyPurpose.SIGNING, KeyType.PRIVATE),
     localDeviceKeyRef(IdentityKeyPurpose.SIGNING, KeyType.PUBLIC),
     localDeviceKeyRef(IdentityKeyPurpose.ENCRYPTION, KeyType.PRIVATE),

@@ -5,7 +5,7 @@ import java.io.RandomAccessFile
 import java.nio.channels.OverlappingFileLockException
 
 internal actual fun acquireDataDirLock(directory: Path): DataDirLock? {
-    val raf = RandomAccessFile(directory.toString() + "/app.lock", "rw")
+    val raf = RandomAccessFile(directory.toString() + "/" + DATA_DIR_LOCK_FILE, "rw")
     val channel = raf.channel
     fun release() {
         runCatching { channel.close() }
@@ -34,7 +34,7 @@ internal actual fun acquireDataDirLock(directory: Path): DataDirLock? {
 }
 
 internal actual fun readDataDirLockHolder(directory: Path): Long? = runCatching {
-    RandomAccessFile(directory.toString() + "/app.lock", "r").use { raf ->
+    RandomAccessFile(directory.toString() + "/" + DATA_DIR_LOCK_FILE, "r").use { raf ->
         raf.readLine()?.trim()?.toLongOrNull()
     }
 }.getOrNull()

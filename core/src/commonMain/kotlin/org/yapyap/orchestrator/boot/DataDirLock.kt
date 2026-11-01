@@ -14,6 +14,8 @@ import kotlinx.io.files.Path
  * process to close. Best-effort diagnostics only — a missing/unparseable PID
  * degrades to "unknown", never to a failure.
  */
+internal const val DATA_DIR_LOCK_FILE = "app.lock"
+
 internal interface DataDirLock : AutoCloseable {
     override fun close()
 }

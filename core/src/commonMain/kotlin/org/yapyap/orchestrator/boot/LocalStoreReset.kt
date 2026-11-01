@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator.boot
 
+import kotlinx.io.IOException
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import org.yapyap.logging.AppLog
@@ -12,9 +13,9 @@ import org.yapyap.persistence.key.KeyStore
  * Terminal offline wipe: enumerates dynamic key refs (`spk-*`/`opk-*` IDs from
  * the DB, which the OS keyring cannot list), closes the DB, clears the keyring
  * ([KeyStore.deleteAll] for well-known refs + each enumerated ref), then deletes
- * everything under [dataDirectory] (PoC: `vault.db*`, `tor/`, `state.toml`,
- * `userSettings.toml`, `logs/` — the user copies out anything worth keeping
- * beforehand). Next `start()` recreates the directories and reopens the
+ * everything under [dataDirectory] except the lock file (PoC: `vault.db*`, `tor/`,
+ * `state.toml`, `userSettings.toml`, `logs/` — the user copies out anything worth
+ * keeping beforehand). Next `start()` recreates the directories and reopens the
  * database, landing in `SetupRequired` via the boot diagnoser: wiped and
  * fresh are indistinguishable by design. The orchestrator therefore lands in
  * `Stopped` (never `SetupRequired` directly) — its in-memory DB handle is
@@ -33,6 +34,11 @@ internal class LocalStoreReset(
     private val keyStore: KeyStore,
     private val closeDatabase: suspend () -> Unit = {},
     private val collectKeyRefs: suspend () -> List<KeyReference> = { emptyList() },
+    /**
+     * Top-level entries left in place. The data-directory lock file is held open by the
+     * caller during the wipe, and Windows refuses to delete an open file; it holds only a PID.
+     */
+    private val keepFileNames: Set<String> = setOf(DATA_DIR_LOCK_FILE),
 ) {
     suspend fun wipe() {
         // DB must stay open for enumeration; tolerate corrupt/missing DB (fall back
@@ -43,12 +49,18 @@ internal class LocalStoreReset(
             runCatching { keyStore.deleteKey(ref) }
         }
         runCatching { keyStore.deleteAll() }
+        // Every entry gets its attempt even when one fails, and the failures are named.
+        val failed = mutableListOf<Path>()
         if (SystemFileSystem.exists(dataDirectory)) {
             for (child in SystemFileSystem.list(dataDirectory)) {
-                deleteRecursively(child)
+                if (child.name in keepFileNames) continue
+                deleteRecursively(child, failed)
             }
         }
         SystemFileSystem.createDirectories(dataDirectory)
+        if (failed.isNotEmpty()) {
+            throw IOException("Could not delete ${failed.joinToString()} (still open by another program?)")
+        }
         // Logging may already be torn down alongside the wiped logs dir; keep this
         // best-effort so reset itself never fails on a dead sink.
         runCatching {
@@ -60,12 +72,16 @@ internal class LocalStoreReset(
         }
     }
 
-    private fun deleteRecursively(path: Path) {
+    private fun deleteRecursively(path: Path, failed: MutableList<Path>) {
         if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
             for (child in SystemFileSystem.list(path)) {
-                deleteRecursively(child)
+                deleteRecursively(child, failed)
             }
         }
-        SystemFileSystem.delete(path, mustExist = false)
+        try {
+            SystemFileSystem.delete(path, mustExist = false)
+        } catch (e: IOException) {
+            failed += path
+        }
     }
 }

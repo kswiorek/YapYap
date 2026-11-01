@@ -149,6 +149,10 @@
       retrieval/creation; the keyring service is `org.yapyap`, suffixed per `keyringNamespace`
       when the factory sets one),
     - `DefaultKeyStore` for local private key persistence (same keyring, well-known refs).
+  - The keyring lives outside the data directory, so deleting the directory (or a reinstall that does)
+    leaves the identity keys behind. A database created on this boot can't own any of them, so boot
+    diagnosis deletes them and goes to setup instead of asking for a reset. A reset deletes everything in
+    the data directory except the held `app.lock`, and names any entry it could not delete.
   - Encrypted DB initialization and reopen path validated by `JvmEncryptedDriverFactoryIntegrationTest`
     (opt-in via `-PintegrationTests=true`).
 - Not yet implemented / in progress:

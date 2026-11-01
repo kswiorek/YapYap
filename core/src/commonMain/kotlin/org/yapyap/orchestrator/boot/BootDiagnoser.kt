@@ -1,6 +1,10 @@
 package org.yapyap.orchestrator.boot
 
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.db.DatabaseConnection
 import org.yapyap.persistence.key.*
 import org.yapyap.protocol.IdentityStatus
 import kotlin.time.Clock
@@ -10,6 +14,9 @@ import kotlin.time.Clock
  * and returns a [BootDiagnosis]. Read-only except for one benign repair (see below).
  *
  * Decision table (peer count ignored — a genesis single-node network is Healthy):
+ * - a store created on this boot holds nothing the keyring's identity keys could belong to
+ *   (the data directory was deleted while the OS keyring kept them): they are leftovers,
+ *   deleted before the checks below (the third benign repair), which then see a fresh node
  * - no rows + no keys → [BootDiagnosis.SetupRequired] (fresh and wiped are identical)
  * - rows + keys + key→ID binding + active SPK + self not BANNED → [BootDiagnosis.Healthy]
  *   (`null` status means "not yet known", never removed)
@@ -31,7 +38,9 @@ internal class BootDiagnoser(
     private val sessionStore: BootstrapSessionStore,
     private val clock: Clock,
 ) {
-    suspend fun diagnose(): BootDiagnosis {
+    /** [storeIsNew]: the database was created on this boot (see [DatabaseConnection.created]). */
+    suspend fun diagnose(storeIsNew: Boolean = false): BootDiagnosis {
+        if (storeIsNew) clearLeftoverIdentityKeys()
         val deviceRow = identityRepository.getLocalDeviceRecord()
         val accountRow = identityRepository.getLocalAccountRecord()
         val deviceSigningPriv = keyStore.getKey(deviceSigningPrivateRef())
@@ -135,5 +144,17 @@ internal class BootDiagnoser(
             }
         }
         return BootDiagnosis.Healthy
+    }
+
+    private suspend fun clearLeftoverIdentityKeys() {
+        val leftovers = localIdentityKeyRefs().filter { keyStore.getKey(it) != null }
+        if (leftovers.isEmpty()) return
+        AppLog.warn(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.LEFTOVER_KEYS_CLEARED,
+            message = "New database but identity keys left in the keyring; deleting them",
+            fields = mapOf("keyIds" to leftovers.joinToString { it.keyId + ":" + it.type.name.lowercase() }),
+        )
+        for (ref in leftovers) keyStore.deleteKey(ref)
     }
 }

@@ -218,7 +218,17 @@ internal class DefaultOrchestrator(
                 Clock.System,
             )
             // Boot diagnosis owns the Healthy/SetupRequired/ResetRequired decision.
-            when (val diagnosis = BootDiagnoser(identityRepo, keyStore, cryptoProvider, bootstrapSessionStore, Clock.System).diagnose()) {
+            val diagnosis = BootDiagnoser(identityRepo, keyStore, cryptoProvider, bootstrapSessionStore, Clock.System)
+                .diagnose(storeIsNew = dbConnection.created)
+            if (diagnosis is BootDiagnosis.ResetRequired) {
+                AppLog.warn(
+                    component = LogComponent.ORCHESTRATOR,
+                    event = LogEvent.BOOT_DIAGNOSED,
+                    message = "Boot diagnosis requires a reset",
+                    fields = mapOf("reason" to diagnosis.reason.name, "details" to diagnosis.details),
+                )
+            }
+            when (diagnosis) {
                 is BootDiagnosis.Healthy -> {
                     markStarting()
                     init()
@@ -851,8 +861,8 @@ internal class DefaultOrchestrator(
         )
         reset.wipe()
         dbDriver = null
-        // The wipe deletes app.lock itself: release first, then forget the handle so
-        // the next start() re-acquires on the fresh directory.
+        // The wipe leaves the lock file (held open throughout); release it now and forget
+        // the handle so the next start() re-acquires.
         runCatching { dataDirLock?.close() }
         dataDirLock = null
         _onboardingState.value = OnboardingState.IDLE
