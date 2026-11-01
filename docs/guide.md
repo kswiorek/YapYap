@@ -155,6 +155,9 @@ Effectively-once delivery rests on the pull path, not the push path: every sent 
 appended to the local DAG first, ping frontiers advertise DAG tips, and peers pull what they
 miss via sync requests. The outbox push (dispatch + ACK/NACK retry) is a latency
 optimization — a deferred or expired push is a latency problem, never a loss.
+A pinged frontier can name a room this device has never seen (e.g. a device just added to an
+account that is already in rooms): the room gets a provisional `UNKNOWN` row, as on ingest, so the
+sync row can be minted, and the room's own history fills it in.
 
 Protection verdicts (`ProtectionDisposition` in `ProtectionException.kt`) are two-valued:
 

@@ -17,6 +17,7 @@ import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomType
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -188,6 +189,12 @@ internal class DefaultSyncCoordinator(
                 fields = mapOf("roomId" to roomId, "targetMessageId" to targetMessageId),
             )
             return
+        }
+        // A room we only know from a ping (e.g. on a device just added to an account that
+        // was in it before): give it the same provisional row ingest would, so the sync row
+        // can reference it. The projector's genesis merge overwrites the UNKNOWN placeholder.
+        if (roomId != RoomId.GLOBAL) {
+            roomRepository.ensureRoomExists(roomId, RoomType.UNKNOWN, "")
         }
         // Known room with no candidates (all members removed): still mint the
         // row as a placeholder — the membership refresh revives it if

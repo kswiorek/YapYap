@@ -709,7 +709,21 @@ internal class DefaultOrchestrator(
         orchestratorScope.launch {
             router.pingPayloads.collect { ping ->
                 ping.roomFrontiers.forEach { (roomId, tips) ->
-                    syncCoordinator.requestFrontierSync(roomId, tips, ping.senderAccount)
+                    // One room failing must not end this collector: every later ping's
+                    // frontiers would go unsynced until restart.
+                    try {
+                        syncCoordinator.requestFrontierSync(roomId, tips, ping.senderAccount)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        AppLog.error(
+                            component = LogComponent.ORCHESTRATOR,
+                            event = LogEvent.SYNC_PROCESS_FAILED,
+                            message = "Frontier sync request from ping failed",
+                            throwable = e,
+                            fields = mapOf("roomId" to roomId, "senderAccount" to ping.senderAccount),
+                        )
+                    }
                 }
             }
         }
