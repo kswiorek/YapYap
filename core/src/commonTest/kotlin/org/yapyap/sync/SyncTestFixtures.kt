@@ -26,7 +26,6 @@ import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.*
@@ -292,12 +291,10 @@ internal fun buildSyncRoutingStack(
     val availabilityRegistry =
         PeerAvailabilityRegistry(clock, MutableStateFlow(RouterConfig()), FakePeerAvailabilityStore())
     val proactiveSessionOpener = ProactiveSessionOpener(ctx, availabilityRegistry)
-    val relaySelectionPolicy = DefaultRelaySelectionPolicy(ctx, availabilityRegistry, MutableStateFlow(RouterConfig()))
     val outboundMessenger = OutboundMessenger(
         ctx,
         outboxProcessor = outboxProcessor,
         sessionOpener = proactiveSessionOpener,
-        relaySelectionPolicy = relaySelectionPolicy,
     )
     val systemSender = SystemSender(ctx, policy, dispatcher)
     return SyncRoutingStack(

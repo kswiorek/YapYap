@@ -25,6 +25,7 @@ internal class DefaultPacketOutbox(
         nextRetryAt: Instant,
         relayMessage: Boolean,
         targetEndpoint: TorEndpoint?,
+        relayBackup: RelayBackup,
     ) {
         withContext(dbDispatcher) {
             val envelopeBlob = envelope.encode()
@@ -34,6 +35,7 @@ internal class DefaultPacketOutbox(
                 target_onion_address = targetEndpoint?.onionAddress,
                 target_onion_port = targetEndpoint?.port?.toLong(),
                 is_relay = relayMessage,
+                relay_backup = relayBackup.code,
                 retry_count = 0,
                 expires_at = envelope.expiresAt,
                 last_attempt_at = envelope.createdAt,
@@ -105,6 +107,11 @@ internal class DefaultPacketOutbox(
             )
         }
     }
+
+    override suspend fun claimRelayBackup(packetId: Uuid): Boolean =
+        withContext(dbDispatcher) {
+            queries.claimRelayBackup(packetId).value > 0L
+        }
 
     override suspend fun deferRetry(packetId: Uuid, nextRetryAt: Instant) {
         withContext(dbDispatcher) {

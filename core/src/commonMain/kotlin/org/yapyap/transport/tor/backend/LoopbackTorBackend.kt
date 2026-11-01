@@ -40,7 +40,7 @@ internal class LoopbackTorBackend(
     )
     override val incomingFrames: Flow<TorIncomingFrame> = incomingFlow.asSharedFlow()
 
-    private val inboundStreams = Channel<TorInboundStream>(capacity = INBOUND_STREAM_QUEUE)
+    private val inboundStreams = Channel<TorInboundStream>(capacity = config.value.inboundStreamQueue)
     override val incomingStreams: Flow<TorInboundStream> = inboundStreams.receiveAsFlow()
 
     // Loopback is dialable the moment the socket binds — no descriptor dance.
@@ -166,7 +166,6 @@ internal class LoopbackTorBackend(
     companion object {
         const val LOOPBACK_HOST: String = "127.0.0.1"
         private val DIAL_TIMEOUT = 10.seconds
-        private const val INBOUND_STREAM_QUEUE: Int = 64
 
         private val LOOPBACK_ADDRESS = Regex("^loopback-(\\d{1,5})\\.onion$")
 

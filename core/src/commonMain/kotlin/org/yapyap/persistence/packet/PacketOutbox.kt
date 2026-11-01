@@ -18,7 +18,15 @@ internal interface PacketOutbox {
         nextRetryAt: Instant,
         relayMessage: Boolean = false,
         targetEndpoint: TorEndpoint? = null,
+        relayBackup: RelayBackup = RelayBackup.NONE,
     )
+
+    /**
+     * Moves [packetId]'s relay backup from [RelayBackup.PENDING] to [RelayBackup.DEPOSITED];
+     * true exactly once per row, for the caller that must now make the relay copies. False
+     * when the row is gone (delivered, expired) or its backup is done or not applicable.
+     */
+    suspend fun claimRelayBackup(packetId: Uuid): Boolean
 
     suspend fun markDelivered(packetId: Uuid)
     suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant)
@@ -36,6 +44,21 @@ internal interface PacketOutbox {
     suspend fun earliestPendingRetryAfter(after: Instant): Instant?
     suspend fun relayCacheBytes(): Long
     suspend fun pruneRelayOverCapacity(maxBytes: Long): Int
+}
+
+/**
+ * Store-and-forward backup of a message sent straight to its recipient: relays get copies only
+ * when the direct path shows it may not deliver (no link, or no ACK in time), at most once.
+ */
+internal enum class RelayBackup(val code: Long) {
+    /** Not a message to its final recipient (relay copies, system packets, bootstrap). */
+    NONE(0),
+
+    /** Copies not made yet; made once delivery looks doubtful. */
+    PENDING(1),
+
+    /** Copies made (or the message was already covered). */
+    DEPOSITED(2),
 }
 
 internal data class OutboxEntry(

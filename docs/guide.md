@@ -51,6 +51,11 @@
       entries wait (deferred without counting an attempt) and relay deposits plus the pull path cover delivery;
       system traffic has Tor dial a stream on demand. Any link coming up wakes the peer's outbox
       entries.
+  - Relays (store-and-forward copies of a message, so delivery doesn't need sender and recipient online at
+    the same time) are used only when the direct path looks doubtful: no open link when the message is sent
+    or when it comes due, no ACK within `relayBackupAfter` of a send over a link, or a retry. Each outbox
+    entry records its backup state (`relay_backup`), so copies are made at most once, across restarts too.
+    While a link delivers, relays carry nothing.
     - `LinkKeeper` keeps links open to a target set over any session transport, with per-peer exponential
       backoff, capped concurrent opens, prompt reopen when a link drops, and a readiness gate. The router runs one
       for Tor (all active peers, gated on `TorHealth.Ready`). WebRTC sessions stay on-demand (`ProactiveSessionOpener`).
@@ -73,7 +78,9 @@
       proves who dialed. When both sides dial each other, the side with the higher onion closes its own dialed
       stream after adopting the other.
     - Idle streams exchange keepalives, and a stream with nothing received for `sessionIdleTimeout` is closed:
-      Tor gives no timely signal when the far end disappears.
+      Tor gives no timely signal when the far end disappears. A stream carrying our envelopes is held to the
+      much shorter `sessionResponseTimeout`: each burst of envelopes ends with an `ECHO` record the far end
+      answers at once, so a peer that vanished is noticed within seconds of sending to it.
   - Tor backend + Tor transport abstraction implemented.
   - Integration tests exist (including live loopback Tor test).
   - `TorBackend.start()` returns once the daemon's SOCKS listener is up and the onion is added; it does not wait

@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.packet.RelayBackup
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -14,9 +15,7 @@ import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.PeerSendOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -27,7 +26,6 @@ internal class OutboundMessenger(
     private val ctx: RoutingContext,
     private val outboxProcessor: OutboxProcessor,
     private val sessionOpener: ProactiveSessionOpener,
-    private val relaySelectionPolicy: RelaySelectionPolicy,
 ) {
     suspend fun sendMessage(
         target: AccountId,
@@ -150,7 +148,11 @@ internal class OutboundMessenger(
         // attempt recording. (The old direct-dispatch path and its finally-recordSendAttempt
         // are gone — transport selection happens in the outbox loop, per attempt.)
         val nextRetryAt = ctx.clock.now()
-        outboxProcessor.enqueueAndWake(binaryEnvelope, nextRetryAt)
+        outboxProcessor.enqueueAndWake(
+            binaryEnvelope,
+            nextRetryAt,
+            relayBackup = if (supplementRelays) RelayBackup.PENDING else RelayBackup.NONE,
+        )
         AppLog.debug(
             component = LogComponent.ROUTER,
             event = LogEvent.OUTBOX_MESSAGE_QUEUED,
@@ -162,36 +164,15 @@ internal class OutboundMessenger(
             ),
         )
 
-        // Supplement the direct attempt with store-and-forward relay deposits when the target has no
-        // open link (the entry then waits for one). Relays hold a copy and forward it once the
-        // recipient surfaces.
+        // With an open link the message goes direct and relays carry nothing unless it goes
+        // unacknowledged (the outbox backs it up then). With none, back it up now: relays hold
+        // a copy and forward it once the recipient surfaces, sender online or not.
         val relaysDeposited = if (supplementRelays && ctx.peerLinks.linksOf(target).isEmpty()) {
-            depositToRelays(target, messageEnvelope)
+            outboxProcessor.backUpToRelays(binaryEnvelope, reason = "no link")
         } else {
             0
         }
         return PeerSendOutcome.Queued(relaysDeposited)
-    }
-
-    private suspend fun depositToRelays(targetDevice: PeerId, messageEnvelope: MessageEnvelope): Int {
-        val relays = relaySelectionPolicy.selectRelays(targetDevice)
-        if (relays.isEmpty()) return 0
-        val now = ctx.clock.now()
-        val lifetime = ctx.routerConfig.value.binaryEnvelopeLifetime
-        relays.forEach { relay ->
-            val relayEnvelope = BinaryEnvelope(
-                packetId = Uuid.random(),
-                packetType = PacketType.MESSAGE,
-                dispositionRequested = true,
-                createdAt = now,
-                expiresAt = now + lifetime,
-                source = ctx.localDeviceId,
-                target = relay,
-                payload = messageEnvelope.encode(),
-            )
-            outboxProcessor.enqueueAndWake(relayEnvelope, nextRetryAt = now)
-        }
-        return relays.size
     }
 
     private fun outboundResultForProtectionFailure(

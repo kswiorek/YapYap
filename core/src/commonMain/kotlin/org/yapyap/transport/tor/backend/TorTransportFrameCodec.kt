@@ -107,7 +107,10 @@ internal enum class TorStreamRecordType(val wireValue: Byte) {
     DATA(2),
 
     /** Liveness only; sent on an otherwise idle stream. */
-    KEEPALIVE(3);
+    KEEPALIVE(3),
+
+    /** "Still there?": answered at once with a [KEEPALIVE]. Sent after envelopes, so a dead far end shows quickly. */
+    ECHO(4);
 
     companion object {
         fun fromWireValueOrNull(value: Byte): TorStreamRecordType? = entries.firstOrNull { it.wireValue == value }

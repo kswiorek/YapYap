@@ -21,6 +21,7 @@ import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.persistence.packet.RelayBackup
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.persistence.sync.PendingSyncRow
 import org.yapyap.protection.PassthroughFileProtection
@@ -480,6 +481,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         val expiresAt: Instant,
         val blobSize: Long,
         val targetEndpoint: TorEndpoint? = null,
+        var relayBackup: RelayBackup = RelayBackup.NONE,
     )
 
     private val entries = linkedMapOf<Uuid, StoredEntry>()
@@ -493,6 +495,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         nextRetryAt: Instant,
         relayMessage: Boolean,
         targetEndpoint: TorEndpoint?,
+        relayBackup: RelayBackup,
     ) {
         val blobSize = envelope.encode().size.toLong()
         synchronized(lock) {
@@ -504,9 +507,19 @@ internal class TrackingPacketOutbox : PacketOutbox {
                 expiresAt = envelope.expiresAt,
                 blobSize = blobSize,
                 targetEndpoint = targetEndpoint,
+                relayBackup = relayBackup,
             )
         }
         enqueued.add(envelope)
+    }
+
+    fun relayBackupOf(packetId: Uuid): RelayBackup? = synchronized(lock) { entries[packetId]?.relayBackup }
+
+    override suspend fun claimRelayBackup(packetId: Uuid): Boolean = synchronized(lock) {
+        val entry = entries[packetId] ?: return@synchronized false
+        if (entry.relayBackup != RelayBackup.PENDING) return@synchronized false
+        entry.relayBackup = RelayBackup.DEPOSITED
+        true
     }
 
     override suspend fun markDelivered(packetId: Uuid) {
@@ -791,6 +804,7 @@ internal fun outboxProcessorUnderTest(
     routerConfig: RouterConfig = RouterConfig(),
     isPeerOnline: (PeerId) -> Boolean = { false },
     onNoLink: suspend (PeerId) -> Unit = {},
+    relayCopies: suspend (BinaryEnvelope) -> Int = { 0 },
 ): OutboxProcessor {
     val ctx =
         RoutingContext(
@@ -811,6 +825,7 @@ internal fun outboxProcessorUnderTest(
         maxIdlePoll = MutableStateFlow(routerConfig.retryLoopMaxIdlePoll),
         isPeerOnline = isPeerOnline,
         onNoLink = onNoLink,
+        relayCopies = relayCopies,
     )
 }
 

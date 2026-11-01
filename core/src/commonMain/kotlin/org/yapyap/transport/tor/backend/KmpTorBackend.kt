@@ -65,7 +65,7 @@ internal class KmpTorBackend(
     override val incomingFrames: Flow<TorIncomingFrame> = inboundFlow.asSharedFlow()
 
     /** Accepted session streams waiting for the transport; drained (closed) on stop. */
-    private val inboundStreams = Channel<TorInboundStream>(capacity = INBOUND_STREAM_QUEUE)
+    private val inboundStreams = Channel<TorInboundStream>(capacity = config.value.inboundStreamQueue)
     override val incomingStreams: Flow<TorInboundStream> = inboundStreams.receiveAsFlow()
 
     private val _publishState = MutableStateFlow(TorPublishState.PUBLISHING)
@@ -1463,7 +1463,6 @@ internal class KmpTorBackend(
         private val SOCKS_REOPEN_TIMEOUT: Duration = 10_000L.milliseconds
 
         /** Accepted streams queued for the transport before new ones are refused. */
-        private const val INBOUND_STREAM_QUEUE: Int = 64
 
         /** How often a running probe checks for an unanswered descriptor fetch. */
         private val FETCH_STALL_POLL: Duration = 1_000L.milliseconds

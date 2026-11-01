@@ -11,6 +11,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.OutboxEntry
 import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.persistence.packet.RelayBackup
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -40,6 +41,8 @@ internal class OutboxProcessor(
      * may want to try that peer now.
      */
     private val onNoLink: suspend (PeerId) -> Unit = {},
+    /** Makes the relay copies of a direct message (see [backUpToRelays]); returns how many. */
+    private val relayCopies: suspend (BinaryEnvelope) -> Int = { 0 },
 ) {
     /**
      * Peers whose last Tor dispatch failed with [TransportException.TorException.OnionNotFound].
@@ -107,9 +110,52 @@ internal class OutboxProcessor(
         nextRetryAt: Instant,
         relayMessage: Boolean = false,
         targetEndpoint: TorEndpoint? = null,
+        relayBackup: RelayBackup = RelayBackup.NONE,
     ) {
-        packetOutbox.enqueue(envelope, nextRetryAt, relayMessage = relayMessage, targetEndpoint = targetEndpoint)
+        packetOutbox.enqueue(
+            envelope,
+            nextRetryAt,
+            relayMessage = relayMessage,
+            targetEndpoint = targetEndpoint,
+            relayBackup = relayBackup,
+        )
         wake()
+    }
+
+    /**
+     * Makes the relay copies of the direct message [envelope] if they are still owed
+     * ([RelayBackup.PENDING]: at most once per message, also across restarts); returns how
+     * many. A message is backed up only once the direct path looks doubtful: no link to its
+     * peer, no ACK within `relayBackupAfter` of a send, or a retry (the earlier attempt went
+     * unacknowledged). While a link delivers, relays carry nothing.
+     */
+    suspend fun backUpToRelays(envelope: BinaryEnvelope, reason: String): Int {
+        if (!packetOutbox.claimRelayBackup(envelope.packetId)) return 0
+        val copies = try {
+            relayCopies(envelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+                message = "Relay backup failed",
+                fields = mapOf("packetId" to envelope.packetId, "error" to e.toString()),
+            )
+            0
+        }
+        AppLog.debug(
+            component = LogComponent.ROUTER,
+            event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+            message = "Backed up direct message to relays",
+            fields = mapOf(
+                "packetId" to envelope.packetId,
+                "target" to envelope.target,
+                "relays" to copies,
+                "reason" to reason,
+            ),
+        )
+        return copies
     }
 
     /** [peerId] proved it is up (inbound traffic) or a link to it opened: its entries go now. */
@@ -227,6 +273,9 @@ internal class OutboxProcessor(
         )
         val transport = outbound.transport
             ?: if (entry.targetEndpoint != null) RouterTransport.TOR else return null
+        // A retry means the previous attempt went unacknowledged (also after a restart, when
+        // the in-memory ACK timer of [send] is gone).
+        if (entry.attempts > 0) backUpToRelays(envelope, reason = "retry")
         val nextRetryAt = now + outbound.retryDelay
         packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
         return ClaimedDispatch(entry, transport, now, nextRetryAt)
@@ -237,11 +286,12 @@ internal class OutboxProcessor(
      * counting an attempt (a missing link says nothing about this packet), released from
      * the in-flight set, and their peers reported through [onNoLink]. A link coming up
      * makes them due at once ([onPeerOnline]); the delay is only a safety net. Delivery
-     * meanwhile rides on relay deposits and the pull path.
+     * meanwhile rides on relay copies (made here if still owed) and the pull path.
      */
     private suspend fun park(entries: List<OutboxEntry>, now: Instant) {
         val until = now + ctx.routerConfig.value.noLinkRecheckDelay
         entries.forEach { packetOutbox.deferRetry(it.packetId, until) }
+        entries.forEach { backUpToRelays(it.envelope, reason = "no link") }
         inFlightLock.withLock { entries.forEach { inFlight.remove(it.packetId) } }
         val peers = entries.map { it.envelope.target }.distinct()
         AppLog.debug(
@@ -260,6 +310,7 @@ internal class OutboxProcessor(
                 dispatcher.dispatch(envelope, dispatch.transport, dispatch.entry.targetEndpoint)
             }.onSuccess {
                 if (dispatch.transport == RouterTransport.TOR) notFoundPeers.update { it - envelope.target }
+                awaitAckOrBackUp(envelope)
                 AppLog.debug(
                     component = LogComponent.ROUTER,
                     event = LogEvent.OUTBOX_RETRY_DISPATCHED,
@@ -311,6 +362,20 @@ internal class OutboxProcessor(
             }
             // A slot freed: entries held back by a cap (or made due meanwhile) go now.
             wake()
+        }
+    }
+
+    /**
+     * A link took the message, but a link can look open after its peer vanished (Tor gives no
+     * timely signal): unless the ACK removes the entry within `relayBackupAfter`, its relay
+     * copies are made then. Only direct messages have a backup to make.
+     */
+    private fun awaitAckOrBackUp(envelope: BinaryEnvelope) {
+        if (envelope.packetType != PacketType.MESSAGE) return
+        val scope = dispatchScope ?: return
+        scope.launch {
+            delay(ctx.routerConfig.value.relayBackupAfter)
+            backUpToRelays(envelope, reason = "no ACK in time")
         }
     }
 

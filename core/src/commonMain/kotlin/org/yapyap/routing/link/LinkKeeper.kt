@@ -20,7 +20,6 @@ import kotlin.math.pow
 import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
 internal data class LinkKeeperConfig(
@@ -33,6 +32,10 @@ internal data class LinkKeeperConfig(
     val openTimeout: Duration,
     /** Re-check cadence when nothing else wakes the keeper (new targets, timers). */
     val recheckInterval: Duration,
+    /** Each backoff varies by ± this fraction. */
+    val retryJitter: Double,
+    /** Shortest sleep between passes. */
+    val minWait: Duration,
 )
 
 /**
@@ -104,7 +107,7 @@ internal class LinkKeeper(
                     null
                 }
                 val recheck = config.value.recheckInterval
-                val wait = nextDue?.let { (it - clock.now()).coerceIn(MIN_WAIT, recheck) } ?: recheck
+                val wait = nextDue?.let { (it - clock.now()).coerceIn(config.value.minWait, recheck) } ?: recheck
                 withTimeoutOrNull(wait) { wakeups.receive() }
             }
         }
@@ -229,8 +232,9 @@ internal class LinkKeeper(
         val configSnapshot = config.value
         val exponential = configSnapshot.retryDelay * 2.0.pow((failures - 1).coerceIn(0, 30))
         val capped = minOf(exponential, configSnapshot.maxRetryDelay)
-        // ±25% jitter so peers that failed together don't all retry together.
-        return capped * (0.75 + random.nextDouble() * 0.5)
+        // Jitter so peers that failed together don't all retry together.
+        val jitter = configSnapshot.retryJitter
+        return capped * (1.0 - jitter + random.nextDouble() * 2 * jitter)
     }
 
     private suspend fun <T> runCatchingNonCancellation(block: suspend () -> T): T? = try {
@@ -247,7 +251,4 @@ internal class LinkKeeper(
         null
     }
 
-    private companion object {
-        val MIN_WAIT: Duration = 100.milliseconds
-    }
 }

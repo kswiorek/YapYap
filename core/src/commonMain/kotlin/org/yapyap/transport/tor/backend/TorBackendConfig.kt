@@ -132,6 +132,12 @@ internal data class TorBackendConfig(
      * long writes can disappear into a dead stream. Must exceed [sessionKeepaliveInterval].
      */
     val sessionIdleTimeout: Duration = 2.minutes,
+    /**
+     * Sessions: after we send an envelope, the far end must answer something (its [TorStreamRecordType.ECHO]
+     * reply at the latest) within this long, or the stream is closed as dead. Much shorter than
+     * [sessionIdleTimeout]: a stream is only this suspicious while it carries our traffic.
+     */
+    val sessionResponseTimeout: Duration = 20.seconds,
     /** Sessions: a single record write stuck this long (far end not reading) closes the stream. */
     val sessionWriteTimeout: Duration = 30.seconds,
     /** Sessions: accepted streams held at once; further inbound streams are refused. */
@@ -142,6 +148,12 @@ internal data class TorBackendConfig(
      * this long without carrying an envelope either way. Keepalives don't count.
      */
     val transientLinkIdleTimeout: Duration = 30.seconds,
+    /** Sessions: liveness (idle, response) is checked this many times per keepalive interval or response timeout. */
+    val sessionLivenessChecksPerInterval: Int = 4,
+    /** Sessions: a send tries this many usable links to its target before failing (each write failure closes one). */
+    val sessionSendAttempts: Int = 2,
+    /** Accepted streams waiting for the transport to take them; further ones are refused. */
+    val inboundStreamQueue: Int = 64,
     /** Sessions: inbound streams not (yet) adopted, held at once; the cheap thing for a stranger to hoard. */
     val maxUnadoptedInbound: Int = 32,
 ) {
@@ -162,8 +174,14 @@ internal data class TorBackendConfig(
         require(sessionKeepaliveInterval > Duration.ZERO) { "sessionKeepaliveInterval must be > 0" }
         require(sessionIdleTimeout > sessionKeepaliveInterval) { "sessionIdleTimeout must exceed sessionKeepaliveInterval" }
         require(sessionWriteTimeout > Duration.ZERO) { "sessionWriteTimeout must be > 0" }
+        require(sessionResponseTimeout > Duration.ZERO && sessionResponseTimeout < sessionIdleTimeout) {
+            "sessionResponseTimeout must be > 0 and < sessionIdleTimeout"
+        }
         require(maxInboundSessions > 0) { "maxInboundSessions must be > 0" }
         require(transientLinkIdleTimeout > Duration.ZERO) { "transientLinkIdleTimeout must be > 0" }
+        require(sessionLivenessChecksPerInterval > 0) { "sessionLivenessChecksPerInterval must be > 0" }
+        require(sessionSendAttempts > 0) { "sessionSendAttempts must be > 0" }
+        require(inboundStreamQueue > 0) { "inboundStreamQueue must be > 0" }
         require(maxUnadoptedInbound in 1..maxInboundSessions) { "maxUnadoptedInbound must be in 1..maxInboundSessions" }
         require(uploadGracePeriod > 0L.milliseconds) { "uploadGracePeriodMillis must be > 0" }
         require(publishTimeout > 0L.milliseconds) { "publishTimeoutMillis must be > 0" }

@@ -168,7 +168,11 @@ class TorSessionLoopbackTest {
     @Test
     fun silentFarEnd_isClosedAfterTheIdleTimeout() = runBlocking<Unit> {
         val fast = MutableStateFlow(
-            TorBackendConfig(sessionKeepaliveInterval = 100.milliseconds, sessionIdleTimeout = 600.milliseconds),
+            TorBackendConfig(
+                sessionKeepaliveInterval = 100.milliseconds,
+                sessionIdleTimeout = 600.milliseconds,
+                sessionResponseTimeout = 300.milliseconds,
+            ),
         )
         val a = transport(fast)
         val selector = SelectorManager(Dispatchers.IO)
@@ -196,6 +200,69 @@ class TorSessionLoopbackTest {
             stopAll(a)
             server.close()
             selector.close()
+        }
+    }
+
+    @Test
+    fun farEndThatStopsAnswering_isClosedSoonAfterASend_notAfterTheIdleTimeout() = runBlocking<Unit> {
+        val fast = MutableStateFlow(
+            TorBackendConfig(
+                sessionKeepaliveInterval = 10.seconds,
+                sessionIdleTimeout = 1.hours,
+                sessionResponseTimeout = 500.milliseconds,
+            ),
+        )
+        val a = transport(fast)
+        val selector = SelectorManager(Dispatchers.IO)
+        val server = aSocket(selector).tcp().bind("127.0.0.1", 0)
+        try {
+            a.start()
+            val port = (server.localAddress as InetSocketAddress).port
+            // Accepts, then never reads or answers: its machine is gone but the stream looks open.
+            val silent = launch(Dispatchers.IO) {
+                val socket = server.accept()
+                val output = socket.openWriteChannel(autoFlush = true)
+                writeTorStreamRecord(output, TorStreamRecordType.ACCEPT)
+                awaitCancellation()
+            }
+            val endpoint = TorEndpoint("loopback-$port.onion", 80)
+            a.openSession(endpoint)
+            a.awaitPhase(endpoint, SessionPhase.CONNECTED)
+
+            a.send(endpoint, envelope())
+            val closed = a.awaitPhase(endpoint, SessionPhase.CLOSED)
+            assertTrue(closed.reason.orEmpty().contains("no answer"), "closed by the response check: ${closed.reason}")
+            silent.cancel()
+        } finally {
+            stopAll(a)
+            server.close()
+            selector.close()
+        }
+    }
+
+    @Test
+    fun liveFarEnd_answersTheEcho_andTheSessionStays() = runBlocking<Unit> {
+        val fast = MutableStateFlow(
+            TorBackendConfig(
+                sessionKeepaliveInterval = 10.seconds,
+                sessionIdleTimeout = 1.hours,
+                sessionResponseTimeout = 500.milliseconds,
+            ),
+        )
+        val a = transport(fast)
+        val b = transport(fast)
+        try {
+            a.start()
+            val endpointB = b.start()
+            a.openSession(endpointB)
+            a.awaitPhase(endpointB, SessionPhase.CONNECTED)
+
+            // B never sends an envelope back (no ACK at this layer): only its echo answer.
+            a.send(endpointB, envelope())
+            delay(1_500)
+            assertTrue(a.hasSession(endpointB), "the echo answer counts")
+        } finally {
+            stopAll(a, b)
         }
     }
 
@@ -295,6 +362,7 @@ class TorSessionLoopbackTest {
             TorBackendConfig(
                 sessionKeepaliveInterval = 100.milliseconds,
                 sessionIdleTimeout = 5.seconds,
+                sessionResponseTimeout = 2.seconds,
                 transientLinkIdleTimeout = 500.milliseconds,
             ),
         )

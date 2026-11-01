@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -56,6 +57,12 @@ internal data class RouterConfig(
      * again. Only a safety net: a link coming up wakes the peer's entries at once.
      */
     val noLinkRecheckDelay: Duration = 10.minutes,
+    /**
+     * A message sent over a link but not ACKed within this long gets its relay copies (the
+     * link may only look open). Healthy links ACK in about a second, so this rarely fires
+     * while the peer is really there.
+     */
+    val relayBackupAfter: Duration = 30.seconds,
     /** Tor links (kept open to every active peer): wait after the first failed open, doubling per failure. */
     val torLinkRetryDelay: Duration = 15.seconds,
     /** Tor links: cap on the wait between opens to a peer that keeps failing. */
@@ -70,6 +77,10 @@ internal data class RouterConfig(
     val torLinkOpenTimeout: Duration = 2.minutes,
     /** Link keepers re-check their peers at least this often (new devices, due retries). */
     val linkKeeperRecheckInterval: Duration = 60.seconds,
+    /** Link keeper: failed-open backoffs vary by ± this fraction, so peers that failed together don't retry together. */
+    val linkKeeperRetryJitter: Double = 0.25,
+    /** Link keeper: shortest sleep between passes (a due time in the past never makes it spin). */
+    val linkKeeperMinWait: Duration = 100.milliseconds,
     /** ACK/NACK sends in progress at once (each is a Tor dial back to the sender). */
     val dispositionMaxInFlight: Int = 8,
     /**
@@ -140,6 +151,7 @@ internal data class RouterConfig(
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
+        require(relayBackupAfter > Duration.ZERO) { "relayBackupAfter must be > 0" }
         require(fastRetryBudget > 0) { "fastRetryBudget must be > 0" }
         require(torRetryDelay > Duration.ZERO) { "torRetryDelay must be > 0" }
         require(webRtcRetryDelay > Duration.ZERO) { "webRtcRetryDelay must be > 0" }
@@ -159,6 +171,8 @@ internal data class RouterConfig(
         require(torLinkMaxConcurrentOpens > 0) { "torLinkMaxConcurrentOpens must be > 0" }
         require(torLinkOpenTimeout > Duration.ZERO) { "torLinkOpenTimeout must be > 0" }
         require(linkKeeperRecheckInterval > Duration.ZERO) { "linkKeeperRecheckInterval must be > 0" }
+        require(linkKeeperRetryJitter in 0.0..<1.0) { "linkKeeperRetryJitter must be in [0, 1)" }
+        require(linkKeeperMinWait > Duration.ZERO) { "linkKeeperMinWait must be > 0" }
         require(dispositionMaxInFlight > 0) { "dispositionMaxInFlight must be > 0" }
         require(dispositionSendBudget > Duration.ZERO) { "dispositionSendBudget must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }

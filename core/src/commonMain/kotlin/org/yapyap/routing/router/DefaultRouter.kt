@@ -102,6 +102,7 @@ internal class DefaultRouter(
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
         isPeerOnline = { peerAvailabilityRegistry.isOnline(it) },
         onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
+        relayCopies = { envelope -> relayDepositor.deposit(envelope) },
     )
 
     private val bootstrapSender = BootstrapSender(routingContext, outboxProcessor)
@@ -121,11 +122,16 @@ internal class DefaultRouter(
         routerConfig = routerConfig,
     )
 
+    private val relayDepositor: RelayDepositor = RelayDepositor(
+        ctx = routingContext,
+        relaySelectionPolicy = relaySelectionPolicy,
+        enqueue = { envelope, at -> outboxProcessor.enqueueAndWake(envelope, at) },
+    )
+
     private val outboundMessenger = OutboundMessenger(
         ctx = routingContext,
         outboxProcessor = outboxProcessor,
         sessionOpener = proactiveSessionOpener,
-        relaySelectionPolicy = relaySelectionPolicy,
     )
     private val webRtcBootstrapSignaler = WebRtcBootstrapSignaler(
         ctx = routingContext,
@@ -459,4 +465,6 @@ private fun RouterConfig.torLinkKeeperConfig() = LinkKeeperConfig(
     maxConcurrentOpens = torLinkMaxConcurrentOpens,
     openTimeout = torLinkOpenTimeout,
     recheckInterval = linkKeeperRecheckInterval,
+    retryJitter = linkKeeperRetryJitter,
+    minWait = linkKeeperMinWait,
 )

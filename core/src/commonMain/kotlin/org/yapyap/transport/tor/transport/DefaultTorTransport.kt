@@ -31,7 +31,9 @@ import kotlin.time.TimeSource
  * far end sends ACCEPT; a link someone dialed us on only carries replies until
  * [adoptInbound] makes it the session to an authenticated endpoint. Each link sends
  * keepalives when idle and closes once nothing has arrived for `sessionIdleTimeout`, which is
- * how a vanished peer is noticed.
+ * how a vanished peer is noticed. While it carries our envelopes it is held to a much shorter
+ * `sessionResponseTimeout`: each burst ends with an [TorStreamRecordType.ECHO] the far end
+ * must answer.
  *
  * A send with no link to its target dials one on demand. Such a link, like an inbound one
  * that was never adopted, is *transient*: it closes after `transientLinkIdleTimeout` without
@@ -95,6 +97,10 @@ internal class DefaultTorTransport(
 
         @Volatile
         var lastSent: TimeMark = TimeSource.Monotonic.markNow()
+
+        /** Since when an envelope we sent has had no answer of any kind (null: nothing outstanding). */
+        @Volatile
+        var unansweredSince: TimeMark? = null
 
         /** Last envelope either way (keepalives and ACCEPT excluded): what a transient link lives on. */
         @Volatile
@@ -372,23 +378,36 @@ internal class DefaultTorTransport(
         while (true) {
             val record = readTorStreamRecord(link.duplex.input, maxPayloadBytes)
             link.lastReceived = TimeSource.Monotonic.markNow()
+            link.unansweredSince = null
             when (record.type) {
                 TorStreamRecordType.ACCEPT -> if (link.outbound && !link.accepted.isCompleted) onAccepted(link)
                 TorStreamRecordType.DATA -> {
                     link.lastData = TimeSource.Monotonic.markNow()
                     emitEnvelope(link.remote, record.payload, link.id)
                 }
+                TorStreamRecordType.ECHO -> answerEcho(link)
                 TorStreamRecordType.KEEPALIVE, null -> Unit
             }
         }
     }
 
+    /** Off the read loop, so a slow write never stalls reading. */
+    private fun answerEcho(link: Link) {
+        scope?.launch { runCatching { writeRecord(link, TorStreamRecordType.KEEPALIVE) } }
+    }
+
     private suspend fun keepaliveLoop(link: Link) {
         while (true) {
             val configSnapshot = config.value
-            delay(configSnapshot.sessionKeepaliveInterval / KEEPALIVE_CHECKS_PER_INTERVAL)
+            delay(
+                minOf(configSnapshot.sessionKeepaliveInterval, configSnapshot.sessionResponseTimeout) /
+                        configSnapshot.sessionLivenessChecksPerInterval
+            )
             if (link.lastReceived.elapsedNow() >= configSnapshot.sessionIdleTimeout) {
                 throw TransportException.TorException.SessionClosed("nothing received for ${configSnapshot.sessionIdleTimeout}")
+            }
+            if ((link.unansweredSince?.elapsedNow() ?: Duration.ZERO) >= configSnapshot.sessionResponseTimeout) {
+                throw TransportException.TorException.SessionClosed("no answer to a send for ${configSnapshot.sessionResponseTimeout}")
             }
             if (isTransient(link) && link.lastData.elapsedNow() >= configSnapshot.transientLinkIdleTimeout) {
                 throw TransportException.TorException.SessionClosed("transient, unused for ${configSnapshot.transientLinkIdleTimeout}")
@@ -447,7 +466,7 @@ internal class DefaultTorTransport(
 
     /** Writes [payload] on a usable session link to [target]; false when there is none (or it just died). */
     private suspend fun sendOnSession(target: TorEndpoint, payload: ByteArray): Boolean {
-        repeat(SESSION_SEND_ATTEMPTS) {
+        repeat(config.value.sessionSendAttempts) {
             val link = synchronized(lock) { sessionLinkLocked(target) } ?: return false
             if (sendOnLink(link, payload)) return true
         }
@@ -459,6 +478,12 @@ internal class DefaultTorTransport(
         return try {
             writeRecord(link, TorStreamRecordType.DATA, payload)
             link.lastData = TimeSource.Monotonic.markNow()
+            // Ask the far end to answer, once per burst: Tor won't say if it vanished, and
+            // silence after our own send is the quickest evidence there is.
+            if (link.unansweredSince == null) {
+                link.unansweredSince = TimeSource.Monotonic.markNow()
+                writeRecord(link, TorStreamRecordType.ECHO)
+            }
             true
         } catch (e: TransportException.TorException.SessionClosed) {
             false
@@ -570,13 +595,5 @@ internal class DefaultTorTransport(
                 "link" to link?.value,
             ),
         )
-    }
-
-    private companion object {
-        /** Liveness is checked this many times per keepalive interval. */
-        const val KEEPALIVE_CHECKS_PER_INTERVAL: Int = 4
-
-        /** A session send tries this many usable links before giving up (each failure closes one). */
-        const val SESSION_SEND_ATTEMPTS: Int = 2
     }
 }

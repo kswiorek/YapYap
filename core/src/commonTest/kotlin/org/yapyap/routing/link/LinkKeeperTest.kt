@@ -19,6 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -77,6 +78,8 @@ class LinkKeeperTest {
         maxConcurrentOpens = 2,
         openTimeout = 30.seconds,
         recheckInterval = 60.seconds,
+        retryJitter = 0.25,
+        minWait = 100.milliseconds,
     )
 
     private fun TestScope.harness(

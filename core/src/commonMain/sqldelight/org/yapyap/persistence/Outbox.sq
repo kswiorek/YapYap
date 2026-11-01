@@ -15,6 +15,9 @@ CREATE TABLE outbox (
     target_onion_address TEXT,
     target_onion_port INTEGER,
     is_relay INTEGER AS Boolean NOT NULL DEFAULT 0,
+    -- Store-and-forward backup of a message sent straight to its recipient (RelayBackup):
+    -- 0 none (not such a message), 1 pending (relays may still be needed), 2 deposited.
+    relay_backup INTEGER NOT NULL DEFAULT 0,
     retry_count INTEGER NOT NULL,
     expires_at INTEGER AS Instant NOT NULL,
     last_attempt_at INTEGER AS Instant NOT NULL,
@@ -30,11 +33,12 @@ INSERT INTO outbox(
     target_onion_address,
     target_onion_port,
     is_relay,
+    relay_backup,
     retry_count,
     expires_at,
     last_attempt_at,
     next_retry_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteByPacketId:
 DELETE FROM outbox WHERE packet_id = ?;
@@ -53,6 +57,12 @@ deferRetry:
 UPDATE outbox
 SET next_retry_at = ?
 WHERE packet_id = ?;
+
+-- Takes the relay backup of a pending row exactly once (1 → 2); 0 rows when delivered, done or n/a.
+claimRelayBackup:
+UPDATE outbox
+SET relay_backup = 2
+WHERE packet_id = ? AND relay_backup = 1;
 
 updateAttempt:
 UPDATE outbox
