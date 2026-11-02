@@ -20,6 +20,7 @@ import org.yapyap.config.*
 import org.yapyap.gui.components.*
 import org.yapyap.gui.copy.RefusalText
 import org.yapyap.gui.identity.DeviceNames
+import org.yapyap.gui.screens.setup.copyToClipboard
 import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.YapRadius
@@ -301,6 +302,41 @@ private fun AccountPane(runtime: OrchestratorRuntime) {
     AccountRow("Recovery key", "Shown once at setup — store it safely")
 }
 
+/**
+ * Labelled value with a copy icon action: selectable text plus a "⎘" button
+ * that reports back via [onCopied] (toast "…copied").
+ */
+@Composable
+private fun CopyLine(label: String, value: String, onCopied: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicText(
+            label,
+            style = yapType.bodyXs.copy(color = yapColors.textMuted),
+            modifier = Modifier.width(52.dp),
+            maxLines = 1,
+        )
+        SelectionContainer(Modifier.weight(1f)) {
+            BasicText(
+                value,
+                style = yapType.bodyXs.copy(color = yapColors.textMuted),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        BasicText(
+            "⎘",
+            style = yapType.bodyMd.copy(color = yapColors.iconDefault),
+            modifier = Modifier.clickable {
+                copyToClipboard(value)
+                onCopied()
+            }.padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+        )
+    }
+}
+
 @Composable
 private fun AccountRow(label: String, value: String) {
     val colors = yapColors
@@ -342,13 +378,20 @@ private fun DevicesPane(session: YapSession, runtime: OrchestratorRuntime) {
                     DeviceNames.from(d.deviceId) + if (d.isLocal) " (this device)" else "",
                     style = yapType.bodySmMedium.copy(color = colors.textDefault),
                 )
-                SelectionContainer {
-                    BasicText(
-                        d.deviceId.id,
-                        style = yapType.bodyXs.copy(color = colors.textMuted),
-                    )
-                }
+                CopyLine(
+                    label = "Peer ID",
+                    value = d.deviceId.id,
+                    onCopied = { session.showToast("Peer ID copied.", ToastKind.Success) },
+                )
+                // Recovery path: the sponsor needs this device's onion + port to
+                // bootstrap a recovery, so both stay visible and copiable.
+                CopyLine(
+                    label = "Onion",
+                    value = "${d.torEndpoint.onionAddress}:${d.torEndpoint.port}",
+                    onCopied = { session.showToast("Onion address copied.", ToastKind.Success) },
+                )
             }
+            Spacer(Modifier.width(12.dp))
             YapButton(
                 "Remove",
                 onClick = {
@@ -477,7 +520,7 @@ private fun MembersPane(session: YapSession, runtime: OrchestratorRuntime) {
     if (!isAdmin) {
         BasicText(
             "Only admins can manage members.",
-            style = yapType.bodySm.copy(color = colors.textMuted),
+            style = yapType.bodySm.copy(color = yapColors.textMuted),
         )
     }
     accounts.forEach { a ->
@@ -525,7 +568,7 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime, onRe
     if (settings.isEmpty()) {
         BasicText(
             "No backend settings exposed.",
-            style = yapType.bodySm.copy(color = colors.textMuted),
+            style = yapType.bodySm.copy(color = yapColors.textMuted),
         )
     }
     val grouped = remember(settings) { settings.groupBy { it.group } }
@@ -538,8 +581,13 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime, onRe
         rows.forEach { s ->
             BackendRow(s) { v ->
                 scope.launch {
-                    runCatching { runtime.config.update(s.id, v) }.onFailure {
+                    val result = runCatching { runtime.config.update(s.id, v) }.getOrElse {
                         session.showToast(it.message ?: "Couldn't update.", ToastKind.Error)
+                        return@launch
+                    }
+                    // update() returns refusals as values, never exceptions.
+                    if (result is UpdateResult.Failure) {
+                        session.showToast(result.reason, ToastKind.Error)
                     }
                 }
             }
@@ -551,7 +599,6 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime, onRe
 
 @Composable
 private fun BackendRow(setting: Setting, onUpdate: (ConfigValue?) -> Unit) {
-    val colors = yapColors
     when (setting) {
         is ToggleSetting -> SettingsRow(setting.title, setting.description) {
             YapSwitch(
@@ -561,36 +608,218 @@ private fun BackendRow(setting: Setting, onUpdate: (ConfigValue?) -> Unit) {
             )
         }
 
-        is TextSetting -> SettingsRow(setting.title, setting.description) {
-            BasicText(
-                setting.value.ifBlank { "—" },
-                style = yapType.bodySm.copy(
-                    color = if (setting.editable) colors.textDefault else colors.textMuted,
-                ),
-            )
+        is TextSetting -> {
+            if (!setting.editable) {
+                SettingsRow(setting.title, setting.description) {
+                    BasicText(
+                        if (setting.isSecret) "••••••••" else setting.value.ifBlank { "—" },
+                        style = yapType.bodySm.copy(color = yapColors.textMuted),
+                    )
+                }
+            } else {
+                EditableTextRow(
+                    title = setting.title,
+                    description = setting.description,
+                    initial = setting.value,
+                    isSecret = setting.isSecret,
+                    onSave = { onUpdate(ConfigValue.Text(it)) },
+                    onReset = { onUpdate(null) },
+                )
+            }
         }
 
-        is NumberSetting -> SettingsRow(
-            setting.title,
-            setting.description + (setting.unit?.let { " ($it)" } ?: ""),
-        ) {
-            BasicText(
-                setting.value.toString(),
-                style = yapType.bodySm.copy(
-                    color = if (setting.editable) colors.textDefault else colors.textMuted,
-                ),
-            )
+        is NumberSetting -> {
+            if (!setting.editable) {
+                SettingsRow(
+                    setting.title,
+                    setting.description + (setting.unit?.let { " ($it)" } ?: ""),
+                ) {
+                    BasicText(
+                        setting.value.toString(),
+                        style = yapType.bodySm.copy(color = yapColors.textMuted),
+                    )
+                }
+            } else {
+                EditableNumberRow(
+                    title = setting.title,
+                    description = setting.description + (setting.unit?.let { " ($it)" } ?: ""),
+                    initial = setting.value,
+                    min = setting.min,
+                    max = setting.max,
+                    onSave = { onUpdate(ConfigValue.Number(it)) },
+                    onReset = { onUpdate(null) },
+                )
+            }
         }
 
-        is PeriodSetting -> SettingsRow(setting.title, setting.description) {
-            BasicText(
-                setting.value.toString(),
-                style = yapType.bodySm.copy(
-                    color = if (setting.editable) colors.textDefault else colors.textMuted,
-                ),
-            )
+        is PeriodSetting -> {
+            if (!setting.editable) {
+                SettingsRow(setting.title, setting.description) {
+                    BasicText(
+                        setting.value.toString(),
+                        style = yapType.bodySm.copy(color = yapColors.textMuted),
+                    )
+                }
+            } else {
+                EditablePeriodRow(
+                    title = setting.title,
+                    description = setting.description,
+                    initial = setting.value,
+                    onSave = { onUpdate(ConfigValue.Period(it)) },
+                    onReset = { onUpdate(null) },
+                )
+            }
         }
     }
+}
+
+/** Small "back to default" affordance: clears the user override (update(id, null)). */
+@Composable
+private fun ResetDefaultLink(onReset: () -> Unit) {
+    BasicText(
+        "Reset",
+        style = yapType.bodyXs.copy(color = yapColors.textLink),
+        modifier = Modifier.clickable { onReset() }.padding(4.dp),
+    )
+}
+
+@Composable
+private fun EditableTextRow(
+    title: String,
+    description: String,
+    initial: String,
+    isSecret: Boolean,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit,
+) {
+    var text by remember(initial) { mutableStateOf(initial) }
+    val dirty = text != initial
+    fun save() {
+        if (dirty) onSave(text)
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).onEnterConfirm(enabled = dirty) { save() }) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                title,
+                style = yapType.bodySmMedium.copy(color = yapColors.textDefault),
+                modifier = Modifier.weight(1f),
+            )
+            ResetDefaultLink(onReset)
+            YapButton("Save", onClick = ::save, enabled = dirty, variant = YapButtonVariant.Secondary)
+        }
+        BasicText(
+            description,
+            style = yapType.bodyXs.copy(color = yapColors.textMuted),
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+        )
+        YapTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = title,
+            visualTransformation = if (isSecret) {
+                androidx.compose.ui.text.input.PasswordVisualTransformation()
+            } else {
+                androidx.compose.ui.text.input.VisualTransformation.None
+            },
+        )
+    }
+}
+
+@Composable
+private fun EditableNumberRow(
+    title: String,
+    description: String,
+    initial: Long,
+    min: Long?,
+    max: Long?,
+    onSave: (Long) -> Unit,
+    onReset: () -> Unit,
+) {
+    var text by remember(initial) { mutableStateOf(initial.toString()) }
+    val parsed = text.toLongOrNull()
+    val rangeError = when {
+        parsed == null -> "Enter a whole number."
+        min != null && parsed < min -> "Minimum is $min."
+        max != null && parsed > max -> "Maximum is $max."
+        else -> null
+    }
+    val dirty = parsed != null && parsed != initial && rangeError == null
+    fun save() {
+        if (dirty) onSave(parsed!!)
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).onEnterConfirm(enabled = dirty) { save() }) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                title,
+                style = yapType.bodySmMedium.copy(color = yapColors.textDefault),
+                modifier = Modifier.weight(1f),
+            )
+            ResetDefaultLink(onReset)
+            YapButton("Save", onClick = ::save, enabled = dirty, variant = YapButtonVariant.Secondary)
+        }
+        BasicText(
+            description,
+            style = yapType.bodyXs.copy(color = yapColors.textMuted),
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+        )
+        YapTextField(
+            value = text,
+            onValueChange = { text = it.filter { c -> c.isDigit() || (c == '-' && it.startsWith('-')) }.take(19) },
+            placeholder = initial.toString(),
+            isError = rangeError != null,
+        )
+        if (rangeError != null) InlineError(rangeError)
+    }
+}
+
+@Composable
+private fun EditablePeriodRow(
+    title: String,
+    description: String,
+    initial: kotlin.time.Duration,
+    onSave: (kotlin.time.Duration) -> Unit,
+    onReset: () -> Unit,
+) {
+    var text by remember(initial) { mutableStateOf(initial.toString()) }
+    val parsed = remember(text) { parseDurationLoose(text) }
+    val dirty = parsed != null && parsed != initial
+    fun save() {
+        val p = parsed
+        if (p != null && p != initial) onSave(p)
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).onEnterConfirm(enabled = dirty) { save() }) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                title,
+                style = yapType.bodySmMedium.copy(color = yapColors.textDefault),
+                modifier = Modifier.weight(1f),
+            )
+            ResetDefaultLink(onReset)
+            YapButton("Save", onClick = ::save, enabled = dirty, variant = YapButtonVariant.Secondary)
+        }
+        BasicText(
+            "$description (e.g. 90s, 5m, 2h)",
+            style = yapType.bodyXs.copy(color = yapColors.textMuted),
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+        )
+        YapTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = initial.toString(),
+            isError = text.isNotBlank() && parsed == null,
+        )
+        if (text.isNotBlank() && parsed == null) InlineError("Use a duration like 90s, 5m or 2h.")
+    }
+}
+
+/** Accepts "90s"/"5m"/"2h" via Duration.parse, plus a bare number meaning seconds. */
+private fun parseDurationLoose(raw: String): kotlin.time.Duration? {
+    val t = raw.trim()
+    if (t.isEmpty()) return null
+    runCatching { kotlin.time.Duration.parse(t) }.getOrNull()?.let { return it }
+    val seconds = t.toLongOrNull() ?: return null
+    if (seconds < 0) return null
+    return kotlin.time.Duration.parse("${seconds}s")
 }
 
 @Composable

@@ -193,6 +193,9 @@ fun MainShell(
                                 onRoomRef = { ref -> selectedId = ref },
                                 onOpenMembers = { showRight = !showRight },
                                 onLeave = { leaveTarget = current },
+                                onCloseView = { selectedId = null },
+                                sendWithEnter = prefs.chat.sendWithEnter,
+                                showCharCount = prefs.chat.showCharCount,
                                 onMarkRead = { store.markRead(current, Clock.System.now().toEpochMilliseconds()) },
                                 persistDraft = { store.saveDraft(current, it) },
                                 initialDraft = prefs.drafts[roomKey(current)] ?: "",
@@ -215,6 +218,10 @@ fun MainShell(
                                         accountMap,
                                         local?.accountId,
                                         onClose = { showRight = false },
+                                        onCopyRoomId = {
+                                            copyToClipboard(details.roomId.value.toString())
+                                            session.showToast("Room ID copied.", ToastKind.Success)
+                                        },
                                     )
                                 }
                             }
@@ -243,6 +250,10 @@ fun MainShell(
                                 accountMap,
                                 local?.accountId,
                                 onClose = { showRight = false },
+                                onCopyRoomId = {
+                                    copyToClipboard(details.roomId.value.toString())
+                                    session.showToast("Room ID copied.", ToastKind.Success)
+                                },
                             )
                         }
                     }
@@ -263,10 +274,14 @@ fun MainShell(
     if (showCreate) {
         CreateRoomDialog(
             accounts = accounts.filter { it.accountId != local?.accountId },
+            localId = local?.accountId,
             onDismiss = { showCreate = false },
             onCreate = { name, members ->
                 scope.launch {
-                    when (val r = runtime.rooms.createRoom(name.ifBlank { null }, members)) {
+                    // Empty stays empty: the backend stores "" as-is (no
+                    // auto-generated name) and the list renders the other
+                    // participants instead (RoomsController fallback title).
+                    when (val r = runtime.rooms.createRoom(name.trim(), members)) {
                         is org.yapyap.orchestrator.runtime.room.CreateRoomResult.Created -> {
                             showCreate = false
                             selectedId = r.roomId
@@ -301,6 +316,7 @@ fun MainShell(
             addressPublished = transportStatus == LocalTransportStatus.Online,
             onCancelOnboarding = { cancelOnboarding() },
             onDismiss = { showInvite = false },
+            onCopied = { session.showToast("Invite code copied.", ToastKind.Success) },
         )
     }
     if (showSponsor) {
@@ -364,8 +380,10 @@ private fun PendingInviteOverlay(
     addressPublished: Boolean,
     onCancelOnboarding: () -> Unit,
     onDismiss: () -> Unit,
+    onCopied: () -> Unit = {},
 ) {
     val colors = yapColors
+    var copied by remember(inviteCode) { mutableStateOf(false) }
     // Explicit buttons only: Done merely hides (the banner reopens), so neither
     // scrim-click nor Esc dismisses.
     ScrimOverlay(onDismiss = null, maxContentWidth = 480.dp) {
@@ -448,8 +466,12 @@ private fun PendingInviteOverlay(
                 }
                 Spacer(Modifier.weight(1f))
                 YapButton(
-                    "Copy invite",
-                    onClick = { copyToClipboard(inviteCode) },
+                    if (copied) "✓ Copied" else "Copy invite",
+                    onClick = {
+                        copyToClipboard(inviteCode)
+                        copied = true
+                        onCopied()
+                    },
                     variant = YapButtonVariant.Secondary,
                     modifier = Modifier.padding(end = 8.dp),
                 )

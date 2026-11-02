@@ -65,4 +65,10 @@ class DesktopArgsTest {
         assertEquals("b", parsed.keyringNamespace)
         assertNull(parseDesktopArgs(arrayOf("--loopback", "--data-dir", "x")).keyringNamespace)
     }
+
+    @Test
+    fun titlebar_flagParses() {
+        assertEquals(false, parseDesktopArgs(emptyArray()).nativeTitlebar)
+        assertEquals(true, parseDesktopArgs(arrayOf("--native-titlebar")).nativeTitlebar)
+    }
 }

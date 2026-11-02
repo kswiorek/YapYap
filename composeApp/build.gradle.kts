@@ -92,6 +92,10 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            // SVG renderer for runtime theme icons (window caption glyphs load
+            // from the OS icon theme as SVG files — Compose can't decode those).
+            // Bundled icons stay as CMP drawable resources (no dep needed there).
+            implementation(libs.jsvg)
         }
     }
 }

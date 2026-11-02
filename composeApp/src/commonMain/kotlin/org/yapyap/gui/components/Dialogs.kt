@@ -45,12 +45,16 @@ fun ScrimOverlay(
     modifier: Modifier = Modifier,
     maxContentWidth: Dp = Dp.Unspecified,
     contentAlignment: Alignment = Alignment.Center,
+    /** Universal Enter-to-confirm: pressing Enter/NumpadEnter fires this when [confirmEnabled]. */
+    onConfirm: (() -> Unit)? = null,
+    confirmEnabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     BoxWithConstraints(
         modifier.fillMaxSize()
             .background(yapColors.scrim)
             .then(if (onDismiss != null) Modifier.clickable { onDismiss() } else Modifier)
+            .onEnterConfirm(enabled = onConfirm != null && confirmEnabled) { onConfirm?.invoke() }
             .onPreviewKeyEvent { ev ->
                 if (onDismiss != null && ev.key == Key.Escape) {
                     onDismiss()
@@ -111,7 +115,14 @@ fun ConfirmDialog(
 ) {
     val colors = yapColors
     // Same semantics as the old Dialog version: scrim-click and Esc cancel (W15).
-    ScrimOverlay(onDismiss = onCancel, maxContentWidth = 442.dp) {
+    // Enter confirms (universal ScrimOverlay onConfirm), gated on the typed text.
+    val canConfirm = requireTypedText == null || typedText == requireTypedText
+    ScrimOverlay(
+        onDismiss = onCancel,
+        maxContentWidth = 442.dp,
+        onConfirm = onConfirm,
+        confirmEnabled = canConfirm,
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()

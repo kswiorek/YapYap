@@ -10,6 +10,8 @@ import org.yapyap.gui.components.CenterColumn
 import org.yapyap.gui.components.YapButton
 import org.yapyap.gui.components.YapButtonVariant
 import org.yapyap.gui.components.YapTextField
+import org.yapyap.gui.components.onEnterConfirm
+import org.yapyap.gui.copy.ResetReasonText
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
@@ -19,19 +21,33 @@ import org.yapyap.orchestrator.boot.ResetReason
 fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
     val colors = yapColors
     var typed by remember { mutableStateOf("") }
+    val canReset = typed == "reset"
     CenterColumn {
         androidx.compose.foundation.layout.Column(
-            Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+            Modifier.widthIn(max = 480.dp).fillMaxWidth()
+                .onEnterConfirm(enabled = canReset) { session.resetAndReboot() },
             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         ) {
             BasicText("⚠", style = yapType.headingXxl.copy(color = colors.warning))
             Spacer(Modifier.height(8.dp))
             BasicText(
-                "This device has been removed from the network",
+                ResetReasonText.title(reason),
                 style = yapType.headingXl.copy(color = colors.textStrong),
             )
             BasicText(
-                "Reason: $reason. $details Resetting wipes local data and returns to setup.",
+                ResetReasonText.body(reason),
+                style = yapType.bodySm.copy(color = colors.textMuted),
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            if (details.isNotBlank()) {
+                BasicText(
+                    "Details: $details",
+                    style = yapType.bodyXs.copy(color = colors.textMuted),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            BasicText(
+                ResetReasonText.nextStep(reason),
                 style = yapType.bodySm.copy(color = colors.textMuted),
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -47,7 +63,7 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
                 },
                 variant = YapButtonVariant.Danger,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = typed == "reset",
+                enabled = canReset,
             )
         }
     }

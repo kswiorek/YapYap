@@ -29,10 +29,12 @@ import org.yapyap.gui.theme.yapType
 fun RecoveryKeyModal(
     recoveryKey: String,
     onAcknowledge: () -> Unit,
+    onCopied: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = yapColors
     var ack by remember(recoveryKey) { mutableStateOf(false) }
+    var copied by remember(recoveryKey) { mutableStateOf(false) }
     ScrimOverlay(onDismiss = null, modifier = modifier, maxContentWidth = 602.dp) {
         Column(
             Modifier.fillMaxWidth()
@@ -71,8 +73,12 @@ fun RecoveryKeyModal(
                 )
                 Spacer(Modifier.width(8.dp))
                 YapButton(
-                    "Copy key",
-                    onClick = { copyToClipboard(recoveryKey) },
+                    if (copied) "✓ Copied" else "Copy key",
+                    onClick = {
+                        copyToClipboard(recoveryKey)
+                        copied = true
+                        onCopied()
+                    },
                     variant = YapButtonVariant.Secondary,
                 )
                 Spacer(Modifier.weight(1f))

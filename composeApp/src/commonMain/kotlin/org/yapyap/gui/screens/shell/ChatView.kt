@@ -16,9 +16,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -26,8 +30,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.yapyap.gui.components.Avatar
 import org.yapyap.gui.components.StatusDot
+import org.yapyap.gui.components.isConfirmKeyPress
 import org.yapyap.gui.markdown.DiscordMarkdownTransformer
-import org.yapyap.gui.screens.setup.copyToClipboard
 import org.yapyap.gui.state.ChatController
 import org.yapyap.gui.state.PendingState
 import org.yapyap.gui.theme.YapRadius
@@ -55,6 +59,9 @@ fun ChatView(
     onRoomRef: (RoomId) -> Unit,
     onOpenMembers: () -> Unit,
     onLeave: () -> Unit,
+    onCloseView: () -> Unit,
+    sendWithEnter: Boolean = true,
+    showCharCount: Boolean = true,
     onMarkRead: () -> Unit,
     persistDraft: (String) -> Unit,
     initialDraft: String,
@@ -110,20 +117,10 @@ fun ChatView(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             HeaderButton("☰", "Members") { onOpenMembers() }
-            HeaderButton("⎘", "Copy room ID") { copyToClipboard(roomId.value.toString()) }
-            HeaderButton("✕", "Leave") { onLeave() }
+            HeaderButton("⎋", "Leave this room", danger = true) { onLeave() }
+            HeaderButton("✕", "Close room view") { onCloseView() }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.borderNormal))
-
-        // Typing indicator (24 dp slot)
-        Box(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 16.dp)) {
-            if (ui.typingNames.isNotEmpty()) {
-                BasicText(
-                    typingText(ui.typingNames),
-                    style = yapType.bodyXs.copy(color = colors.textMuted),
-                )
-            }
-        }
 
         // Messages
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -204,6 +201,17 @@ fun ChatView(
             }
         }
 
+        // Typing indicator: sits directly above the composer (near the input),
+        // not above the message list. Fixed 22 dp slot so the composer never jumps.
+        Box(Modifier.fillMaxWidth().height(22.dp).padding(horizontal = 16.dp)) {
+            if (ui.typingNames.isNotEmpty()) {
+                BasicText(
+                    typingText(ui.typingNames),
+                    style = yapType.bodyXs.copy(color = colors.textMuted),
+                )
+            }
+        }
+
         // Composer
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp)
@@ -230,11 +238,22 @@ fun ChatView(
                 },
                 modifier = Modifier.weight(1f).heightIn(min = 24.dp, max = 160.dp)
                     .onPreviewKeyEvent { ev ->
-                        if (ev.key == Key.Enter && !ev.isShiftPressed) {
+                        // Key-down only: without the type guard both press and release
+                        // fire send(), posting the message twice. NumpadEnter is a
+                        // separate key constant — handle it exactly like Enter.
+                        if (ev.type != KeyEventType.KeyDown || !isConfirmKeyPress(ev.key)) return@onPreviewKeyEvent false
+                        val send = if (sendWithEnter) {
+                            !ev.isShiftPressed
+                        } else {
+                            ev.isCtrlPressed || ev.isMetaPressed
+                        }
+                        if (send) {
                             controller.send(composer, maxBytes)
                             if (composer.trim().isNotEmpty()) composer = ""
                             true
-                        } else false
+                        } else {
+                            false
+                        }
                     },
                 textStyle = yapType.bodyMd.copy(color = colors.textDefault),
                 cursorBrush = SolidColor(colors.textDefault),
@@ -255,7 +274,7 @@ fun ChatView(
                 },
             )
             val used = composer.encodeToByteArray().size
-            if (used > maxBytes * 0.9) {
+            if (showCharCount && used > maxBytes * 0.9) {
                 BasicText(
                     "$used / $maxBytes",
                     style = yapType.bodyXs.copy(
@@ -482,10 +501,10 @@ private fun EmptyRoom(title: String) {
 }
 
 @Composable
-private fun HeaderButton(label: String, tooltip: String, onClick: () -> Unit) {
+private fun HeaderButton(label: String, tooltip: String, danger: Boolean = false, onClick: () -> Unit) {
     BasicText(
         label,
-        style = yapType.bodyLg.copy(color = yapColors.iconDefault),
+        style = yapType.bodyLg.copy(color = if (danger) yapColors.danger else yapColors.iconDefault),
         modifier = Modifier.clickable { onClick() }.padding(horizontal = 8.dp, vertical = 4.dp),
     )
     @Suppress("UNUSED_EXPRESSION")

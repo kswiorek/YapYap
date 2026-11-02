@@ -7,12 +7,15 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
@@ -37,6 +40,15 @@ import kotlin.concurrent.thread
  * technique as JetBrains' own `UndecoratedWindowResizer`. Both sides are
  * physical screen pixels, so there is no DPI/scale factor to get wrong on any
  * OS, display server (X11/Wayland) or monitor.
+ *
+ * `--native-titlebar` skips the custom bar and uses the OS frame (native
+ * caption buttons). Firefox-style "custom bar, native buttons" is not something
+ * Compose Multiplatform can do: an undecorated window gets no OS buttons, and a
+ * decorated one draws the OS title bar above the content — there is no API to
+ * embed native caption buttons inside Compose content. Per-OS native code
+ * (Windows DWM caption customization, macOS full-size content view, GTK
+ * headerbar) could do it later; until then this flag is the fallback when the
+ * custom buttons misbehave on a given window manager.
  */
 fun main(args: Array<String>) {
     if (args.any { it == "--help" || it == "-h" }) {
@@ -84,7 +96,7 @@ fun main(args: Array<String>) {
             },
             state = windowState,
             title = "YapYap$devMarker",
-            undecorated = true,
+            undecorated = !cli.nativeTitlebar,
             resizable = true,
         ) {
             val colors = yapColors
@@ -93,32 +105,41 @@ fun main(args: Array<String>) {
                 window.background = java.awt.Color(0x2C, 0x2D, 0x32)
                 true
             }
-            val mover = remember(window) { WindowMover(window) }
-            val resizer = remember(window) { WindowResizer(window) }
-            Box(Modifier.fillMaxSize()) {
-                Column(Modifier.fillMaxSize().background(colors.bgApp)) {
-                    TitleBar(
-                        mover = mover,
-                        devMarker = devMarker,
-                        onMinimize = { windowState.isMinimized = true },
-                        onToggleMax = {
-                            windowState.placement = if (windowState.placement ==
-                                WindowPlacement.Maximized
-                            ) {
-                                WindowPlacement.Floating
-                            } else {
-                                WindowPlacement.Maximized
-                            }
-                        },
-                        onClose = {
-                            beginShutdown(window, session, ::exitApplication)
-                        },
-                    )
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        App(session)
-                    }
+            if (cli.nativeTitlebar) {
+                // OS frame owns min/max/close: no custom bar, no edge overlay.
+                Box(Modifier.fillMaxSize().background(colors.bgApp)) {
+                    App(session)
                 }
-                ResizeOverlay(resizer)
+            } else {
+                val mover = remember(window) { WindowMover(window) }
+                val resizer = remember(window) { WindowResizer(window) }
+                val isMaximized = windowState.placement == WindowPlacement.Maximized
+                Box(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().background(colors.bgApp)) {
+                        TitleBar(
+                            mover = mover,
+                            devMarker = devMarker,
+                            isMaximized = isMaximized,
+                            onMinimize = { windowState.isMinimized = true },
+                            onToggleMax = {
+                                windowState.placement = if (windowState.placement ==
+                                    WindowPlacement.Maximized
+                                ) {
+                                    WindowPlacement.Floating
+                                } else {
+                                    WindowPlacement.Maximized
+                                }
+                            },
+                            onClose = {
+                                beginShutdown(window, session, ::exitApplication)
+                            },
+                        )
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            App(session)
+                        }
+                    }
+                    ResizeOverlay(resizer)
+                }
             }
         }
     }
@@ -212,11 +233,13 @@ private enum class Edge { LEFT, RIGHT, BOTTOM }
 private fun TitleBar(
     mover: WindowMover,
     devMarker: String,
+    isMaximized: Boolean,
     onMinimize: () -> Unit,
     onToggleMax: () -> Unit,
     onClose: () -> Unit,
 ) {
     val colors = yapColors
+    val isMac = captionPlatform == CaptionPlatform.Mac
     Row(
         Modifier.fillMaxWidth().height(32.dp).background(colors.bgApp)
             .pointerInput(mover) {
@@ -236,39 +259,70 @@ private fun TitleBar(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (isMac) {
+            // Traffic lights sit on the left, like every native macOS window.
+            TrafficLights(onClose = onClose, onMinimize = onMinimize, onZoom = onToggleMax)
+        }
         BasicText(
             "✦ YapYap$devMarker",
             style = yapType.bodySmMedium.copy(color = colors.textSubtle),
             modifier = Modifier.padding(start = 12.dp).weight(1f),
         )
-        TitleButton("–", onMinimize)
-        TitleButton("▢", onToggleMax)
-        TitleButton("✕", onClose, hoverDanger = true)
+        if (!isMac) {
+            TitleButton(CaptionKind.Minimize, isMaximized, onMinimize)
+            TitleButton(CaptionKind.MaximizeRestore, isMaximized, onToggleMax)
+            TitleButton(CaptionKind.Close, isMaximized, onClose, hoverDanger = true)
+        }
     }
 }
 
 @Composable
-private fun TitleButton(label: String, onClick: () -> Unit, hoverDanger: Boolean = false) {
+private fun TitleButton(
+    kind: CaptionKind,
+    isMaximized: Boolean,
+    onClick: () -> Unit,
+    hoverDanger: Boolean = false,
+) {
     val colors = yapColors
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    // 46x32 hit targets per 10-windows.md §0: neutral hover, red close.
+    val isWin = captionPlatform == CaptionPlatform.Windows
+    // Windows keeps the 46-wide full-flood button (Win11 style); other desks get
+    // slightly narrower buttons with a circular hover disc (Breeze/Adwaita style).
+    // The shape is a platform-family constant, not per-OS artwork: there is no
+    // reliable runtime lookup for control geometry (icon themes carry glyphs,
+    // not hover shapes; GTK CSS is parseable in theory but brittle in practice
+    // — theme resolution, @imports, variables — so Firefox/Chrome hardcode this
+    // exact distinction too).
+    val hoverBg = when {
+        hovered && hoverDanger -> colors.danger
+        hovered -> colors.modHover
+        else -> Color.Transparent
+    }
     Box(
-        Modifier.width(46.dp).height(32.dp)
-            .background(
-                when {
-                    hovered && hoverDanger -> colors.danger
-                    hovered -> colors.modHover
-                    else -> colors.bgApp
-                },
-            )
+        Modifier.width(if (isWin) 46.dp else 32.dp).height(32.dp)
+            .background(if (isWin) (if (hovered) hoverBg else colors.bgApp) else Color.Transparent)
             .clickable(interactionSource = interaction, indication = null) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(
-            label,
-            style = yapType.bodySm.copy(color = if (hovered) colors.textStrong else colors.textSubtle),
-        )
+        if (isWin) {
+            CaptionGlyph(
+                kind = kind,
+                isMaximized = isMaximized,
+                tint = if (hovered) colors.textStrong else colors.textSubtle,
+            )
+        } else {
+            Box(
+                Modifier.size(20.dp).clip(CircleShape).background(hoverBg),
+                contentAlignment = Alignment.Center,
+            ) {
+                CaptionGlyph(
+                    kind = kind,
+                    isMaximized = isMaximized,
+                    tint = if (hovered) colors.textStrong else colors.textSubtle,
+                )
+            }
+        }
     }
 }
 

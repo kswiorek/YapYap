@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.yapyap.gui.components.*
+import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.state.SetupController
 import org.yapyap.gui.state.SetupUiState
@@ -67,7 +68,8 @@ fun SetupScreen(session: YapSession) {
                     YapButton(
                         "Continue",
                         onClick = { controller.addDevice() },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth()
+                            .onEnterConfirm(enabled = uiState != SetupUiState.Working) { controller.addDevice() },
                         enabled = uiState != SetupUiState.Working,
                     )
                     if (uiState is SetupUiState.Error) {
@@ -80,7 +82,7 @@ fun SetupScreen(session: YapSession) {
                 }
             }
             when (val s = uiState) {
-                is SetupUiState.Invite -> InviteResult(result = s.result)
+                is SetupUiState.Invite -> InviteResult(result = s.result, session = session)
                 is SetupUiState.Working -> WorkingIndicator()
                 else -> Unit
             }
@@ -115,21 +117,26 @@ private fun ChoiceRow(title: String, desc: String, selected: Boolean, onClick: (
 private fun NameForm(uiState: SetupUiState, onGo: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     val valid = name.trim().length in 2..32
-    YapTextField(
-        value = name,
-        onValueChange = { name = it },
-        placeholder = "Display name (2–32 chars)",
-        isError = name.isNotEmpty() && !valid,
-    )
-    if (name.isNotEmpty() && !valid) InlineError("Display name must be 2–32 characters.")
-    Spacer(Modifier.height(12.dp))
-    YapButton(
-        "Continue",
-        onClick = { onGo(name.trim()) },
-        modifier = Modifier.fillMaxWidth(),
-        enabled = valid && uiState != SetupUiState.Working,
-    )
-    if (uiState is SetupUiState.Error) InlineError(uiState.message)
+    fun go() {
+        if (valid && uiState != SetupUiState.Working) onGo(name.trim())
+    }
+    Column(Modifier.fillMaxWidth().onEnterConfirm(enabled = valid) { go() }) {
+        YapTextField(
+            value = name,
+            onValueChange = { name = it },
+            placeholder = "Display name (2–32 chars)",
+            isError = name.isNotEmpty() && !valid,
+        )
+        if (name.isNotEmpty() && !valid) InlineError("Display name must be 2–32 characters.")
+        Spacer(Modifier.height(12.dp))
+        YapButton(
+            "Continue",
+            onClick = ::go,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = valid && uiState != SetupUiState.Working,
+        )
+        if (uiState is SetupUiState.Error) InlineError(uiState.message)
+    }
 }
 
 @Composable
@@ -138,22 +145,29 @@ private fun RecoverForm(uiState: SetupUiState, onGo: (String, String, String, In
     var device by remember { mutableStateOf("") }
     var onion by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("80") }
-    YapTextField(key, { key = it }, placeholder = "Recovery key")
-    Spacer(Modifier.height(8.dp))
-    YapTextField(device, { device = it }, placeholder = "Bootstrap device ID")
-    Spacer(Modifier.height(8.dp))
-    YapTextField(onion, { onion = it }, placeholder = "Bootstrap onion address")
-    Spacer(Modifier.height(8.dp))
-    YapTextField(port, { port = it.filter { c -> c.isDigit() }.take(5) }, placeholder = "Port (80)")
-    Spacer(Modifier.height(12.dp))
-    YapButton(
-        "Recover",
-        onClick = { onGo(key, device, onion, port.toIntOrNull() ?: 80) },
-        modifier = Modifier.fillMaxWidth(),
-        enabled = key.isNotBlank() && device.isNotBlank() && onion.isNotBlank() &&
-                uiState != SetupUiState.Working,
-    )
-    if (uiState is SetupUiState.Error) InlineError(uiState.message)
+    val valid = key.isNotBlank() && device.isNotBlank() && onion.isNotBlank() &&
+            uiState != SetupUiState.Working
+
+    fun go() {
+        if (valid) onGo(key, device, onion, port.toIntOrNull() ?: 80)
+    }
+    Column(Modifier.fillMaxWidth().onEnterConfirm(enabled = valid) { go() }) {
+        YapTextField(key, { key = it }, placeholder = "Recovery key")
+        Spacer(Modifier.height(8.dp))
+        YapTextField(device, { device = it }, placeholder = "Bootstrap device ID")
+        Spacer(Modifier.height(8.dp))
+        YapTextField(onion, { onion = it }, placeholder = "Bootstrap onion address")
+        Spacer(Modifier.height(8.dp))
+        YapTextField(port, { port = it.filter { c -> c.isDigit() }.take(5) }, placeholder = "Port (80)")
+        Spacer(Modifier.height(12.dp))
+        YapButton(
+            "Recover",
+            onClick = ::go,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = valid,
+        )
+        if (uiState is SetupUiState.Error) InlineError(uiState.message)
+    }
 }
 
 @Composable
@@ -186,8 +200,9 @@ private fun WorkingIndicator() {
 }
 
 @Composable
-private fun InviteResult(result: SetupResult) {
+private fun InviteResult(result: SetupResult, session: YapSession) {
     val colors = yapColors
+    var copied by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         result.inviteBytes?.let { bytes ->
             BasicText(
@@ -206,8 +221,12 @@ private fun InviteResult(result: SetupResult) {
             }
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 YapButton(
-                    "Copy invite",
-                    onClick = { copyToClipboard(bytes.encodeBase64Stable()) },
+                    if (copied) "✓ Copied" else "Copy invite",
+                    onClick = {
+                        copyToClipboard(bytes.encodeBase64Stable())
+                        copied = true
+                        session.showToast("Invite code copied.", ToastKind.Success)
+                    },
                     variant = YapButtonVariant.Secondary,
                 )
             }

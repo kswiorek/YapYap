@@ -32,6 +32,7 @@ fun RightPanel(
     accounts: Map<AccountId, AccountView>,
     localId: AccountId?,
     onClose: () -> Unit,
+    onCopyRoomId: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = yapColors
@@ -49,6 +50,11 @@ fun RightPanel(
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            BasicText(
+                "⎘",
+                style = yapType.bodyMd.copy(color = colors.iconDefault),
+                modifier = Modifier.clickable { onCopyRoomId() }.padding(4.dp),
             )
             BasicText(
                 "✕",
@@ -205,6 +211,12 @@ fun ProfileBody(view: AccountView, modifier: Modifier = Modifier) {
                 SelectionContainer {
                     BasicText(
                         d.deviceId.id,
+                        style = yapType.bodyXs.copy(color = colors.textMuted),
+                    )
+                }
+                SelectionContainer {
+                    BasicText(
+                        "${d.torEndpoint.onionAddress}:${d.torEndpoint.port}",
                         style = yapType.bodyXs.copy(color = colors.textMuted),
                     )
                 }

@@ -82,7 +82,9 @@ class RoomsController(
             val key = roomKey(details.roomId)
             val title = when {
                 details.name.isNotBlank() -> details.name
-                else -> details.members.mapNotNull { names[it.accountId] }.sorted()
+                // Unnamed rooms render the other participants, never yourself.
+                else -> details.members.filter { it.accountId != localId }
+                    .mapNotNull { names[it.accountId] }.sorted()
                     .joinToString(", ").ifBlank { "Empty room" }
             }
             val lastRead = lastReadAt[key] ?: 0L

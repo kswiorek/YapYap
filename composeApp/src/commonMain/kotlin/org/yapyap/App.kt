@@ -17,6 +17,7 @@ import org.yapyap.gui.screens.reset.ResetScreen
 import org.yapyap.gui.screens.setup.RecoveryKeyModal
 import org.yapyap.gui.screens.setup.SetupScreen
 import org.yapyap.gui.screens.shell.MainShell
+import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.YapTheme
 import org.yapyap.gui.theme.yapColors
@@ -73,6 +74,12 @@ private fun AppRoot(session: YapSession, orch: Orchestrator, state: Orchestrator
             OrchestratorState.Stopped -> StoppedScreen(session)
         }
         val toast by session.toast.collectAsState()
+        // Toasts dismiss themselves after a few seconds; clicking dismisses sooner.
+        LaunchedEffect(toast?.atMillis) {
+            val shown = toast ?: return@LaunchedEffect
+            kotlinx.coroutines.delay(4_000)
+            if (session.toast.value?.atMillis == shown.atMillis) session.clearToast()
+        }
         // W4 recovery key: staged by SetupController, survives the setup → shell
         // navigation. Above content, below toasts.
         val pendingKey by session.pendingRecoveryKey.collectAsState()
@@ -80,6 +87,7 @@ private fun AppRoot(session: YapSession, orch: Orchestrator, state: Orchestrator
             RecoveryKeyModal(
                 recoveryKey = key,
                 onAcknowledge = { session.acknowledgeRecoveryKey() },
+                onCopied = { session.showToast("Recovery key copied.", ToastKind.Success) },
             )
         }
         ToastHost(

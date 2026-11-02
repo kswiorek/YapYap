@@ -23,6 +23,7 @@ import org.yapyap.protocol.AccountId
 @Composable
 fun CreateRoomDialog(
     accounts: List<AccountView>,
+    localId: AccountId? = null,
     onDismiss: () -> Unit,
     onCreate: (name: String, members: Set<AccountId>) -> Unit,
 ) {
@@ -30,13 +31,28 @@ fun CreateRoomDialog(
     var name by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<AccountId>()) }
-    val filtered = remember(accounts, query) {
-        if (query.isBlank()) accounts
-        else accounts.filter { it.displayName.contains(query, ignoreCase = true) }
+    // Defensive: callers filter out the local account, but never offer yourself
+    // here even if the local account isn't known yet at the call site.
+    val others = remember(accounts, localId) {
+        if (localId == null) accounts else accounts.filter { it.accountId != localId }
+    }
+    val filtered = remember(others, query) {
+        if (query.isBlank()) others
+        else others.filter { it.displayName.contains(query, ignoreCase = true) }
+    }
+    val canCreate = selected.isNotEmpty()
+    fun create() {
+        if (canCreate) onCreate(name.trim(), selected)
     }
     // In-window overlay (W7): scrim-click/Esc dismiss, window stays resizable.
     // Card: max 480 wide, shrinking with 16 dp margins on narrow windows.
-    ScrimOverlay(onDismiss = onDismiss, maxContentWidth = 480.dp) {
+    // Enter creates (universal ScrimOverlay onConfirm).
+    ScrimOverlay(
+        onDismiss = onDismiss,
+        maxContentWidth = 480.dp,
+        onConfirm = ::create,
+        confirmEnabled = canCreate,
+    ) {
         Column(
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(YapRadius.md))
@@ -63,6 +79,14 @@ fun CreateRoomDialog(
             YapTextField(name, { name = it }, placeholder = "Room name (optional)")
             Spacer(Modifier.height(8.dp))
             YapTextField(query, { query = it }, placeholder = "Search people…")
+            if (filtered.isEmpty()) {
+                BasicText(
+                    if (others.isEmpty()) "Nobody else to add yet — sponsor someone first."
+                    else "Nobody matches \"$query\".",
+                    style = yapType.bodySm.copy(color = colors.textMuted),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+                )
+            }
             LazyColumn(Modifier.fillMaxWidth().height(240.dp).padding(top = 8.dp)) {
                 items(filtered, key = { it.accountId.id }) { a ->
                     val isSel = a.accountId in selected
@@ -102,8 +126,8 @@ fun CreateRoomDialog(
                 Spacer(Modifier.width(8.dp))
                 YapButton(
                     "Create",
-                    onClick = { onCreate(name.trim(), selected) },
-                    enabled = selected.isNotEmpty(),
+                    onClick = ::create,
+                    enabled = canCreate,
                 )
             }
         }

@@ -78,7 +78,12 @@ fun SponsorDialog(
         }
     }
 
-    ScrimOverlay(onDismiss = if (working) null else onDismiss, maxContentWidth = 480.dp) {
+    ScrimOverlay(
+        onDismiss = if (working) null else onDismiss,
+        maxContentWidth = 480.dp,
+        onConfirm = ::submit,
+        confirmEnabled = code.isNotBlank() && !working,
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
