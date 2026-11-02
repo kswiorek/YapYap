@@ -95,6 +95,7 @@ internal class DefaultIdentityService(
             .map {
                 DeviceView(
                     deviceId = it.deviceId,
+                    torEndpoint = it.torEndpoint,
                     deviceType = it.deviceType,
                     status = it.status,
                     isLocal = it.isLocal,

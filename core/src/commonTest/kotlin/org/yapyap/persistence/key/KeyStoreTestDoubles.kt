@@ -302,6 +302,7 @@ internal class InMemoryIdentityKeyRepository(
         devices.keys.map { id ->
             DeviceRow(
                 deviceId = PeerId(id),
+                torEndpoint = torForDevice[id] ?: TorEndpoint("placeholder.onion", 80),
                 accountId = AccountId(deviceToAccount.getValue(id)),
                 deviceType = deviceTypes[id] ?: defaultLocalDeviceType,
                 status = deviceStatuses[id] ?: IdentityStatus.ACTIVE,

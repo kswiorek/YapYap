@@ -723,6 +723,7 @@ internal class DefaultIdentityKeyRepository(
             database.identityQueries.selectAllDevices().executeAsList().map {
                 DeviceRow(
                     deviceId = it.device_id,
+                    torEndpoint = TorEndpoint(it.onion_address, it.onion_port.toInt()),
                     accountId = it.account_id,
                     deviceType = it.device_type,
                     status = it.status,

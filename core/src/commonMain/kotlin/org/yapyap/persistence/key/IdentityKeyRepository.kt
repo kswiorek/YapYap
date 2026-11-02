@@ -16,6 +16,7 @@ internal data class AccountRow(
 /** Roster read: one device row with its chain-derived columns (any status — BANNED included). */
 internal data class DeviceRow(
     val deviceId: PeerId,
+    val torEndpoint: TorEndpoint,
     val accountId: AccountId,
     val deviceType: DeviceType,
     val status: IdentityStatus,

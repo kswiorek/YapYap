@@ -197,6 +197,7 @@ class DefaultIdentityServiceTest {
                 devices = listOf(
                     DeviceView(
                         deviceId = memberDevice,
+                        torEndpoint = TorEndpoint("placeholder.onion", 80),
                         deviceType = DeviceType.DESKTOP,
                         status = IdentityStatus.ACTIVE,
                         isLocal = false,

@@ -19,6 +19,7 @@ public data class AccountView(
 /** GUI-facing snapshot of one known device. */
 public data class DeviceView(
     val deviceId: PeerId,
+    val torEndpoint: TorEndpoint,
     val deviceType: DeviceType,
     /** Chain-derived device state (ACTIVE / BANNED). */
     val status: IdentityStatus,
