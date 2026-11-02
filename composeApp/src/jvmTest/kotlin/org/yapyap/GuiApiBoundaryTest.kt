@@ -67,6 +67,36 @@ class GuiApiBoundaryTest {
     )
 
     @Test
+    fun `GUI uses no star imports for core packages`() {
+        // Star imports can't be verified against the allow-list (a star could
+        // smuggle anything), so they are forbidden outright — use explicit
+        // imports. This also guards against the IDE's Optimize Imports
+        // collapsing explicit imports into `.*` (see .editorconfig: star-import
+        // thresholds are disabled repo-wide, but a manual star still fails here
+        // with this message instead of the generic one below).
+        val base = if (File("src").isDirectory) File("src") else File("composeApp/src")
+        assertTrue(base.isDirectory, "Cannot locate composeApp sources from ${File(".").absolutePath}")
+        val stars = mutableListOf<String>()
+        base.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .forEach { file ->
+                val rel = base.toPath().relativize(file.toPath()).toString()
+                file.readLines().forEachIndexed { index, raw ->
+                    val line = raw.trim()
+                    if (!line.startsWith("import org.yapyap.") || !line.endsWith(".*")) return@forEachIndexed
+                    val secondSegment = line.removePrefix("import org.yapyap.").substringBefore('.')
+                    if (secondSegment in corePackages) stars += "$rel:${index + 1}: $line"
+                }
+            }
+        assertTrue(
+            stars.isEmpty(),
+            "Star imports of core packages are forbidden in :composeApp " +
+                    "(${stars.size}) — replace with explicit imports:\n" +
+                    stars.joinToString("\n") { "  $it" },
+        )
+    }
+
+    @Test
     fun `GUI only imports the orchestrator API`() {
         val base = if (File("src").isDirectory) File("src") else File("composeApp/src")
         assertTrue(base.isDirectory, "Cannot locate composeApp sources from ${File(".").absolutePath}")
@@ -81,6 +111,7 @@ class GuiApiBoundaryTest {
                     val fqn = line.removePrefix("import ").trim()
                     if (fqn in allowedExactImports) return@forEachIndexed
                     if (allowedSubtrees.any { fqn.startsWith(it) }) return@forEachIndexed
+                    if (fqn.endsWith(".*")) return@forEachIndexed // owned by the star-import test above
                     val secondSegment = fqn.removePrefix("org.yapyap.").substringBefore('.')
                     if (secondSegment !in corePackages) return@forEachIndexed // own app code
                     offenders += "$rel:${index + 1}: $line"

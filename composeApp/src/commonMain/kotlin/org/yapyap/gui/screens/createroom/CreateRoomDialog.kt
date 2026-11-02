@@ -8,17 +8,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.Circle
+import compose.icons.fontawesomeicons.solid.DotCircle
+import compose.icons.fontawesomeicons.solid.Times
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.*
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.runtime.identity.AccountView
 import org.yapyap.protocol.AccountId
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 @Composable
 fun CreateRoomDialog(
@@ -65,24 +73,30 @@ fun CreateRoomDialog(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BasicText(
-                    "Create a room",
+                    stringResource(Res.string.create_title),
                     style = yapType.headingXl.copy(color = colors.textStrong),
                     modifier = Modifier.weight(1f),
                 )
-                BasicText(
-                    "✕",
-                    style = yapType.headingMd.copy(color = colors.textMuted),
-                    modifier = Modifier.clickable { onDismiss() }.padding(4.dp),
-                )
+                Box(
+                    Modifier.clickable { onDismiss() }.padding(4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        FontAwesomeIcons.Solid.Times,
+                        stringResource(Res.string.desc_close),
+                        Modifier.size(16.dp),
+                        colors.textMuted
+                    )
+                }
             }
             Spacer(Modifier.height(12.dp))
-            YapTextField(name, { name = it }, placeholder = "Room name (optional)")
+            YapTextField(name, { name = it }, placeholder = stringResource(Res.string.create_name_hint))
             Spacer(Modifier.height(8.dp))
-            YapTextField(query, { query = it }, placeholder = "Search people…")
+            YapTextField(query, { query = it }, placeholder = stringResource(Res.string.create_search_hint))
             if (filtered.isEmpty()) {
                 BasicText(
-                    if (others.isEmpty()) "Nobody else to add yet — sponsor someone first."
-                    else "Nobody matches \"$query\".",
+                    if (others.isEmpty()) stringResource(Res.string.create_empty_roster)
+                    else stringResource(Res.string.create_no_match, query),
                     style = yapType.bodySm.copy(color = colors.textMuted),
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
                 )
@@ -112,20 +126,35 @@ fun CreateRoomDialog(
                                 style = yapType.bodyXs.copy(color = colors.textMuted),
                             )
                         }
-                        BasicText(
-                            if (isSel) "◉" else "○",
-                            style = yapType.bodyLg.copy(color = colors.textSubtle),
-                        )
+                        if (isSel) {
+                            Icon(
+                                FontAwesomeIcons.Solid.DotCircle,
+                                stringResource(Res.string.desc_selected),
+                                Modifier.size(20.dp),
+                                colors.brand
+                            )
+                        } else {
+                            Icon(
+                                FontAwesomeIcons.Solid.Circle,
+                                stringResource(Res.string.desc_not_selected),
+                                Modifier.size(20.dp),
+                                colors.textSubtle
+                            )
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.weight(1f))
-                YapButton("Cancel", onClick = onDismiss, variant = YapButtonVariant.Secondary)
+                YapButton(
+                    stringResource(Res.string.common_cancel),
+                    onClick = onDismiss,
+                    variant = YapButtonVariant.Secondary
+                )
                 Spacer(Modifier.width(8.dp))
                 YapButton(
-                    "Create",
+                    stringResource(Res.string.common_create),
                     onClick = ::create,
                     enabled = canCreate,
                 )

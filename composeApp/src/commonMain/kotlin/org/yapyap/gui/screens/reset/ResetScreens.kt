@@ -6,16 +6,14 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.yapyap.gui.components.CenterColumn
-import org.yapyap.gui.components.YapButton
-import org.yapyap.gui.components.YapButtonVariant
-import org.yapyap.gui.components.YapTextField
-import org.yapyap.gui.components.onEnterConfirm
+import org.jetbrains.compose.resources.stringResource
+import org.yapyap.gui.components.*
 import org.yapyap.gui.copy.ResetReasonText
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.boot.ResetReason
+import yapyap.composeapp.generated.resources.*
 
 @Composable
 fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
@@ -41,7 +39,7 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
             )
             if (details.isNotBlank()) {
                 BasicText(
-                    "Details: $details",
+                    stringResource(Res.string.reset_details, details),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -52,10 +50,10 @@ fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {
                 modifier = Modifier.padding(top = 8.dp),
             )
             Spacer(Modifier.height(12.dp))
-            YapTextField(typed, { typed = it }, placeholder = "Type \"reset\" to confirm")
+            YapTextField(typed, { typed = it }, placeholder = stringResource(Res.string.reset_type_to_confirm))
             Spacer(Modifier.height(12.dp))
             YapButton(
-                "Reset app",
+                stringResource(Res.string.reset_button),
                 onClick = {
                     // Stops first (reset refuses Running), wipes, then boots
                     // back into SetupRequired. Failures surface as toasts.
@@ -81,7 +79,7 @@ fun FailureScreen(session: YapSession, cause: Throwable) {
             BasicText("✕", style = yapType.headingXxl.copy(color = colors.danger))
             Spacer(Modifier.height(8.dp))
             BasicText(
-                "Something went wrong",
+                stringResource(Res.string.failure_title),
                 style = yapType.headingXl.copy(color = colors.textStrong),
             )
             BasicText(
@@ -91,7 +89,7 @@ fun FailureScreen(session: YapSession, cause: Throwable) {
             )
             Spacer(Modifier.height(8.dp))
             YapButton(
-                if (showDetails) "Hide details" else "Technical details",
+                if (showDetails) stringResource(Res.string.failure_toggle_hide) else stringResource(Res.string.failure_toggle_show),
                 onClick = { showDetails = !showDetails },
                 variant = YapButtonVariant.Secondary,
             )
@@ -105,13 +103,13 @@ fun FailureScreen(session: YapSession, cause: Throwable) {
             }
             Spacer(Modifier.height(12.dp))
             YapButton(
-                "Retry",
+                stringResource(Res.string.failure_retry),
                 onClick = { session.start() },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
             YapButton(
-                "Reset",
+                stringResource(Res.string.failure_reset),
                 onClick = {
                     // Stops first (reset refuses Running), wipes, then boots
                     // back into SetupRequired. Failures surface as toasts.

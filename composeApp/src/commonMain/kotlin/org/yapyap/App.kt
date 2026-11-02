@@ -6,12 +6,16 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.capabilities.Capabilities
 import org.yapyap.gui.capabilities.LocalCapabilities
 import org.yapyap.gui.components.ToastHost
 import org.yapyap.gui.components.YapButton
 import org.yapyap.gui.components.YapButtonVariant
+import org.yapyap.gui.prefs.UiPreferences
 import org.yapyap.gui.screens.reset.FailureScreen
 import org.yapyap.gui.screens.reset.ResetScreen
 import org.yapyap.gui.screens.setup.RecoveryKeyModal
@@ -26,6 +30,7 @@ import org.yapyap.orchestrator.BootPhase
 import org.yapyap.orchestrator.BootProgress
 import org.yapyap.orchestrator.Orchestrator
 import org.yapyap.orchestrator.OrchestratorState
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 @Composable
 fun App(session: YapSession?) {
@@ -36,17 +41,39 @@ fun App(session: YapSession?) {
             if (session == null) {
                 SplashScreen("YapYap")
             } else {
-                val orchState by session.orchestratorFlow.collectAsState()
-                val orch = orchState
-                if (orch == null) {
-                    LaunchedEffect(session) { session.start() }
-                    SplashScreen("Starting…")
-                } else {
-                    val state by orch.state.collectAsState()
-                    AppRoot(session, orch, state)
+                val prefs by session.prefsController.prefs.collectAsState()
+                WithUiZoom(prefs) {
+                    val orchState by session.orchestratorFlow.collectAsState()
+                    val orch = orchState
+                    if (orch == null) {
+                        LaunchedEffect(session) { session.start() }
+                        SplashScreen(stringResource(Res.string.splash_starting))
+                    } else {
+                        val state by orch.state.collectAsState()
+                        AppRoot(session, orch, state)
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * Universal UI scale (Settings → Appearance → Interface zoom): overriding
+ * LocalDensity scales every dp AND sp below this point, so a whole subtree
+ * zooms with no per-element plumbing. Raw px (borders drawn in pixels, AWT
+ * drag/resize math) intentionally do not scale. The window itself keeps its
+ * size — zoomed content scrolls. Shared by App content (all platforms) and the
+ * desktop title bar / resize overlay in main.kt (siblings, so no double zoom).
+ */
+@Composable
+fun WithUiZoom(prefs: UiPreferences, content: @Composable () -> Unit) {
+    val base = LocalDensity.current
+    val zoom = (prefs.appearance.uiZoom / 100f).coerceIn(0.5f, 2.5f)
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalDensity provides Density(base.density * zoom, base.fontScale * zoom),
+    ) {
+        content()
     }
 }
 
@@ -65,12 +92,16 @@ private fun AppRoot(session: YapSession, orch: Orchestrator, state: Orchestrator
             OrchestratorState.Running -> {
                 val runtime = remember(state) { runCatching { session.orchestrator?.runtime() }.getOrNull() }
                 val transportStatus by orch.transportStatus.collectAsState()
-                if (runtime != null) MainShell(session, runtime, transportStatus) else SplashScreen("Loading…")
+                if (runtime != null) MainShell(
+                    session,
+                    runtime,
+                    transportStatus
+                ) else SplashScreen(stringResource(Res.string.splash_loading))
             }
 
             is OrchestratorState.ResetRequired -> ResetScreen(session, state.reason, state.details)
             is OrchestratorState.Failed -> FailureScreen(session, state.cause)
-            OrchestratorState.Stopping -> SplashScreen("Stopping…")
+            OrchestratorState.Stopping -> SplashScreen(stringResource(Res.string.splash_stopping))
             OrchestratorState.Stopped -> StoppedScreen(session)
         }
         val toast by session.toast.collectAsState()
@@ -83,11 +114,12 @@ private fun AppRoot(session: YapSession, orch: Orchestrator, state: Orchestrator
         // W4 recovery key: staged by SetupController, survives the setup → shell
         // navigation. Above content, below toasts.
         val pendingKey by session.pendingRecoveryKey.collectAsState()
+        val keyCopiedMsg = stringResource(Res.string.toast_key_copied)
         pendingKey?.let { key ->
             RecoveryKeyModal(
                 recoveryKey = key,
                 onAcknowledge = { session.acknowledgeRecoveryKey() },
-                onCopied = { session.showToast("Recovery key copied.", ToastKind.Success) },
+                onCopied = { session.showToast(keyCopiedMsg, ToastKind.Success) },
             )
         }
         ToastHost(
@@ -119,18 +151,18 @@ fun SplashScreen(line: String) {
 private fun BootSplash(progress: BootProgress) {
     val colors = yapColors
     val detail = when (progress.phase) {
-        BootPhase.STARTING -> "Starting…"
-        BootPhase.TRANSPORTS -> "Opening transports…"
-        BootPhase.DATABASE -> "Opening database…"
-        BootPhase.ROUTER -> "Starting router…"
+        BootPhase.STARTING -> stringResource(Res.string.splash_starting)
+        BootPhase.TRANSPORTS -> stringResource(Res.string.boot_transports)
+        BootPhase.DATABASE -> stringResource(Res.string.boot_database)
+        BootPhase.ROUTER -> stringResource(Res.string.boot_router)
         BootPhase.FOLDS ->
             if (progress.roomsTotal > 0) {
-                "Folding rooms ${progress.roomsDone}/${progress.roomsTotal}…"
+                stringResource(Res.string.boot_folding, progress.roomsDone, progress.roomsTotal)
             } else {
-                "Folding…"
+                stringResource(Res.string.boot_folding_plain)
             }
 
-        BootPhase.READY -> "Almost there…"
+        BootPhase.READY -> stringResource(Res.string.boot_ready)
     }
     Box(
         Modifier.fillMaxSize().background(colors.bgApp).padding(32.dp),
@@ -141,7 +173,7 @@ private fun BootSplash(progress: BootProgress) {
             Spacer(Modifier.height(12.dp))
             BasicText("YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
             Spacer(Modifier.height(8.dp))
-            BasicText("Starting network…", style = yapType.bodySm.copy(color = colors.textMuted))
+            BasicText(stringResource(Res.string.boot_tagline), style = yapType.bodySm.copy(color = colors.textMuted))
             Spacer(Modifier.height(4.dp))
             BasicText(detail, style = yapType.bodySm.copy(color = colors.textMuted))
             if (progress.roomsTotal > 0) {
@@ -170,12 +202,15 @@ private fun StoppedScreen(session: YapSession) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            BasicText("Stopped", style = yapType.headingXl.copy(color = colors.textStrong))
+            BasicText(
+                stringResource(Res.string.stopped_title),
+                style = yapType.headingXl.copy(color = colors.textStrong)
+            )
             Spacer(Modifier.height(12.dp))
-            YapButton("Restart", onClick = { session.start() })
+            YapButton(stringResource(Res.string.stopped_restart), onClick = { session.start() })
             Spacer(Modifier.height(8.dp))
             YapButton(
-                "Reset app",
+                stringResource(Res.string.reset_button),
                 onClick = { session.resetAndReboot() },
                 variant = YapButtonVariant.Danger,
             )

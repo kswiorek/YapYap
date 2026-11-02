@@ -9,13 +9,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.Home
+import compose.icons.fontawesomeicons.solid.Plus
+import compose.icons.fontawesomeicons.solid.PlusCircle
+import compose.icons.fontawesomeicons.solid.Users
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.*
 import org.yapyap.gui.copy.RefusalText
 import org.yapyap.gui.screens.createroom.CreateRoomDialog
@@ -38,6 +47,7 @@ import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
 import org.yapyap.protocol.RoomId
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 import kotlin.time.Clock
 
 private enum class RailDestination { Home, Friends }
@@ -64,7 +74,10 @@ fun MainShell(
 
     var selectedId by remember { mutableStateOf<RoomId?>(null) }
     var destination by remember { mutableStateOf(RailDestination.Home) }
-    var showRight by remember { mutableStateOf(prefs.layout.showMemberListByDefault) }
+    // Member panel visibility: manual toggle wins, but it resets whenever the
+    // window crosses the wide/narrow breakpoint — shrinking hides the panel by
+    // default (reopenable via the members button), growing shows it by default.
+    var rightOverride by remember { mutableStateOf<Boolean?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
@@ -85,13 +98,13 @@ fun MainShell(
     // fresh setup, and a sponsor's intro arriving afterwards is refused. Always confirm.
     var confirmCancelOnboarding by remember { mutableStateOf(false) }
     val cancelOnboarding = { confirmCancelOnboarding = true }
+    val cancelledMsg = stringResource(Res.string.toast_onboarding_cancelled)
+    val roomCopiedMsg = stringResource(Res.string.toast_room_copied)
+    val inviteCopiedMsg = stringResource(Res.string.toast_invite_copied)
     val reallyCancelOnboarding = {
         scope.launch {
             runCatching { runtime.onboarding.newcomerCancelOnboarding() }
-            session.showToast(
-                "Onboarding cancelled — reset the app and set up again with a fresh code.",
-                ToastKind.Info,
-            )
+            session.showToast(cancelledMsg, ToastKind.Info)
         }
     }
     // Staged join invite (new-account / add-device paths): SetupScreen is gone by
@@ -119,6 +132,15 @@ fun MainShell(
     // into Dialogs — those are separate OS windows. Settings is therefore an
     // in-window overlay (see SettingsModal), not a Dialog.
     BoxWithConstraints(modifier.fillMaxSize().background(colors.bgApp)) {
+        // Single breakpoint for the member panel, decided once at the root: the
+        // docked and overlay branches used to measure 1150.dp in different scopes
+        // (Row child vs root), which disagreed over a range of widths and showed
+        // neither. One boolean here keeps them complementary by construction.
+        val wide = maxWidth >= 1150.dp
+        // Track the breakpoint: crossing it drops the manual toggle back to the
+        // size default (hidden when narrow, shown when wide).
+        LaunchedEffect(wide) { rightOverride = null }
+        val showRight = rightOverride ?: wide
         Column(Modifier.fillMaxSize()) {
             TransportBanner(transportStatus)
             NewcomerStatusBanner(
@@ -137,9 +159,9 @@ fun MainShell(
             )
             when (destination) {
                 RailDestination.Friends -> StubPage(
-                    title = "Friends",
-                    headline = "Friends are coming soon",
-                    explanation = "You'll be able to add people you know and see who's around.",
+                    title = stringResource(Res.string.stub_friends_title),
+                    headline = stringResource(Res.string.stub_friends_headline),
+                    explanation = stringResource(Res.string.stub_friends_body),
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
 
@@ -191,11 +213,42 @@ fun MainShell(
                                 availability = availability,
                                 maxBytes = runtime.messaging.maxTextMessageBytes,
                                 onRoomRef = { ref -> selectedId = ref },
-                                onOpenMembers = { showRight = !showRight },
+                                onOpenMembers = { rightOverride = !showRight },
                                 onLeave = { leaveTarget = current },
                                 onCloseView = { selectedId = null },
                                 sendWithEnter = prefs.chat.sendWithEnter,
                                 showCharCount = prefs.chat.showCharCount,
+                                timestamps24h = prefs.chat.timestamps24h,
+                                trailingOverlay = {
+                                    // Narrow windows only (!wide; wide docks the panel
+                                    // in the row instead): floats over the message list,
+                                    // top-end anchored, ending exactly at the input box.
+                                    if (!wide && showRight) {
+                                        val overlayDetails = details
+                                        if (overlayDetails != null) {
+                                            val accountMap = remember(accounts) {
+                                                accounts.associateBy { it.accountId }
+                                            }
+                                            Box(
+                                                Modifier.align(Alignment.TopEnd).fillMaxHeight()
+                                                    .padding(top = 8.dp, end = 8.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(colors.bgApp),
+                                            ) {
+                                                RightPanel(
+                                                    overlayDetails,
+                                                    accountMap,
+                                                    local?.accountId,
+                                                    onClose = { rightOverride = false },
+                                                    onCopyRoomId = {
+                                                        copyToClipboard(overlayDetails.roomId.value.toString())
+                                                        session.showToast(roomCopiedMsg, ToastKind.Success)
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
                                 onMarkRead = { store.markRead(current, Clock.System.now().toEpochMilliseconds()) },
                                 persistDraft = { store.saveDraft(current, it) },
                                 initialDraft = prefs.drafts[roomKey(current)] ?: "",
@@ -205,61 +258,29 @@ fun MainShell(
                             details
                         }
                     }
-                    // Docked right panel (Wide only). Narrower windows use the
-                    // overlay below so chat is never squeezed to zero.
-                    if (showRight && selectedId != null) {
+                    // Docked right panel (Wide only): [wide] comes from the root
+                    // breakpoint above. Narrower windows use the overlay below so
+                    // chat is never squeezed to zero.
+                    if (showRight && selectedId != null && wide) {
                         val details = items.firstOrNull { it.details.roomId == selectedId }?.details
                         if (details != null) {
-                            BoxWithConstraints(Modifier.fillMaxHeight()) {
-                                if (maxWidth >= 1150.dp) {
-                                    val accountMap = remember(accounts) { accounts.associateBy { it.accountId } }
-                                    RightPanel(
-                                        details,
-                                        accountMap,
-                                        local?.accountId,
-                                        onClose = { showRight = false },
-                                        onCopyRoomId = {
-                                            copyToClipboard(details.roomId.value.toString())
-                                            session.showToast("Room ID copied.", ToastKind.Success)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            } // Row
-        } // Column (banner + shell row)
-
-        // Overlay right panel (Expanded and below): floats over chat, top-end anchored.
-        if (destination == RailDestination.Home && showRight && selectedId != null) {
-            val details = items.firstOrNull { it.details.roomId == selectedId }?.details
-            if (details != null) {
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    if (maxWidth < 1150.dp) {
-                        val accountMap = remember(accounts) { accounts.associateBy { it.accountId } }
-                        Box(
-                            Modifier.align(Alignment.TopEnd).fillMaxHeight()
-                                .padding(8.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.bgApp),
-                        ) {
+                            val accountMap = remember(accounts) { accounts.associateBy { it.accountId } }
                             RightPanel(
                                 details,
                                 accountMap,
                                 local?.accountId,
-                                onClose = { showRight = false },
+                                onClose = { rightOverride = false },
                                 onCopyRoomId = {
                                     copyToClipboard(details.roomId.value.toString())
-                                    session.showToast("Room ID copied.", ToastKind.Success)
+                                    session.showToast(roomCopiedMsg, ToastKind.Success)
                                 },
                             )
                         }
                     }
                 }
             }
-        }
+            } // Row
+        } // Column (banner + shell row)
 
         // Global ToastHost now lives at App root so reset/start failures are
         // visible in every orchestrator state, not just Running.
@@ -316,7 +337,7 @@ fun MainShell(
             addressPublished = transportStatus == LocalTransportStatus.Online,
             onCancelOnboarding = { cancelOnboarding() },
             onDismiss = { showInvite = false },
-            onCopied = { session.showToast("Invite code copied.", ToastKind.Success) },
+            onCopied = { session.showToast(inviteCopiedMsg, ToastKind.Success) },
         )
     }
     if (showSponsor) {
@@ -328,11 +349,9 @@ fun MainShell(
     }
     if (confirmCancelOnboarding) {
         org.yapyap.gui.components.ConfirmDialog(
-            title = "Cancel joining?",
-            body = "Joining can take a few minutes while Tor connects, and keeps retrying on its own. " +
-                    "If you cancel, this setup can't be resumed: you'll need to reset the app and start " +
-                    "again with a new code.",
-            confirmLabel = "Cancel joining",
+            title = stringResource(Res.string.cancel_join_title),
+            body = stringResource(Res.string.cancel_join_body),
+            confirmLabel = stringResource(Res.string.cancel_join_confirm),
             onConfirm = {
                 confirmCancelOnboarding = false
                 reallyCancelOnboarding()
@@ -341,16 +360,17 @@ fun MainShell(
         )
     }
     leaveTarget?.let { target ->
+        val couldntLeave = stringResource(Res.string.toast_leave_failed)
         org.yapyap.gui.components.ConfirmDialog(
-            title = "Leave this room?",
-            body = "You will stop receiving messages here. You can be re-added by a member.",
-            confirmLabel = "Leave",
+            title = stringResource(Res.string.leave_title),
+            body = stringResource(Res.string.leave_body),
+            confirmLabel = stringResource(Res.string.leave_confirm),
             onConfirm = {
                 leaveTarget = null
                 scope.launch {
                     val res = runCatching { runtime.rooms.leaveRoom(target) }.getOrElse {
                         session.showToast(
-                            it.message ?: "Couldn't leave.",
+                            it.message ?: couldntLeave,
                             org.yapyap.gui.session.ToastKind.Error,
                         )
                         return@launch
@@ -395,12 +415,12 @@ private fun PendingInviteOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             BasicText(
-                "Invite code",
+                stringResource(Res.string.invite_title),
                 style = yapType.headingXl.copy(color = colors.textStrong),
                 modifier = Modifier.fillMaxWidth(),
             )
             BasicText(
-                "Your sponsor scans or pastes this to add you to the network.",
+                stringResource(Res.string.invite_body),
                 style = yapType.bodySm.copy(color = colors.textSubtle),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
@@ -415,7 +435,7 @@ private fun PendingInviteOverlay(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     SoonChip()
                     BasicText(
-                        "QR coming soon",
+                        stringResource(Res.string.invite_qr_soon),
                         style = yapType.bodySm.copy(color = colors.textMuted),
                         modifier = Modifier.padding(top = 8.dp),
                     )
@@ -423,21 +443,20 @@ private fun PendingInviteOverlay(
             }
             if (newcomerState == OnboardingState.AWAITING_INTRO) {
                 BasicText(
-                    "Status: waiting for a sponsor…",
+                    stringResource(Res.string.invite_waiting),
                     style = yapType.bodySmMedium.copy(color = colors.info),
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 if (!addressPublished) {
                     BasicText(
-                        "Your address is still publishing — you can share the code now, " +
-                                "but the sponsor's first attempts may take a minute.",
+                        stringResource(Res.string.invite_not_published),
                         style = yapType.bodyXs.copy(color = colors.textMuted),
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             } else if (newcomerState == OnboardingState.SYNCING) {
                 BasicText(
-                    "Status: sponsor found — syncing…",
+                    stringResource(Res.string.invite_syncing),
                     style = yapType.bodySmMedium.copy(color = colors.positive),
                     modifier = Modifier.padding(top = 8.dp),
                 )
@@ -459,14 +478,14 @@ private fun PendingInviteOverlay(
                     newcomerState == OnboardingState.SYNCING
                 ) {
                     YapButton(
-                        "Cancel onboarding",
+                        stringResource(Res.string.invite_cancel_onboarding),
                         onClick = onCancelOnboarding,
                         variant = YapButtonVariant.Danger,
                     )
                 }
                 Spacer(Modifier.weight(1f))
                 YapButton(
-                    if (copied) "✓ Copied" else "Copy invite",
+                    if (copied) stringResource(Res.string.invite_copied) else stringResource(Res.string.invite_copy),
                     onClick = {
                         copyToClipboard(inviteCode)
                         copied = true
@@ -475,7 +494,7 @@ private fun PendingInviteOverlay(
                     variant = YapButtonVariant.Secondary,
                     modifier = Modifier.padding(end = 8.dp),
                 )
-                YapButton("Done", onClick = onDismiss)
+                YapButton(stringResource(Res.string.common_done), onClick = onDismiss)
             }
         }
     }
@@ -498,17 +517,17 @@ private fun Rail(
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        RailItem("✦", destination == RailDestination.Home, onHome)
-        RailItem("☺", destination == RailDestination.Friends, onFriends)
+        RailItem(FontAwesomeIcons.Solid.Home, destination == RailDestination.Home, onHome)
+        RailItem(FontAwesomeIcons.Solid.Users, destination == RailDestination.Friends, onFriends)
         Spacer(Modifier.height(16.dp))
-        RailItem("+", false, onNewRoom)
-        RailItem("⊕", false, onSponsor)
+        RailItem(FontAwesomeIcons.Solid.Plus, false, onNewRoom)
+        RailItem(FontAwesomeIcons.Solid.PlusCircle, false, onSponsor)
         Spacer(Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun RailItem(icon: String, selected: Boolean, onClick: () -> Unit) {
+private fun RailItem(icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
     val colors = yapColors
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
@@ -531,7 +550,7 @@ private fun RailItem(icon: String, selected: Boolean, onClick: () -> Unit) {
                     .clickable(interactionSource = interaction, indication = null) { onClick() },
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(icon, style = yapType.headingMd.copy(color = colors.textStrong))
+                Icon(icon, null, Modifier.size(20.dp), colors.textStrong)
             }
         }
     }
@@ -547,7 +566,7 @@ private fun NoRoomSelected(recent: List<String>) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             BasicText("✦", style = yapType.headingXxl.copy(color = colors.brand))
             BasicText(
-                "Pick up where you left off",
+                stringResource(Res.string.shell_no_room_title),
                 style = yapType.headingLg.copy(color = colors.textStrong),
                 modifier = Modifier.padding(top = 12.dp),
             )

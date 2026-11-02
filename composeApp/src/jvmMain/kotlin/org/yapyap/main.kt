@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -114,31 +115,38 @@ fun main(args: Array<String>) {
                 val mover = remember(window) { WindowMover(window) }
                 val resizer = remember(window) { WindowResizer(window) }
                 val isMaximized = windowState.placement == WindowPlacement.Maximized
+                // Same UI zoom as App content (WithUiZoom is a sibling wrapper here,
+                // so the bar and the content each scale exactly once).
+                val prefs by session.prefsController.prefs.collectAsState()
                 Box(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().background(colors.bgApp)) {
-                        TitleBar(
-                            mover = mover,
-                            devMarker = devMarker,
-                            isMaximized = isMaximized,
-                            onMinimize = { windowState.isMinimized = true },
-                            onToggleMax = {
-                                windowState.placement = if (windowState.placement ==
-                                    WindowPlacement.Maximized
-                                ) {
-                                    WindowPlacement.Floating
-                                } else {
-                                    WindowPlacement.Maximized
-                                }
-                            },
-                            onClose = {
-                                beginShutdown(window, session, ::exitApplication)
-                            },
-                        )
+                        WithUiZoom(prefs) {
+                            TitleBar(
+                                mover = mover,
+                                devMarker = devMarker,
+                                isMaximized = isMaximized,
+                                onMinimize = { windowState.isMinimized = true },
+                                onToggleMax = {
+                                    windowState.placement = if (windowState.placement ==
+                                        WindowPlacement.Maximized
+                                    ) {
+                                        WindowPlacement.Floating
+                                    } else {
+                                        WindowPlacement.Maximized
+                                    }
+                                },
+                                onClose = {
+                                    beginShutdown(window, session, ::exitApplication)
+                                },
+                            )
+                        }
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             App(session)
                         }
                     }
-                    ResizeOverlay(resizer)
+                    WithUiZoom(prefs) {
+                        ResizeOverlay(resizer)
+                    }
                 }
             }
         }

@@ -59,6 +59,8 @@ data class AppearancePrefs(
     val highContrast: Boolean = false,
     val saturation: Int = 100,
     val sidebarWidth: Int = 300,
+    /** Global interface scale in percent (75–200): applied via LocalDensity at the app root. */
+    val uiZoom: Int = 100,
 )
 
 @Serializable
@@ -77,7 +79,6 @@ data class ChatPrefs(
     val showCharCount: Boolean = true,
     val messageDisplay: String = "cozy",
     val fontSize: Int = 16,
-    val uiZoom: Int = 100,
     val timestamps24h: Boolean = true,
 )
 

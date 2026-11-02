@@ -16,12 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.ScrimOverlay
 import org.yapyap.gui.components.isConfirmKeyPress
 import org.yapyap.gui.state.RoomListItem
@@ -29,6 +26,9 @@ import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.protocol.RoomId
+import yapyap.composeapp.generated.resources.Res
+import yapyap.composeapp.generated.resources.switcher_hint
+import yapyap.composeapp.generated.resources.switcher_title
 
 @Composable
 fun QuickSwitcher(
@@ -80,13 +80,13 @@ fun QuickSwitcher(
                 },
         ) {
             BasicText(
-                "Where would you like to go?",
+                stringResource(Res.string.switcher_title),
                 style = yapType.bodyMd.copy(color = colors.textDefault),
             )
             org.yapyap.gui.components.YapTextField(
                 query,
                 { query = it; index = 0 },
-                placeholder = "Search rooms…",
+                placeholder = stringResource(Res.string.switcher_hint),
                 modifier = Modifier.padding(top = 8.dp).focusRequester(searchFocus),
             )
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp).padding(top = 8.dp)) {

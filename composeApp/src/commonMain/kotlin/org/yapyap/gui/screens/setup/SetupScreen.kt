@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.*
 import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.YapSession
@@ -22,6 +23,7 @@ import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.SetupResult
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
@@ -38,20 +40,36 @@ fun SetupScreen(session: YapSession) {
         Column(Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
             BasicText("✦  YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
             BasicText(
-                "A private network for people you actually know.",
+                stringResource(Res.string.setup_tagline),
                 style = yapType.bodySm.copy(color = colors.textMuted),
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
             )
-            ChoiceRow("Create a new network", "You'll be the owner", choice == Choice.Genesis) {
+            ChoiceRow(
+                stringResource(Res.string.setup_genesis_title),
+                stringResource(Res.string.setup_genesis_desc),
+                choice == Choice.Genesis
+            ) {
                 choice = Choice.Genesis
             }
-            ChoiceRow("Join with a new account", "You were invited", choice == Choice.NewAccount) {
+            ChoiceRow(
+                stringResource(Res.string.setup_new_account_title),
+                stringResource(Res.string.setup_new_account_desc),
+                choice == Choice.NewAccount
+            ) {
                 choice = Choice.NewAccount
             }
-            ChoiceRow("Add this device to my account", "Second device, same account", choice == Choice.AddDevice) {
+            ChoiceRow(
+                stringResource(Res.string.setup_add_device_title),
+                stringResource(Res.string.setup_add_device_desc),
+                choice == Choice.AddDevice
+            ) {
                 choice = Choice.AddDevice
             }
-            ChoiceRow("Restore from a recovery key", "Disaster recovery", choice == Choice.Recover) {
+            ChoiceRow(
+                stringResource(Res.string.setup_recover_title),
+                stringResource(Res.string.setup_recover_desc),
+                choice == Choice.Recover
+            ) {
                 choice = Choice.Recover
             }
             Spacer(Modifier.height(16.dp))
@@ -66,7 +84,7 @@ fun SetupScreen(session: YapSession) {
 
                 Choice.AddDevice -> {
                     YapButton(
-                        "Continue",
+                        stringResource(Res.string.common_continue),
                         onClick = { controller.addDevice() },
                         modifier = Modifier.fillMaxWidth()
                             .onEnterConfirm(enabled = uiState != SetupUiState.Working) { controller.addDevice() },
@@ -124,13 +142,13 @@ private fun NameForm(uiState: SetupUiState, onGo: (String) -> Unit) {
         YapTextField(
             value = name,
             onValueChange = { name = it },
-            placeholder = "Display name (2–32 chars)",
+            placeholder = stringResource(Res.string.setup_name_hint),
             isError = name.isNotEmpty() && !valid,
         )
-        if (name.isNotEmpty() && !valid) InlineError("Display name must be 2–32 characters.")
+        if (name.isNotEmpty() && !valid) InlineError(stringResource(Res.string.setup_name_error))
         Spacer(Modifier.height(12.dp))
         YapButton(
-            "Continue",
+            stringResource(Res.string.common_continue),
             onClick = ::go,
             modifier = Modifier.fillMaxWidth(),
             enabled = valid && uiState != SetupUiState.Working,
@@ -152,16 +170,20 @@ private fun RecoverForm(uiState: SetupUiState, onGo: (String, String, String, In
         if (valid) onGo(key, device, onion, port.toIntOrNull() ?: 80)
     }
     Column(Modifier.fillMaxWidth().onEnterConfirm(enabled = valid) { go() }) {
-        YapTextField(key, { key = it }, placeholder = "Recovery key")
+        YapTextField(key, { key = it }, placeholder = stringResource(Res.string.setup_key_hint))
         Spacer(Modifier.height(8.dp))
-        YapTextField(device, { device = it }, placeholder = "Bootstrap device ID")
+        YapTextField(device, { device = it }, placeholder = stringResource(Res.string.setup_device_hint))
         Spacer(Modifier.height(8.dp))
-        YapTextField(onion, { onion = it }, placeholder = "Bootstrap onion address")
+        YapTextField(onion, { onion = it }, placeholder = stringResource(Res.string.setup_onion_hint))
         Spacer(Modifier.height(8.dp))
-        YapTextField(port, { port = it.filter { c -> c.isDigit() }.take(5) }, placeholder = "Port (80)")
+        YapTextField(
+            port,
+            { port = it.filter { c -> c.isDigit() }.take(5) },
+            placeholder = stringResource(Res.string.setup_port_hint)
+        )
         Spacer(Modifier.height(12.dp))
         YapButton(
-            "Recover",
+            stringResource(Res.string.setup_recover_button),
             onClick = ::go,
             modifier = Modifier.fillMaxWidth(),
             enabled = valid,
@@ -185,13 +207,12 @@ private fun WorkingIndicator() {
     val elapsed = startedAt?.let { ((now - it) / 1000).coerceAtLeast(0) } ?: 0
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         BasicText(
-            "Working… ${elapsed}s",
+            stringResource(Res.string.setup_working, elapsed),
             style = yapType.bodySm.copy(color = colors.textMuted),
         )
         if (elapsed > 20) {
             BasicText(
-                "First run bootstraps Tor (downloads consensus) — this can take several minutes. " +
-                        "Your progress is safe; leave the window open.",
+                stringResource(Res.string.setup_working_tor),
                 style = yapType.bodyXs.copy(color = colors.textMuted),
                 modifier = Modifier.padding(top = 4.dp),
             )
@@ -203,10 +224,11 @@ private fun WorkingIndicator() {
 private fun InviteResult(result: SetupResult, session: YapSession) {
     val colors = yapColors
     var copied by remember { mutableStateOf(false) }
+    val copiedMsg = stringResource(Res.string.toast_invite_copied)
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         result.inviteBytes?.let { bytes ->
             BasicText(
-                "Invite code (sponsor scans or pastes this):",
+                stringResource(Res.string.setup_invite_label),
                 style = yapType.bodySmMedium.copy(color = colors.textDefault)
             )
             SelectionContainer(Modifier.padding(top = 8.dp)) {
@@ -221,11 +243,11 @@ private fun InviteResult(result: SetupResult, session: YapSession) {
             }
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 YapButton(
-                    if (copied) "✓ Copied" else "Copy invite",
+                    if (copied) stringResource(Res.string.invite_copied) else stringResource(Res.string.invite_copy),
                     onClick = {
                         copyToClipboard(bytes.encodeBase64Stable())
                         copied = true
-                        session.showToast("Invite code copied.", ToastKind.Success)
+                        session.showToast(copiedMsg, ToastKind.Success)
                     },
                     variant = YapButtonVariant.Secondary,
                 )
@@ -235,7 +257,7 @@ private fun InviteResult(result: SetupResult, session: YapSession) {
             var ack by remember { mutableStateOf(false) }
             Spacer(Modifier.height(12.dp))
             BasicText(
-                "Save your recovery key — shown once:",
+                stringResource(Res.string.setup_recovery_label),
                 style = yapType.bodySmMedium.copy(color = colors.warning),
             )
             SelectionContainer(Modifier.padding(top = 8.dp)) {
@@ -253,7 +275,7 @@ private fun InviteResult(result: SetupResult, session: YapSession) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 YapButton(
-                    if (ack) "✓ Stored" else "I stored it",
+                    if (ack) stringResource(Res.string.setup_stored_done) else stringResource(Res.string.setup_stored),
                     onClick = { ack = !ack },
                     variant = YapButtonVariant.Secondary,
                 )

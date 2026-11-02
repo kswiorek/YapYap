@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App copy, one place, ready for translators: every user-visible literal in
+     composition comes from here (stringResource / pluralStringResource).
+     Service-layer copy (RefusalText, controllers, raw exception toasts) is
+     still Kotlin — tracked follow-up, same pattern applies. -->
+<resources>
+    <!-- Months (message group stamps) -->
+    <string name="month_january">January</string>
+    <string name="month_february">February</string>
+    <string name="month_march">March</string>
+    <string name="month_april">April</string>
+    <string name="month_may">May</string>
+    <string name="month_june">June</string>
+    <string name="month_july">July</string>
+    <string name="month_august">August</string>
+    <string name="month_september">September</string>
+    <string name="month_october">October</string>
+    <string name="month_november">November</string>
+    <string name="month_december">December</string>
+
+    <!-- Chat: group stamps, typing, composer, rows -->
+    <string name="chat_today_at">Today at %1$s</string>
+    <string name="chat_yesterday_at">Yesterday at %1$s</string>
+    <string name="chat_date_at">%1$s at %2$s</string>
+    <string name="chat_date">%1$d %2$s %3$d</string>
+    <string name="time_am">AM</string>
+    <string name="time_pm">PM</string>
+    <string name="chat_typing_one">%1$s is typing…</string>
+    <string name="chat_typing_two">%1$s and %2$s are typing…</string>
+    <string name="chat_typing_many">Several people are typing…</string>
+    <string name="chat_composer_hint">Message %1$s</string>
+    <string name="chat_jump_to_present">Jump to present</string>
+    <string name="chat_dismiss">Dismiss</string>
+    <string name="chat_not_sent">Not sent — %1$s</string>
+    <string name="chat_retry">Retry</string>
+    <string name="chat_sending">Sending…</string>
+    <string name="chat_empty_body">This is the beginning of your conversation.</string>
+    <string name="chat_open_error">Couldn\'t open this room: %1$s</string>
+
+    <!-- Shell: rail destinations, home, banners -->
+    <string name="shell_no_room_title">Pick up where you left off</string>
+    <string name="newcomer_waiting_sponsor">Waiting for a sponsor… share your invite code so they can paste it.</string>
+    <string name="newcomer_tap_to_view">Tap to view your invite code.</string>
+    <string name="newcomer_no_code_saved">No invite code saved here — codes don\'t survive a restart. Cancel below,
+        reset the app, and join again for a fresh code.
+    </string>
+    <string name="newcomer_sending">Sending your request to your other device…</string>
+    <string name="newcomer_sending_note">This can take a few minutes while Tor connects — it keeps retrying on its
+        own.
+    </string>
+    <string name="newcomer_delivered">Your other device received the request — finishing setup…</string>
+    <string name="newcomer_syncing">Sponsor found — syncing your account…</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_close">Close</string>
+    <string name="common_done">Done</string>
+    <string name="common_save">Save</string>
+    <string name="common_reset">Reset</string>
+    <string name="common_copy">Copy</string>
+    <string name="common_create">Create</string>
+    <string name="common_continue">Continue</string>
+
+    <!-- Pending invite overlay -->
+    <string name="invite_title">Invite code</string>
+    <string name="invite_body">Your sponsor scans or pastes this to add you to the network.</string>
+    <string name="invite_qr_soon">QR coming soon</string>
+    <string name="invite_waiting">Status: waiting for a sponsor…</string>
+    <string name="invite_not_published">Your address is still publishing — you can share the code now, but the
+        sponsor\'s first attempts may take a minute.
+    </string>
+    <string name="invite_syncing">Status: sponsor found — syncing…</string>
+    <string name="invite_cancel_onboarding">Cancel onboarding</string>
+    <string name="invite_copy">Copy invite</string>
+    <string name="invite_copied">✓ Copied</string>
+
+    <!-- Leave / cancel-onboarding confirms -->
+    <string name="leave_title">Leave this room?</string>
+    <string name="leave_body">You will stop receiving messages here. You can be re-added by a member.</string>
+    <string name="leave_confirm">Leave</string>
+    <string name="cancel_join_title">Cancel joining?</string>
+    <string name="cancel_join_body">Joining can take a few minutes while Tor connects, and keeps retrying on its own. If
+        you cancel, this setup can\'t be resumed: you\'ll need to reset the app and start again with a new code.
+    </string>
+    <string name="cancel_join_confirm">Cancel joining</string>
+
+    <!-- Room header / member panel -->
+    <string name="room_members_title">Members — %1$d</string>
+    <string name="room_profile_title">Profile</string>
+    <string name="room_unknown_user">Unknown user</string>
+    <string name="room_online_count">ONLINE — %1$d</string>
+    <string name="room_offline_count">OFFLINE — %1$d</string>
+    <string name="presence_online">Online</string>
+    <string name="presence_offline">Offline</string>
+    <string name="presence_unknown">Last seen unknown</string>
+    <string name="member_you_suffix">%1$s (you)</string>
+    <string name="member_role_owner">Owner</string>
+    <string name="member_role_admin">Admin</string>
+    <plurals name="member_device_count">
+        <item quantity="one">%1$d device</item>
+        <item quantity="other">%1$d devices</item>
+    </plurals>
+
+    <!-- Transport banner -->
+    <string name="transport_no_network">No network connection.</string>
+    <string name="transport_no_network_hint">Messages will be sent when you\'re back online.</string>
+    <string name="transport_connecting">Connecting to Tor… %1$d%%</string>
+    <string name="transport_pending_hint">Messages will be sent once connected.</string>
+    <string name="transport_reconnecting">Reconnecting to Tor…</string>
+    <string name="transport_recovering">Tor got stuck — %1$s…</string>
+    <string name="transport_recovering_progress">Tor got stuck — %1$s… %2$d%%</string>
+    <string name="transport_action_reconnecting">reconnecting</string>
+    <string name="transport_action_restarting">restarting Tor</string>
+    <string name="transport_action_refreshing">refreshing Tor\'s network directory</string>
+    <string name="transport_action_resetting">choosing new entry relays</string>
+    <string name="transport_auto_hint">This is fixed automatically. Messages will be sent once connected.</string>
+    <string name="transport_warming">Connected — your address isn\'t reachable yet. Invites may take a few minutes.
+    </string>
+    <string name="transport_warming_hint">Your address warms up after every restart or network change — this clears on
+        its own.
+    </string>
+    <string name="transport_unreachable">Tor can\'t make your address reachable — check your connection.</string>
+    <string name="transport_unreachable_hint">Still retrying underneath.</string>
+    <string name="transport_details">Details</string>
+    <string name="transport_hide">Hide</string>
+    <string name="transport_problem_relays">Some Tor relays can\'t be reached from this network: %1$s</string>
+    <string name="transport_problem_other">Tor reported: %1$s</string>
+
+    <!-- Setup -->
+    <string name="setup_tagline">A private network for people you actually know.</string>
+    <string name="setup_genesis_title">Create a new network</string>
+    <string name="setup_genesis_desc">You\'ll be the owner</string>
+    <string name="setup_new_account_title">Join with a new account</string>
+    <string name="setup_new_account_desc">You were invited</string>
+    <string name="setup_add_device_title">Add this device to my account</string>
+    <string name="setup_add_device_desc">Second device, same account</string>
+    <string name="setup_recover_title">Restore from a recovery key</string>
+    <string name="setup_recover_desc">Disaster recovery</string>
+    <string name="setup_name_hint">Display name (2–32 chars)</string>
+    <string name="setup_name_error">Display name must be 2–32 characters.</string>
+    <string name="setup_key_hint">Recovery key</string>
+    <string name="setup_device_hint">Bootstrap device ID</string>
+    <string name="setup_onion_hint">Bootstrap onion address</string>
+    <string name="setup_port_hint">Port (80)</string>
+    <string name="setup_recover_button">Recover</string>
+    <string name="setup_working">Working… %1$ds</string>
+    <string name="setup_working_tor">First run bootstraps Tor (downloads consensus) — this can take several minutes.
+        Your progress is safe; leave the window open.
+    </string>
+    <string name="setup_invite_label">Invite code (sponsor scans or pastes this):</string>
+    <string name="setup_recovery_label">Save your recovery key — shown once:</string>
+    <string name="setup_stored">I stored it</string>
+    <string name="setup_stored_done">✓ Stored</string>
+
+    <!-- Sponsor dialog -->
+    <string name="sponsor_title">Sponsor a newcomer</string>
+    <string name="sponsor_body">Paste the invite code the newcomer\'s app shows. Nothing is written until the code
+        checks out.
+    </string>
+    <string name="sponsor_hint">Paste invite code</string>
+    <string name="sponsor_grant_admin">Grant admin to this account</string>
+    <string name="sponsor_grant_note">Only for new accounts — ignored for an extra device on your own account.</string>
+    <string name="sponsor_bad_shape">That text doesn\'t look like an invite code — re-copy it carefully and try again.
+    </string>
+    <string name="sponsor_working">Sponsoring…</string>
+    <string name="sponsor_button">Sponsor</string>
+
+    <!-- Recovery key modal -->
+    <string name="recovery_title">Save your recovery key</string>
+    <string name="recovery_body">Shown once — losing it locks you out of this account on every device.</string>
+    <string name="recovery_copy">Copy key</string>
+
+    <!-- Reset / failure / stopped -->
+    <string name="reset_removed_title">You have been removed from the network</string>
+    <string name="reset_removed_body">This device (or its account) was removed by a network admin. This copy of the data
+        can no longer rejoin on its own.
+    </string>
+    <string name="reset_removed_next">Resetting wipes local data and returns to setup. You\'ll need a fresh invite from
+        an admin to rejoin.
+    </string>
+    <string name="reset_inconsistent_title">Local data is inconsistent</string>
+    <string name="reset_inconsistent_body">Stored keys and database rows no longer line up, so the app can\'t prove who
+        this device is.
+    </string>
+    <string name="reset_inconsistent_next">Resetting wipes local data and returns to setup. If you have a recovery key
+        you can restore; otherwise you\'ll need a fresh invite.
+    </string>
+    <string name="reset_expired_title">Setup didn\'t finish</string>
+    <string name="reset_expired_body">Joining never completed and the one-time setup secret is gone, so this install
+        can\'t resume where it stopped.
+    </string>
+    <string name="reset_expired_next">Resetting wipes local data and returns to setup — start again with a fresh code.
+    </string>
+    <string name="reset_details">Details: %1$s</string>
+    <string name="reset_type_to_confirm">Type \"reset\" to confirm</string>
+    <string name="reset_button">Reset app</string>
+    <string name="failure_title">Something went wrong</string>
+    <string name="failure_toggle_show">Technical details</string>
+    <string name="failure_toggle_hide">Hide details</string>
+    <string name="failure_retry">Retry</string>
+    <string name="failure_reset">Reset</string>
+    <string name="stopped_title">Stopped</string>
+    <string name="stopped_restart">Restart</string>
+    <string name="splash_starting">Starting…</string>
+    <string name="splash_loading">Loading…</string>
+    <string name="splash_stopping">Stopping…</string>
+    <string name="boot_tagline">Starting network…</string>
+    <string name="boot_transports">Opening transports…</string>
+    <string name="boot_database">Opening database…</string>
+    <string name="boot_router">Starting router…</string>
+    <string name="boot_folding">Folding rooms %1$d/%2$d…</string>
+    <string name="boot_folding_plain">Folding…</string>
+    <string name="boot_ready">Almost there…</string>
+
+    <!-- Create room -->
+    <string name="create_title">Create a room</string>
+    <string name="create_name_hint">Room name (optional)</string>
+    <string name="create_search_hint">Search people…</string>
+    <string name="create_empty_roster">Nobody else to add yet — sponsor someone first.</string>
+    <string name="create_no_match">Nobody matches \"%1$s\".</string>
+
+    <!-- Quick switcher -->
+    <string name="switcher_title">Where would you like to go?</string>
+    <string name="switcher_hint">Search rooms…</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_nav_account">Account</string>
+    <string name="settings_nav_devices">Devices</string>
+    <string name="settings_nav_app">App</string>
+    <string name="settings_nav_appearance">Appearance</string>
+    <string name="settings_nav_chat">Chat</string>
+    <string name="settings_nav_notifications">Notifications</string>
+    <string name="settings_nav_keybinds">Keybinds</string>
+    <string name="settings_nav_network">Network</string>
+    <string name="settings_nav_members">Members</string>
+    <string name="settings_nav_advanced">Advanced</string>
+    <string name="settings_no_account">No account yet.</string>
+    <string name="settings_display_name">Display name</string>
+    <string name="settings_account_id">Account ID</string>
+    <string name="settings_network_role">Network role</string>
+    <string name="settings_status">Status</string>
+    <string name="settings_recovery_key">Recovery key</string>
+    <string name="settings_recovery_note">Shown once at setup — store it safely</string>
+    <string name="settings_no_devices">No devices.</string>
+    <string name="settings_this_device">%1$s (this device)</string>
+    <string name="settings_remove">Remove</string>
+    <string name="settings_peer_id">Peer ID</string>
+    <string name="settings_onion">Onion</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_desc">Dark only for now</string>
+    <string name="settings_theme_value">Dark</string>
+    <string name="settings_msg_display">Chat message display</string>
+    <string name="settings_msg_display_desc">Cozy or compact</string>
+    <string name="settings_sidebar">Sidebar width</string>
+    <string name="settings_sidebar_unit">%1$d dp</string>
+    <string name="settings_sidebar_range">240–360</string>
+    <string name="settings_light_theme">Light theme</string>
+    <string name="settings_light_theme_desc">A second palette, coming later</string>
+    <string name="settings_accent">Custom accent</string>
+    <string name="settings_accent_desc">Blurple for now</string>
+    <string name="settings_zoom">Interface zoom</string>
+    <string name="settings_zoom_desc">Scales the whole app</string>
+    <string name="settings_send_enter">Send with Enter</string>
+    <string name="settings_send_enter_desc">Off = Ctrl/Cmd+Enter</string>
+    <string name="settings_char_count">Show character count</string>
+    <string name="settings_char_count_desc">Byte budget in the composer</string>
+    <string name="settings_preview_typing">Preview while typing</string>
+    <string name="settings_preview_typing_desc">Markdown live preview</string>
+    <string name="settings_desktop_notif">Desktop notifications</string>
+    <string name="settings_desktop_notif_desc">Mention and message alerts</string>
+    <string name="settings_sound">Notification sound</string>
+    <string name="settings_sound_desc">Bundled sound</string>
+    <string name="settings_badges">Show mention badges</string>
+    <string name="settings_badges_desc">Red pills in the room list</string>
+    <string name="settings_push">Push notifications</string>
+    <string name="settings_push_desc">Needs the mobile push pipeline</string>
+    <string name="settings_keybinds_note">Custom keybinds are coming in a later build.</string>
+    <string name="settings_admin_only">Only admins can manage members.</string>
+    <string name="settings_ban">Ban</string>
+    <string name="settings_data_dir">Data directory</string>
+    <string name="settings_no_backend">No backend settings exposed.</string>
+    <string name="settings_reset_app">Reset app…</string>
+    <string name="settings_reset_title">Reset the app?</string>
+    <string name="settings_reset_body">This wipes local data and returns to setup. Type \"reset\" to confirm.</string>
+    <string name="settings_number_error">Enter a whole number.</string>
+    <string name="settings_number_min">Minimum is %1$d.</string>
+    <string name="settings_number_max">Maximum is %1$d.</string>
+    <string name="settings_period_hint">%1$s (e.g. 90s, 5m, 2h)</string>
+    <string name="settings_period_error">Use a duration like 90s, 5m or 2h.</string>
+    <string name="settings_secret_mask">••••••••</string>
+    <string name="settings_empty_value">—</string>
+    <string name="settings_keybind_switcher">Quick switcher</string>
+    <string name="settings_keybind_new_room">New room</string>
+    <string name="settings_keybind_close">Close / clear</string>
+    <string name="settings_keybind_prev_next">Previous / next room</string>
+    <string name="settings_keybind_settings">Settings</string>
+    <string name="settings_keybind_mark_read">Mark room read</string>
+    <string name="settings_member_line">%1$s · %2$s · %3$s</string>
+
+    <!-- Misc toasts resolved in composition -->
+    <string name="toast_room_copied">Room ID copied.</string>
+    <!-- Stubs / misc -->
+    <string name="stub_friends_title">Friends</string>
+    <string name="stub_friends_headline">Friends are coming soon</string>
+    <string name="stub_friends_body">You\'ll be able to add people you know and see who\'s around.</string>
+    <string name="typed_confirm_hint">Type \"%1$s\" to confirm</string>
+    <string name="toast_invite_copied">Invite code copied.</string>
+    <string name="toast_key_copied">Recovery key copied.</string>
+    <string name="toast_peer_copied">Peer ID copied.</string>
+    <string name="toast_onion_copied">Onion address copied.</string>
+    <string name="toast_onboarding_cancelled">Onboarding cancelled — reset the app and set up again with a fresh code.
+    </string>
+    <string name="toast_sponsor_added">Newcomer added to the network.</string>
+    <string name="toast_sponsor_added_no_admin">Device added (admin flag didn\'t apply to this join).</string>
+    <string name="toast_sponsor_failed">Couldn\'t sponsor — try again.</string>
+    <string name="toast_leave_failed">Couldn\'t leave.</string>
+
+    <!-- Room list -->
+    <string name="roomlist_search_hint">Find or start a conversation</string>
+    <string name="roomlist_dm">Direct messages</string>
+    <string name="roomlist_empty_title">No conversations yet</string>
+    <string name="roomlist_empty_action">Start a conversation</string>
+
+    <!-- Icon content descriptions (accessibility) -->
+    <string name="desc_members">Members</string>
+    <string name="desc_leave_room">Leave this room</string>
+    <string name="desc_close_view">Close room view</string>
+    <string name="desc_attach">Attach</string>
+    <string name="desc_copy_room">Copy room ID</string>
+    <string name="desc_close_panel">Close panel</string>
+    <string name="desc_settings">Settings</string>
+    <string name="desc_back">Back</string>
+    <string name="desc_close">Close</string>
+    <string name="desc_copy">Copy</string>
+    <string name="desc_copy_value">Copy %1$s</string>
+    <string name="desc_selected">Selected</string>
+    <string name="desc_not_selected">Not selected</string>
+    <string name="desc_close_settings">Close settings</string>
+    <string name="desc_new_room">New room</string>
+    <string name="desc_attachment">Attachment</string>
+</resources>

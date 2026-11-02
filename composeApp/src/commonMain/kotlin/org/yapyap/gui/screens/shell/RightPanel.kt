@@ -7,7 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,9 +15,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.Copy
+import compose.icons.fontawesomeicons.solid.Times
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.Avatar
 import org.yapyap.gui.components.StatusDot
-import org.yapyap.gui.identity.DeviceNames
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
@@ -25,6 +30,7 @@ import org.yapyap.orchestrator.runtime.identity.AccountView
 import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
 import org.yapyap.orchestrator.runtime.room.RoomDetails
 import org.yapyap.protocol.AccountId
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 @Composable
 fun RightPanel(
@@ -45,22 +51,37 @@ fun RightPanel(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             BasicText(
-                if (isGroup) "Members — ${details.members.size}" else "Profile",
+                if (isGroup) stringResource(
+                    Res.string.room_members_title,
+                    details.members.size
+                ) else stringResource(Res.string.room_profile_title),
                 style = yapType.bodyMdMedium.copy(color = colors.textStrong),
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            BasicText(
-                "⎘",
-                style = yapType.bodyMd.copy(color = colors.iconDefault),
-                modifier = Modifier.clickable { onCopyRoomId() }.padding(4.dp),
-            )
-            BasicText(
-                "✕",
-                style = yapType.bodyLg.copy(color = colors.iconDefault),
-                modifier = Modifier.clickable { onClose() }.padding(4.dp),
-            )
+            Box(
+                Modifier.clickable { onCopyRoomId() }.padding(4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.Copy,
+                    stringResource(Res.string.desc_copy_room),
+                    Modifier.size(16.dp),
+                    colors.iconDefault
+                )
+            }
+            Box(
+                Modifier.clickable { onClose() }.padding(4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.Times,
+                    stringResource(Res.string.desc_close_panel),
+                    Modifier.size(16.dp),
+                    colors.iconDefault
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -72,7 +93,7 @@ fun RightPanel(
                 val view = other?.let { accounts[it] }
                 if (view != null) ProfileBody(view, modifier = Modifier.fillMaxSize())
                 else BasicText(
-                    "Unknown user",
+                    stringResource(Res.string.room_unknown_user),
                     style = yapType.bodySm.copy(color = colors.textMuted),
                 )
             }
@@ -96,7 +117,7 @@ private fun MemberList(
     LazyColumn(modifier.fillMaxSize()) {
         if (online.isNotEmpty()) {
             item(key = "h-online") {
-                SectionHeader("ONLINE — ${online.size}")
+                SectionHeader(stringResource(Res.string.room_online_count, online.size))
             }
             items(online, key = { "m:${it.accountId.id}" }) { m ->
                 MemberRow(accounts[m.accountId], m.accountId, m.role.name, m.accountId == localId)
@@ -104,7 +125,7 @@ private fun MemberList(
         }
         if (offline.isNotEmpty()) {
             item(key = "h-offline") {
-                SectionHeader("OFFLINE — ${offline.size}")
+                SectionHeader(stringResource(Res.string.room_offline_count, offline.size))
             }
             items(offline, key = { "m:${it.accountId.id}" }) { m ->
                 MemberRow(accounts[m.accountId], m.accountId, m.role.name, m.accountId == localId)
@@ -125,7 +146,7 @@ private fun SectionHeader(text: String) {
 @Composable
 private fun MemberRow(view: AccountView?, id: AccountId, role: String, isLocal: Boolean) {
     val colors = yapColors
-    val name = view?.displayName ?: "Unknown user"
+    val name = view?.displayName ?: stringResource(Res.string.room_unknown_user)
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(YapRadius.sm))
@@ -143,12 +164,12 @@ private fun MemberRow(view: AccountView?, id: AccountId, role: String, isLocal: 
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             BasicText(
-                if (isLocal) "$name (you)" else name,
+                if (isLocal) stringResource(Res.string.member_you_suffix, name) else name,
                 style = yapType.bodySmMedium.copy(color = colors.textDefault)
             )
             view?.let {
                 BasicText(
-                    presenceLine(it),
+                    presenceText(it),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                 )
             }
@@ -159,7 +180,8 @@ private fun MemberRow(view: AccountView?, id: AccountId, role: String, isLocal: 
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
                 BasicText(
-                    role.lowercase().replaceFirstChar { it.uppercase() },
+                    if (role == "OWNER") stringResource(Res.string.member_role_owner)
+                    else stringResource(Res.string.member_role_admin),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                 )
             }
@@ -189,54 +211,26 @@ fun ProfileBody(view: AccountView, modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(start = 12.dp, top = 8.dp),
             )
             BasicText(
-                presenceLine(view) + " · ${view.role.name.lowercase()}",
+                presenceText(view) + " · ${view.role.name.lowercase()}",
                 style = yapType.bodySm.copy(color = colors.textDefault),
                 modifier = Modifier.padding(start = 12.dp, top = 2.dp),
             )
-            Spacer(Modifier.height(12.dp))
-            BasicText("DEVICES", style = yapType.headingXs.copy(color = colors.textMuted))
-            Spacer(Modifier.height(4.dp))
-        }
-        items(view.devices, key = { "d:${it.deviceId.id}" }) { d ->
-            Column(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(YapRadius.sm))
-                    .background(colors.bgRaised)
-                    .padding(10.dp),
-            ) {
-                BasicText(
-                    DeviceNames.from(d.deviceId),
-                    style = yapType.bodySmMedium.copy(color = colors.textDefault),
-                )
-                SelectionContainer {
-                    BasicText(
-                        d.deviceId.id,
-                        style = yapType.bodyXs.copy(color = colors.textMuted),
-                    )
-                }
-                SelectionContainer {
-                    BasicText(
-                        "${d.torEndpoint.onionAddress}:${d.torEndpoint.port}",
-                        style = yapType.bodyXs.copy(color = colors.textMuted),
-                    )
-                }
-                BasicText(
-                    "${d.deviceType.name.lowercase()} · ${d.status.name.lowercase()}" +
-                            (if (d.provisional) " · syncing" else "") +
-                            (if (d.isLocal) " · this device" else ""),
-                    style = yapType.bodyXs.copy(color = colors.textMuted),
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            Spacer(Modifier.height(6.dp))
+            // Device inventory lives in Settings → Devices; here just the count,
+            // like the members page ("N devices").
+            BasicText(
+                pluralStringResource(Res.plurals.member_device_count, view.devices.size, view.devices.size),
+                style = yapType.bodySm.copy(color = colors.textMuted),
+                modifier = Modifier.padding(start = 12.dp, top = 2.dp),
+            )
         }
     }
 }
 
-private fun presenceLine(view: AccountView): String = when (view.availability.label) {
-    AvailabilityLabel.ONLINE -> "Online"
-    AvailabilityLabel.OFFLINE -> "Offline"
-    AvailabilityLabel.UNKNOWN -> "Last seen unknown"
+@Composable
+private fun presenceText(view: AccountView): String = when (view.availability.label) {
+    AvailabilityLabel.ONLINE -> stringResource(Res.string.presence_online)
+    AvailabilityLabel.OFFLINE -> stringResource(Res.string.presence_offline)
+    AvailabilityLabel.UNKNOWN -> stringResource(Res.string.presence_unknown)
 }
 
 private fun brushFor(seed: String): Brush {

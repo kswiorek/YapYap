@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,11 +19,18 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.FileAlt
+import org.jetbrains.compose.resources.stringResource
+import org.yapyap.gui.components.SoonChip
 import org.yapyap.gui.markdown.DiscordMarkdownTransformer
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
 import org.yapyap.protocol.AccountId
+import yapyap.composeapp.generated.resources.Res
+import yapyap.composeapp.generated.resources.desc_attachment
 
 /**
  * M2 markdown-lite renderer: Discord dialect core (bold/italic/underline/strike,
@@ -364,7 +372,12 @@ fun FileCard(item: MessageDisplayItem.File, modifier: Modifier = Modifier) {
                 .background(colors.bgAccent)
                 .padding(10.dp),
         ) {
-            BasicText("🗎", style = yapType.bodyLg.copy(color = colors.textDefault))
+            Icon(
+                FontAwesomeIcons.Solid.FileAlt,
+                stringResource(Res.string.desc_attachment),
+                Modifier.size(20.dp),
+                colors.textDefault
+            )
         }
         Column(Modifier.padding(start = 12.dp).weight(1f)) {
             BasicText(item.fileName, style = yapType.bodySmMedium.copy(color = colors.textDefault))
@@ -373,11 +386,7 @@ fun FileCard(item: MessageDisplayItem.File, modifier: Modifier = Modifier) {
                 style = yapType.bodyXs.copy(color = colors.textMuted),
             )
         }
-        BasicText(
-            "Soon",
-            style = yapType.bodyXs.copy(color = colors.textMuted),
-            modifier = Modifier.clickable { },
-        )
+        SoonChip(modifier = Modifier.clickable { })
     }
 }
 

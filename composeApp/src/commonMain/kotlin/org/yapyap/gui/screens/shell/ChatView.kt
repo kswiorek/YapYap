@@ -9,25 +9,27 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isMetaPressed
-import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.Bars
+import compose.icons.fontawesomeicons.solid.Plus
+import compose.icons.fontawesomeicons.solid.SignOutAlt
+import compose.icons.fontawesomeicons.solid.Times
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.Avatar
 import org.yapyap.gui.components.StatusDot
 import org.yapyap.gui.components.isConfirmKeyPress
@@ -42,6 +44,7 @@ import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
+import yapyap.composeapp.generated.resources.*
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -62,6 +65,8 @@ fun ChatView(
     onCloseView: () -> Unit,
     sendWithEnter: Boolean = true,
     showCharCount: Boolean = true,
+    timestamps24h: Boolean = true,
+    trailingOverlay: @Composable BoxScope.() -> Unit = {},
     onMarkRead: () -> Unit,
     persistDraft: (String) -> Unit,
     initialDraft: String,
@@ -116,13 +121,46 @@ fun ChatView(
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            HeaderButton("☰", "Members") { onOpenMembers() }
-            HeaderButton("⎋", "Leave this room", danger = true) { onLeave() }
-            HeaderButton("✕", "Close room view") { onCloseView() }
+            Box(
+                Modifier.clickable { onOpenMembers() }.padding(6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.Bars,
+                    stringResource(Res.string.desc_members),
+                    Modifier.size(18.dp),
+                    yapColors.iconDefault
+                )
+            }
+            Box(
+                Modifier.clickable { onLeave() }.padding(6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.SignOutAlt,
+                    stringResource(Res.string.desc_leave_room),
+                    Modifier.size(18.dp),
+                    yapColors.danger
+                )
+            }
+            Box(
+                Modifier.clickable { onCloseView() }.padding(6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.Times,
+                    stringResource(Res.string.desc_close_view),
+                    Modifier.size(18.dp),
+                    yapColors.iconDefault
+                )
+            }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.borderNormal))
 
         // Messages
+        // The narrow-window member overlay renders here (trailingOverlay), not at
+        // the shell root: this Box ends exactly where the input box begins, so the
+        // panel's bottom edge always clears the composer with no measurement.
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (rows.isEmpty() && ui.pending.isEmpty()) {
                 EmptyRoom(title)
@@ -131,17 +169,15 @@ fun ChatView(
                     state = listState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 ) {
-                    items(rows, key = { rowKey(it) }, contentType = { rowType(it) }) { row ->
-                        when (row) {
-                            is ChatRow.Date -> DateDivider(row.label)
-                            is ChatRow.Group -> MessageGroup(
-                                row = row,
-                                names = names,
-                                availability = availability,
-                                controller = controller,
-                                onRoomRef = onRoomRef,
-                            )
-                        }
+                    items(rows, key = { rowKey(it) }, contentType = { "group" }) { row ->
+                        MessageGroup(
+                            row = row,
+                            names = names,
+                            availability = availability,
+                            controller = controller,
+                            timestamps24h = timestamps24h,
+                            onRoomRef = onRoomRef,
+                        )
                     }
                     items(ui.pending, key = { "pending:${it.localKey}" }) { p ->
                         PendingRow(
@@ -168,11 +204,12 @@ fun ChatView(
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                 ) {
                     BasicText(
-                        "Jump to present",
+                        stringResource(Res.string.chat_jump_to_present),
                         style = yapType.bodyXs.copy(color = colors.textStrong),
                     )
                 }
             }
+            trailingOverlay()
         }
 
         ui.openError?.let { err ->
@@ -194,7 +231,7 @@ fun ChatView(
                     modifier = Modifier.weight(1f),
                 )
                 BasicText(
-                    "Dismiss",
+                    stringResource(Res.string.chat_dismiss),
                     style = yapType.bodyXs.copy(color = colors.textSubtle),
                     modifier = Modifier.clickable { controller.dismissSendError() }.padding(4.dp),
                 )
@@ -204,14 +241,18 @@ fun ChatView(
         // Typing indicator: sits directly above the composer (near the input),
         // not above the message list. Fixed 22 dp slot so the composer never jumps.
         Box(Modifier.fillMaxWidth().height(22.dp).padding(horizontal = 16.dp)) {
-            if (ui.typingNames.isNotEmpty()) {
+            val typing = ui.typingNames
+            if (typing.isNotEmpty()) {
                 BasicText(
-                    typingText(ui.typingNames),
+                    when (typing.size) {
+                        1 -> stringResource(Res.string.chat_typing_one, typing[0])
+                        2 -> stringResource(Res.string.chat_typing_two, typing[0], typing[1])
+                        else -> stringResource(Res.string.chat_typing_many)
+                    },
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                 )
             }
         }
-
         // Composer
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp)
@@ -220,13 +261,19 @@ fun ChatView(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            BasicText(
-                "+",
-                style = yapType.headingLg.copy(color = colors.textMuted),
-                modifier = Modifier.padding(end = 8.dp).clickable {
+            Box(
+                Modifier.padding(end = 8.dp).clickable {
                     scope.launch { /* M3: file picker stub */ }
                 },
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.Plus,
+                    stringResource(Res.string.desc_attach),
+                    Modifier.size(18.dp),
+                    colors.textMuted
+                )
+            }
             BasicTextField(
                 value = composer,
                 onValueChange = {
@@ -263,7 +310,7 @@ fun ChatView(
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                         if (composer.isEmpty()) {
                             BasicText(
-                                "Message $title",
+                                stringResource(Res.string.chat_composer_hint, title),
                                 style = yapType.bodyMd.copy(color = colors.textPlaceholder),
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -287,16 +334,11 @@ fun ChatView(
     }
 }
 
-private fun typingText(names: List<String>): String = when (names.size) {
-    1 -> "${names[0]} is typing…"
-    2 -> "${names[0]} and ${names[1]} are typing…"
-    else -> "Several people are typing…"
-}
-
-// ---- Grouping ----
+// ---- Grouping (Discord-style): messages join under one author header with a
+// full stamp ("Today at 21:07"); a >5-minute gap or a day change re-shows the
+// avatar with a fresh stamp. No separate date-divider rows. ----
 
 internal sealed interface ChatRow {
-    data class Date(val label: String) : ChatRow
     data class Group(val author: AccountId, val items: List<MessageDisplayItem>) : ChatRow
 }
 
@@ -305,22 +347,14 @@ internal sealed interface ChatRow {
  * that message's missing predecessor), so gap rows need their own prefix: with `grp:`
  * for both, an orphan starting a new group crashed the list on its duplicate key.
  */
-internal fun rowKey(row: ChatRow): String = when (row) {
-    is ChatRow.Date -> "date:${row.label}"
-    is ChatRow.Group -> {
-        val first = row.items.first()
-        if (first is MessageDisplayItem.Gap) "gap:${first.messageId}" else "grp:${first.messageId}"
-    }
+internal fun rowKey(row: ChatRow): String {
+    val first = (row as ChatRow.Group).items.first()
+    return if (first is MessageDisplayItem.Gap) "gap:${first.messageId}" else "grp:${first.messageId}"
 }
 
-private fun rowType(row: ChatRow): String = when (row) {
-    is ChatRow.Date -> "date"
-    is ChatRow.Group -> "group"
-}
-
-internal fun groupItems(items: List<MessageDisplayItem>): List<ChatRow> {
-    val out = mutableListOf<ChatRow>()
-    var lastDay: String? = null
+internal fun groupItems(items: List<MessageDisplayItem>): List<ChatRow.Group> {
+    val out = mutableListOf<ChatRow.Group>()
+    var lastDayEpoch: Int? = null
     var currentAuthor: AccountId? = null
     var currentStart = 0L
     var current: MutableList<MessageDisplayItem>? = null
@@ -329,12 +363,12 @@ internal fun groupItems(items: List<MessageDisplayItem>): List<ChatRow> {
         current = null
         currentAuthor = null
     }
+    val tz = TimeZone.currentSystemDefault()
     for (item in items) {
-        val day = dayLabel(item.timestamp)
-        if (day != lastDay) {
+        val dayEpoch = item.timestamp.toLocalDateTime(tz).date.toEpochDays().toInt()
+        if (dayEpoch != lastDayEpoch) {
             flush()
-            out += ChatRow.Date(day)
-            lastDay = day
+            lastDayEpoch = dayEpoch
         }
         val gap = item.timestamp.toEpochMilliseconds() - currentStart
         if (item is MessageDisplayItem.Gap) {
@@ -357,32 +391,37 @@ internal fun groupItems(items: List<MessageDisplayItem>): List<ChatRow> {
     return out
 }
 
-private fun dayLabel(t: Instant): String {
+/** 0 = today, 1 = yesterday, 2+ = older. Pure (testable) day bucket. */
+internal fun dayOffset(t: Instant, now: Instant = Clock.System.now()): Int {
     val tz = TimeZone.currentSystemDefault()
-    val local = t.toLocalDateTime(tz).date
-    val today = Clock.System.now().toLocalDateTime(tz).date
-    return when ((today.toEpochDays() - local.toEpochDays()).toInt()) {
-        0 -> "Today"
-        1 -> "Yesterday"
-        else -> "${local.day} ${local.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${local.year}"
-    }
+    return ((now.toLocalDateTime(tz).date.toEpochDays() - t.toLocalDateTime(tz).date.toEpochDays())).toInt()
 }
 
-@Composable
-private fun DateDivider(label: String) {
-    val colors = yapColors
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.weight(1f).height(1.dp).background(colors.borderNormal))
-        BasicText(
-            label,
-            style = yapType.bodyXs.copy(color = colors.textMuted),
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        Box(Modifier.weight(1f).height(1.dp).background(colors.borderNormal))
+/** Clock time, 24h ("21:07") or 12h ("9:07 PM"). Markers keep AM/PM localizable. */
+internal fun formatTime(t: Instant, use24h: Boolean, am: String = "AM", pm: String = "PM"): String {
+    val local = t.toLocalDateTime(TimeZone.currentSystemDefault())
+    fun two(n: Int) = n.toString().padStart(2, '0')
+    if (use24h) return "${two(local.hour)}:${two(local.minute)}"
+    val h12 = when (local.hour % 12) {
+        0 -> 12
+        else -> local.hour % 12
     }
+    return "$h12:${two(local.minute)} ${if (local.hour < 12) am else pm}"
+}
+
+internal fun monthRes(m: kotlinx.datetime.Month): StringResource = when (m) {
+    kotlinx.datetime.Month.JANUARY -> Res.string.month_january
+    kotlinx.datetime.Month.FEBRUARY -> Res.string.month_february
+    kotlinx.datetime.Month.MARCH -> Res.string.month_march
+    kotlinx.datetime.Month.APRIL -> Res.string.month_april
+    kotlinx.datetime.Month.MAY -> Res.string.month_may
+    kotlinx.datetime.Month.JUNE -> Res.string.month_june
+    kotlinx.datetime.Month.JULY -> Res.string.month_july
+    kotlinx.datetime.Month.AUGUST -> Res.string.month_august
+    kotlinx.datetime.Month.SEPTEMBER -> Res.string.month_september
+    kotlinx.datetime.Month.OCTOBER -> Res.string.month_october
+    kotlinx.datetime.Month.NOVEMBER -> Res.string.month_november
+    kotlinx.datetime.Month.DECEMBER -> Res.string.month_december
 }
 
 @Composable
@@ -391,6 +430,7 @@ private fun MessageGroup(
     names: Map<AccountId, String>,
     availability: Map<AccountId, AvailabilityLabel>,
     controller: ChatController,
+    timestamps24h: Boolean,
     onRoomRef: (RoomId) -> Unit,
 ) {
     val colors = yapColors
@@ -399,7 +439,8 @@ private fun MessageGroup(
         GapDivider()
         return
     }
-    val name = names[first.accountId] ?: "Unknown user"
+    val name = names[first.accountId] ?: stringResource(Res.string.room_unknown_user)
+    val stamp = groupStampText(first.timestamp, timestamps24h)
     val mentionedMe = row.items.any {
         it is MessageDisplayItem.Text && controller.mentionsMe(it.text)
     }
@@ -426,7 +467,7 @@ private fun MessageGroup(
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 BasicText(
-                    timeLabel(first.timestamp),
+                    stamp,
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                     maxLines = 1,
                 )
@@ -442,10 +483,26 @@ private fun MessageGroup(
     }
 }
 
-private fun timeLabel(t: Instant): String {
-    val local = t.toLocalDateTime(TimeZone.currentSystemDefault())
-    fun two(n: Int) = n.toString().padStart(2, '0')
-    return "${two(local.hour)}:${two(local.minute)}"
+/** Full Discord-style group stamp ("Today at 21:07"), localized via resources. */
+@Composable
+private fun groupStampText(t: Instant, use24h: Boolean): String {
+    val am = stringResource(Res.string.time_am)
+    val pm = stringResource(Res.string.time_pm)
+    val time = remember(t, use24h, am, pm) { formatTime(t, use24h, am, pm) }
+    return when (dayOffset(t)) {
+        0 -> stringResource(Res.string.chat_today_at, time)
+        1 -> stringResource(Res.string.chat_yesterday_at, time)
+        else -> {
+            val local = t.toLocalDateTime(TimeZone.currentSystemDefault())
+            val date = stringResource(
+                Res.string.chat_date,
+                local.day,
+                stringResource(monthRes(local.month)),
+                local.year,
+            )
+            stringResource(Res.string.chat_date_at, date, time)
+        }
+    }
 }
 
 @Composable
@@ -464,19 +521,19 @@ private fun PendingRow(text: String, failed: String?, onRetry: () -> Unit) {
             if (failed != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     BasicText(
-                        "Not sent — $failed ",
+                        stringResource(Res.string.chat_not_sent, failed),
                         style = yapType.bodyXs.copy(color = colors.danger),
                         modifier = Modifier.weight(1f),
                     )
                     BasicText(
-                        "Retry",
+                        stringResource(Res.string.chat_retry),
                         style = yapType.bodyXs.copy(color = colors.textLink),
                         modifier = Modifier.clickable { onRetry() }.padding(4.dp),
                     )
                 }
             } else {
                 BasicText(
-                    "Sending…",
+                    stringResource(Res.string.chat_sending),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -492,21 +549,10 @@ private fun EmptyRoom(title: String) {
         Spacer(Modifier.weight(1f))
         BasicText(title, style = yapType.headingXxl.copy(color = colors.textStrong))
         BasicText(
-            "This is the beginning of your conversation.",
+            stringResource(Res.string.chat_empty_body),
             style = yapType.bodySm.copy(color = colors.textMuted),
             modifier = Modifier.padding(top = 8.dp),
         )
         Spacer(Modifier.weight(2f))
     }
-}
-
-@Composable
-private fun HeaderButton(label: String, tooltip: String, danger: Boolean = false, onClick: () -> Unit) {
-    BasicText(
-        label,
-        style = yapType.bodyLg.copy(color = if (danger) yapColors.danger else yapColors.iconDefault),
-        modifier = Modifier.clickable { onClick() }.padding(horizontal = 8.dp, vertical = 4.dp),
-    )
-    @Suppress("UNUSED_EXPRESSION")
-    tooltip
 }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,7 +16,14 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.ChevronLeft
+import compose.icons.fontawesomeicons.solid.Copy
+import compose.icons.fontawesomeicons.solid.Times
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.config.*
 import org.yapyap.gui.components.*
 import org.yapyap.gui.copy.RefusalText
@@ -28,6 +36,7 @@ import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
+import yapyap.composeapp.generated.resources.*
 
 private enum class Section {
     Account, Devices, Appearance, Chat, Notifications, Keybinds, Members, Advanced,
@@ -94,11 +103,17 @@ fun SettingsModal(
                         Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        BasicText(
-                            "‹",
-                            style = yapType.headingLg.copy(color = colors.textDefault),
-                            modifier = Modifier.clickable { pushed = false }.padding(8.dp),
-                        )
+                        Box(
+                            Modifier.clickable { pushed = false }.padding(8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                FontAwesomeIcons.Solid.ChevronLeft,
+                                stringResource(Res.string.desc_back),
+                                Modifier.size(18.dp),
+                                colors.textDefault
+                            )
+                        }
                         BasicText(
                             section.name,
                             style = yapType.headingSm.copy(color = colors.textStrong),
@@ -106,11 +121,17 @@ fun SettingsModal(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
-                        BasicText(
-                            "✕",
-                            style = yapType.headingMd.copy(color = colors.textMuted),
-                            modifier = Modifier.clickable { onClose() }.padding(8.dp),
-                        )
+                        Box(
+                            Modifier.clickable { onClose() }.padding(8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                FontAwesomeIcons.Solid.Times,
+                                stringResource(Res.string.desc_close_settings),
+                                Modifier.size(18.dp),
+                                colors.textMuted
+                            )
+                        }
                     }
                     Box(
                         Modifier.fillMaxWidth().height(1.dp)
@@ -138,11 +159,17 @@ fun SettingsModal(
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
-                    BasicText(
-                        "✕",
-                        style = yapType.headingMd.copy(color = colors.textMuted),
-                        modifier = Modifier.clickable { onClose() }.padding(8.dp),
-                    )
+                    Box(
+                        Modifier.clickable { onClose() }.padding(8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            FontAwesomeIcons.Solid.Times,
+                            stringResource(Res.string.desc_close_settings),
+                            Modifier.size(18.dp),
+                            colors.textMuted
+                        )
+                    }
                 }
                 // Body row: fixed nav + flex content (`display: flex`).
                 Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -167,9 +194,9 @@ fun SettingsModal(
         // Reset confirm at overlay level (bounded scope, above the panel).
         if (showReset) {
             ConfirmDialog(
-                title = "Reset the app?",
-                body = "This wipes local data and returns to setup. Type \"reset\" to confirm.",
-                confirmLabel = "Reset",
+                title = stringResource(Res.string.settings_reset_title),
+                body = stringResource(Res.string.settings_reset_body),
+                confirmLabel = stringResource(Res.string.common_reset),
                 onConfirm = {
                     showReset = false
                     // Stops first (reset refuses Running), wipes, then boots
@@ -197,17 +224,39 @@ private fun SettingsNav(
             .verticalScroll(rememberScrollState())
             .padding(12.dp),
     ) {
-        NavLabel("Account")
-        NavItem("Account", selected == Section.Account) { onSelect(Section.Account) }
-        NavItem("Devices", selected == Section.Devices) { onSelect(Section.Devices) }
-        NavLabel("App")
-        NavItem("Appearance", selected == Section.Appearance) { onSelect(Section.Appearance) }
-        NavItem("Chat", selected == Section.Chat) { onSelect(Section.Chat) }
-        NavItem("Notifications", selected == Section.Notifications) { onSelect(Section.Notifications) }
-        NavItem("Keybinds", selected == Section.Keybinds) { onSelect(Section.Keybinds) }
-        NavLabel("Network")
-        NavItem("Members", selected == Section.Members) { onSelect(Section.Members) }
-        NavItem("Advanced", selected == Section.Advanced) { onSelect(Section.Advanced) }
+        NavLabel(stringResource(Res.string.settings_nav_account))
+        NavItem(
+            stringResource(Res.string.settings_nav_account),
+            selected == Section.Account
+        ) { onSelect(Section.Account) }
+        NavItem(
+            stringResource(Res.string.settings_nav_devices),
+            selected == Section.Devices
+        ) { onSelect(Section.Devices) }
+        NavLabel(stringResource(Res.string.settings_nav_app))
+        NavItem(
+            stringResource(Res.string.settings_nav_appearance),
+            selected == Section.Appearance
+        ) { onSelect(Section.Appearance) }
+        NavItem(stringResource(Res.string.settings_nav_chat), selected == Section.Chat) { onSelect(Section.Chat) }
+        NavItem(stringResource(Res.string.settings_nav_notifications), selected == Section.Notifications) {
+            onSelect(
+                Section.Notifications
+            )
+        }
+        NavItem(
+            stringResource(Res.string.settings_nav_keybinds),
+            selected == Section.Keybinds
+        ) { onSelect(Section.Keybinds) }
+        NavLabel(stringResource(Res.string.settings_nav_network))
+        NavItem(
+            stringResource(Res.string.settings_nav_members),
+            selected == Section.Members
+        ) { onSelect(Section.Members) }
+        NavItem(
+            stringResource(Res.string.settings_nav_advanced),
+            selected == Section.Advanced
+        ) { onSelect(Section.Advanced) }
     }
 }
 
@@ -272,16 +321,16 @@ private fun NavItem(text: String, selected: Boolean, onClick: () -> Unit) {
 private fun AccountPane(runtime: OrchestratorRuntime) {
     val colors = yapColors
     val local by runtime.identity.localAccount.collectAsState(initial = null)
-    PaneTitle("Account")
+    PaneTitle(stringResource(Res.string.settings_nav_account))
     if (local == null) {
-        BasicText("No account yet.", style = yapType.bodySm.copy(color = colors.textMuted))
+        BasicText(stringResource(Res.string.settings_no_account), style = yapType.bodySm.copy(color = colors.textMuted))
         return
     }
     val a = local!!
-    AccountRow("Display name", a.displayName)
+    AccountRow(stringResource(Res.string.settings_display_name), a.displayName)
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(
-            "Account ID",
+            stringResource(Res.string.settings_account_id),
             style = yapType.bodySmMedium.copy(color = colors.textDefault),
             modifier = Modifier.weight(1f),
             maxLines = 1,
@@ -297,9 +346,9 @@ private fun AccountPane(runtime: OrchestratorRuntime) {
             )
         }
     }
-    AccountRow("Network role", a.role.name.lowercase())
-    AccountRow("Status", a.status.name.lowercase())
-    AccountRow("Recovery key", "Shown once at setup — store it safely")
+    AccountRow(stringResource(Res.string.settings_network_role), a.role.name.lowercase())
+    AccountRow(stringResource(Res.string.settings_status), a.status.name.lowercase())
+    AccountRow(stringResource(Res.string.settings_recovery_key), stringResource(Res.string.settings_recovery_note))
 }
 
 /**
@@ -326,14 +375,20 @@ private fun CopyLine(label: String, value: String, onCopied: () -> Unit) {
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
-        BasicText(
-            "⎘",
-            style = yapType.bodyMd.copy(color = yapColors.iconDefault),
-            modifier = Modifier.clickable {
+        Box(
+            Modifier.clickable {
                 copyToClipboard(value)
                 onCopied()
             }.padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                FontAwesomeIcons.Solid.Copy,
+                stringResource(Res.string.desc_copy_value, label),
+                Modifier.size(16.dp),
+                yapColors.iconDefault
+            )
+        }
     }
 }
 
@@ -363,11 +418,13 @@ private fun DevicesPane(session: YapSession, runtime: OrchestratorRuntime) {
     val colors = yapColors
     val scope = rememberCoroutineScope()
     val local by runtime.identity.localAccount.collectAsState(initial = null)
-    PaneTitle("Devices")
+    PaneTitle(stringResource(Res.string.settings_nav_devices))
     val devices = local?.devices.orEmpty()
     if (devices.isEmpty()) {
-        BasicText("No devices.", style = yapType.bodySm.copy(color = colors.textMuted))
+        BasicText(stringResource(Res.string.settings_no_devices), style = yapType.bodySm.copy(color = colors.textMuted))
     }
+    val peerCopiedMsg = stringResource(Res.string.toast_peer_copied)
+    val onionCopiedMsg = stringResource(Res.string.toast_onion_copied)
     devices.forEach { d ->
         Row(
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -375,25 +432,26 @@ private fun DevicesPane(session: YapSession, runtime: OrchestratorRuntime) {
         ) {
             Column(Modifier.weight(1f)) {
                 BasicText(
-                    DeviceNames.from(d.deviceId) + if (d.isLocal) " (this device)" else "",
+                    if (d.isLocal) stringResource(Res.string.settings_this_device, DeviceNames.from(d.deviceId))
+                    else DeviceNames.from(d.deviceId),
                     style = yapType.bodySmMedium.copy(color = colors.textDefault),
                 )
                 CopyLine(
-                    label = "Peer ID",
+                    label = stringResource(Res.string.settings_peer_id),
                     value = d.deviceId.id,
-                    onCopied = { session.showToast("Peer ID copied.", ToastKind.Success) },
+                    onCopied = { session.showToast(peerCopiedMsg, ToastKind.Success) },
                 )
                 // Recovery path: the sponsor needs this device's onion + port to
                 // bootstrap a recovery, so both stay visible and copiable.
                 CopyLine(
-                    label = "Onion",
+                    label = stringResource(Res.string.settings_onion),
                     value = "${d.torEndpoint.onionAddress}:${d.torEndpoint.port}",
-                    onCopied = { session.showToast("Onion address copied.", ToastKind.Success) },
+                    onCopied = { session.showToast(onionCopiedMsg, ToastKind.Success) },
                 )
             }
             Spacer(Modifier.width(12.dp))
             YapButton(
-                "Remove",
+                stringResource(Res.string.settings_remove),
                 onClick = {
                     scope.launch {
                         val res = runCatching {
@@ -417,11 +475,14 @@ private fun DevicesPane(session: YapSession, runtime: OrchestratorRuntime) {
 @Composable
 private fun AppearancePane(session: YapSession) {
     val prefs by session.prefsController.prefs.collectAsState()
-    PaneTitle("Appearance")
-    SettingsRow("Theme", "Dark only for now") {
-        BasicText("Dark", style = yapType.bodySm.copy(color = yapColors.textDefault))
+    PaneTitle(stringResource(Res.string.settings_nav_appearance))
+    SettingsRow(stringResource(Res.string.settings_theme), stringResource(Res.string.settings_theme_desc)) {
+        BasicText(
+            stringResource(Res.string.settings_theme_value),
+            style = yapType.bodySm.copy(color = yapColors.textDefault)
+        )
     }
-    SettingsRow("Chat message display", "Cozy or compact") {
+    SettingsRow(stringResource(Res.string.settings_msg_display), stringResource(Res.string.settings_msg_display_desc)) {
         BasicText(
             prefs.appearance.messageDisplay,
             style = yapType.bodySm.copy(color = yapColors.textDefault),
@@ -436,63 +497,94 @@ private fun AppearancePane(session: YapSession) {
             }.padding(4.dp),
         )
     }
-    SettingsRow("Sidebar width", "${prefs.appearance.sidebarWidth} dp") {
-        BasicText("240–360", style = yapType.bodySm.copy(color = yapColors.textMuted))
+    SettingsRow(
+        stringResource(Res.string.settings_sidebar),
+        stringResource(Res.string.settings_sidebar_unit, prefs.appearance.sidebarWidth)
+    ) {
+        BasicText(
+            stringResource(Res.string.settings_sidebar_range),
+            style = yapType.bodySm.copy(color = yapColors.textMuted)
+        )
     }
-    SoonRow("Light theme", "A second palette, coming later")
-    SoonRow("Custom accent", "Blurple for now")
+    SettingsRow(stringResource(Res.string.settings_zoom), stringResource(Res.string.settings_zoom_desc)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (preset in listOf(75, 100, 125, 150, 175, 200)) {
+                ZoomChip(
+                    label = "$preset%",
+                    selected = prefs.appearance.uiZoom == preset,
+                    onClick = {
+                        session.prefsController.update {
+                            it.copy(appearance = it.appearance.copy(uiZoom = preset))
+                        }
+                    },
+                )
+            }
+        }
+    }
+    SoonRow(stringResource(Res.string.settings_light_theme), stringResource(Res.string.settings_light_theme_desc))
+    SoonRow(stringResource(Res.string.settings_accent), stringResource(Res.string.settings_accent_desc))
 }
 
 @Composable
 private fun ChatPane(session: YapSession) {
     val prefs by session.prefsController.prefs.collectAsState()
-    PaneTitle("Chat")
-    SettingsRow("Send with Enter", "Off = Ctrl/Cmd+Enter") {
+    PaneTitle(stringResource(Res.string.settings_nav_chat))
+    SettingsRow(stringResource(Res.string.settings_send_enter), stringResource(Res.string.settings_send_enter_desc)) {
         YapSwitch(prefs.chat.sendWithEnter, { v ->
             session.prefsController.update { it.copy(chat = it.chat.copy(sendWithEnter = v)) }
         })
     }
-    SettingsRow("Show character count", "Byte budget in the composer") {
+    SettingsRow(stringResource(Res.string.settings_char_count), stringResource(Res.string.settings_char_count_desc)) {
         YapSwitch(prefs.chat.showCharCount, { v ->
             session.prefsController.update { it.copy(chat = it.chat.copy(showCharCount = v)) }
         })
     }
-    SettingsRow("Preview while typing", "Markdown live preview") { SoonChip() }
+    SettingsRow(
+        stringResource(Res.string.settings_preview_typing),
+        stringResource(Res.string.settings_preview_typing_desc)
+    ) { SoonChip() }
 }
 
 @Composable
 private fun NotificationsPane(session: YapSession) {
     val prefs by session.prefsController.prefs.collectAsState()
     val n = prefs.notifications
-    PaneTitle("Notifications")
-    SettingsRow("Desktop notifications", "Mention and message alerts") {
+    PaneTitle(stringResource(Res.string.settings_nav_notifications))
+    SettingsRow(
+        stringResource(Res.string.settings_desktop_notif),
+        stringResource(Res.string.settings_desktop_notif_desc)
+    ) {
         YapSwitch(n.desktopNotifications, { v ->
             session.prefsController.update { it.copy(notifications = n.copy(desktopNotifications = v)) }
         })
     }
-    SettingsRow("Notification sound", "Bundled sound") {
+    SettingsRow(stringResource(Res.string.settings_sound), stringResource(Res.string.settings_sound_desc)) {
         YapSwitch(n.sound, { v ->
             session.prefsController.update { it.copy(notifications = n.copy(sound = v)) }
         })
     }
-    SettingsRow("Show mention badges", "Red pills in the room list") {
+    SettingsRow(stringResource(Res.string.settings_badges), stringResource(Res.string.settings_badges_desc)) {
         YapSwitch(n.showMentionBadges, { v ->
             session.prefsController.update { it.copy(notifications = n.copy(showMentionBadges = v)) }
         })
     }
-    SoonRow("Push notifications", "Needs the mobile push pipeline")
+    SoonRow(stringResource(Res.string.settings_push), stringResource(Res.string.settings_push_desc))
 }
 
 @Composable
 private fun KeybindsPane() {
-    PaneTitle("Keybinds")
+    PaneTitle(stringResource(Res.string.settings_nav_keybinds))
     listOf(
-        "Ctrl/Cmd+K" to "Quick switcher",
-        "Ctrl/Cmd+N" to "New room",
-        "Esc" to "Close / clear",
-        "Alt+↑/↓" to "Previous / next room",
-        "Ctrl/Cmd+," to "Settings",
-        "Shift+Esc" to "Mark room read",
+        "Ctrl/Cmd+K" to stringResource(Res.string.settings_keybind_switcher),
+        "Ctrl/Cmd+N" to stringResource(Res.string.settings_keybind_new_room),
+        "Esc" to stringResource(Res.string.settings_keybind_close),
+        "Alt+↑/↓" to stringResource(Res.string.settings_keybind_prev_next),
+        "Ctrl/Cmd+," to stringResource(Res.string.settings_keybind_settings),
+        "Shift+Esc" to stringResource(Res.string.settings_keybind_mark_read),
     ).forEach { (keys, action) ->
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
             BasicText(
@@ -504,7 +596,7 @@ private fun KeybindsPane() {
         }
     }
     BasicText(
-        "Custom keybinds are coming in a later build.",
+        stringResource(Res.string.settings_keybinds_note),
         style = yapType.bodyXs.copy(color = yapColors.textMuted),
         modifier = Modifier.padding(top = 8.dp),
     )
@@ -516,10 +608,10 @@ private fun MembersPane(session: YapSession, runtime: OrchestratorRuntime) {
     val scope = rememberCoroutineScope()
     val accounts by runtime.identity.accounts.collectAsState(initial = emptyList())
     val isAdmin by runtime.admin.localIsAdmin.collectAsState(initial = false)
-    PaneTitle("Members")
+    PaneTitle(stringResource(Res.string.settings_nav_members))
     if (!isAdmin) {
         BasicText(
-            "Only admins can manage members.",
+            stringResource(Res.string.settings_admin_only),
             style = yapType.bodySm.copy(color = yapColors.textMuted),
         )
     }
@@ -532,13 +624,18 @@ private fun MembersPane(session: YapSession, runtime: OrchestratorRuntime) {
             Column(Modifier.weight(1f).padding(start = 8.dp)) {
                 BasicText(a.displayName, style = yapType.bodySmMedium.copy(color = colors.textDefault))
                 BasicText(
-                    "${a.role.name.lowercase()} · ${a.status.name.lowercase()} · ${a.devices.size} devices",
+                    stringResource(
+                        Res.string.settings_member_line,
+                        a.role.name.lowercase(),
+                        a.status.name.lowercase(),
+                        pluralStringResource(Res.plurals.member_device_count, a.devices.size, a.devices.size),
+                    ),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                 )
             }
             if (isAdmin && !a.isLocal) {
                 YapButton(
-                    "Ban",
+                    stringResource(Res.string.settings_ban),
                     onClick = {
                         scope.launch {
                             val res = runCatching { runtime.admin.removeAccount(a.accountId) }
@@ -563,11 +660,11 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime, onRe
     val colors = yapColors
     val scope = rememberCoroutineScope()
     val settings by runtime.config.settings.collectAsState(initial = emptyList())
-    PaneTitle("Advanced")
-    AccountRow("Data directory", session.dataDirectory.toString())
+    PaneTitle(stringResource(Res.string.settings_nav_advanced))
+    AccountRow(stringResource(Res.string.settings_data_dir), session.dataDirectory.toString())
     if (settings.isEmpty()) {
         BasicText(
-            "No backend settings exposed.",
+            stringResource(Res.string.settings_no_backend),
             style = yapType.bodySm.copy(color = yapColors.textMuted),
         )
     }
@@ -594,7 +691,11 @@ private fun AdvancedPane(session: YapSession, runtime: OrchestratorRuntime, onRe
         }
     }
     Spacer(Modifier.height(16.dp))
-    YapButton("Reset app…", onClick = onResetRequest, variant = YapButtonVariant.Danger)
+    YapButton(
+        stringResource(Res.string.settings_reset_app),
+        onClick = onResetRequest,
+        variant = YapButtonVariant.Danger
+    )
 }
 
 @Composable
@@ -612,7 +713,11 @@ private fun BackendRow(setting: Setting, onUpdate: (ConfigValue?) -> Unit) {
             if (!setting.editable) {
                 SettingsRow(setting.title, setting.description) {
                     BasicText(
-                        if (setting.isSecret) "••••••••" else setting.value.ifBlank { "—" },
+                        if (setting.isSecret) stringResource(Res.string.settings_secret_mask) else setting.value.ifBlank {
+                            stringResource(
+                                Res.string.settings_empty_value
+                            )
+                        },
                         style = yapType.bodySm.copy(color = yapColors.textMuted),
                     )
                 }
@@ -677,7 +782,7 @@ private fun BackendRow(setting: Setting, onUpdate: (ConfigValue?) -> Unit) {
 @Composable
 private fun ResetDefaultLink(onReset: () -> Unit) {
     BasicText(
-        "Reset",
+        stringResource(Res.string.common_reset),
         style = yapType.bodyXs.copy(color = yapColors.textLink),
         modifier = Modifier.clickable { onReset() }.padding(4.dp),
     )
@@ -705,7 +810,12 @@ private fun EditableTextRow(
                 modifier = Modifier.weight(1f),
             )
             ResetDefaultLink(onReset)
-            YapButton("Save", onClick = ::save, enabled = dirty, variant = YapButtonVariant.Secondary)
+            YapButton(
+                stringResource(Res.string.common_save),
+                onClick = ::save,
+                enabled = dirty,
+                variant = YapButtonVariant.Secondary
+            )
         }
         BasicText(
             description,
@@ -738,9 +848,9 @@ private fun EditableNumberRow(
     var text by remember(initial) { mutableStateOf(initial.toString()) }
     val parsed = text.toLongOrNull()
     val rangeError = when {
-        parsed == null -> "Enter a whole number."
-        min != null && parsed < min -> "Minimum is $min."
-        max != null && parsed > max -> "Maximum is $max."
+        parsed == null -> stringResource(Res.string.settings_number_error)
+        min != null && parsed < min -> stringResource(Res.string.settings_number_min, min)
+        max != null && parsed > max -> stringResource(Res.string.settings_number_max, max)
         else -> null
     }
     val dirty = parsed != null && parsed != initial && rangeError == null
@@ -755,7 +865,12 @@ private fun EditableNumberRow(
                 modifier = Modifier.weight(1f),
             )
             ResetDefaultLink(onReset)
-            YapButton("Save", onClick = ::save, enabled = dirty, variant = YapButtonVariant.Secondary)
+            YapButton(
+                stringResource(Res.string.common_save),
+                onClick = ::save,
+                enabled = dirty,
+                variant = YapButtonVariant.Secondary
+            )
         }
         BasicText(
             description,
@@ -795,10 +910,15 @@ private fun EditablePeriodRow(
                 modifier = Modifier.weight(1f),
             )
             ResetDefaultLink(onReset)
-            YapButton("Save", onClick = ::save, enabled = dirty, variant = YapButtonVariant.Secondary)
+            YapButton(
+                stringResource(Res.string.common_save),
+                onClick = ::save,
+                enabled = dirty,
+                variant = YapButtonVariant.Secondary
+            )
         }
         BasicText(
-            "$description (e.g. 90s, 5m, 2h)",
+            stringResource(Res.string.settings_period_hint, description),
             style = yapType.bodyXs.copy(color = yapColors.textMuted),
             modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
         )
@@ -808,7 +928,7 @@ private fun EditablePeriodRow(
             placeholder = initial.toString(),
             isError = text.isNotBlank() && parsed == null,
         )
-        if (text.isNotBlank() && parsed == null) InlineError("Use a duration like 90s, 5m or 2h.")
+        if (text.isNotBlank() && parsed == null) InlineError(stringResource(Res.string.settings_period_error))
     }
 }
 
@@ -823,8 +943,27 @@ private fun parseDurationLoose(raw: String): kotlin.time.Duration? {
 }
 
 @Composable
-private fun SoonRow(title: String, description: String) {
-    // Previously Row { Column(weight(1f)) { SettingsRow(...) } }: the extra nesting
+private fun ZoomChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(YapRadius.sm))
+            .background(if (selected) yapColors.brand else yapColors.modSubtle)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(
+            label,
+            style = yapType.bodyXsMedium.copy(color = yapColors.textStrong),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun SoonRow(
+    title: String,
+    description: String
+) {    // Previously Row { Column(weight(1f)) { SettingsRow(...) } }: the extra nesting
     // gave the inner Row zero width so title and chip overlapped. One flex row is enough.
     SettingsRow(title, description, modifier = Modifier.fillMaxWidth()) { SoonChip() }
 }

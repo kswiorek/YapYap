@@ -18,11 +18,14 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.ToastMessage
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
+import yapyap.composeapp.generated.resources.Res
+import yapyap.composeapp.generated.resources.typed_confirm_hint
 
 /**
  * In-window modal scrim (replaces `Dialog` everywhere). Desktop `Dialog` opens a
@@ -146,7 +149,7 @@ fun ConfirmDialog(
                 YapTextField(
                     value = typedText,
                     onValueChange = onTypedTextChange,
-                    placeholder = "Type \"$requireTypedText\" to confirm",
+                    placeholder = stringResource(Res.string.typed_confirm_hint, requireTypedText),
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }

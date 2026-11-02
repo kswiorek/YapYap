@@ -11,12 +11,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.LocalTransportStatus
 import org.yapyap.orchestrator.RecoveryAction
 import org.yapyap.orchestrator.TransportProblem
 import org.yapyap.orchestrator.TransportProblemKind
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 /**
  * General "network not ready" banner: no network, Tor still connecting or
@@ -30,41 +32,48 @@ import org.yapyap.orchestrator.TransportProblemKind
 @Composable
 fun TransportBanner(status: LocalTransportStatus) {
     val colors = yapColors
+    val pendingHint = stringResource(Res.string.transport_pending_hint)
+    val autoHint = stringResource(Res.string.transport_auto_hint)
     val (line, hint, warn) = when (status) {
         LocalTransportStatus.Online -> return
         LocalTransportStatus.NoNetwork -> Triple(
-            "No network connection.",
-            "Messages will be sent when you're back online.",
+            stringResource(Res.string.transport_no_network),
+            stringResource(Res.string.transport_no_network_hint),
             true,
         )
 
         is LocalTransportStatus.Connecting -> Triple(
-            "Connecting to Tor… ${status.progress}%",
-            "Messages will be sent once connected.",
+            stringResource(Res.string.transport_connecting, status.progress),
+            pendingHint,
             false,
         )
 
         LocalTransportStatus.Reconnecting -> Triple(
-            "Reconnecting to Tor…",
-            "Messages will be sent once connected.",
+            stringResource(Res.string.transport_reconnecting),
+            pendingHint,
             false,
         )
 
-        is LocalTransportStatus.Recovering -> Triple(
-            "Tor got stuck — ${status.action.describe()}" + (status.progress?.let { "… $it%" } ?: "…"),
-            "This is fixed automatically. Messages will be sent once connected.",
-            false,
-        )
+        is LocalTransportStatus.Recovering -> {
+            val action = status.action.describeText()
+            val progress = status.progress
+            Triple(
+                if (progress != null) stringResource(Res.string.transport_recovering_progress, action, progress)
+                else stringResource(Res.string.transport_recovering, action),
+                autoHint,
+                false,
+            )
+        }
 
         LocalTransportStatus.WarmingUp -> Triple(
-            "Connected — your address isn't reachable yet. Invites may take a few minutes.",
-            "Your address warms up after every restart or network change — this clears on its own.",
+            stringResource(Res.string.transport_warming),
+            stringResource(Res.string.transport_warming_hint),
             false,
         )
 
         LocalTransportStatus.Degraded -> Triple(
-            "Tor can't make your address reachable — check your connection.",
-            "Still retrying underneath.",
+            stringResource(Res.string.transport_unreachable),
+            stringResource(Res.string.transport_unreachable_hint),
             true,
         )
     }
@@ -91,7 +100,7 @@ fun TransportBanner(status: LocalTransportStatus) {
             )
             if (problem != null && showDetails) {
                 BasicText(
-                    problem.describe(),
+                    problem.describeText(),
                     style = yapType.bodyXs.copy(color = colors.textMuted),
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -99,7 +108,7 @@ fun TransportBanner(status: LocalTransportStatus) {
         }
         if (problem != null) {
             BasicText(
-                if (showDetails) "Hide" else "Details",
+                if (showDetails) stringResource(Res.string.transport_hide) else stringResource(Res.string.transport_details),
                 style = yapType.bodyXs.copy(color = colors.textSubtle),
                 modifier = Modifier.clickable { showDetails = !showDetails }.padding(4.dp),
             )
@@ -107,14 +116,16 @@ fun TransportBanner(status: LocalTransportStatus) {
     }
 }
 
-private fun RecoveryAction.describe(): String = when (this) {
-    RecoveryAction.RECONNECTING -> "reconnecting"
-    RecoveryAction.RESTARTING -> "restarting Tor"
-    RecoveryAction.REFRESHING_DIRECTORY -> "refreshing Tor's network directory"
-    RecoveryAction.RESETTING_ENTRY_RELAYS -> "choosing new entry relays"
+@Composable
+private fun RecoveryAction.describeText(): String = when (this) {
+    RecoveryAction.RECONNECTING -> stringResource(Res.string.transport_action_reconnecting)
+    RecoveryAction.RESTARTING -> stringResource(Res.string.transport_action_restarting)
+    RecoveryAction.REFRESHING_DIRECTORY -> stringResource(Res.string.transport_action_refreshing)
+    RecoveryAction.RESETTING_ENTRY_RELAYS -> stringResource(Res.string.transport_action_resetting)
 }
 
-private fun TransportProblem.describe(): String = when (kind) {
-    TransportProblemKind.RELAYS_UNREACHABLE -> "Some Tor relays can't be reached from this network: $detail"
-    TransportProblemKind.OTHER -> "Tor reported: $detail"
+@Composable
+private fun TransportProblem.describeText(): String = when (kind) {
+    TransportProblemKind.RELAYS_UNREACHABLE -> stringResource(Res.string.transport_problem_relays, detail)
+    TransportProblemKind.OTHER -> stringResource(Res.string.transport_problem_other, detail)
 }

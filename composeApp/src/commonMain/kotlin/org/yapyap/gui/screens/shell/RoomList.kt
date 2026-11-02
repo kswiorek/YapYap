@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -17,6 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import compose.icons.FontAwesomeIcons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.Plus
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.Avatar
 import org.yapyap.gui.components.StatusDot
 import org.yapyap.gui.markdown.DiscordMarkdownTransformer
@@ -28,6 +33,7 @@ import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 @Composable
 fun RoomList(
@@ -58,7 +64,7 @@ fun RoomList(
                 .padding(horizontal = 12.dp, vertical = 9.dp),
         ) {
             BasicText(
-                "Find or start a conversation",
+                stringResource(Res.string.roomlist_search_hint),
                 style = yapType.bodySm.copy(color = colors.textMuted),
             )
         }
@@ -67,24 +73,30 @@ fun RoomList(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicText(
-                "DIRECT MESSAGES",
+                stringResource(Res.string.roomlist_dm).uppercase(),
                 style = yapType.headingXs.copy(color = colors.textMuted),
                 modifier = Modifier.weight(1f),
             )
-            BasicText(
-                "+",
-                style = yapType.headingMd.copy(color = colors.textMuted),
-                modifier = Modifier.clickable { onNewRoom() }.padding(4.dp),
-            )
+            Box(
+                Modifier.clickable { onNewRoom() }.padding(4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    FontAwesomeIcons.Solid.Plus,
+                    stringResource(Res.string.desc_new_room),
+                    Modifier.size(16.dp),
+                    colors.textMuted
+                )
+            }
         }
         if (items.isEmpty()) {
             BasicText(
-                "No conversations yet",
+                stringResource(Res.string.roomlist_empty_title),
                 style = yapType.headingSm.copy(color = colors.textSubtle),
                 modifier = Modifier.padding(16.dp),
             )
             org.yapyap.gui.components.YapButton(
-                "Start a conversation",
+                stringResource(Res.string.roomlist_empty_action),
                 onClick = onNewRoom,
                 variant = org.yapyap.gui.components.YapButtonVariant.Secondary,
                 modifier = Modifier.padding(horizontal = 8.dp),

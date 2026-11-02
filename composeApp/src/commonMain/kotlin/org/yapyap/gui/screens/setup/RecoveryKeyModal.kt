@@ -12,12 +12,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.ScrimOverlay
 import org.yapyap.gui.components.YapButton
 import org.yapyap.gui.components.YapButtonVariant
 import org.yapyap.gui.theme.YapRadius
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
+import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 /**
  * W4 — recovery key modal. Shown once after account-founding setup (genesis,
@@ -44,11 +46,11 @@ fun RecoveryKeyModal(
                 .padding(20.dp),
         ) {
             BasicText(
-                "Save your recovery key",
+                stringResource(Res.string.recovery_title),
                 style = yapType.headingXl.copy(color = colors.textStrong),
             )
             BasicText(
-                "Shown once — losing it locks you out of this account on every device.",
+                stringResource(Res.string.recovery_body),
                 style = yapType.bodySm.copy(color = colors.warning),
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -67,13 +69,13 @@ fun RecoveryKeyModal(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 YapButton(
-                    if (ack) "✓ Stored" else "I stored it",
+                    if (ack) stringResource(Res.string.setup_stored_done) else stringResource(Res.string.setup_stored),
                     onClick = { ack = !ack },
                     variant = YapButtonVariant.Secondary,
                 )
                 Spacer(Modifier.width(8.dp))
                 YapButton(
-                    if (copied) "✓ Copied" else "Copy key",
+                    if (copied) stringResource(Res.string.invite_copied) else stringResource(Res.string.recovery_copy),
                     onClick = {
                         copyToClipboard(recoveryKey)
                         copied = true
@@ -83,7 +85,7 @@ fun RecoveryKeyModal(
                 )
                 Spacer(Modifier.weight(1f))
                 YapButton(
-                    "Continue",
+                    stringResource(Res.string.common_continue),
                     onClick = onAcknowledge,
                     enabled = ack,
                 )
