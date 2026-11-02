@@ -24,6 +24,7 @@ import compose.icons.fontawesomeicons.solid.Plus
 import compose.icons.fontawesomeicons.solid.PlusCircle
 import compose.icons.fontawesomeicons.solid.Users
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.yapyap.gui.components.*
 import org.yapyap.gui.copy.RefusalText
@@ -46,7 +47,11 @@ import org.yapyap.orchestrator.LocalTransportStatus
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.identity.AvailabilityLabel
+import org.yapyap.orchestrator.runtime.room.RoomEventOutcome
+import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
 import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 import kotlin.time.Clock
 
@@ -83,6 +88,37 @@ fun MainShell(
     var showSwitcher by remember { mutableStateOf(false) }
     var showSponsor by remember { mutableStateOf(false) }
     var leaveTarget by remember { mutableStateOf<RoomId?>(null) }
+    // Username click in chat opens this account's profile in the panel.
+    var profileId by remember(selectedId) { mutableStateOf<AccountId?>(null) }
+    // Room membership overlays (hoisted: RightPanel lives inside the shell Row,
+    // where a full-size scrim would black out the chat — these render at the
+    // window overlay below, next to SettingsModal/CreateRoomDialog).
+    var addToRoom by remember { mutableStateOf<RoomId?>(null) }
+    var manageMember by remember { mutableStateOf<Pair<RoomId, AccountId>?>(null) }
+    var removeMember by remember { mutableStateOf<Pair<RoomId, AccountId>?>(null) }
+    // Shared op toasts.
+    val failedMsg = stringResource(Res.string.room_action_failed)
+    val addedMsg = stringResource(Res.string.room_added)
+    val removedMsg = stringResource(Res.string.room_removed)
+    val grantedMsg = stringResource(Res.string.room_admin_granted)
+    val revokedMsg = stringResource(Res.string.room_admin_revoked)
+    fun handleOutcome(outcome: RoomEventOutcome, success: String) {
+        when (outcome) {
+            is RoomEventOutcome.Published -> session.showToast(success, ToastKind.Success)
+            is RoomEventOutcome.Refused ->
+                session.showToast(RefusalText.roomEvent(outcome.reason), ToastKind.Error)
+        }
+    }
+
+    fun runRoomOp(op: suspend () -> RoomEventOutcome, success: String) {
+        scope.launch {
+            val outcome = runCatching { op() }.getOrElse {
+                session.showToast(it.message ?: failedMsg, ToastKind.Error)
+                return@launch
+            }
+            handleOutcome(outcome, success)
+        }
+    }
 
     val store = remember(session) { ReadStateStore(session) }
     if (selectedId != null && items.none { it.details.roomId == selectedId }) selectedId = null
@@ -213,9 +249,10 @@ fun MainShell(
                                 availability = availability,
                                 maxBytes = runtime.messaging.maxTextMessageBytes,
                                 onRoomRef = { ref -> selectedId = ref },
-                                onOpenMembers = { rightOverride = !showRight },
+                                onOpenMembers = { profileId = null; rightOverride = !showRight },
                                 onLeave = { leaveTarget = current },
                                 onCloseView = { selectedId = null },
+                                onAuthorClick = { profileId = it; rightOverride = true },
                                 sendWithEnter = prefs.chat.sendWithEnter,
                                 showCharCount = prefs.chat.showCharCount,
                                 timestamps24h = prefs.chat.timestamps24h,
@@ -236,10 +273,15 @@ fun MainShell(
                                                     .background(colors.bgApp),
                                             ) {
                                                 RightPanel(
-                                                    overlayDetails,
-                                                    accountMap,
-                                                    local?.accountId,
-                                                    onClose = { rightOverride = false },
+                                                    details = overlayDetails,
+                                                    accounts = accountMap,
+                                                    localId = local?.accountId,
+                                                    onClose = { rightOverride = false; profileId = null },
+                                                    focusAccountId = profileId,
+                                                    onAddMembers = { addToRoom = overlayDetails.roomId },
+                                                    onManageMember = { id ->
+                                                        manageMember = overlayDetails.roomId to id
+                                                    },
                                                     onCopyRoomId = {
                                                         copyToClipboard(overlayDetails.roomId.value.toString())
                                                         session.showToast(roomCopiedMsg, ToastKind.Success)
@@ -266,10 +308,15 @@ fun MainShell(
                         if (details != null) {
                             val accountMap = remember(accounts) { accounts.associateBy { it.accountId } }
                             RightPanel(
-                                details,
-                                accountMap,
-                                local?.accountId,
-                                onClose = { rightOverride = false },
+                                details = details,
+                                accounts = accountMap,
+                                localId = local?.accountId,
+                                onClose = { rightOverride = false; profileId = null },
+                                focusAccountId = profileId,
+                                onAddMembers = { addToRoom = details.roomId },
+                                onManageMember = { id ->
+                                    manageMember = details.roomId to id
+                                },
                                 onCopyRoomId = {
                                     copyToClipboard(details.roomId.value.toString())
                                     session.showToast(roomCopiedMsg, ToastKind.Success)
@@ -347,6 +394,144 @@ fun MainShell(
             onDismiss = { showSponsor = false },
         )
     }
+    // Room membership overlays (window level — RightPanel sits inside the
+    // shell Row, where a full-size scrim would black out the chat instead).
+    addToRoom?.let { roomId ->
+        key(roomId) {
+            val d = items.firstOrNull { it.details.roomId == roomId }?.details
+            if (d == null) {
+                LaunchedEffect(roomId) { addToRoom = null }
+            } else {
+                val activeIds = remember(d) {
+                    d.members
+                        .filter { it.status == RoomMemberStatus.ACTIVE }
+                        .map { it.accountId }.toSet()
+                }
+                val candidates = remember(accounts, activeIds) {
+                    accounts
+                        .filter { it.accountId !in activeIds }
+                        .sortedBy { it.displayName.lowercase() }
+                }
+                AddMembersDialog(
+                    candidates = candidates,
+                    onDismiss = { addToRoom = null },
+                    onConfirm = { picked ->
+                        addToRoom = null
+                        scope.launch {
+                            // No add-with-role call: add first, then grant admin
+                            // where requested, and report both outcomes honestly.
+                            var added = 0
+                            var grantFailed = 0
+                            var firstAddProblem: String? = null
+                            var firstGrantProblem: String? = null
+                            for ((id, role) in picked) {
+                                val addOutcome = runCatching {
+                                    runtime.rooms.addMember(roomId, id)
+                                }.getOrElse {
+                                    firstAddProblem =
+                                        firstAddProblem ?: (it.message ?: failedMsg)
+                                    continue
+                                }
+                                if (addOutcome is RoomEventOutcome.Refused) {
+                                    firstAddProblem = firstAddProblem
+                                        ?: RefusalText.roomEvent(addOutcome.reason)
+                                    continue
+                                }
+                                added++
+                                if (role == RoomMemberRole.ADMIN) {
+                                    val g = runCatching {
+                                        runtime.rooms.grantAdmin(roomId, id)
+                                    }.getOrElse {
+                                        grantFailed++
+                                        firstGrantProblem = firstGrantProblem
+                                            ?: (it.message ?: failedMsg)
+                                        continue
+                                    }
+                                    if (g is RoomEventOutcome.Refused) {
+                                        grantFailed++
+                                        firstGrantProblem = firstGrantProblem
+                                            ?: RefusalText.roomEvent(g.reason)
+                                    }
+                                }
+                            }
+                            val total = picked.size
+                            when {
+                                added == total && grantFailed == 0 ->
+                                    session.showToast(addedMsg, ToastKind.Success)
+
+                                added == 0 -> session.showToast(
+                                    firstAddProblem ?: failedMsg,
+                                    ToastKind.Error,
+                                )
+
+                                grantFailed > 0 -> session.showToast(
+                                    getString(
+                                        Res.string.room_add_grant_failed,
+                                        added,
+                                        total,
+                                        firstGrantProblem ?: failedMsg,
+                                    ),
+                                    ToastKind.Error,
+                                )
+
+                                else -> session.showToast(
+                                    getString(Res.string.room_add_partial, added, total),
+                                    ToastKind.Info,
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+        }
+    }
+    manageMember?.let { (roomId, accountId) ->
+        val d = items.firstOrNull { it.details.roomId == roomId }?.details
+        val member = d?.members?.firstOrNull { it.accountId == accountId }
+        val view = accounts.firstOrNull { it.accountId == accountId }
+        if (d == null || member == null || member.accountId == local?.accountId) {
+            LaunchedEffect(roomId, accountId) { manageMember = null }
+        } else {
+            val isOwnerTarget = member.role == RoomMemberRole.OWNER
+            val isActive = member.status == RoomMemberStatus.ACTIVE
+            MemberActionDialog(
+                displayName = view?.displayName
+                    ?: stringResource(Res.string.room_unknown_user),
+                isOwnerTarget = isOwnerTarget,
+                isActiveTarget = isActive,
+                showGrant = isActive && member.role == RoomMemberRole.MEMBER,
+                showRevoke = isActive && member.role == RoomMemberRole.ADMIN,
+                showRemove = isActive && !isOwnerTarget,
+                onGrant = {
+                    manageMember = null
+                    runRoomOp({ runtime.rooms.grantAdmin(roomId, accountId) }, grantedMsg)
+                },
+                onRevoke = {
+                    manageMember = null
+                    runRoomOp({ runtime.rooms.revokeAdmin(roomId, accountId) }, revokedMsg)
+                },
+                onRemove = {
+                    manageMember = null
+                    removeMember = roomId to accountId
+                },
+                onDismiss = { manageMember = null },
+            )
+        }
+    }
+    removeMember?.let { (roomId, accountId) ->
+        val name = accounts.firstOrNull { it.accountId == accountId }?.displayName
+            ?: stringResource(Res.string.room_unknown_user)
+        ConfirmDialog(
+            title = stringResource(Res.string.room_remove_title, name),
+            body = stringResource(Res.string.room_remove_body, name),
+            confirmLabel = stringResource(Res.string.room_remove_confirm),
+            onConfirm = {
+                removeMember = null
+                runRoomOp({ runtime.rooms.removeMember(roomId, accountId) }, removedMsg)
+            },
+            onCancel = { removeMember = null },
+        )
+    }
     if (confirmCancelOnboarding) {
         org.yapyap.gui.components.ConfirmDialog(
             title = stringResource(Res.string.cancel_join_title),
@@ -361,14 +546,29 @@ fun MainShell(
     }
     leaveTarget?.let { target ->
         val couldntLeave = stringResource(Res.string.toast_leave_failed)
-        org.yapyap.gui.components.ConfirmDialog(
-            title = stringResource(Res.string.leave_title),
-            body = stringResource(Res.string.leave_body),
-            confirmLabel = stringResource(Res.string.leave_confirm),
-            onConfirm = {
+        val targetDetails = remember(target, items) {
+            items.firstOrNull { it.details.roomId == target }?.details
+        }
+        val myRole = remember(targetDetails, local) {
+            targetDetails?.members?.firstOrNull { it.accountId == local?.accountId }?.role
+        }
+        val isOwner = myRole == org.yapyap.protocol.RoomMemberRole.OWNER
+        val successors = remember(targetDetails, accounts, local) {
+            val activeIds = targetDetails?.members
+                ?.filter {
+                    it.status == org.yapyap.protocol.RoomMemberStatus.ACTIVE &&
+                            it.accountId != local?.accountId
+                }
+                ?.map { it.accountId }?.toSet().orEmpty()
+            accounts.filter { it.accountId in activeIds }.sortedBy { it.displayName.lowercase() }
+        }
+        LeaveRoomDialog(
+            isOwner = isOwner,
+            successors = successors,
+            onConfirm = { successor ->
                 leaveTarget = null
                 scope.launch {
-                    val res = runCatching { runtime.rooms.leaveRoom(target) }.getOrElse {
+                    val res = runCatching { runtime.rooms.leaveRoom(target, successor) }.getOrElse {
                         session.showToast(
                             it.message ?: couldntLeave,
                             org.yapyap.gui.session.ToastKind.Error,
@@ -388,7 +588,7 @@ fun MainShell(
                     }
                 }
             },
-            onCancel = { leaveTarget = null },
+            onDismiss = { leaveTarget = null },
         )
     }
 }

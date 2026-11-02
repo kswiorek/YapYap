@@ -2,6 +2,9 @@ package org.yapyap.gui.screens.shell
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
@@ -66,6 +70,7 @@ fun ChatView(
     sendWithEnter: Boolean = true,
     showCharCount: Boolean = true,
     timestamps24h: Boolean = true,
+    onAuthorClick: (AccountId) -> Unit = {},
     trailingOverlay: @Composable BoxScope.() -> Unit = {},
     onMarkRead: () -> Unit,
     persistDraft: (String) -> Unit,
@@ -176,6 +181,7 @@ fun ChatView(
                             availability = availability,
                             controller = controller,
                             timestamps24h = timestamps24h,
+                            onAuthorClick = onAuthorClick,
                             onRoomRef = onRoomRef,
                         )
                     }
@@ -431,6 +437,7 @@ private fun MessageGroup(
     availability: Map<AccountId, AvailabilityLabel>,
     controller: ChatController,
     timestamps24h: Boolean,
+    onAuthorClick: (AccountId) -> Unit,
     onRoomRef: (RoomId) -> Unit,
 ) {
     val colors = yapColors
@@ -444,9 +451,19 @@ private fun MessageGroup(
     val mentionedMe = row.items.any {
         it is MessageDisplayItem.Text && controller.mentionsMe(it.text)
     }
-    val bg = if (mentionedMe) Color(0x14F8A300) else Color.Transparent
+    // Whole-row hover highlight (Discord-style); mention tint underneath.
+    val rowInteraction = remember { MutableInteractionSource() }
+    val rowHovered by rowInteraction.collectIsHoveredAsState()
+    val bg = when {
+        rowHovered -> colors.modHover
+        mentionedMe -> Color(0x14F8A300)
+        else -> Color.Transparent
+    }
+    val nameInteraction = remember { MutableInteractionSource() }
+    val nameHovered by nameInteraction.collectIsHoveredAsState()
     Row(
-        Modifier.fillMaxWidth().background(bg).padding(vertical = 8.dp),
+        Modifier.fillMaxWidth().background(bg).padding(vertical = 8.dp)
+            .hoverable(rowInteraction),
     ) {
         Box(Modifier.width(56.dp), contentAlignment = Alignment.TopCenter) {
             val online = availability[first.accountId]?.let { it == AvailabilityLabel.ONLINE }
@@ -456,13 +473,23 @@ private fun MessageGroup(
             }
         }
         Column(Modifier.weight(1f)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            // Name + stamp share a flow row: adjacent with padding, and the stamp
+            // drops underneath instead of crushing the name on narrow windows.
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
                 BasicText(
                     name,
                     style = yapType.bodyMdMedium.copy(
                         color = if (names[first.accountId] == null) colors.textMuted else colors.textStrong,
+                        textDecoration = if (nameHovered) TextDecoration.Underline else null,
                     ),
-                    modifier = Modifier.weight(1f).clickable { }.padding(end = 8.dp),
+                    modifier = Modifier.clickable(
+                        interactionSource = nameInteraction,
+                        indication = null,
+                    ) { onAuthorClick(first.accountId) },
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
