@@ -178,3 +178,29 @@ compose.desktop {
         }
     }
 }
+
+// Newlines inside <string>/<item> values render as blank lines in the app (CMP
+// does not collapse them like Android res does), so values must stay single
+// line. Fails the build with the offending keys instead of shipping weird gaps.
+val checkComposeStringValues by tasks.registering {
+    // Trivial file check; not worth making configuration-cache compatible.
+    notCompatibleWithConfigurationCache("Reads strings.xml directly on execution")
+    doLast {
+        val values = file("src/commonMain/composeResources/values/strings.xml")
+        val pattern = Regex("""<(string|item)\b[^>]*name="([^"]+)"[^>]*>(.*?)</\1>""", RegexOption.DOT_MATCHES_ALL)
+        val bad = pattern.findAll(values.readText())
+            .filter { it.groupValues[3].contains('\n') || it.groupValues[3] != it.groupValues[3].trim() }
+            .map { it.groupValues[2] }
+            .toList()
+        if (bad.isNotEmpty()) {
+            throw GradleException(
+                "strings.xml values must be single-line (newlines render as blank lines): " +
+                        bad.joinToString(", "),
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(checkComposeStringValues)
+}

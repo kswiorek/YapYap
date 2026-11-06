@@ -33,6 +33,16 @@ public interface OnboardingService {
     public suspend fun sponsorNewcomer(inviteBytes: ByteArray, admin: Boolean = false): SponsorOutcome
 
     /**
+     * Sponsor-side invite preview: decode [inviteBytes] and report what kind of
+     * newcomer it carries, without consuming anything or touching the DAG. Pure
+     * decode + shape checks (the sponsor flow's steps 0–1); permission
+     * ([SponsorRefusal.SponsorNotAdmin]) and readiness ([SponsorRefusal.SponsorNotReady])
+     * are evaluated at sponsor time, never here. Malformed bytes are refused with
+     * the same [SponsorRefusal.MalformedInvite] defects the sponsor flow reports.
+     */
+    public suspend fun inspectInvite(inviteBytes: ByteArray): InspectInviteResult
+
+    /**
      * GUI cancel button for an abandoned onboarding (newcomer or sponsor side): delegates to
      * [OnboardingProvider.cancelOnboarding].
      */

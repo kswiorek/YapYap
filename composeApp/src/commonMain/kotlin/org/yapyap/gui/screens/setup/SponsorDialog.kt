@@ -22,13 +22,17 @@ import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
+import org.yapyap.orchestrator.runtime.onboarding.InspectInviteResult
 import org.yapyap.orchestrator.runtime.onboarding.SponsorOutcome
 import yapyap.composeapp.generated.resources.* // Res + generated string accessors
 
 /**
  * S3 scan-mode, paste variant (camera deferred to the mobile milestone per the
  * implementation plan §1): the sponsor pastes the newcomer's base64 invite
- * code, optionally grants admin, and calls `sponsorNewcomer`.
+ * code, previews what kind of newcomer it carries, optionally grants admin
+ * (new accounts only — the toggle is meaningless for extra devices), and calls
+ * `sponsorNewcomer`. Previewing is pure decode ([OnboardingService.inspectInvite]);
+ * nothing is written until Sponsor.
  */
 @Composable
 fun SponsorDialog(
@@ -43,11 +47,17 @@ fun SponsorDialog(
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var shapeError by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<InspectInviteResult?>(null) }
     val addedMsg = stringResource(Res.string.toast_sponsor_added)
     val addedNoAdminMsg = stringResource(Res.string.toast_sponsor_added_no_admin)
     val failedMsg = stringResource(Res.string.toast_sponsor_failed)
 
-    fun submit() {
+    fun clearPreview() {
+        preview = null
+        grantAdmin = false
+    }
+
+    fun inspect() {
         val bytes = Base64Encoder.decode(code)
         if (bytes == null) {
             // Local shape failure (not base64 at all): distinct from the core
@@ -59,6 +69,28 @@ fun SponsorDialog(
         working = true
         error = null
         shapeError = false
+        scope.launch {
+            try {
+                preview = when (val res = runtime.onboarding.inspectInvite(bytes)) {
+                    is InspectInviteResult.NewAccount -> res
+                    is InspectInviteResult.AddDevice -> res
+                    is InspectInviteResult.Refused -> {
+                        error = RefusalText.sponsor(res.reason)
+                        null
+                    }
+                }
+            } catch (e: Exception) {
+                error = e.message ?: failedMsg
+            } finally {
+                working = false
+            }
+        }
+    }
+
+    fun submit() {
+        val bytes = Base64Encoder.decode(code)
+            ?: return // Preview succeeded on these bytes; cannot go missing now.
+        working = true
         scope.launch {
             try {
                 when (val outcome = runtime.onboarding.sponsorNewcomer(bytes, grantAdmin)) {
@@ -83,11 +115,12 @@ fun SponsorDialog(
         }
     }
 
+    val canPreview = code.isNotBlank() && !working
     ScrimOverlay(
         onDismiss = if (working) null else onDismiss,
         maxContentWidth = 480.dp,
         onConfirm = ::submit,
-        confirmEnabled = code.isNotBlank() && !working,
+        confirmEnabled = preview is InspectInviteResult && !working,
     ) {
         Column(
             Modifier
@@ -111,27 +144,50 @@ fun SponsorDialog(
             )
             YapTextField(
                 value = code,
-                onValueChange = { code = it; error = null; shapeError = false },
+                onValueChange = { code = it; error = null; shapeError = false; clearPreview() },
                 placeholder = stringResource(Res.string.sponsor_hint),
                 singleLine = false,
                 modifier = Modifier.padding(top = 12.dp),
             )
-            Row(
-                Modifier.fillMaxWidth().padding(top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                YapSwitch(checked = grantAdmin, onCheckedChange = { grantAdmin = it })
-                BasicText(
-                    stringResource(Res.string.sponsor_grant_admin),
-                    style = yapType.bodySm.copy(color = colors.textDefault),
-                    modifier = Modifier.padding(start = 10.dp),
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Spacer(Modifier.weight(1f))
+                YapButton(
+                    stringResource(Res.string.sponsor_preview_button),
+                    onClick = ::inspect,
+                    variant = YapButtonVariant.Secondary,
+                    enabled = canPreview,
                 )
             }
-            BasicText(
-                stringResource(Res.string.sponsor_grant_note),
-                style = yapType.bodyXs.copy(color = colors.textMuted),
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            // Pop-out: what the pasted code carries. The admin toggle lives
+            // here and only for new accounts — extra devices never show it.
+            when (val p = preview) {
+                is InspectInviteResult.NewAccount -> PreviewCard(
+                    title = stringResource(Res.string.sponsor_preview_new_title),
+                    body = stringResource(Res.string.sponsor_preview_new_body, p.displayName),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        YapSwitch(checked = grantAdmin, onCheckedChange = { grantAdmin = it })
+                        BasicText(
+                            stringResource(Res.string.sponsor_grant_admin),
+                            style = yapType.bodySm.copy(color = colors.textDefault),
+                            modifier = Modifier.padding(start = 10.dp),
+                        )
+                    }
+                }
+
+                is InspectInviteResult.AddDevice -> PreviewCard(
+                    title = stringResource(Res.string.sponsor_preview_device_title),
+                    body = stringResource(
+                        Res.string.sponsor_preview_device_body,
+                        p.deviceType.name.lowercase(),
+                    ),
+                ) { }
+
+                is InspectInviteResult.Refused, null -> {}
+            }
             if (shapeError) InlineError(stringResource(Res.string.sponsor_bad_shape))
             error?.let { InlineError(it) }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
@@ -145,10 +201,37 @@ fun SponsorDialog(
                 YapButton(
                     if (working) stringResource(Res.string.sponsor_working) else stringResource(Res.string.sponsor_button),
                     onClick = ::submit,
-                    enabled = code.isNotBlank() && !working,
+                    enabled = preview is InspectInviteResult && !working,
                 )
             }
         }
+    }
+}
+
+/** Invite preview card: title + one honest line + optional extra content. */
+@Composable
+private fun PreviewCard(
+    title: String,
+    body: String,
+    extra: @Composable () -> Unit,
+) {
+    val colors = yapColors
+    Column(
+        Modifier.fillMaxWidth().padding(top = 12.dp)
+            .clip(RoundedCornerShape(YapRadius.sm))
+            .background(colors.bgApp)
+            .padding(12.dp),
+    ) {
+        BasicText(
+            title,
+            style = yapType.bodySmMedium.copy(color = colors.textStrong),
+        )
+        BasicText(
+            body,
+            style = yapType.bodySm.copy(color = colors.textSubtle),
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        extra()
     }
 }
 

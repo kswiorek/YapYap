@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
 import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.crypto.identity.AccountIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.DagException
@@ -41,29 +42,15 @@ internal class DefaultOnboardingService(
     }
 
     override suspend fun sponsorNewcomer(inviteBytes: ByteArray, admin: Boolean): SponsorOutcome {
-        // 0. Decode: raw QR bytes into the invite. A failure here means a corrupt QR /
-        //    version skew — the GUI should ask for a fresh code, not crash.
-        val invite = try {
-            Invite.decode(inviteBytes)
-        } catch (_: RuntimeException) {
-            return SponsorOutcome.Refused(
-                SponsorRefusal.MalformedInvite(InviteDefect.MALFORMED_BYTES),
-            )
+        // Steps 0-1 (decode + shape) are shared with inspectInvite, so a
+        // previewed invite sponsors exactly as previewed.
+        val decoded = decodeSponsorInvite(inviteBytes, cryptoProvider)
+        if (decoded is DecodedSponsorInvite.Refused) {
+            return SponsorOutcome.Refused(decoded.reason)
         }
-        // 1. Shape: pure checks on the decoded invite, no I/O. A failure here means a corrupt
-        //    QR / version skew — the GUI should ask for a fresh code, not crash.
-        val newcomerAccount = invite.account?.let { account ->
-            val key = account.key
-                ?: return SponsorOutcome.Refused(
-                    SponsorRefusal.MalformedInvite(InviteDefect.MISSING_ACCOUNT_KEY),
-                )
-            if (cryptoProvider.accountIdFromPublicKey(key.publicKey) != account.accountId) {
-                return SponsorOutcome.Refused(
-                    SponsorRefusal.MalformedInvite(InviteDefect.ACCOUNT_ID_MISMATCH),
-                )
-            }
-            account
-        }
+        decoded as DecodedSponsorInvite.Ok
+        val invite = decoded.invite
+        val newcomerAccount = decoded.account
         // 2. Permission: the admin toggle is meaningless on an existing-account invite — the
         //    invite is authoritative about the account, so proceed and report it via
         //    adminGranted = false. On a new account it requires a local admin; the bit can flip
@@ -113,4 +100,59 @@ internal class DefaultOnboardingService(
         )
         return SponsorOutcome.Sponsored(adminGranted = grantAdmin)
     }
+
+    override suspend fun inspectInvite(inviteBytes: ByteArray): InspectInviteResult {
+        return when (val decoded = decodeSponsorInvite(inviteBytes, cryptoProvider)) {
+            is DecodedSponsorInvite.Refused -> InspectInviteResult.Refused(decoded.reason)
+            is DecodedSponsorInvite.Ok -> {
+                val account = decoded.account
+                if (account == null) {
+                    InspectInviteResult.AddDevice(decoded.invite.deviceType)
+                } else {
+                    InspectInviteResult.NewAccount(account.displayName, account.accountId)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Sponsor-invite decode + shape checks (the sponsor flow's steps 0-1), shared by
+ * [DefaultOnboardingService.sponsorNewcomer] and
+ * [DefaultOnboardingService.inspectInvite]. Pure: no I/O beyond the account-id
+ * derivation, no writes, nothing consumed.
+ */
+internal sealed interface DecodedSponsorInvite {
+    data class Refused(val reason: SponsorRefusal) : DecodedSponsorInvite
+    data class Ok(val invite: Invite, val account: AccountIdentityRecord?) : DecodedSponsorInvite
+}
+
+internal suspend fun decodeSponsorInvite(
+    inviteBytes: ByteArray,
+    crypto: CryptoProvider,
+): DecodedSponsorInvite {
+    // 0. Decode: raw QR bytes into the invite. A failure here means a corrupt QR /
+    //    version skew — the GUI should ask for a fresh code, not crash.
+    val invite = try {
+        Invite.decode(inviteBytes)
+    } catch (_: RuntimeException) {
+        return DecodedSponsorInvite.Refused(
+            SponsorRefusal.MalformedInvite(InviteDefect.MALFORMED_BYTES),
+        )
+    }
+    // 1. Shape: pure checks on the decoded invite, no I/O. A failure here means a corrupt
+    //    QR / version skew — the GUI should ask for a fresh code, not crash.
+    val newcomerAccount = invite.account?.let { account ->
+        val key = account.key
+            ?: return DecodedSponsorInvite.Refused(
+                SponsorRefusal.MalformedInvite(InviteDefect.MISSING_ACCOUNT_KEY),
+            )
+        if (crypto.accountIdFromPublicKey(key.publicKey) != account.accountId) {
+            return DecodedSponsorInvite.Refused(
+                SponsorRefusal.MalformedInvite(InviteDefect.ACCOUNT_ID_MISMATCH),
+            )
+        }
+        account
+    }
+    return DecodedSponsorInvite.Ok(invite, newcomerAccount)
 }

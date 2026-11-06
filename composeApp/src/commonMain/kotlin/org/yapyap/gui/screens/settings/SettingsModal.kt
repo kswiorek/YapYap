@@ -18,9 +18,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
 import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
-import compose.icons.fontawesomeicons.solid.ChevronLeft
-import compose.icons.fontawesomeicons.solid.Copy
-import compose.icons.fontawesomeicons.solid.Times
+import compose.icons.fontawesomeicons.solid.*
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -36,6 +34,11 @@ import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
+import org.yapyap.orchestrator.runtime.identity.AccountView
+import org.yapyap.orchestrator.runtime.identity.DeviceView
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.IdentityStatus
 import yapyap.composeapp.generated.resources.*
 
 private enum class Section {
@@ -615,44 +618,203 @@ private fun MembersPane(session: YapSession, runtime: OrchestratorRuntime) {
             style = yapType.bodySm.copy(color = yapColors.textMuted),
         )
     }
-    accounts.forEach { a ->
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Avatar(a.accountId, a.displayName, size = 32.dp)
-            Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                BasicText(a.displayName, style = yapType.bodySmMedium.copy(color = colors.textDefault))
-                BasicText(
-                    stringResource(
-                        Res.string.settings_member_line,
-                        a.role.name.lowercase(),
-                        a.status.name.lowercase(),
-                        pluralStringResource(Res.plurals.member_device_count, a.devices.size, a.devices.size),
-                    ),
-                    style = yapType.bodyXs.copy(color = colors.textMuted),
-                )
+    var expanded by remember { mutableStateOf<AccountId?>(null) }
+    var banTarget by remember { mutableStateOf<AccountView?>(null) }
+    var confirmStepDown by remember { mutableStateOf(false) }
+
+    val grantedMsg = stringResource(Res.string.toast_admin_granted)
+    val revokedMsg = stringResource(Res.string.toast_admin_revoked)
+    val bannedMsg = stringResource(Res.string.toast_banned)
+    val deviceRemovedMsg = stringResource(Res.string.toast_device_removed)
+    val steppedDownMsg = stringResource(Res.string.toast_stepped_down)
+    val opFailedMsg = stringResource(Res.string.toast_op_failed)
+    fun adminOp(op: suspend () -> GlobalEventOutcome, success: String) {
+        scope.launch {
+            val res = runCatching { op() }.getOrElse {
+                session.showToast(it.message ?: opFailedMsg, ToastKind.Error)
+                return@launch
             }
-            if (isAdmin && !a.isLocal) {
-                YapButton(
-                    stringResource(Res.string.settings_ban),
-                    onClick = {
-                        scope.launch {
-                            val res = runCatching { runtime.admin.removeAccount(a.accountId) }
-                                .getOrElse {
-                                    session.showToast(it.message ?: "Failed.", ToastKind.Error)
-                                    return@launch
-                                }
-                            if (res is GlobalEventOutcome.Refused) {
-                                session.showToast(RefusalText.global(res.reason), ToastKind.Error)
-                            }
-                        }
-                    },
-                    variant = YapButtonVariant.Danger,
-                )
+            when (res) {
+                is GlobalEventOutcome.Published ->
+                    session.showToast(success, ToastKind.Success)
+
+                is GlobalEventOutcome.Refused ->
+                    session.showToast(RefusalText.global(res.reason), ToastKind.Error)
             }
         }
     }
+
+    accounts.forEach { a ->
+        val active = a.status == IdentityStatus.ACTIVE
+        val own = a.isLocal
+        val owner = a.role == AccountRole.OWNER
+        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Avatar(a.accountId, a.displayName, size = 32.dp)
+                Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    BasicText(a.displayName, style = yapType.bodySmMedium.copy(color = colors.textDefault))
+                    BasicText(
+                        stringResource(
+                            Res.string.settings_member_line,
+                            a.role.name.lowercase(),
+                            a.status.name.lowercase(),
+                            pluralStringResource(Res.plurals.member_device_count, a.devices.size, a.devices.size),
+                        ),
+                        style = yapType.bodyXs.copy(color = colors.textMuted),
+                    )
+                }
+                if (a.devices.isNotEmpty()) {
+                    Box(
+                        Modifier.clickable {
+                            expanded = if (expanded == a.accountId) null else a.accountId
+                        }.padding(6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (expanded == a.accountId) FontAwesomeIcons.Solid.ChevronUp
+                            else FontAwesomeIcons.Solid.ChevronDown,
+                            stringResource(Res.string.desc_expand_devices),
+                            Modifier.size(16.dp),
+                            colors.iconDefault
+                        )
+                    }
+                }
+            }
+            // Admin actions: grant/revoke need ACTIVE MEMBER/ADMIN; ban needs
+            // ACTIVE non-owner; self-service paths own the local rows (except
+            // the legal self step-down). Refusals stay as toasts, never throws.
+            if (isAdmin && active) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    when {
+                        own && a.role == AccountRole.ADMIN -> YapButton(
+                            stringResource(Res.string.settings_step_down),
+                            onClick = { confirmStepDown = true },
+                            variant = YapButtonVariant.Secondary,
+                            compact = true,
+                        )
+
+                        !own && !owner && a.role == AccountRole.MEMBER -> YapButton(
+                            stringResource(Res.string.settings_make_admin),
+                            onClick = {
+                                adminOp({ runtime.admin.grantAdmin(a.accountId) }, grantedMsg)
+                            },
+                            variant = YapButtonVariant.Secondary,
+                            compact = true,
+                        )
+
+                        !own && !owner && a.role == AccountRole.ADMIN -> YapButton(
+                            stringResource(Res.string.settings_remove_admin),
+                            onClick = {
+                                adminOp({ runtime.admin.revokeAdmin(a.accountId) }, revokedMsg)
+                            },
+                            variant = YapButtonVariant.Secondary,
+                            compact = true,
+                        )
+                    }
+                    if (!own && !owner) {
+                        YapButton(
+                            stringResource(Res.string.settings_ban),
+                            onClick = { banTarget = a },
+                            variant = YapButtonVariant.Danger,
+                            compact = true,
+                        )
+                    }
+                }
+            }
+            // Device inventory with per-device admin removal (other accounts'
+            // non-owner devices only — own devices live in DevicesPane).
+            if (expanded == a.accountId) {
+                a.devices.sortedBy { it.deviceId.id }.forEach { d ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            BasicText(
+                                DeviceNames.from(d.deviceId),
+                                style = yapType.bodySm.copy(color = colors.textDefault),
+                            )
+                            BasicText(
+                                deviceLine(d),
+                                style = yapType.bodyXs.copy(color = colors.textMuted),
+                            )
+                        }
+                        if (isAdmin && !own && !owner) {
+                            YapButton(
+                                stringResource(Res.string.settings_remove),
+                                onClick = {
+                                    adminOp(
+                                        { runtime.admin.removeDevice(d.deviceId) },
+                                        deviceRemovedMsg
+                                    )
+                                },
+                                variant = YapButtonVariant.Danger,
+                                compact = true,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Destructive confirms: ban and self step-down.
+    banTarget?.let { target ->
+        ConfirmDialog(
+            title = stringResource(Res.string.settings_ban_title, target.displayName),
+            body = stringResource(Res.string.settings_ban_body, target.displayName),
+            confirmLabel = stringResource(Res.string.common_ban),
+            onConfirm = {
+                banTarget = null
+                scope.launch {
+                    val res = runCatching { runtime.admin.removeAccount(target.accountId) }
+                        .getOrElse {
+                            session.showToast(it.message ?: opFailedMsg, ToastKind.Error)
+                            return@launch
+                        }
+                    when (res) {
+                        is GlobalEventOutcome.Published ->
+                            session.showToast(bannedMsg, ToastKind.Success)
+
+                        is GlobalEventOutcome.Refused ->
+                            session.showToast(RefusalText.global(res.reason), ToastKind.Error)
+                    }
+                }
+            },
+            onCancel = { banTarget = null },
+        )
+    }
+    if (confirmStepDown) {
+        ConfirmDialog(
+            title = stringResource(Res.string.settings_step_down_title),
+            body = stringResource(Res.string.settings_step_down_body),
+            confirmLabel = stringResource(Res.string.settings_step_down_confirm),
+            onConfirm = {
+                confirmStepDown = false
+                localAccountId(accounts)?.let { self ->
+                    adminOp({ runtime.admin.revokeAdmin(self) }, steppedDownMsg)
+                }
+            },
+            onCancel = { confirmStepDown = false },
+        )
+    }
+}
+
+/** Local account id or null when the roster hasn't loaded yet. */
+private fun localAccountId(accounts: List<AccountView>): AccountId? =
+    accounts.firstOrNull { it.isLocal }?.accountId
+
+@Composable
+private fun deviceLine(d: DeviceView): String {
+    val base = d.deviceType.name.lowercase() + " · " + d.status.name.lowercase()
+    return if (d.provisional) {
+        base + " · " + stringResource(Res.string.settings_provisional)
+    } else base
 }
 
 @Composable

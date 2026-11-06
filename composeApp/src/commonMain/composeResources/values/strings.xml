@@ -41,13 +41,9 @@
     <string name="shell_no_room_title">Pick up where you left off</string>
     <string name="newcomer_waiting_sponsor">Waiting for a sponsor… share your invite code so they can paste it.</string>
     <string name="newcomer_tap_to_view">Tap to view your invite code.</string>
-    <string name="newcomer_no_code_saved">No invite code saved here — codes don't survive a restart. Cancel below, reset
-        the app, and join again for a fresh code.
-    </string>
+    <string name="newcomer_no_code_saved">No invite code saved here — codes don't survive a restart. Cancel below, reset the app, and join again for a fresh code.</string>
     <string name="newcomer_sending">Sending your request to your other device…</string>
-    <string name="newcomer_sending_note">This can take a few minutes while Tor connects — it keeps retrying on its
-        own.
-    </string>
+    <string name="newcomer_sending_note">This can take a few minutes while Tor connects — it keeps retrying on its own.</string>
     <string name="newcomer_delivered">Your other device received the request — finishing setup…</string>
     <string name="newcomer_syncing">Sponsor found — syncing your account…</string>
     <string name="common_cancel">Cancel</string>
@@ -56,6 +52,7 @@
     <string name="common_save">Save</string>
     <string name="common_reset">Reset</string>
     <string name="common_copy">Copy</string>
+    <string name="common_ban">Ban</string>
     <string name="common_create">Create</string>
     <string name="common_continue">Continue</string>
 
@@ -64,9 +61,7 @@
     <string name="invite_body">Your sponsor scans or pastes this to add you to the network.</string>
     <string name="invite_qr_soon">QR coming soon</string>
     <string name="invite_waiting">Status: waiting for a sponsor…</string>
-    <string name="invite_not_published">Your address is still publishing — you can share the code now, but the sponsor's
-        first attempts may take a minute.
-    </string>
+    <string name="invite_not_published">Your address is still publishing — you can share the code now, but the sponsor's first attempts may take a minute.</string>
     <string name="invite_syncing">Status: sponsor found — syncing…</string>
     <string name="invite_cancel_onboarding">Cancel onboarding</string>
     <string name="invite_copy">Copy invite</string>
@@ -77,9 +72,7 @@
     <string name="leave_body">You will stop receiving messages here. You can be re-added by a member.</string>
     <string name="leave_confirm">Leave</string>
     <string name="cancel_join_title">Cancel joining?</string>
-    <string name="cancel_join_body">Joining can take a few minutes while Tor connects, and keeps retrying on its own. If
-        you cancel, this setup can't be resumed: you'll need to reset the app and start again with a new code.
-    </string>
+    <string name="cancel_join_body">Joining can take a few minutes while Tor connects, and keeps retrying on its own. If you cancel, this setup can't be resumed: you'll need to reset the app and start again with a new code.</string>
     <string name="cancel_join_confirm">Cancel joining</string>
 
     <!-- Room header / member panel -->
@@ -119,12 +112,8 @@
     <string name="room_owner_note">The owner can't be removed or demoted.</string>
     <string name="room_action_failed">Couldn't update this member.</string>
     <string name="leave_successor_title">Choose a new owner</string>
-    <string name="leave_successor_body">You're the owner of this room. Pick an active member to take over — you'll leave
-        as soon as ownership transfers.
-    </string>
-    <string name="leave_no_successor">There are no other active members, so ownership can't transfer. Add someone first,
-        or stay.
-    </string>
+    <string name="leave_successor_body">You're the owner of this room. Pick an active member to take over — you'll leave as soon as ownership transfers.</string>
+    <string name="leave_no_successor">There are no other active members, so ownership can't transfer. Add someone first, or stay.</string>
     <string name="leave_transfer_confirm">Transfer and leave</string>
     <plurals name="member_device_count">
         <item quantity="one">%1$d device</item>
@@ -144,12 +133,8 @@
     <string name="transport_action_refreshing">refreshing Tor's network directory</string>
     <string name="transport_action_resetting">choosing new entry relays</string>
     <string name="transport_auto_hint">This is fixed automatically. Messages will be sent once connected.</string>
-    <string name="transport_warming">Connected — your address isn't published yet, so new connections may take a few
-        minutes.
-    </string>
-    <string name="transport_warming_hint">This happens after every restart or network change and clears on its own.
-        Messages to contacts who are already online are unaffected.
-    </string>
+    <string name="transport_warming">Connected — your address isn't published yet, so new connections may take a few minutes.</string>
+    <string name="transport_warming_hint">This happens after every restart or network change and clears on its own. Messages to contacts who are already online are unaffected.</string>
     <string name="transport_unreachable">Tor can't make your address reachable — check your connection.</string>
     <string name="transport_unreachable_hint">Still retrying underneath.</string>
     <string name="transport_details">Details</string>
@@ -175,9 +160,7 @@
     <string name="setup_port_hint">Port (80)</string>
     <string name="setup_recover_button">Recover</string>
     <string name="setup_working">Working… %1$ds</string>
-    <string name="setup_working_tor">First run bootstraps Tor (downloads consensus) — this can take several minutes.
-        Your progress is safe; leave the window open.
-    </string>
+    <string name="setup_working_tor">First run bootstraps Tor (downloads consensus) — this can take several minutes. Your progress is safe; leave the window open.</string>
     <string name="setup_invite_label">Invite code (sponsor scans or pastes this):</string>
     <string name="setup_recovery_label">Save your recovery key — shown once:</string>
     <string name="setup_stored">I stored it</string>
@@ -185,14 +168,15 @@
 
     <!-- Sponsor dialog -->
     <string name="sponsor_title">Sponsor a newcomer</string>
-    <string name="sponsor_body">Paste the invite code the newcomer's app shows. Nothing is written until the code checks
-        out.
-    </string>
+    <string name="sponsor_body">Paste the invite code the newcomer's app shows. Nothing is written until the code checks out.</string>
     <string name="sponsor_hint">Paste invite code</string>
+    <string name="sponsor_preview_button">Preview</string>
+    <string name="sponsor_preview_new_title">New account</string>
+    <string name="sponsor_preview_new_body">%1$s wants to join the network.</string>
+    <string name="sponsor_preview_device_title">New device</string>
+    <string name="sponsor_preview_device_body">A %1$s will join your account. No admin toggle: devices share the account.</string>
     <string name="sponsor_grant_admin">Grant admin to this account</string>
-    <string name="sponsor_grant_note">Only for new accounts — ignored for an extra device on your own account.</string>
-    <string name="sponsor_bad_shape">That text doesn't look like an invite code — re-copy it carefully and try again.
-    </string>
+    <string name="sponsor_bad_shape">That text doesn't look like an invite code — re-copy it carefully and try again.</string>
     <string name="sponsor_working">Sponsoring…</string>
     <string name="sponsor_button">Sponsor</string>
 
@@ -203,25 +187,14 @@
 
     <!-- Reset / failure / stopped -->
     <string name="reset_removed_title">You have been removed from the network</string>
-    <string name="reset_removed_body">This device (or its account) was removed by a network admin. This copy of the data
-        can no longer rejoin on its own.
-    </string>
-    <string name="reset_removed_next">Resetting wipes local data and returns to setup. You'll need a fresh invite from
-        an admin to rejoin.
-    </string>
+    <string name="reset_removed_body">This device (or its account) was removed by a network admin. This copy of the data can no longer rejoin on its own.</string>
+    <string name="reset_removed_next">Resetting wipes local data and returns to setup. You'll need a fresh invite from an admin to rejoin.</string>
     <string name="reset_inconsistent_title">Local data is inconsistent</string>
-    <string name="reset_inconsistent_body">Stored keys and database rows no longer line up, so the app can't prove who
-        this device is.
-    </string>
-    <string name="reset_inconsistent_next">Resetting wipes local data and returns to setup. If you have a recovery key
-        you can restore; otherwise you'll need a fresh invite.
-    </string>
+    <string name="reset_inconsistent_body">Stored keys and database rows no longer line up, so the app can't prove who this device is.</string>
+    <string name="reset_inconsistent_next">Resetting wipes local data and returns to setup. If you have a recovery key you can restore; otherwise you'll need a fresh invite.</string>
     <string name="reset_expired_title">Setup didn't finish</string>
-    <string name="reset_expired_body">Joining never completed and the one-time setup secret is gone, so this install
-        can't resume where it stopped.
-    </string>
-    <string name="reset_expired_next">Resetting wipes local data and returns to setup — start again with a fresh code.
-    </string>
+    <string name="reset_expired_body">Joining never completed and the one-time setup secret is gone, so this install can't resume where it stopped.</string>
+    <string name="reset_expired_next">Resetting wipes local data and returns to setup — start again with a fresh code.</string>
     <string name="reset_details">Details: %1$s</string>
     <string name="reset_type_to_confirm">Type "reset" to confirm</string>
     <string name="reset_button">Reset app</string>
@@ -309,6 +282,21 @@
     <string name="settings_keybinds_note">Custom keybinds are coming in a later build.</string>
     <string name="settings_admin_only">Only admins can manage members.</string>
     <string name="settings_ban">Ban</string>
+    <string name="settings_ban_title">Ban %1$s?</string>
+    <string name="settings_ban_body">%1$s and all their devices will lose access to the network.</string>
+    <string name="settings_make_admin">Make admin</string>
+    <string name="settings_remove_admin">Remove admin</string>
+    <string name="settings_step_down">Step down</string>
+    <string name="settings_step_down_title">Step down as admin?</string>
+    <string name="settings_step_down_body">You will lose admin rights. Another admin can grant them back.</string>
+    <string name="settings_step_down_confirm">Step down</string>
+    <string name="toast_admin_granted">Admin granted.</string>
+    <string name="toast_admin_revoked">Admin revoked.</string>
+    <string name="toast_banned">Account banned.</string>
+    <string name="toast_device_removed">Device removed.</string>
+    <string name="toast_stepped_down">Stepped down.</string>
+    <string name="toast_op_failed">Couldn\'t do that.</string>
+    <string name="settings_provisional">syncing…</string>
     <string name="settings_data_dir">Data directory</string>
     <string name="settings_no_backend">No backend settings exposed.</string>
     <string name="settings_reset_app">Reset app…</string>
@@ -340,8 +328,7 @@
     <string name="toast_key_copied">Recovery key copied.</string>
     <string name="toast_peer_copied">Peer ID copied.</string>
     <string name="toast_onion_copied">Onion address copied.</string>
-    <string name="toast_onboarding_cancelled">Onboarding cancelled — reset the app and set up again with a fresh code.
-    </string>
+    <string name="toast_onboarding_cancelled">Onboarding cancelled — reset the app and set up again with a fresh code.</string>
     <string name="toast_sponsor_added">Newcomer added to the network.</string>
     <string name="toast_sponsor_added_no_admin">Device added (admin flag didn't apply to this join).</string>
     <string name="toast_sponsor_failed">Couldn't sponsor — try again.</string>
@@ -358,6 +345,7 @@
     <string name="desc_leave_room">Leave this room</string>
     <string name="desc_close_view">Close room view</string>
     <string name="desc_attach">Attach</string>
+    <string name="desc_expand_devices">Show devices</string>
     <string name="desc_role">Role</string>
     <string name="desc_copy_room">Copy room ID</string>
     <string name="desc_close_panel">Close panel</string>

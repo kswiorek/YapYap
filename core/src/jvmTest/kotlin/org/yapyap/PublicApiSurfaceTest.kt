@@ -69,6 +69,7 @@ class PublicApiSurfaceTest {
         "org.yapyap.orchestrator.runtime.room.RoomEventOutcome",
         "org.yapyap.orchestrator.runtime.room.RoomEventRefusal",
         "org.yapyap.orchestrator.runtime.onboarding.OnboardingService",
+        "org.yapyap.orchestrator.runtime.onboarding.InspectInviteResult",
         "org.yapyap.orchestrator.runtime.onboarding.SponsorOutcome",
         "org.yapyap.orchestrator.runtime.onboarding.SponsorRefusal",
         "org.yapyap.orchestrator.runtime.onboarding.InviteDefect",

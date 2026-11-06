@@ -35,6 +35,8 @@ fun YapButton(
     variant: YapButtonVariant = YapButtonVariant.Primary,
     enabled: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+    /** Dense inline-row action (settings rows, member lists): 28 dp, smaller type. */
+    compact: Boolean = false,
 ) {
     val colors = yapColors
     val interaction = remember { MutableInteractionSource() }
@@ -75,11 +77,14 @@ fun YapButton(
             .background(bg.copy(alpha = if (enabled) 1f else 0.5f))
             .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(YapRadius.sm))
             .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
-            .padding(contentPadding)
-            .defaultMinSize(minHeight = 38.dp),
+            .padding(if (compact) PaddingValues(horizontal = 10.dp, vertical = 4.dp) else contentPadding)
+            .defaultMinSize(minHeight = if (compact) 28.dp else 38.dp),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(text, style = yapType.bodyMdMedium.copy(color = fg))
+        BasicText(
+            text,
+            style = (if (compact) yapType.bodySmMedium else yapType.bodyMdMedium).copy(color = fg)
+        )
     }
 }
 
