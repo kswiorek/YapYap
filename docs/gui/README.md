@@ -85,7 +85,7 @@ left out entirely.
 **Must match** (the user notices immediately if it's wrong):
 
 - three-column desktop shell with the same *pane order and proportions*,
-- the colour ladder (darkest rail → chat → raised surfaces) and the blurple accent,
+- the colour ladder (darkest rail → chat → raised surfaces) and the Yap pink accent,
 - 14/16 px UI text, 32 px rows, 8 px radii everywhere,
 - hover/selected/unread states on room list items,
 - message grouping, 40 px avatar column, the floating hover toolbar,

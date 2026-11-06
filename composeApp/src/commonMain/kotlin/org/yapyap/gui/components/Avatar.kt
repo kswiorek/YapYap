@@ -82,7 +82,7 @@ private fun circleRingBrush(color: Color): Brush = Brush.radialGradient(
 
 private fun gradientFor(seed: String): Pair<Color, Color> {
     val palette = listOf(
-        0xFF5865F2 to 0xFF9B5CF6,
+        0xFFFF4A74 to 0xFF9B5CF6,
         0xFF3BA55D to 0xFF2D7D46,
         0xFFED4245 to 0xFF9B2C2C,
         0xFFFEA02A to 0xFFC26E0A,

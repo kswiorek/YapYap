@@ -480,10 +480,39 @@ private fun AppearancePane(session: YapSession) {
     val prefs by session.prefsController.prefs.collectAsState()
     PaneTitle(stringResource(Res.string.settings_nav_appearance))
     SettingsRow(stringResource(Res.string.settings_theme), stringResource(Res.string.settings_theme_desc)) {
-        BasicText(
-            stringResource(Res.string.settings_theme_value),
-            style = yapType.bodySm.copy(color = yapColors.textDefault)
-        )
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ThemeChip(
+                label = stringResource(Res.string.settings_theme_dark),
+                selected = prefs.appearance.theme == "dark",
+                onClick = {
+                    session.prefsController.update {
+                        it.copy(appearance = it.appearance.copy(theme = "dark"))
+                    }
+                },
+            )
+            ThemeChip(
+                label = stringResource(Res.string.settings_theme_light),
+                selected = prefs.appearance.theme == "light",
+                onClick = {
+                    session.prefsController.update {
+                        it.copy(appearance = it.appearance.copy(theme = "light"))
+                    }
+                },
+            )
+            ThemeChip(
+                label = stringResource(Res.string.settings_theme_system),
+                selected = prefs.appearance.theme == "system",
+                onClick = {
+                    session.prefsController.update {
+                        it.copy(appearance = it.appearance.copy(theme = "system"))
+                    }
+                },
+            )
+        }
     }
     SettingsRow(stringResource(Res.string.settings_msg_display), stringResource(Res.string.settings_msg_display_desc)) {
         BasicText(
@@ -528,8 +557,13 @@ private fun AppearancePane(session: YapSession) {
             }
         }
     }
-    SoonRow(stringResource(Res.string.settings_light_theme), stringResource(Res.string.settings_light_theme_desc))
     SoonRow(stringResource(Res.string.settings_accent), stringResource(Res.string.settings_accent_desc))
+}
+
+/** Theme selector chip: same geometry as [ZoomChip], separate name for intent. */
+@Composable
+private fun ThemeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    ZoomChip(label, selected, onClick)
 }
 
 @Composable

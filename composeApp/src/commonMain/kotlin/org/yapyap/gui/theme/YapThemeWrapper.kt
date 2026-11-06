@@ -5,14 +5,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 
-/** Composition root for YapYap theming. Dark-only for v1 (light = stub). */
+/** Composition root for YapYap theming. */
 @Composable
 fun YapTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    // Only the dark palette exists today; the parameter keeps the seam for light theme.
-    val colors = if (darkTheme) YapDarkColors else YapDarkColors
+    // Accent ramp is theme-independent (YapAccent); only surfaces/text differ per
+    // palette, so a new theme is a new YapColors instance reusing YapAccent.
+    val colors = if (darkTheme) YapDarkColors else YapLightColors
     CompositionLocalProvider(
         LocalYapColors provides colors,
         LocalYapType provides YapTypeScale,
@@ -25,6 +26,17 @@ val yapColors: YapColors
     @Composable
     @ReadOnlyComposable
     get() = LocalYapColors.current
+
+/**
+ * Resolves [UiPreferences] `appearance.theme` ("dark" / "light" / "system")
+ * against the OS setting. Unknown values fall back to dark.
+ */
+@Composable
+fun resolveDarkTheme(themePref: String): Boolean = when (themePref) {
+    "light" -> false
+    "system" -> isSystemInDarkTheme()
+    else -> true
+}
 
 val yapType: YapType
     @Composable

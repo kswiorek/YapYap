@@ -15,6 +15,7 @@ import org.yapyap.gui.capabilities.LocalCapabilities
 import org.yapyap.gui.components.ToastHost
 import org.yapyap.gui.components.YapButton
 import org.yapyap.gui.components.YapButtonVariant
+import org.yapyap.gui.components.YapLogo
 import org.yapyap.gui.prefs.UiPreferences
 import org.yapyap.gui.screens.reset.FailureScreen
 import org.yapyap.gui.screens.reset.ResetScreen
@@ -24,6 +25,7 @@ import org.yapyap.gui.screens.shell.MainShell
 import org.yapyap.gui.session.ToastKind
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.YapTheme
+import org.yapyap.gui.theme.resolveDarkTheme
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.BootPhase
@@ -34,24 +36,24 @@ import yapyap.composeapp.generated.resources.* // Res + generated string accesso
 
 @Composable
 fun App(session: YapSession?) {
-    YapTheme {
+    if (session == null) {
+        YapTheme { SplashScreen("YapYap") }
+        return
+    }
+    val prefs by session.prefsController.prefs.collectAsState()
+    YapTheme(darkTheme = resolveDarkTheme(prefs.appearance.theme)) {
         androidx.compose.runtime.CompositionLocalProvider(
             LocalCapabilities provides Capabilities(),
         ) {
-            if (session == null) {
-                SplashScreen("YapYap")
-            } else {
-                val prefs by session.prefsController.prefs.collectAsState()
-                WithUiZoom(prefs) {
-                    val orchState by session.orchestratorFlow.collectAsState()
-                    val orch = orchState
-                    if (orch == null) {
-                        LaunchedEffect(session) { session.start() }
-                        SplashScreen(stringResource(Res.string.splash_starting))
-                    } else {
-                        val state by orch.state.collectAsState()
-                        AppRoot(session, orch, state)
-                    }
+            WithUiZoom(prefs) {
+                val orchState by session.orchestratorFlow.collectAsState()
+                val orch = orchState
+                if (orch == null) {
+                    LaunchedEffect(session) { session.start() }
+                    SplashScreen(stringResource(Res.string.splash_starting))
+                } else {
+                    val state by orch.state.collectAsState()
+                    AppRoot(session, orch, state)
                 }
             }
         }
@@ -138,7 +140,7 @@ fun SplashScreen(line: String) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            BasicText("✦", style = yapType.headingXxl.copy(color = colors.brand))
+            YapLogo()
             Spacer(Modifier.height(12.dp))
             BasicText("YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
             Spacer(Modifier.height(8.dp))
@@ -169,7 +171,7 @@ private fun BootSplash(progress: BootProgress) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            BasicText("✦", style = yapType.headingXxl.copy(color = colors.brand))
+            YapLogo()
             Spacer(Modifier.height(12.dp))
             BasicText("YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
             Spacer(Modifier.height(8.dp))

@@ -38,7 +38,14 @@ fun SetupScreen(session: YapSession) {
 
     CenterColumn {
         Column(Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
-            BasicText("✦  YapYap", style = yapType.headingXxl.copy(color = colors.textStrong))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                YapMark(size = 28.dp)
+                BasicText(
+                    "YapYap",
+                    style = yapType.headingXxl.copy(color = colors.textStrong),
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
             BasicText(
                 stringResource(Res.string.setup_tagline),
                 style = yapType.bodySm.copy(color = colors.textMuted),

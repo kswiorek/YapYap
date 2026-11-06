@@ -23,7 +23,10 @@ import androidx.compose.ui.window.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.files.Path
+import org.yapyap.gui.components.YapMark
 import org.yapyap.gui.session.*
+import org.yapyap.gui.theme.YapTheme
+import org.yapyap.gui.theme.resolveDarkTheme
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
 import org.yapyap.orchestrator.LoopbackTransport
@@ -100,10 +103,29 @@ fun main(args: Array<String>) {
             undecorated = !cli.nativeTitlebar,
             resizable = true,
         ) {
-            val colors = yapColors
-            // Dark AWT background: no light flash behind Compose content.
+            // Window chrome follows the same theme pref as App content (it lives
+            // outside App's YapTheme, so it gets its own wrapper here).
+            val prefs by session.prefsController.prefs.collectAsState()
+            YapTheme(darkTheme = resolveDarkTheme(prefs.appearance.theme)) {
+                val colors = yapColors
+                // AWT background tracks the theme: no light flash behind Compose
+                // content in either palette.
+                remember(window, colors.bgApp) {
+                    window.background = java.awt.Color(
+                        (colors.bgApp.red * 255).toInt(),
+                        (colors.bgApp.green * 255).toInt(),
+                        (colors.bgApp.blue * 255).toInt(),
+                    )
+                    true
+                }
+                // Brand icon instead of the generic Java one (bundled raster; the
+                // vector originals live in composeApp/icons, drawables in CMP res).
             remember(window) {
-                window.background = java.awt.Color(0x2C, 0x2D, 0x32)
+                runCatching {
+                    YapSession::class.java.getResourceAsStream("/app-icon.png")?.use {
+                        javax.imageio.ImageIO.read(it)
+                    }?.let { window.iconImage = it }
+                }
                 true
             }
             if (cli.nativeTitlebar) {
@@ -117,7 +139,6 @@ fun main(args: Array<String>) {
                 val isMaximized = windowState.placement == WindowPlacement.Maximized
                 // Same UI zoom as App content (WithUiZoom is a sibling wrapper here,
                 // so the bar and the content each scale exactly once).
-                val prefs by session.prefsController.prefs.collectAsState()
                 Box(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().background(colors.bgApp)) {
                         WithUiZoom(prefs) {
@@ -149,6 +170,7 @@ fun main(args: Array<String>) {
                     }
                 }
             }
+            } // YapTheme wrapper for the window chrome (see above)
         }
     }
 }
@@ -271,10 +293,11 @@ private fun TitleBar(
             // Traffic lights sit on the left, like every native macOS window.
             TrafficLights(onClose = onClose, onMinimize = onMinimize, onZoom = onToggleMax)
         }
+        YapMark(size = 18.dp, modifier = Modifier.padding(start = 12.dp))
         BasicText(
-            "✦ YapYap$devMarker",
+            "YapYap$devMarker",
             style = yapType.bodySmMedium.copy(color = colors.textSubtle),
-            modifier = Modifier.padding(start = 12.dp).weight(1f),
+            modifier = Modifier.padding(start = 8.dp).weight(1f),
         )
         if (!isMac) {
             TitleButton(CaptionKind.Minimize, isMaximized, onMinimize)

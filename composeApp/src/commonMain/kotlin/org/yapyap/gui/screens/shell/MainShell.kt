@@ -764,7 +764,7 @@ private fun NoRoomSelected(recent: List<String>) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            BasicText("✦", style = yapType.headingXxl.copy(color = colors.brand))
+            YapLogo(size = 56.dp)
             BasicText(
                 stringResource(Res.string.shell_no_room_title),
                 style = yapType.headingLg.copy(color = colors.textStrong),

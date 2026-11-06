@@ -175,6 +175,17 @@ compose.desktop {
             // jdeps doesn't detect it (loaded reflectively), so without this the
             // packaged runtime throws BackendNotSupportedException for every keyring.
             modules("jdk.security.auth")
+            // Brand mark (sources + rasters in composeApp/icons, vectors in CMP
+            // drawable res). Formats are per-OS: .icns macOS, .ico Windows, .png Linux.
+            macOS {
+                iconFile.set(project.file("icons/icon-macos.icns"))
+            }
+            windows {
+                iconFile.set(project.file("icons/icon-windows.ico"))
+            }
+            linux {
+                iconFile.set(project.file("icons/icon-linux.png"))
+            }
         }
     }
 }

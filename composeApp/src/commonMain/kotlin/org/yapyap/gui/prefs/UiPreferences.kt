@@ -46,8 +46,9 @@ fun decodeUiPreferences(raw: String): UiPreferences = UiPreferences.decodeOrDefa
 
 @Serializable
 data class AppearancePrefs(
-    val theme: String = "dark", // dark only; light/system = stub
-    val accent: String = "blurple",
+    /** "dark", "light", or "system" (follows the OS). */
+    val theme: String = "dark",
+    val accent: String = "pink",
     val density: String = "default",
     val messageDisplay: String = "cozy",
     val groupSpacing: Int = 16,

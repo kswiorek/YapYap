@@ -33,9 +33,18 @@ Two extras:
 
 ### Light theme
 
-Deferred for v1. Keep every colour behind a `YapColors` value object (see `YapTheme.kt`) so a light
-palette is a second instance, not a refactor. To capture Discord's light values, flip
-Appearance → Light and re-run the harness (`tools/discord-capture/README.md`).
+Shipped. `YapLightColors` mirrors the dark ladder (rail `#DBDEE4` → chat
+`#EDEFF2` → raised `#F6F7F9` → surfaces `#FFFFFF`), dark text, same pink
+buttons. Accent *text* uses the deep on-light tones (`YapAccent.textOnLight`
+/ `linkOnLight` / `mentionFgOnLight`, all ≥4.5:1 on white) — white-on-pink
+contrast does not transfer to pink-on-white. The ladder is provisional: flip
+Appearance → Light and re-run the harness (`tools/discord-capture/README.md`)
+to capture Discord's exact light values, then swap the surface/text block.
+
+Adding a theme later: copy `YapDarkColors`, swap surfaces/text, keep
+`YapAccent` (buttons, focus ring, washes) and `YapNeutrals` (hovers, borders,
+scrim) as-is. Select it in `YapThemeWrapper` / `resolveDarkTheme` and add a
+chip in `AppearancePane`.
 
 ---
 
@@ -60,24 +69,31 @@ Contrast rule: body text is `#f3f3f4` on `#323339` (≈ 11:1). Never use a darke
 
 ## 3. Brand, status, feedback
 
-| Role                         | Hex                   | Token                                                               |
-|------------------------------|-----------------------|---------------------------------------------------------------------|
-| Blurple (primary)            | `#5865f2`             | `--brand-500` / `--control-primary-background-default`              |
-| Blurple hover                | `#4452bb`             | `--control-primary-background-hover`                                |
-| Blurple pressed              | `#3a48a3`             | `--control-primary-background-active`                               |
-| Blurple light (text on dark) | `#8ca0fd`             | `--brand-360`                                                       |
-| Online                       | `#3d9e60`             | `--status-online`                                                   |
-| Idle                         | `#ffcb6e`             | `--text-status-idle`                                                |
-| Do not disturb               | `#dc4247`             | `--text-status-dnd`                                                 |
-| Offline / unknown            | `#9d9ea5`             | `--text-status-offline`                                             |
-| Positive                     | `#7ecb94`             | `--text-feedback-positive`                                          |
-| Warning                      | `#fcb529`             | `--text-feedback-warning`                                           |
-| Danger                       | `#d22d39` / `#da3e44` | `--control-critical-primary-background-default` / `--status-danger` |
-| Info                         | `#8ebefa`             | `--text-feedback-info`                                              |
+YapYap keeps Discord's *roles* but not its blurple. The accent is **Yap pink**
+(single source of truth: `YapAccent` in `YapTheme.kt` — every palette reuses it,
+so a rebrand or a new theme touches one object).
+
+| Role                      | Hex                   | Notes                                                               |
+|---------------------------|-----------------------|---------------------------------------------------------------------|
+| Pink (primary)            | `#FF4A74`             | `YapAccent.pink` — buttons, selected rail icon, progress, logo      |
+| Pink hover                | `#C73A5A`             | `YapAccent.pinkHover` — same ~0.78x darkening Discord uses          |
+| Pink pressed              | `#AB324E`             | `YapAccent.pinkActive` — same ~0.67x darkening Discord uses         |
+| Pink light (text on dark) | `#FF8AA5`             | `YapAccent.pinkSubtle` — Discord's lightness step on the pink hue   |
+| Brand text                | `#FF94AD`             | `YapAccent.text`                                                    |
+| Links                     | `#FF6D8F`             | `YapAccent.link`                                                    |
+| Focus ring                | `#FF5F84`             | `YapAccent.focus`                                                   |
+| Online                    | `#3d9e60`             | `--status-online`                                                   |
+| Idle                      | `#ffcb6e`             | `--text-status-idle`                                                |
+| Do not disturb            | `#dc4247`             | `--text-status-dnd`                                                 |
+| Offline / unknown         | `#9d9ea5`             | `--text-status-offline`                                             |
+| Positive                  | `#7ecb94`             | `--text-feedback-positive`                                          |
+| Warning                   | `#fcb529`             | `--text-feedback-warning`                                           |
+| Danger                    | `#d22d39` / `#da3e44` | `--control-critical-primary-background-default` / `--status-danger` |
+| Info                      | `#8ebefa`             | `--text-feedback-info`                                              |
 
 Mentions and highlights are **tinted overlays**, not solid fills:
 
-- mention pill: `#5865f2` @ 24 %, text `#cdd7ff`
+- mention pill: pink `#FF4A74` @ 24 % (`YapAccent.mentionBg`), text `#FFCDD9`
 - mentioned message row: `#f8a300` @ 8 %
 - new-message divider: brand line + brand label
 
