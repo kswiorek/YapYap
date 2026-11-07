@@ -1,0 +1,142 @@
+package org.yapyap.orchestrator.store
+
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.Causal_hold
+import org.yapyap.persistence.YapYapDatabase
+import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.protocol.RoomId
+import kotlin.time.Instant
+import kotlin.uuid.Uuid
+
+internal data class Gap(
+    val gapId: Uuid,
+    val missingPrevId: Uuid,
+    val orphanedMessageId: Uuid,
+    val detectedTimestamp: Instant,
+)
+
+internal interface CausalHoldRepository {
+
+    suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant)
+
+    suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap>
+
+    suspend fun findByRoom(roomId: RoomId): List<Gap>
+
+    suspend fun findAll(): List<Gap>
+
+    /** Open holds against [orphanedMessageId] (non-zero while any parent is still missing). */
+    suspend fun countByOrphan(orphanedMessageId: Uuid): Long
+
+    suspend fun deleteByMissingPrevId(missingPrevId: Uuid)
+
+    suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid)
+}
+
+internal class DefaultCausalHoldRepository(
+    database: YapYapDatabase,
+    private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
+) : CausalHoldRepository {
+
+    private val queries = database.messageQueries
+
+    override suspend fun insert(gapId: Uuid, missingPrevId: Uuid, orphanedMessageId: Uuid, detectedTimestamp: Instant) {
+        withContext(dbDispatcher) {
+            queries.insertCausalHold(gapId, missingPrevId, orphanedMessageId, detectedTimestamp)
+            AppLog.info(
+                component = LogComponent.DATABASE,
+                event = LogEvent.CAUSAL_HOLD_INSERTED,
+                message = "Inserted gap causal hold",
+                fields = mapOf(
+                    "gapId" to gapId,
+                    "missingPrevId" to missingPrevId,
+                    "orphanedMessageId" to orphanedMessageId,
+                    "detectedTimestamp" to detectedTimestamp,
+                ),
+            )
+        }
+    }
+
+    override suspend fun findByMissingPrevId(missingPrevId: Uuid): List<Gap> =
+        withContext(dbDispatcher) {
+            val rows = queries.selectCausalHoldsByMissingPrevId(missingPrevId).executeAsList().map { it.toRow() }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.CAUSAL_HOLD_QUERIED,
+                message = "Fetched causal holds by missing prev id",
+                fields = mapOf(
+                    "missingPrevId" to missingPrevId,
+                    "resultCount" to rows.size,
+                ),
+            )
+            rows
+        }
+
+    override suspend fun findByRoom(roomId: RoomId): List<Gap> =
+        withContext(dbDispatcher) {
+            val rows = queries.selectCausalHoldsByRoom(roomId).executeAsList().map { it.toRow() }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.CAUSAL_HOLD_QUERIED,
+                message = "Fetched causal holds for room",
+                fields = mapOf(
+                    "roomId" to roomId,
+                    "resultCount" to rows.size,
+                ),
+            )
+            rows
+        }
+
+    override suspend fun findAll(): List<Gap> =
+        withContext(dbDispatcher) {
+            val rows = queries.selectAllCausalHolds().executeAsList().map { it.toRow() }
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.CAUSAL_HOLD_QUERIED,
+                message = "Fetched all causal holds",
+                fields = mapOf("resultCount" to rows.size),
+            )
+            rows
+        }
+
+    override suspend fun countByOrphan(orphanedMessageId: Uuid): Long =
+        withContext(dbDispatcher) {
+            queries.selectCausalHoldCountByOrphan(orphanedMessageId).executeAsOne()
+        }
+
+    override suspend fun deleteByMissingPrevId(missingPrevId: Uuid) {
+        withContext(dbDispatcher) {
+            queries.deleteCausalHoldsByMissingPrevId(missingPrevId)
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.CAUSAL_HOLD_DELETED,
+                message = "Deleted causal holds by missing prev id",
+                fields = mapOf("missingPrevId" to missingPrevId),
+            )
+        }
+    }
+
+    override suspend fun deleteByOrphanedMessageId(orphanedMessageId: Uuid) {
+        withContext(dbDispatcher) {
+            queries.deleteCausalHoldByOrphanedMessageId(orphanedMessageId)
+            AppLog.debug(
+                component = LogComponent.DATABASE,
+                event = LogEvent.CAUSAL_HOLD_DELETED,
+                message = "Deleted causal hold by orphaned message id",
+                fields = mapOf("orphanedMessageId" to orphanedMessageId),
+            )
+        }
+    }
+
+    private fun Causal_hold.toRow(): Gap =
+        Gap(
+            gapId = this.gap_id,
+            missingPrevId = this.missing_prev_id,
+            orphanedMessageId = this.orphaned_message_id,
+            detectedTimestamp = this.detected_timestamp,
+        )
+}

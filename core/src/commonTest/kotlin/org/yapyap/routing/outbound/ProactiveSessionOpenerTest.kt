@@ -1,11 +1,11 @@
 package org.yapyap.routing.outbound
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.*
 import org.yapyap.sync.FakePeerAvailabilityStore
@@ -51,13 +51,15 @@ class ProactiveSessionOpenerTest {
         val clock = FakeClock(epochSeconds(10_000L))
         val config = RouterConfig(sessionAwaitReopenDelay = reopenDelay)
         val configFlow = MutableStateFlow(config)
-        val localDevice = DeviceIdentityRecord(
+        val localDevice = DeviceIdentity(
             deviceId = PeerId("opener-local-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
         val ctx = RoutingContext(
-            identityResolver = FakeIdentityResolverForRouter(localDevice = localDevice),
+            localIdentity = FakeIdentityResolverForRouter(localDevice = localDevice),
+            devices = FakeIdentityResolverForRouter(localDevice = localDevice),
+            routes = FakeIdentityResolverForRouter(localDevice = localDevice),
             packetDeduplicator = InMemoryPacketDeduplicator(),
             envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
             torTransport = RecordingTorTransport(),

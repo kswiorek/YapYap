@@ -67,7 +67,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
 
         val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(
@@ -89,7 +89,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
 
         val payload = samplePacketNackPayload()
         val ctx = sampleEnvelopeContext(
@@ -111,7 +111,7 @@ class SystemProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+        val protection = SignedSystemProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
 
         val payload = samplePacketAckPayload()
         val ctx = sampleEnvelopeContext(

@@ -1,6 +1,7 @@
 package org.yapyap.protocol.envelopes
 
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.TorEndpoint
@@ -22,23 +23,23 @@ class GlobalEventPayloadCodecTest {
         val binding = accountSignedDeviceBindingBytes(
             accountId = accountId,
             deviceId = deviceId,
-            signingPublicKey = signing.publicKey,
-            encryptionPublicKey = encryption.publicKey,
+            signingPublicKey = signing.publicKey.bytes,
+            encryptionPublicKey = encryption.publicKey.bytes,
             torEndpoint = tor,
             deviceType = deviceType,
         )
         return GlobalEventPayload.AddDevice(
             accountId = accountId,
             deviceId = deviceId,
-            signingPublicKey = signing.publicKey,
-            encryptionPublicKey = encryption.publicKey,
+            signingPublicKey = signing.publicKey.bytes,
+            encryptionPublicKey = encryption.publicKey.bytes,
             torEndpoint = tor,
             deviceType = deviceType,
             keySignature = crypto.signDetached(accountKeys.privateKey, binding),
             signedPreKeyId = if (withSpk) "spk-test" else null,
-            signedPreKeyPublicKey = if (withSpk) spk.publicKey else null,
+            signedPreKeyPublicKey = if (withSpk) spk.publicKey.bytes else null,
             signedPreKeySignature = if (withSpk) {
-                crypto.signDetached(signing.privateKey, spk.publicKey)
+                crypto.signDetached(signing.privateKey, spk.publicKey.bytes)
             } else {
                 null
             },
@@ -89,8 +90,8 @@ class GlobalEventPayloadCodecTest {
         val binding = accountSignedDeviceBindingBytes(
             accountId = accountId,
             deviceId = deviceId,
-            signingPublicKey = signing.publicKey,
-            encryptionPublicKey = encryption.publicKey,
+            signingPublicKey = signing.publicKey.bytes,
+            encryptionPublicKey = encryption.publicKey.bytes,
             torEndpoint = tor,
             deviceType = DeviceType.DESKTOP,
         )
@@ -98,15 +99,15 @@ class GlobalEventPayloadCodecTest {
         suspend fun event(withSpk: Boolean): GlobalEventPayload.AddDevice = GlobalEventPayload.AddDevice(
             accountId = accountId,
             deviceId = deviceId,
-            signingPublicKey = signing.publicKey,
-            encryptionPublicKey = encryption.publicKey,
+            signingPublicKey = signing.publicKey.bytes,
+            encryptionPublicKey = encryption.publicKey.bytes,
             torEndpoint = tor,
             deviceType = DeviceType.DESKTOP,
             keySignature = keySignature,
             signedPreKeyId = if (withSpk) "spk-test" else null,
-            signedPreKeyPublicKey = if (withSpk) spk.publicKey else null,
+            signedPreKeyPublicKey = if (withSpk) spk.publicKey.bytes else null,
             signedPreKeySignature = if (withSpk) {
-                crypto.signDetached(signing.privateKey, spk.publicKey)
+                crypto.signDetached(signing.privateKey, spk.publicKey.bytes)
             } else {
                 null
             },
@@ -119,7 +120,7 @@ class GlobalEventPayloadCodecTest {
         val event = sampleAddDevice(withSpk = true)
         assertTrue(
             crypto.verifyDetached(
-                event.signingPublicKey,
+                SigningPublicKey(event.signingPublicKey),
                 event.signedPreKeyPublicKey!!,
                 event.signedPreKeySignature!!,
             ),

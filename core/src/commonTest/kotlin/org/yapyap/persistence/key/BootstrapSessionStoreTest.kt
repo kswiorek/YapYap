@@ -1,7 +1,12 @@
 package org.yapyap.persistence.key
 
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -76,11 +81,7 @@ class BootstrapSessionStoreTest {
         // A bare pre-deadline-era secret (no magic prefix): stale by construction, must fail
         // closed instead of parsing as a garbage deadline.
         keyStore.putKey(
-            KeyReference(
-                keyId = "yapyap:bootstrap:secret",
-                purpose = IdentityKeyPurpose.BOOTSTRAP_SECRET,
-                type = KeyType.PRIVATE,
-            ),
+            KeySlot.BootstrapSession,
             ByteArray(32) { 9 },
         )
 

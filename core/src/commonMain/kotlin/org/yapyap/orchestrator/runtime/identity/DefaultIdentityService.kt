@@ -9,10 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
-import org.yapyap.persistence.key.AccountRow
-import org.yapyap.persistence.key.DeviceRow
-import org.yapyap.persistence.key.IdentityKeyRepository
+import org.yapyap.crypto.identity.Account
+import org.yapyap.crypto.identity.Device
+import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
+import kotlin.time.Instant
+import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.Router
 
 /**
@@ -28,7 +30,7 @@ import org.yapyap.routing.router.Router
  * status — the admin UI and message rendering both need them.
  */
 internal class DefaultIdentityService(
-    private val identityKeyRepository: IdentityKeyRepository,
+    private val identityReader: IdentityReader,
     private val router: Router,
     private val projector: GlobalEventProjector,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
@@ -73,24 +75,30 @@ internal class DefaultIdentityService(
     }
 
     override suspend fun account(accountId: AccountId): AccountView? {
-        val rows = identityKeyRepository.getAllAccountRows()
+        val rows = identityReader.getAllAccounts()
         val row = rows.firstOrNull { it.accountId == accountId } ?: return null
-        val devices = identityKeyRepository.getAllDeviceRows()
+        val devices = identityReader.getAllDevices()
             .filter { it.accountId == accountId }
-        return viewOf(row, devices, _onlineAccounts.value)
+        return viewOf(row, devices, _onlineAccounts.value, router.deviceLastSeen())
     }
 
     private suspend fun refresh() {
         val online = _onlineAccounts.value
-        val devicesByAccount = identityKeyRepository.getAllDeviceRows().groupBy { it.accountId }
-        val views = identityKeyRepository.getAllAccountRows()
-            .map { row -> viewOf(row, devicesByAccount[row.accountId].orEmpty(), online) }
+        val lastSeen = router.deviceLastSeen()
+        val devicesByAccount = identityReader.getAllDevices().groupBy { it.accountId }
+        val views = identityReader.getAllAccounts()
+            .map { row -> viewOf(row, devicesByAccount[row.accountId].orEmpty(), online, lastSeen) }
             .sortedWith(compareBy({ it.displayName }, { it.accountId.id }))
         _accounts.value = views
         _localAccount.value = views.firstOrNull { it.isLocal }
     }
 
-    private fun viewOf(row: AccountRow, devices: List<DeviceRow>, online: Set<AccountId>): AccountView {
+    private fun viewOf(
+        row: Account,
+        devices: List<Device>,
+        online: Set<AccountId>,
+        lastSeen: Map<PeerId, Instant>,
+    ): AccountView {
         val deviceViews = devices
             .map {
                 DeviceView(
@@ -100,7 +108,7 @@ internal class DefaultIdentityService(
                     status = it.status,
                     isLocal = it.isLocal,
                     provisional = it.provisional,
-                    lastSeen = it.lastSeen,
+                    lastSeen = lastSeen[it.deviceId],
                 )
             }
             .sortedBy { it.deviceId.id }

@@ -1,11 +1,17 @@
 package org.yapyap.crypto.identity
 
+
+import org.yapyap.crypto.store.*
+
 import org.yapyap.crypto.CryptoException
+import org.yapyap.crypto.keys.KeySlot
+import org.yapyap.crypto.keys.SPK_ID_PREFIX
+import org.yapyap.crypto.keys.SignedPreKeyId
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.key.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.PeerId
@@ -14,12 +20,13 @@ import kotlin.time.Instant
 
 internal class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,
-    private val publicKeyRepository: IdentityKeyRepository,
+    private val publicKeyRepository: LocalIdentityStore,
     private val keyStore: KeyStore,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
+    private val localKeys: LocalKeys,
     private val clock: Clock,
 ) : IdentityProvisioning {
-    override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord {
+    override suspend fun createNewDeviceIdentity(): DeviceIdentity {
         AppLog.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.STARTED,
@@ -29,62 +36,26 @@ internal class DefaultIdentityProvisioning(
         val encryptionKey = cryptoProvider.generateEncryptionKeyPair()
         val deviceId = cryptoProvider.peerIdFromPublicKey(signingKey.publicKey)
 
-        val signingKeyId = LOCAL_DEVICE_KEY_PREFIX + "signing"
-        val signingKeyRecord = IdentityPublicKeyRecord(
-            IdentityKeyPurpose.SIGNING,
-            signingKey.publicKey
-        )
-        val privateSigningKeyRef =
-            KeyReference(keyId = signingKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
-        val encryptionKeyId = LOCAL_DEVICE_KEY_PREFIX + "encryption"
-        val encryptionKeyRecord = IdentityPublicKeyRecord(
-            IdentityKeyPurpose.ENCRYPTION,
-            encryptionKey.publicKey
-        )
-        val privateEncryptionKeyRef = KeyReference(
-            keyId = encryptionKeyId,
-            purpose = IdentityKeyPurpose.ENCRYPTION,
-            type = KeyType.PRIVATE
-        )
+        keyStore.putKey(KeySlot.DeviceSigningPrivate, signingKey.privateKey.bytes)
+        keyStore.putKey(KeySlot.DeviceSigningPublic, signingKey.publicKey.bytes)
+        keyStore.putKey(KeySlot.DeviceEncryptionPrivate, encryptionKey.privateKey.bytes)
+        keyStore.putKey(KeySlot.DeviceEncryptionPublic, encryptionKey.publicKey.bytes)
 
-        keyStore.putKey(privateSigningKeyRef, signingKey.privateKey)
-        keyStore.putKey(
-            KeyReference(keyId = signingKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC),
-            signingKey.publicKey,
-        )
-
-        keyStore.putKey(privateEncryptionKeyRef, encryptionKey.privateKey)
-        keyStore.putKey(
-            KeyReference(
-                keyId = encryptionKeyId,
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                type = KeyType.PUBLIC
-            ),
-            encryptionKey.publicKey,
-        )
-
-        val signedPreKey = provisionInitialSignedPreKey(
-            signingPrivateKey = signingKey.privateKey,
-            createdAt = clock.now(),
+        val signedPreKey = newSignedPreKey(deviceId, signingKey.privateKey)
+        val identity = DeviceIdentity(
             deviceId = deviceId,
+            signingKey = signingKey.publicKey,
+            encryptionKey = encryptionKey.publicKey,
+            signedPreKey = signedPreKey.preKey,
         )
 
-        val identity = DeviceIdentityRecord(
-            deviceId,
-            signingKeyRecord,
-            encryptionKeyRecord,
-            signedPreKey = signedPreKey,
-        )
-
-        val accountRecord = identityResolver.getLocalAccountIdentityRecord()
+        val accountRecord = localIdentity.getLocalAccountIdentity()
 
         publicKeyRepository.insertLocalDevice(
             accountId = accountRecord.accountId,
             identity = identity
         )
-        val spkRef = signedPreKeyPrivateRef(signedPreKey.keyId)
-
-        keyStore.putKey(spkRef, signedPreKey.privateKey!!)
+        keyStore.putKey(KeySlot.SignedPreKeyPrivate(signedPreKey.id), signedPreKey.privateKey.bytes)
 
         AppLog.info(
             component = LogComponent.CRYPTO,
@@ -95,51 +66,31 @@ internal class DefaultIdentityProvisioning(
         return identity
     }
 
-    private suspend fun provisionInitialSignedPreKey(
-        signingPrivateKey: ByteArray,
-        createdAt: Instant,
-        deviceId: PeerId
-    ): SignedPreKeyRecord {
+    private suspend fun newSignedPreKey(deviceId: PeerId, signingKey: SigningPrivateKey): LocalSignedPreKey {
         val spkPair = cryptoProvider.generateEncryptionKeyPair()
-        val spkId = SPK_KEY_PREFIX + cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
-            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-        val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
-        val record = SignedPreKeyRecord(
-            deviceId = deviceId,
-            keyId = spkId,
-            publicKey = spkPair.publicKey,
-            signature = signature,
-            privateKey = spkPair.privateKey,
-            createdAt = createdAt,
+        val spkId = SignedPreKeyId(
+            SPK_ID_PREFIX + cryptoProvider.toHex(cryptoProvider.sha256(spkPair.publicKey.bytes).copyOf(SPK_ID_BYTES)),
         )
-        return record
+        val signature = cryptoProvider.signDetached(signingKey, spkPair.publicKey.bytes)
+        return LocalSignedPreKey(
+            preKey = SignedPreKey(
+                id = spkId,
+                deviceId = deviceId,
+                publicKey = spkPair.publicKey,
+                signature = signature
+            ),
+            privateKey = spkPair.privateKey,
+        )
     }
 
-    override suspend fun provisionSignedPreKey(): SignedPreKeyRecord {
-        val spkPair = cryptoProvider.generateEncryptionKeyPair()
-        val spkId = SPK_KEY_PREFIX + cryptoProvider.sha256(spkPair.publicKey).take(SPK_ID_BYTES)
-            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-        val signingPrivateKey = identityResolver.getLocalDevicePrivateKey(purpose = IdentityKeyPurpose.SIGNING)
-        val signature = cryptoProvider.signDetached(signingPrivateKey, spkPair.publicKey)
-        val deviceId = identityResolver.getLocalDeviceId()
-        val record = SignedPreKeyRecord(
-            deviceId = deviceId,
-            keyId = spkId,
-            publicKey = spkPair.publicKey,
-            signature = signature,
-            privateKey = spkPair.privateKey,
-            createdAt = clock.now(),
-        )
-
-        val spkRef = signedPreKeyPrivateRef(record.keyId)
-
-        keyStore.putKey(spkRef, record.privateKey!!)
-
-        publicKeyRepository.insertSignedPreKey(record)
-        return record
+    override suspend fun provisionSignedPreKey(): LocalSignedPreKey {
+        val spk = newSignedPreKey(localIdentity.getLocalDeviceId(), localKeys.localDeviceSigningKey())
+        keyStore.putKey(KeySlot.SignedPreKeyPrivate(spk.id), spk.privateKey.bytes)
+        publicKeyRepository.insertSignedPreKey(spk.preKey, createdAt = clock.now())
+        return spk
     }
 
-    override suspend fun createNewAccountIdentity(displayName: String, role: AccountRole): AccountIdentityRecord {
+    override suspend fun createNewAccountIdentity(displayName: String, role: AccountRole): AccountIdentity {
         AppLog.info(
             component = LogComponent.CRYPTO,
             event = LogEvent.STARTED,
@@ -148,21 +99,10 @@ internal class DefaultIdentityProvisioning(
         )
         val signingKey = cryptoProvider.generateSigningKeyPair()
         val accountId = cryptoProvider.accountIdFromPublicKey(signingKey.publicKey)
-        val accountKeyId = LOCAL_ACCOUNT_KEY_PREFIX + "signing"
-        val accountKeyRecord = IdentityPublicKeyRecord(
-            IdentityKeyPurpose.SIGNING,
-            signingKey.publicKey
-        )
+        keyStore.putKey(KeySlot.AccountSigningPrivate, signingKey.privateKey.bytes)
+        keyStore.putKey(KeySlot.AccountSigningPublic, signingKey.publicKey.bytes)
 
-        val privateAccountKeyRef =
-            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
-        val publicAccountKeyRef =
-            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
-
-        keyStore.putKey(privateAccountKeyRef, signingKey.privateKey)
-        keyStore.putKey(publicAccountKeyRef, signingKey.publicKey)
-
-        val accountRecord = AccountIdentityRecord(accountId, displayName, key = accountKeyRecord)
+        val accountRecord = AccountIdentity(accountId, displayName, signingKey = signingKey.publicKey)
         publicKeyRepository.insertLocalAccount(accountRecord, role = role)
         AppLog.info(
             component = LogComponent.CRYPTO,
@@ -173,8 +113,8 @@ internal class DefaultIdentityProvisioning(
         return accountRecord
     }
 
-    override suspend fun createPlaceholderAccountIdentity(): AccountIdentityRecord {
-        val accountRecord = AccountIdentityRecord(AccountId("placeholder"), "placeholder")
+    override suspend fun createPlaceholderAccountIdentity(): AccountIdentity {
+        val accountRecord = AccountIdentity(AccountId("placeholder"), "placeholder")
         publicKeyRepository.insertLocalAccount(accountRecord)
         AppLog.info(
             component = LogComponent.CRYPTO,
@@ -185,8 +125,8 @@ internal class DefaultIdentityProvisioning(
     }
 
     override suspend fun exportLocalAccountRecoveryKey(): String {
-        val account = identityResolver.getLocalAccountIdentityRecord()
-        val privateKey = identityResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING)
+        val account = localIdentity.getLocalAccountIdentity()
+        val privateKey = localKeys.localAccountSigningKey()
         return AccountRecoveryKeyCodec.encode(
             displayName = account.displayName,
             privateSigningKey = privateKey,
@@ -200,12 +140,12 @@ internal class DefaultIdentityProvisioning(
             return false
         }
         val derivedPublicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
-        val storedPublicKey = identityResolver.getLocalAccountIdentityRecord().key?.publicKey
+        val storedPublicKey = localIdentity.getLocalAccountIdentity().signingKey
             ?: return false
-        return derivedPublicKey.contentEquals(storedPublicKey)
+        return derivedPublicKey == storedPublicKey
     }
 
-    override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord {
+    override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentity {
         val material = AccountRecoveryKeyCodec.decode(recoveryKey)
         AppLog.info(
             component = LogComponent.CRYPTO,
@@ -216,21 +156,10 @@ internal class DefaultIdentityProvisioning(
 
         val publicKey = cryptoProvider.privateSigningKeyToPublicKey(material.privateSigningKey)
         val accountId = cryptoProvider.accountIdFromPublicKey(publicKey)
-        val accountKeyId = LOCAL_ACCOUNT_KEY_PREFIX + "signing"
-        val accountKeyRecord = IdentityPublicKeyRecord(
-            IdentityKeyPurpose.SIGNING,
-            publicKey,
-        )
+        keyStore.putKey(KeySlot.AccountSigningPrivate, material.privateSigningKey.bytes)
+        keyStore.putKey(KeySlot.AccountSigningPublic, publicKey.bytes)
 
-        val privateAccountKeyRef =
-            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PRIVATE)
-        val publicAccountKeyRef =
-            KeyReference(keyId = accountKeyId, purpose = IdentityKeyPurpose.SIGNING, type = KeyType.PUBLIC)
-
-        keyStore.putKey(privateAccountKeyRef, material.privateSigningKey)
-        keyStore.putKey(publicAccountKeyRef, publicKey)
-
-        val accountRecord = AccountIdentityRecord(accountId, material.displayName, key = accountKeyRecord)
+        val accountRecord = AccountIdentity(accountId, material.displayName, signingKey = publicKey)
         // role = MEMBER (default): not derivable from the recovery code alone; the global-room fold
         // (genesis AddAccount / GrantAdmin / owner handover) corrects the role after sync.
         publicKeyRepository.insertLocalAccount(accountRecord)

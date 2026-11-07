@@ -1,6 +1,6 @@
 package org.yapyap.routing.outbound
 
-import org.yapyap.persistence.packet.OutboxTag
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId

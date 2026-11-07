@@ -120,7 +120,7 @@ confidential**.
 ### Identity binding via routing layer (planned)
 
 The handshake wire format does not include the initiator identity encryption key (IK). Session establishment currently
-trusts `MessageEnvelope.source` / roster lookup via `IdentityResolver`. A future **signed encrypted DAG roster** will
+trusts `MessageEnvelope.source` / roster lookup via `PeerKeys`. A future **signed encrypted DAG roster** will
 provide trustworthy device routing metadata.
 
 ### Immutable device identity (no IK rotation)
@@ -217,7 +217,7 @@ epoch-1 ephemeral.
 ### Other solid foundations
 
 - X3DH DH term ordering (DH1–DH4) per standard construction
-- Signed prekey signature verification in `IdentityResolver.resolvePeerX3dhRemoteKeys`
+- Signed prekey signature verification in `PeerKeys.resolvePeerPreKeyBundle`
 - Double Ratchet with out-of-order support (`skipMessageKeys`, `MAX_SKIP = 256`); skipped keys keyed by
   `(remoteDh, messageNumber)`; superseded DH chains tombstoned via `RatchetSkippedKeyId.SUPERSEDED_DH_CHAIN` in the same
   `skipped_message_keys` blob (no extra DB columns)

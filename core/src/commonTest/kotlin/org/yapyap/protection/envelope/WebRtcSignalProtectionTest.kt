@@ -73,7 +73,7 @@ class WebRtcSignalProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
         val protection = SignedWebRtcSignalProtection(signatureProvider, crypto)
 
         val ctx = sampleEnvelopeContext(
@@ -94,7 +94,7 @@ class WebRtcSignalProtectionTest {
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
         val resolver = FakeIdentityResolverForProtection(signingKeys.privateKey, mapOf(sourcePeer to record))
-        val protection = SignedWebRtcSignalProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+        val protection = SignedWebRtcSignalProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
 
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -115,7 +115,7 @@ class WebRtcSignalProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
         val protection = SignedWebRtcSignalProtection(signatureProvider, crypto)
 
         val ctx = sampleEnvelopeContext(

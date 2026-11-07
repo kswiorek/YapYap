@@ -4,8 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
@@ -23,7 +23,7 @@ import org.yapyap.routing.router.Router
  */
 internal class DefaultRecoveryResponder(
     private val router: Router,
-    private val identityKeyRepository: IdentityKeyRepository,
+    private val identityReader: IdentityReader,
     private val messageRepository: MessageRepository,
     private val localDeviceType: DeviceType,
     private val projector: GlobalEventProjector,
@@ -49,11 +49,11 @@ internal class DefaultRecoveryResponder(
         // AddDevice, so the newcomer syncs and finds itself in the chain.
         appendRecoveryAddDevice(request)
 
-        val ownAccount = identityKeyRepository.getLocalAccountRecord()
+        val ownAccount = identityReader.getLocalAccountIdentity()
             ?: error("responder has no local account")
-        val ownDevice = identityKeyRepository.getLocalDeviceRecord()
+        val ownDevice = identityReader.getLocalDeviceIdentity()
             ?: error("responder has no local device")
-        val torEndpoint = identityKeyRepository.resolveTorEndpointForDevice(ownDevice.deviceId)
+        val torEndpoint = router.localTorEndpoint()
             ?: error("responder has no tor endpoint")
         router.sendBootstrap(
             Intro(

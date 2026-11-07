@@ -1,12 +1,12 @@
 package org.yapyap.routing.router
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.persistence.packet.PacketDeduplicator
+import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.testfixtures.FakeClock
@@ -32,11 +32,11 @@ class DefaultRouterContractTest {
     private val remotePeer2 =
         PeerId("remoteroutercccccccccccccccccccccccccccccccccccccccccccccccccccccc")
 
-    private fun localDevice(): DeviceIdentityRecord =
-        DeviceIdentityRecord(
+    private fun localDevice(): DeviceIdentity =
+        DeviceIdentity(
             deviceId = localPeer,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
 
     @Test

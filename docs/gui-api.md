@@ -1,7 +1,7 @@
 ## YapYap GUI API (PoC handoff)
 
 `:core` is a library. The GUI in `:composeApp` talks to it through exactly three types —
-`OrchestratorFactory`, `Orchestrator`, `OrchestratorRuntime` — plus the service interfaces
+`OrchestratorFactory` (in `org.yapyap.wiring`), `Orchestrator`, `OrchestratorRuntime` — plus the service interfaces
 the runtime exposes and the vocabulary types in their signatures. Everything else in `:core`
 is `internal` and invisible to this module. **If you need something that isn't reachable
 through the runtime, that is a missing runtime API — ask, don't bypass.**

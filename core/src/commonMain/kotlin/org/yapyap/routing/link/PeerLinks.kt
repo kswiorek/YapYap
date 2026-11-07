@@ -1,8 +1,7 @@
 package org.yapyap.routing.link
 
 import kotlinx.coroutines.flow.*
-import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.router.RouterTransport
@@ -24,7 +23,7 @@ internal data class PeerLinkUp(val peer: PeerId, val transport: RouterTransport)
  * [RouterTransport] without knowing transport specifics.
  */
 internal class PeerLinks(
-    private val identityResolver: IdentityResolver,
+    private val routes: DeviceRouteStore,
     private val webRtcTransport: WebRtcTransport,
     private val torTransport: TorTransport,
 ) {
@@ -70,11 +69,7 @@ internal class PeerLinks(
     }
 
     suspend fun resolveTorEndpoint(peer: PeerId): TorEndpoint? {
-        val endpoint = try {
-            identityResolver.resolveTorEndpointForDevice(peer)
-        } catch (_: CryptoException) {
-            null
-        } ?: return null
+        val endpoint = routes.resolveTorEndpointForDevice(peer) ?: return null
         bindTorEndpoint(peer, endpoint)
         return endpoint
     }

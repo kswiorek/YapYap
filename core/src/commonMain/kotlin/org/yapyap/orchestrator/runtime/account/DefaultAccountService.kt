@@ -2,14 +2,14 @@ package org.yapyap.orchestrator.runtime.account
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.IdentityProvisioning
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.onboarding.isWaitingOnboarding
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
-import org.yapyap.persistence.key.IdentityKeyRepository
+import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
@@ -28,8 +28,8 @@ import org.yapyap.protocol.PeerId
  */
 internal class DefaultAccountService(
     private val projector: GlobalEventProjector,
-    private val identityResolver: IdentityResolver,
-    private val identityKeyRepository: IdentityKeyRepository,
+    private val localIdentity: LocalIdentity,
+    private val identityReader: IdentityReader,
     private val identityProvisioning: IdentityProvisioning,
     private val onboardingState: StateFlow<OnboardingState>,
 ) : AccountService {
@@ -40,19 +40,19 @@ internal class DefaultAccountService(
         if (isOnboardingActive()) return GlobalEventOutcome.Refused(GlobalEventRefusal.OnboardingActive)
         // 2. The local device goes down the self-removal path (different post-condition:
         //    this node becomes chain-dead), never the sibling path.
-        if (deviceId == identityResolver.getLocalDeviceId()) return removeThisDevice(recoveryKey)
+        if (deviceId == localIdentity.getLocalDeviceId()) return removeThisDevice(recoveryKey)
         // 3. Ownership: the fold's RemoveDevice(own) branch requires the signer to belong
         //    to the target's account — check it here so the GUI gets a refusal, not a
         //    silent no-op reported as Published.
-        val owner = identityResolver.getAccountIdForDevice(deviceId)
+        val owner = identityReader.getAccountIdForDevice(deviceId)
             ?: return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotFound)
-        if (owner != identityResolver.getLocalAccountId()) {
+        if (owner != localIdentity.getLocalAccountId()) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotOwnDevice)
         }
         // 4. Provisional target: its AddDevice has not folded here yet, so the removal
         //    would be ignored. On an established node this is an invariant assertion —
         //    peer rows are committed non-provisional by the fold, never seeded.
-        if (identityKeyRepository.isDeviceProvisional(deviceId)) {
+        if (identityReader.isDeviceProvisional(deviceId)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotReady)
         }
         // 5. Last-device gate: removing the account's last confirmed device without
@@ -71,13 +71,13 @@ internal class DefaultAccountService(
 
     override suspend fun removeThisDevice(recoveryKey: String?): GlobalEventOutcome {
         if (isOnboardingActive()) return GlobalEventOutcome.Refused(GlobalEventRefusal.OnboardingActive)
-        val localDeviceId = identityResolver.getLocalDeviceId()
+        val localDeviceId = localIdentity.getLocalDeviceId()
         // Unanchored local device (still provisional): the fold has no AddDevice for us,
         // so the removal would be ignored.
-        if (identityKeyRepository.isDeviceProvisional(localDeviceId)) {
+        if (identityReader.isDeviceProvisional(localDeviceId)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotReady)
         }
-        lastDeviceRefusal(identityResolver.getLocalAccountId(), localDeviceId, recoveryKey)?.let { return it }
+        lastDeviceRefusal(localIdentity.getLocalAccountId(), localDeviceId, recoveryKey)?.let { return it }
 
         try {
             projector.publishRemoveDevice(localDeviceId)
@@ -94,13 +94,13 @@ internal class DefaultAccountService(
         if (isOnboardingActive()) return GlobalEventOutcome.Refused(GlobalEventRefusal.OnboardingActive)
         // Device-anchored implies account-anchored: the fold commits AddAccount and
         // AddDevice together, so one provisional predicate covers both.
-        if (identityKeyRepository.isDeviceProvisional(identityResolver.getLocalDeviceId())) {
+        if (identityReader.isDeviceProvisional(localIdentity.getLocalDeviceId())) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotReady)
         }
         // Owner handover gate: the owner's own leave without a fold-valid successor is a
         // fold no-op (the owner slot is never empty) — refuse here so the GUI can prompt
         // for one instead of reporting a silent Published.
-        if (identityResolver.isLocalAccountOwner()) {
+        if (identityReader.isLocalAccountOwner()) {
             if (!isFoldValidSuccessor(successor)) {
                 return GlobalEventOutcome.Refused(GlobalEventRefusal.InvalidSuccessor)
             }
@@ -111,7 +111,7 @@ internal class DefaultAccountService(
         }
 
         try {
-            projector.publishRemoveAccount(identityResolver.getLocalAccountId(), successor)
+            projector.publishRemoveAccount(localIdentity.getLocalAccountId(), successor)
         } catch (_: DagException.FrontierUnavailable) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotReady)
         }
@@ -132,8 +132,8 @@ internal class DefaultAccountService(
         target: PeerId,
         recoveryKey: String?,
     ): GlobalEventOutcome.Refused? {
-        val hasConfirmedSibling = identityKeyRepository.getAllPeerDevicesForAccount(accountId)
-            .any { it != target && !identityKeyRepository.isDeviceProvisional(it) }
+        val hasConfirmedSibling = identityReader.getAllPeerDevicesForAccount(accountId)
+            .any { it != target && !identityReader.isDeviceProvisional(it) }
         if (hasConfirmedSibling) return null
         if (recoveryKey != null && identityProvisioning.verifyRecoveryKey(recoveryKey)) return null
         return GlobalEventOutcome.Refused(GlobalEventRefusal.RecoveryKeyRequired)
@@ -144,10 +144,10 @@ internal class DefaultAccountService(
      * holding at least one confirmed device. The fold decides; this only shapes GUI feedback.
      */
     private suspend fun isFoldValidSuccessor(successor: AccountId?): Boolean {
-        if (successor == null || successor == identityResolver.getLocalAccountId()) return false
-        if (identityKeyRepository.getAccountStatus(successor) != IdentityStatus.ACTIVE) return false
-        return identityKeyRepository.getAllPeerDevicesForAccount(successor)
-            .any { !identityKeyRepository.isDeviceProvisional(it) }
+        if (successor == null || successor == localIdentity.getLocalAccountId()) return false
+        if (identityReader.getAccountStatus(successor) != IdentityStatus.ACTIVE) return false
+        return identityReader.getAllPeerDevicesForAccount(successor)
+            .any { !identityReader.isDeviceProvisional(it) }
     }
 
     private fun isOnboardingActive(): Boolean = onboardingState.value.isWaitingOnboarding()

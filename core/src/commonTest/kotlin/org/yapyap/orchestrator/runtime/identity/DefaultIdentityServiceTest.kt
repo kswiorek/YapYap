@@ -1,19 +1,21 @@
 package org.yapyap.orchestrator.runtime.identity
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
@@ -53,6 +55,11 @@ private class FakeRouter : Router {
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
+    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
+        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+
+    val lastSeen = mutableMapOf<PeerId, Instant>()
+    override suspend fun deviceLastSeen(): Map<PeerId, Instant> = lastSeen.toMap()
     override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport =
         error("not used")
 
@@ -76,8 +83,8 @@ private class FakeProjector : GlobalEventProjector {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
     override suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -91,6 +98,7 @@ private class FakeProjector : GlobalEventProjector {
     override suspend fun publishRemoveAccount(targetAccountId: AccountId, successorAccountId: AccountId?) = Unit
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = Unit
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = emptyList()
+    override suspend fun seedProvisionalMember(accountId: AccountId) = Unit
 }
 @OptIn(ExperimentalCoroutinesApi::class)
 class DefaultIdentityServiceTest {
@@ -115,7 +123,7 @@ class DefaultIdentityServiceTest {
     ) {
         val router = FakeRouter()
         val projector = FakeProjector()
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val service = DefaultIdentityService(repo, router, projector, orchestratorConfig)
 
         suspend fun seedLocal(role: AccountRole = AccountRole.MEMBER) {
@@ -151,19 +159,19 @@ class DefaultIdentityServiceTest {
                 TorEndpoint(onionAddress = "${device.id}.onion", port = 80),
                 provisional,
             )
-            lastSeen?.let { repo.seedLastSeen(device, it) }
+            lastSeen?.let { router.lastSeen[device] = it }
         }
 
-        private fun accountRecord(account: AccountId, displayName: String) = AccountIdentityRecord(
+        private fun accountRecord(account: AccountId, displayName: String) = AccountIdentity(
             accountId = account,
             displayName = displayName,
-            key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
         )
 
-        private fun dummyDevice(id: PeerId) = DeviceIdentityRecord(
+        private fun dummyDevice(id: PeerId) = DeviceIdentity(
             deviceId = id,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
     }
 

@@ -1,15 +1,23 @@
 package org.yapyap.persistence
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.routing.store.DefaultDeviceRouteStore
+
+import org.yapyap.persistence.key.TestIdentityStack
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.*
-import org.yapyap.persistence.key.DefaultIdentityKeyRepository
+import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
-import org.yapyap.persistence.messaging.DefaultRoomRepository
-import org.yapyap.persistence.packet.DefaultPacketDeduplicator
-import org.yapyap.persistence.packet.DefaultPacketOutbox
-import org.yapyap.persistence.packet.OutboxTag
+import org.yapyap.orchestrator.store.DefaultRoomRepository
+import org.yapyap.routing.store.DefaultPacketDeduplicator
+import org.yapyap.routing.store.DefaultPacketOutbox
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.testfixtures.FakeClock
@@ -129,50 +137,47 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_insertLocal_then_get_resolve_tor_and_peers() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
+        val repo = DefaultIdentityStore(db, DeviceType.DESKTOP)
 
         val accountId = AccountId("repo-account-1")
         val deviceA = PeerId("repodeviceaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         val deviceB = PeerId("repodevicebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
-        val accountRecord = AccountIdentityRecord(
+        val accountRecord = AccountIdentity(
             accountId = accountId,
             displayName = "Repo Account",
-            key = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = byteArrayOf(0x11),
-            ),
+            signingKey = SigningPublicKey(byteArrayOf(0x11)),
         )
         repo.insertLocalAccount(identity = accountRecord)
 
-        val devA = DeviceIdentityRecord(
+        val devA = DeviceIdentity(
             deviceId = deviceA,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(0x21)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x31)),
+            signingKey = SigningPublicKey(byteArrayOf(0x21)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(0x31)),
         )
         repo.insertLocalDevice(accountId = accountId, identity = devA)
 
-        assertEquals(accountRecord.accountId.id, repo.getAccountRecord(accountId)!!.accountId.id)
-        assertEquals(deviceA.id, repo.getDeviceRecord(deviceA)!!.deviceId.id)
+        assertEquals(accountRecord.accountId.id, repo.getAccountIdentity(accountId)!!.accountId.id)
+        assertEquals(deviceA.id, repo.getDeviceIdentity(deviceA)!!.deviceId.id)
 
-        assertContentEquals(byteArrayOf(0x21), repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.SIGNING)!!.publicKey)
-        assertContentEquals(
-            byteArrayOf(0x31),
-            repo.resolveDeviceKey(deviceA, IdentityKeyPurpose.ENCRYPTION)!!.publicKey
-        )
+        assertEquals(SigningPublicKey(byteArrayOf(0x21)), repo.getDeviceIdentity(deviceA)!!.signingKey)
+        assertEquals(EncryptionPublicKey(byteArrayOf(0x31)), repo.getDeviceIdentity(deviceA)!!.encryptionKey)
 
-        val torBefore = requireNotNull(repo.resolveTorEndpointForDevice(deviceA))
+        // The router's observed endpoint overrides the declared one.
+        val routes = DefaultDeviceRouteStore(db, repo)
+        val torBefore = requireNotNull(routes.resolveTorEndpointForDevice(deviceA))
         assertTrue(torBefore.onionAddress.endsWith(".onion"))
 
-        repo.upsertPeerTorEndpoint(deviceA, FixtureTorEndpoint)
-        val torAfter = requireNotNull(repo.resolveTorEndpointForDevice(deviceA))
+        routes.upsertPeerTorEndpoint(deviceA, FixtureTorEndpoint)
+        assertEquals(torBefore, repo.getDeclaredTorEndpoint(deviceA))
+        val torAfter = requireNotNull(routes.resolveTorEndpointForDevice(deviceA))
         assertEquals(FixtureTorEndpoint.onionAddress, torAfter.onionAddress)
         assertEquals(FixtureTorEndpoint.port, torAfter.port)
 
-        val devB = DeviceIdentityRecord(
+        val devB = DeviceIdentity(
             deviceId = deviceB,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(0x41)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(0x51)),
+            signingKey = SigningPublicKey(byteArrayOf(0x41)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(0x51)),
         )
         repo.insertPeerDevice(
             accountId = accountId,
@@ -189,16 +194,13 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_insertPeerAccount_and_lookup() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
+        val repo = DefaultIdentityStore(db, DeviceType.DESKTOP)
 
         val accountId = AccountId("peer-acc-99")
-        val record = AccountIdentityRecord(
+        val record = AccountIdentity(
             accountId = accountId,
             displayName = "Peer Account",
-            key = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = byteArrayOf(0x55),
-            ),
+            signingKey = SigningPublicKey(byteArrayOf(0x55)),
         )
         repo.insertPeerAccount(
             identity = record,
@@ -207,31 +209,31 @@ class PersistenceContractsJvmTest {
             displayName = "Peer Account",
         )
 
-        val loaded = repo.getAccountRecord(accountId)
+        val loaded = repo.getAccountIdentity(accountId)
         assertEquals(accountId.id, loaded!!.accountId.id)
-        assertContentEquals(byteArrayOf(0x55), loaded.key!!.publicKey)
+        assertEquals(SigningPublicKey(byteArrayOf(0x55)), loaded.signingKey)
     }
 
     @Test
     fun identityPublicKeyRepository_getDevicePublicKey_roundTripsKeys() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
+        val repo = DefaultIdentityStore(db, DeviceType.DESKTOP)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
         val clock = FakeClock(epochSeconds(0L))
-        val resolver = DefaultIdentityResolver(crypto, repo, store)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, clock)
+        val resolver = TestIdentityStack(crypto, repo, store)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, resolver, clock)
 
         provisioning.createNewAccountIdentity(displayName = "KeySig User")
         val device = provisioning.createNewDeviceIdentity()
 
-        val loaded = repo.getDeviceRecord(device.deviceId)
+        val loaded = repo.getDeviceIdentity(device.deviceId)
         assertNotNull(loaded)
-        assertContentEquals(device.signing.publicKey, loaded.signing.publicKey)
-        assertContentEquals(device.encryption.publicKey, loaded.encryption.publicKey)
+        assertEquals(device.signingKey, loaded.signingKey)
+        assertEquals(device.encryptionKey, loaded.encryptionKey)
 
-        val resolved = resolver.resolvePeerIdentityRecord(device.deviceId)
+        val resolved = resolver.resolvePeerIdentity(device.deviceId)
         assertNotNull(resolved)
         assertEquals(device.deviceId, resolved.deviceId)
     }
@@ -240,29 +242,29 @@ class PersistenceContractsJvmTest {
     fun identityPublicKeyRepository_signedPreKey_roundTripsViaTable() = runTest {
         connection = openMemoryDatabase()
         val db = connection!!.database
-        val repo = DefaultIdentityKeyRepository(db, DeviceType.DESKTOP)
+        val repo = DefaultIdentityStore(db, DeviceType.DESKTOP)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
         val clock = FakeClock(epochSeconds(0L))
-        val resolver = DefaultIdentityResolver(crypto, repo, store)
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, clock)
+        val resolver = TestIdentityStack(crypto, repo, store)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, resolver, clock)
 
         provisioning.createNewAccountIdentity(displayName = "SPK User")
         val device = provisioning.createNewDeviceIdentity()
-        val spkId = device.signedPreKey!!.keyId
+        val spkId = device.signedPreKey!!.id
 
         val stored = repo.getSignedPreKey(spkId)!!
         assertNotNull(stored)
         assertEquals(device.deviceId, stored.deviceId)
-        assertContentEquals(device.signedPreKey.publicKey, stored.publicKey)
+        assertEquals(device.signedPreKey.publicKey, stored.publicKey)
 
         val active = repo.getActiveSignedPreKeyForDevice(device.deviceId)
         assertNotNull(active)
-        assertEquals(spkId, active.keyId)
+        assertEquals(spkId, active.id)
 
         val localSpk = resolver.resolveLocalSignedPreKey(spkId)
-        assertEquals(spkId, localSpk.keyId)
-        assertContentEquals(device.signedPreKey.publicKey, localSpk.publicKey)
+        assertEquals(spkId, localSpk.id)
+        assertEquals(device.signedPreKey.publicKey, localSpk.publicKey)
     }
 
     @Test

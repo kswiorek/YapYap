@@ -3,21 +3,22 @@ package org.yapyap.crypto.e2ee.session
 import org.yapyap.crypto.e2ee.CryptoSessionException
 import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
 import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.identity.LocalOneTimePreKey
+import org.yapyap.crypto.keys.OneTimePreKeyId
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.key.OpkRepository
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 
 internal class Epoch2Upgrade(
     private val crypto: CryptoProvider,
     private val sessionStore: CryptoSessionStore,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
     private val opkRepository: OpkRepository,
     private val sessionBootstrap: SessionBootstrap,
     private val clock: Clock,
@@ -58,7 +59,7 @@ internal class Epoch2Upgrade(
                 ?: return RatchetInnerPlaintext.Payload(inner)
             val sessionBinding = OpkOfferBinding.compute(
                 crypto = crypto,
-                localDeviceId = identityResolver.getLocalDeviceId(),
+                localDeviceId = localIdentity.getLocalDeviceId(),
                 peerDeviceId = peerDeviceId,
                 sessionEpoch = 1,
                 sessionGeneration = loaded.meta.sessionGeneration,
@@ -70,8 +71,8 @@ internal class Epoch2Upgrade(
                 InnerSessionControl.OpkOffer(
                     sessionEpoch = 1,
                     sessionGeneration = loaded.meta.sessionGeneration,
-                    opkId = offered.keyId,
-                    opkPublicKey = offered.publicKey,
+                    opkId = offered.id.value,
+                    opkPublicKey = offered.publicKey.bytes,
                     sessionBinding = sessionBinding,
                 ),
             )
@@ -120,7 +121,7 @@ internal class Epoch2Upgrade(
 
         val expectedBinding = OpkOfferBinding.compute(
             crypto = crypto,
-            localDeviceId = identityResolver.getLocalDeviceId(),
+            localDeviceId = localIdentity.getLocalDeviceId(),
             peerDeviceId = remoteDeviceId,
             sessionEpoch = 1,
             sessionGeneration = record.meta.sessionGeneration,
@@ -203,10 +204,10 @@ internal class Epoch2Upgrade(
 
     private suspend fun resolveOfferedOpk(meta: CryptoSessionMeta): LocalOneTimePreKey {
         meta.offeredOpkId?.let { offeredOpkId ->
-            opkRepository.loadOffered(offeredOpkId)?.let { return it }
+            opkRepository.loadOffered(OneTimePreKeyId(offeredOpkId))?.let { return it }
         }
         val opk = opkRepository.allocate()
-        opkRepository.markOffered(opk.keyId)
+        opkRepository.markOffered(opk.id)
         return opk
     }
 }

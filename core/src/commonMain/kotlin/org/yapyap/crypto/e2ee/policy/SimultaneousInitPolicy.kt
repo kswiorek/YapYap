@@ -4,7 +4,7 @@ import org.yapyap.crypto.e2ee.session.CryptoSessionRecord
 import org.yapyap.crypto.e2ee.session.LoadedSession
 import org.yapyap.crypto.e2ee.session.SessionRole
 import org.yapyap.crypto.e2ee.session.SessionWireFrame
-import org.yapyap.persistence.crypto.CryptoSessionStore
+import org.yapyap.crypto.store.CryptoSessionStore
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 

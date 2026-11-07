@@ -2,11 +2,7 @@ package org.yapyap.orchestrator.runtime.config
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
-import org.yapyap.config.ConfigValue
-import org.yapyap.config.Setting
-import org.yapyap.config.UpdateResult
-import org.yapyap.config.buildSettings
-import org.yapyap.persistence.config.ConfigStore
+import org.yapyap.config.*
 
 public interface ConfigService {
     /** All user-facing settings, live, in a stable order (grouped via [Setting.group]). */
@@ -19,8 +15,17 @@ public interface ConfigService {
     public suspend fun update(id: String, value: ConfigValue?): UpdateResult
 }
 
+/** The user-settings side of the config store, as the config service sees it. */
+internal interface UserSettings {
+    /** Current setting overrides, live. */
+    val overrides: StateFlow<Overrides>
+
+    /** Validates and persists a user override; `null` clears it. */
+    suspend fun updateUser(id: String, value: ConfigValue?): UpdateResult
+}
+
 internal class DefaultConfigService(
-    private val configStore: ConfigStore,
+    private val configStore: UserSettings,
 ) : ConfigService {
 
     private val _settings = MutableStateFlow(buildSettings(configStore.overrides.value))

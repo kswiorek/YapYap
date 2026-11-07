@@ -40,7 +40,7 @@ public enum class OnboardingState {
 
 /**
  * Newcomer onboarding on every node (headless relays onboard as newcomers too). Sole writer
- * of the session slot ([org.yapyap.persistence.key.BootstrapSessionStore]); the sponsor side
+ * of the session slot ([org.yapyap.crypto.store.BootstrapSessionStore]); the sponsor side
  * is stateless and lives in the runtime service.
  */
 internal interface OnboardingProvider {

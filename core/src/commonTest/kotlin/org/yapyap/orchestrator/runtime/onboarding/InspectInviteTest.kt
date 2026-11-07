@@ -1,10 +1,10 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
@@ -30,16 +30,10 @@ class InspectInviteTest {
         val signing = crypto.generateSigningKeyPair()
         val encryption = crypto.generateEncryptionKeyPair()
         val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
-        val device = DeviceIdentityRecord(
+        val device = DeviceIdentity(
             deviceId = deviceId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signing.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryption.publicKey,
-            ),
+            signingKey = signing.publicKey,
+            encryptionKey = encryption.publicKey,
         )
         val torEndpoint = TorEndpoint("newcomer.onion", 80)
         if (!newAccount) {
@@ -58,19 +52,16 @@ class InspectInviteTest {
         val binding = accountSignedDeviceBindingBytes(
             accountId = accountId,
             deviceId = deviceId,
-            signingPublicKey = signing.publicKey,
-            encryptionPublicKey = encryption.publicKey,
+            signingPublicKey = signing.publicKey.bytes,
+            encryptionPublicKey = encryption.publicKey.bytes,
             torEndpoint = torEndpoint,
             deviceType = DeviceType.DESKTOP,
         )
         return Invite(
-            account = AccountIdentityRecord(
+            account = AccountIdentity(
                 accountId = accountId,
                 displayName = "Newcomer",
-                key = IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    publicKey = accountPublic,
-                ),
+                signingKey = accountPublic,
             ),
             device = device,
             deviceType = DeviceType.DESKTOP,
@@ -85,7 +76,7 @@ class InspectInviteTest {
         val decoded = decodeSponsorInvite(sampleInvite(newAccount = true).encode(), crypto)
         assertIs<DecodedSponsorInvite.Ok>(decoded)
         val account = decoded.account
-        assertIs<AccountIdentityRecord>(account)
+        assertIs<AccountIdentity>(account)
         assertEquals("Newcomer", account.displayName)
         assertEquals(decoded.invite.account?.accountId, account.accountId)
     }
@@ -110,7 +101,7 @@ class InspectInviteTest {
     @Test
     fun accountWithoutKey_refusedAsMissingKey() = runTest {
         val valid = sampleInvite(newAccount = true)
-        val keyless = valid.withAccount(valid.account!!.copy(key = null))
+        val keyless = valid.withAccount(valid.account!!.copy(signingKey = null))
         val decoded = decodeSponsorInvite(keyless.encode(), crypto)
         assertIs<DecodedSponsorInvite.Refused>(decoded)
         assertEquals(
@@ -131,7 +122,7 @@ class InspectInviteTest {
         )
     }
 
-    private fun Invite.withAccount(account: AccountIdentityRecord?): Invite = Invite(
+    private fun Invite.withAccount(account: AccountIdentity?): Invite = Invite(
         version = version,
         account = account,
         device = device,

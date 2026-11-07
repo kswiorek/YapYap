@@ -1,5 +1,11 @@
 package org.yapyap.crypto.primitives
 
+import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.EncryptionPublicKey
+import org.yapyap.crypto.keys.SigningKeyPair
+import org.yapyap.crypto.keys.SigningPrivateKey
+import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -15,9 +21,9 @@ internal interface CryptoProvider {
 
     suspend fun generateEncryptionKeyPair(): EncryptionKeyPair
 
-    suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray
+    suspend fun signDetached(privateKey: SigningPrivateKey, message: ByteArray): ByteArray
 
-    suspend fun verifyDetached(publicSigningKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean
+    suspend fun verifyDetached(publicKey: SigningPublicKey, message: ByteArray, signature: ByteArray): Boolean
 
     fun toHex(bytes: ByteArray): String = bytes.joinToString(separator = "") { byte ->
         byte.toInt().and(0xff).toString(16).padStart(2, '0')
@@ -25,11 +31,11 @@ internal interface CryptoProvider {
 
     fun generateNonce(scheme: SignalSecurityScheme): ByteArray
 
-    suspend fun accountIdFromPublicKey(accountSigningPublicKey: ByteArray): AccountId =
-        AccountId(toHex(sha256(accountSigningPublicKey)))
+    suspend fun accountIdFromPublicKey(accountSigningKey: SigningPublicKey): AccountId =
+        AccountId(toHex(sha256(accountSigningKey.bytes)))
 
-    suspend fun peerIdFromPublicKey(deviceSigningPublicKey: ByteArray): PeerId =
-        PeerId(toHex(sha256(deviceSigningPublicKey)))
+    suspend fun peerIdFromPublicKey(deviceSigningKey: SigningPublicKey): PeerId =
+        PeerId(toHex(sha256(deviceSigningKey.bytes)))
 
     /**
      * Pure truncation: 32-byte (or longer) digest -> 128-bit [Uuid].
@@ -68,17 +74,7 @@ internal interface CryptoProvider {
     /** Inverse of [encryptAead]; expects the same `IV || ciphertext || tag` layout. */
     suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray, associatedData: ByteArray? = null): ByteArray
 
-    suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray
+    suspend fun privateSigningKeyToPublicKey(privateKey: SigningPrivateKey): SigningPublicKey
 
-    suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray
+    suspend fun privateEncryptionKeyToPublicKey(privateKey: EncryptionPrivateKey): EncryptionPublicKey
 }
-
-internal data class SigningKeyPair(
-    val publicKey: ByteArray,
-    val privateKey: ByteArray,
-)
-
-internal data class EncryptionKeyPair(
-    val publicKey: ByteArray,
-    val privateKey: ByteArray,
-)

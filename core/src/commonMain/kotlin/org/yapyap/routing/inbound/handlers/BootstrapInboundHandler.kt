@@ -122,7 +122,7 @@ internal class BootstrapInboundHandler(
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
-        return when (val status = ctx.identityResolver.getAccountStatus(request.account.accountId)) {
+        return when (val status = ctx.devices.getAccountStatus(request.account.accountId)) {
             null -> {
                 // Unknown — the fold may not have seen the Add event yet. Defer (clears dedup)
                 // so the sender's retry re-runs this check instead of being swallowed.

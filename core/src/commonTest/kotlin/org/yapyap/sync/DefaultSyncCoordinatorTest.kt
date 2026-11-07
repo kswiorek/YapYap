@@ -1,6 +1,7 @@
 package org.yapyap.sync
 
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
@@ -45,6 +46,8 @@ class DefaultSyncCoordinatorTest {
             messageRepository = messageRepo,
             pendingSyncRepository = pendingRepo,
             router = router,
+            roomChanges = emptyFlow(),
+            identityChanges = emptyFlow(),
             clock = clock,
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
         )
@@ -403,13 +406,14 @@ class DefaultSyncCoordinatorTest {
         val coordinator = buildCoordinator()
         val authorAccount = AccountId("author-account")
         val missing = Uuid.random()
+        // Seeded after start: start's boot sweep appends the room's members to existing rows.
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             targetMessageId = missing,
             candidateAccounts = listOf(remoteAccount),
         )
-        coordinator.start(this)
-        testScheduler.advanceUntilIdle()
 
         pipeline.emit(
             IngestResult.BecameOrphan(

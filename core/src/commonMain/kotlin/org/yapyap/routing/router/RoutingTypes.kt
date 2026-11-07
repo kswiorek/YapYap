@@ -2,10 +2,12 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.TransportLimits
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.persistence.packet.OutboxTag
-import org.yapyap.persistence.packet.PacketDeduplicator
+import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
@@ -166,7 +168,9 @@ internal sealed interface PeerSendOutcome {
 }
 
 internal class RoutingContext(
-    val identityResolver: IdentityResolver,
+    val localIdentity: LocalIdentity,
+    val devices: DeviceDirectory,
+    val routes: DeviceRouteStore,
     val packetDeduplicator: PacketDeduplicator,
     val envelopeProtectionService: EnvelopeProtectionService,
     val torTransport: TorTransport,
@@ -175,10 +179,10 @@ internal class RoutingContext(
     val routerConfig: StateFlow<RouterConfig>,
     val transportLimits: StateFlow<TransportLimits>,
 ) {
-    lateinit var localDeviceIdentity: DeviceIdentityRecord
+    lateinit var localDeviceIdentity: DeviceIdentity
 
     /** Live links to peers across both transports; see [PeerLinks]. */
-    val peerLinks: PeerLinks by lazy { PeerLinks(identityResolver, webRtcTransport, torTransport) }
+    val peerLinks: PeerLinks by lazy { PeerLinks(routes, webRtcTransport, torTransport) }
 
     val localDeviceId: PeerId
         get() = localDeviceIdentity.deviceId

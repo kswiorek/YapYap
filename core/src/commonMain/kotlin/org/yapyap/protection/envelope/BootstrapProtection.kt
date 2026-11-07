@@ -1,7 +1,7 @@
 package org.yapyap.protection.envelope
 
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.persistence.key.BootstrapKeySource
+import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PeerId
@@ -132,7 +132,7 @@ internal class BootstrapProtection(
         if (payload !is RecoveryRequest) {
             throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         }
-        val accountKey = payload.account.key?.publicKey
+        val accountKey = payload.account.signingKey
             ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.INVALID_SIGNATURE)
         val verified = try {
             crypto.verifyDetached(accountKey, payload.accountSignedDeviceBindingBytes(), payload.accountSignature)

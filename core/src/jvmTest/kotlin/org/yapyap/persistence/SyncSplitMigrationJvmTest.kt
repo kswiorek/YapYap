@@ -4,8 +4,8 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.db.readPragmaUserVersion
-import org.yapyap.persistence.sync.DefaultPendingSyncRepository
-import org.yapyap.persistence.sync.DefaultSyncAttemptStore
+import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
+import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId

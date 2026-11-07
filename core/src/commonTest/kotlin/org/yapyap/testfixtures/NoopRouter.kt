@@ -31,6 +31,10 @@ internal open class NoopRouter : Router {
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
+    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
+        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+
+    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
 
     override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport =
         AccountPushReport(devicesTotal = 1, devicesQueued = 1, devicesDeferred = 0, devicesFailed = 0)

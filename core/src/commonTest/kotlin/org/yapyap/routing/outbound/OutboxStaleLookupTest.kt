@@ -1,9 +1,9 @@
 package org.yapyap.routing.outbound
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.runBlocking
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -46,10 +46,10 @@ class OutboxStaleLookupTest {
         val tor = RecordingTorTransport()
         val outbox = TrackingPacketOutbox()
         val identity = FakeIdentityResolverForRouter(
-            localDevice = DeviceIdentityRecord(
+            localDevice = DeviceIdentity(
                 deviceId = localPeer,
-                signing = IdentityPublicKeyRecord(IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-                encryption = IdentityPublicKeyRecord(IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+                signingKey = SigningPublicKey(byteArrayOf(1)),
+                encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
             ),
             peersByAccount = mapOf(AccountId("stale-lookup-account") to listOf(remotePeer)),
             torByPeer = mutableMapOf(remotePeer to TorEndpoint("peer.onion", 80)),

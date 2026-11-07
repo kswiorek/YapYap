@@ -1,9 +1,15 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.persistence.key.TestIdentityStack
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
@@ -19,15 +25,15 @@ class PeerX3dhKeysVerificationTest {
     @Test
     fun resolvePeerIdentityRecord_succeedsForStoredPeer() = runTest {
         val crypto = DefaultCryptoProvider()
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val store = InMemoryKeyStore()
-        val resolver = DefaultIdentityResolver(crypto, repo, store)
+        val resolver = TestIdentityStack(crypto, repo, store)
         val accountId = AccountId("x3dh-account")
         repo.insertLocalAccount(
-            identity = AccountIdentityRecord(
+            identity = AccountIdentity(
                 accountId = accountId,
                 displayName = "X3DH User",
-                key = IdentityPublicKeyRecord(IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
+                signingKey = SigningPublicKey(byteArrayOf(0x01)),
             )
         )
         val peerTor = TorEndpoint(onionAddress = "peer-x3dh.onion", port = 443)
@@ -35,24 +41,24 @@ class PeerX3dhKeysVerificationTest {
         val peer = buildAttestedDeviceIdentity(crypto, "peer-valid")
         repo.insertPeerDevice(accountId, DeviceType.DESKTOP, peer, peerTor)
 
-        val resolved = resolver.resolvePeerIdentityRecord(peer.deviceId)
+        val resolved = resolver.resolvePeerIdentity(peer.deviceId)
         assertNotNull(resolved)
         assertEquals(peer.deviceId, resolved.deviceId)
-        assertContentEquals(peer.encryption.publicKey, resolved.encryption.publicKey)
+        assertEquals(peer.encryptionKey, resolved.encryptionKey)
     }
 
     @Test
-    fun resolvePeerX3dhRemoteKeys_rejectsTamperedSpk() = runTest {
+    fun resolvePeerPreKeyBundle_rejectsTamperedSpk() = runTest {
         val crypto = DefaultCryptoProvider()
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val store = InMemoryKeyStore()
-        val resolver = DefaultIdentityResolver(crypto, repo, store)
+        val resolver = TestIdentityStack(crypto, repo, store)
         val accountId = AccountId("x3dh-account")
         repo.insertLocalAccount(
-            identity = AccountIdentityRecord(
+            identity = AccountIdentity(
                 accountId = accountId,
                 displayName = "X3DH User",
-                key = IdentityPublicKeyRecord(IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
+                signingKey = SigningPublicKey(byteArrayOf(0x01)),
             )
         )
         val peerTor = TorEndpoint(onionAddress = "peer-x3dh.onion", port = 443)
@@ -60,25 +66,28 @@ class PeerX3dhKeysVerificationTest {
         val validPeer = buildAttestedDeviceIdentity(crypto, "peer-valid")
         repo.insertPeerDevice(accountId, DeviceType.DESKTOP, validPeer, peerTor)
 
-        val tamperedSpk = validPeer.copy(
-            signedPreKey = validPeer.signedPreKey!!.copy(
-                keyId = "spk-peer-valid-tampered",
-                signature = validPeer.signedPreKey.signature.copyOf().also {
+        val validSpk = validPeer.signedPreKey!!
+        val tamperedSpkPeerId = PeerId("${validPeer.deviceId.id}-spk-tamper")
+        val tamperedSpkDevice = validPeer.copy(
+            deviceId = tamperedSpkPeerId,
+            signedPreKey = SignedPreKey(
+                id = SignedPreKeyId("spk-peer-valid-tampered"),
+                deviceId = tamperedSpkPeerId,
+                publicKey = validSpk.publicKey,
+                signature = validSpk.signature.copyOf().also {
                     it[0] = (it[0].toInt() xor 0xff).toByte()
                 },
             ),
         )
-        val tamperedSpkPeerId = PeerId("${validPeer.deviceId.id}-spk-tamper")
-        val tamperedSpkDevice = tamperedSpk.copy(deviceId = tamperedSpkPeerId)
         repo.insertPeerDevice(accountId, DeviceType.DESKTOP, tamperedSpkDevice, peerTor)
 
-        assertNotNull(resolver.resolvePeerIdentityRecord(tamperedSpkPeerId))
+        assertNotNull(resolver.resolvePeerIdentity(tamperedSpkPeerId))
         assertFailsWith<CryptoException.IncompleteRecord> {
-            resolver.resolvePeerX3dhRemoteKeys(tamperedSpkPeerId)
+            resolver.resolvePeerPreKeyBundle(tamperedSpkPeerId)
         }
 
-        val remoteKeys = resolver.resolvePeerX3dhRemoteKeys(validPeer.deviceId)
-        assertContentEquals(validPeer.encryption.publicKey, remoteKeys.identityEncryptionPublicKey)
-        assertContentEquals(validPeer.signedPreKey.publicKey, remoteKeys.signedPreKeyPublicKey)
+        val bundle = resolver.resolvePeerPreKeyBundle(validPeer.deviceId)
+        assertEquals(validPeer.encryptionKey, bundle.identityKey)
+        assertEquals(validSpk.publicKey, bundle.signedPreKey.publicKey)
     }
 }

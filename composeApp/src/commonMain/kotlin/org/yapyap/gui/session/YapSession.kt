@@ -9,7 +9,7 @@ import org.yapyap.gui.prefs.UiPreferencesController
 import org.yapyap.orchestrator.LoopbackTransport
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
-import org.yapyap.orchestrator.OrchestratorFactory
+import org.yapyap.wiring.OrchestratorFactory
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 

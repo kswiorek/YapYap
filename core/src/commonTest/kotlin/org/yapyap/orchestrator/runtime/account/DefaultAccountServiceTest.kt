@@ -1,5 +1,11 @@
 package org.yapyap.orchestrator.runtime.account
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.orchestrator.identity.IdentityReader
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,7 +18,7 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
@@ -32,8 +38,8 @@ private class RecordingProjector : GlobalEventProjector {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
     override suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -55,25 +61,27 @@ private class RecordingProjector : GlobalEventProjector {
         removedDevices += targetDeviceId
     }
 
+    override suspend fun seedProvisionalMember(accountId: AccountId) = Unit
+
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = survivors
 }
 
 private class FakeProvisioning : IdentityProvisioning {
     var recoveryKeyValid = false
 
-    override suspend fun createNewDeviceIdentity(): DeviceIdentityRecord = error("not used")
+    override suspend fun createNewDeviceIdentity(): DeviceIdentity = error("not used")
     override suspend fun createNewAccountIdentity(
         displayName: String,
         role: AccountRole,
-    ): AccountIdentityRecord = error("not used")
+    ): AccountIdentity = error("not used")
 
-    override suspend fun createPlaceholderAccountIdentity(): AccountIdentityRecord = error("not used")
+    override suspend fun createPlaceholderAccountIdentity(): AccountIdentity = error("not used")
     override suspend fun exportLocalAccountRecoveryKey(): String = error("not used")
     override suspend fun verifyRecoveryKey(recoveryKey: String): Boolean = recoveryKeyValid
-    override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord =
+    override suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentity =
         error("not used")
 
-    override suspend fun provisionSignedPreKey(): SignedPreKeyRecord = error("not used")
+    override suspend fun provisionSignedPreKey(): LocalSignedPreKey = error("not used")
 }
 
 class DefaultAccountServiceTest {
@@ -99,10 +107,18 @@ class DefaultAccountServiceTest {
             ),
             localOwner = owner,
         )
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val provisioning = FakeProvisioning()
         val onboardingState = MutableStateFlow(OnboardingState.IDLE)
-        val service = DefaultAccountService(projector, resolver, repo, provisioning, onboardingState)
+
+        // Device→account bindings and the owner flag are stubbed on [resolver]; rows come from [repo].
+        private val reader = object : IdentityReader by repo {
+            override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
+                resolver.getAccountIdForDevice(deviceId)
+
+            override suspend fun isLocalAccountOwner(): Boolean = resolver.isLocalAccountOwner()
+        }
+        val service = DefaultAccountService(projector, resolver, reader, provisioning, onboardingState)
 
         suspend fun seedLocal(provisional: Boolean) {
             repo.insertLocalDevice(localAccount, dummyDevice(localDevice), provisional)
@@ -125,10 +141,10 @@ class DefaultAccountServiceTest {
             withDevice: Boolean = true,
         ) {
             repo.insertPeerAccount(
-                identity = AccountIdentityRecord(
+                identity = AccountIdentity(
                     accountId = account,
                     displayName = account.id,
-                    key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+                    signingKey = SigningPublicKey(byteArrayOf(1)),
                 ),
                 role = AccountRole.MEMBER,
                 status = IdentityStatus.ACTIVE,
@@ -146,10 +162,10 @@ class DefaultAccountServiceTest {
             }
         }
 
-        private fun dummyDevice(id: PeerId) = DeviceIdentityRecord(
+        private fun dummyDevice(id: PeerId) = DeviceIdentity(
             deviceId = id,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
     }
 

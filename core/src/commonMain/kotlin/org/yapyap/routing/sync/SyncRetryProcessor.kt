@@ -7,9 +7,9 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.packet.OutboxTag
-import org.yapyap.persistence.sync.SyncAttemptRow
-import org.yapyap.persistence.sync.SyncAttemptStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.SyncAttempt
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -102,7 +102,7 @@ internal class SyncRetryProcessor(
         if (declined.isEmpty()) return
         val candidates = candidateDevices(syncs.syncCandidates(syncId))
         if (candidates.any { it !in declined }) return
-        attempts.removeDeclined(syncId, ctx.identityResolver.getAllPeerDevicesForAccount(account))
+        attempts.removeDeclined(syncId, ctx.devices.getAllPeerDevicesForAccount(account))
         attempts.advanceToNow(listOf(syncId), ctx.clock.now())
         wake()
     }
@@ -147,7 +147,7 @@ internal class SyncRetryProcessor(
 
     /** A link to [deviceId] came up: syncs it can answer are asked now, whatever their backoff. */
     private suspend fun onLinkUp(deviceId: PeerId) {
-        val account = ctx.identityResolver.getAccountIdForDevice(deviceId) ?: return
+        val account = ctx.devices.getAccountIdForDevice(deviceId) ?: return
         attempts.advanceToNow(syncs.syncsWithCandidate(account), ctx.clock.now())
         wake()
     }
@@ -171,7 +171,7 @@ internal class SyncRetryProcessor(
         wake()
     }
 
-    private suspend fun processDueRow(row: SyncAttemptRow, now: Instant) {
+    private suspend fun processDueRow(row: SyncAttempt, now: Instant) {
         val tag = OutboxTag(OutboxTag.Kind.SYNC, row.syncId)
         val nextAttemptAt = now + computeBackoff(row.attempts).seconds
         if (outboxProcessor.hasQueued(tag)) {
@@ -225,7 +225,7 @@ internal class SyncRetryProcessor(
     }
 
     private suspend fun candidateDevices(accounts: List<AccountId>): List<PeerId> =
-        ctx.identityResolver.getAllPeerDevicesForAccounts(accounts)
+        ctx.devices.getAllPeerDevicesForAccounts(accounts)
             .filter { it != ctx.localDeviceId }
             .distinct()
 

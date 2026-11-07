@@ -1,16 +1,17 @@
 package org.yapyap.persistence.key
 
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.IdentityKeyPurpose
 import kotlin.test.*
 
 class KeyringNamespaceTest {
 
-    private fun ref() = KeyReference(
-        keyId = "device-local-signing",
-        purpose = IdentityKeyPurpose.SIGNING,
-        type = KeyType.PRIVATE,
-    )
+    private fun ref(): KeySlot = KeySlot.DeviceSigningPrivate
 
     private fun store(
         backing: MutableMap<Pair<String, String>, String>,
@@ -60,7 +61,8 @@ class KeyringNamespaceTest {
         assertNull(storeB.getKey(ref()))
         assertNull(legacy.getKey(ref()))
         assertEquals(
-            setOf("org.yapyap.test.ns.a" to "signing:device-local-signing:private"),
+            // Pins the keyring account name existing installs look the device key up by.
+            setOf("org.yapyap.test.ns.a" to "signing:yapyap:local_device:signing:private"),
             backing.keys,
         )
     }
@@ -84,12 +86,12 @@ class KeyringNamespaceTest {
         val storeA = store(backing, "a")
         val storeB = store(backing, "b")
 
-        storeA.putKey(deviceSigningPrivateRef(), byteArrayOf(0x01))
-        storeB.putKey(deviceSigningPrivateRef(), byteArrayOf(0x02))
+        storeA.putKey(KeySlot.DeviceSigningPrivate, byteArrayOf(0x01))
+        storeB.putKey(KeySlot.DeviceSigningPrivate, byteArrayOf(0x02))
 
         storeA.deleteAll()
 
-        assertNull(storeA.getKey(deviceSigningPrivateRef()))
-        assertContentEquals(byteArrayOf(0x02), storeB.getKey(deviceSigningPrivateRef()))
+        assertNull(storeA.getKey(KeySlot.DeviceSigningPrivate))
+        assertContentEquals(byteArrayOf(0x02), storeB.getKey(KeySlot.DeviceSigningPrivate))
     }
 }

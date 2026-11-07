@@ -3,7 +3,7 @@ package org.yapyap.protection.service
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.persistence.key.BootstrapKeySource
+import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.protection.*
 import org.yapyap.protection.envelope.*
 import org.yapyap.protocol.SignalSecurityScheme
@@ -25,7 +25,7 @@ class DefaultEnvelopeProtectionServiceTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
 
         data class Row(
             val name: String,

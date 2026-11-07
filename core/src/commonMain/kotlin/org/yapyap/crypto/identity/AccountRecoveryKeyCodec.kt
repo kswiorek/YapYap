@@ -1,5 +1,6 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.CryptoException
 import kotlin.io.encoding.Base64
 
@@ -14,10 +15,10 @@ internal object AccountRecoveryKeyCodec {
     private const val PREFIX = "YYR1"
     private val b64 = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)
 
-    fun encode(displayName: String, privateSigningKey: ByteArray): String {
+    fun encode(displayName: String, privateSigningKey: SigningPrivateKey): String {
         require(displayName.isNotBlank()) { "displayName must not be blank" }
-        require(privateSigningKey.isNotEmpty()) { "privateSigningKey must not be empty" }
-        return "$PREFIX.${b64.encode(displayName.encodeToByteArray())}.${b64.encode(privateSigningKey)}"
+        require(privateSigningKey.bytes.isNotEmpty()) { "privateSigningKey must not be empty" }
+        return "$PREFIX.${b64.encode(displayName.encodeToByteArray())}.${b64.encode(privateSigningKey.bytes)}"
     }
 
     fun decode(recoveryKey: String): AccountRecoveryMaterial {
@@ -36,11 +37,11 @@ internal object AccountRecoveryKeyCodec {
         if (privateKey.isEmpty()) {
             throw CryptoException.InvalidRecoveryKey("private key must not be empty")
         }
-        return AccountRecoveryMaterial(displayName = displayName, privateSigningKey = privateKey)
+        return AccountRecoveryMaterial(displayName = displayName, privateSigningKey = SigningPrivateKey(privateKey))
     }
 }
 
 internal data class AccountRecoveryMaterial(
     val displayName: String,
-    val privateSigningKey: ByteArray,
+    val privateSigningKey: SigningPrivateKey,
 )

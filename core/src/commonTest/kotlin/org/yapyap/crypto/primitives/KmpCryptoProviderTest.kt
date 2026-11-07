@@ -53,14 +53,14 @@ class KmpCryptoProviderTest {
     fun privateSigningKeyToPublicKey_matchesGeneratedPublicKey() = runTest {
         val keys = crypto.generateSigningKeyPair()
         val derived = crypto.privateSigningKeyToPublicKey(keys.privateKey)
-        assertContentEquals(keys.publicKey, derived)
+        assertEquals(keys.publicKey, derived)
     }
 
     @Test
     fun privateEncryptionKeyToPublicKey_matchesGeneratedPublicKey() = runTest {
         val keys = crypto.generateEncryptionKeyPair()
         val derived = crypto.privateEncryptionKeyToPublicKey(keys.privateKey)
-        assertContentEquals(keys.publicKey, derived)
+        assertEquals(keys.publicKey, derived)
     }
 
     @Test
@@ -129,8 +129,8 @@ class KmpCryptoProviderTest {
         val alice = crypto.generateEncryptionKeyPair()
         val bob = crypto.generateEncryptionKeyPair()
 
-        val aliceView = crypto.deriveSharedSecret(alice.privateKey, bob.publicKey)
-        val bobView = crypto.deriveSharedSecret(bob.privateKey, alice.publicKey)
+        val aliceView = crypto.deriveSharedSecret(alice.privateKey.bytes, bob.publicKey.bytes)
+        val bobView = crypto.deriveSharedSecret(bob.privateKey.bytes, alice.publicKey.bytes)
 
         assertEquals(32, aliceView.size)
         assertContentEquals(aliceView, bobView)

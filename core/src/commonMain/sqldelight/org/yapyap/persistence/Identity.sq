@@ -4,13 +4,15 @@ import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.AccountRole;
 import org.yapyap.protocol.IdentityStatus;
 import org.yapyap.protocol.DeviceType;
-import org.yapyap.persistence.db.OpkStatus;
 import org.yapyap.protocol.PeerId;
+import org.yapyap.crypto.keys.SigningPublicKey;
+import org.yapyap.crypto.keys.EncryptionPublicKey;
+import org.yapyap.crypto.keys.SignedPreKeyId;
 
 CREATE TABLE accounts (
     account_id TEXT AS AccountId NOT NULL PRIMARY KEY,
     is_local_account INTEGER AS Boolean NOT NULL,
-    account_pub_key BLOB,
+    account_pub_key BLOB AS SigningPublicKey,
     role TEXT AS AccountRole NOT NULL,
     status TEXT AS IdentityStatus NOT NULL,
     display_name TEXT NOT NULL,
@@ -24,19 +26,18 @@ CREATE TABLE devices (
     is_local_device INTEGER AS Boolean NOT NULL,
     account_id TEXT AS AccountId NOT NULL,
     device_type TEXT AS DeviceType NOT NULL,
+    -- The endpoint the device declared (chain AddDevice / intro). What the router has since
+    -- observed lives in device_routes (Routes.sq) and takes precedence.
     onion_address TEXT NOT NULL,
     onion_port INTEGER NOT NULL,
-    signing_pub_key BLOB NOT NULL,
-    encryption_pub_key BLOB NOT NULL,
+    signing_pub_key BLOB AS SigningPublicKey NOT NULL,
+    encryption_pub_key BLOB AS EncryptionPublicKey NOT NULL,
     -- Chain-derived ban state (projector-owned; ACTIVE on insert, BANNED by explicit
     -- RemoveDevice or the global-events §3 ban cut — never row deletion, keys stay resolvable
     -- for historical verification). Shared ACTIVE/BANNED enum with accounts (UNBOUND is
     -- unused for devices).
     status TEXT AS IdentityStatus NOT NULL,
-    current_signed_prekey_id TEXT,
-    push_token TEXT,
-    reliability_score REAL NOT NULL,
-    last_seen_timestamp INTEGER AS Instant NOT NULL,
+    current_signed_prekey_id TEXT AS SignedPreKeyId,
     -- Intro-seeded row awaiting chain confirmation (cleared by the projector's commit).
     -- Unconfirmed: usable as a sync seed, not as authorship proof.
     provisional INTEGER AS Boolean NOT NULL DEFAULT 0,
@@ -44,22 +45,12 @@ CREATE TABLE devices (
 );
 
 CREATE TABLE signed_prekeys (
-    spk_id TEXT NOT NULL PRIMARY KEY,
+    spk_id TEXT AS SignedPreKeyId NOT NULL PRIMARY KEY,
     device_id TEXT AS PeerId NOT NULL,
-    public_key BLOB NOT NULL,
+    public_key BLOB AS EncryptionPublicKey NOT NULL,
     signature BLOB NOT NULL,
     is_active INTEGER AS Boolean NOT NULL DEFAULT 0,
     created_at_epoch_seconds INTEGER AS Instant NOT NULL,
-    FOREIGN KEY (device_id) REFERENCES devices(device_id)
-);
-
-CREATE TABLE one_time_prekeys (
-    opk_id TEXT NOT NULL PRIMARY KEY,
-    device_id TEXT AS PeerId NOT NULL,
-    public_key BLOB NOT NULL,
-    status TEXT AS OpkStatus NOT NULL DEFAULT 'ALLOCATED',
-    created_at_epoch_seconds INTEGER AS Instant NOT NULL,
-    offered_at_epoch_seconds INTEGER AS Instant,
     FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 
@@ -126,11 +117,8 @@ INSERT OR REPLACE INTO devices (
     encryption_pub_key,
     status,
     current_signed_prekey_id,
-    push_token,
-    reliability_score,
-    last_seen_timestamp,
     provisional
-) VALUES (?,?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectDeviceStatusById:
 SELECT status
@@ -173,48 +161,6 @@ UPDATE signed_prekeys
 SET is_active = 0
 WHERE device_id = ?;
 
-insertOneTimePreKey:
-INSERT OR REPLACE INTO one_time_prekeys (
-    opk_id,
-    device_id,
-    public_key,
-    status,
-    created_at_epoch_seconds,
-    offered_at_epoch_seconds
-) VALUES (?, ?, ?, ?, ?, ?);
-
-selectOneTimePreKeyById:
-SELECT *
-FROM one_time_prekeys
-WHERE opk_id = ?;
-
-markOneTimePreKeyOffered:
-UPDATE one_time_prekeys
-SET status = ?, offered_at_epoch_seconds = ?
-WHERE opk_id = ? AND device_id = ? AND status = 'ALLOCATED';
-
-markOneTimePreKeyConsumed:
-UPDATE one_time_prekeys
-SET status = 'CONSUMED'
-WHERE opk_id = ? AND device_id = ? AND status = 'OFFERED';
-
-selectExpiredOfferedOneTimePreKeys:
-SELECT opk_id
-FROM one_time_prekeys
-WHERE device_id = ?
-  AND status = 'OFFERED'
-  AND offered_at_epoch_seconds IS NOT NULL
-  AND offered_at_epoch_seconds < ?;
-
-selectOneTimePreKeyIdsForDevice:
-SELECT opk_id
-FROM one_time_prekeys
-WHERE device_id = ?;
-
-deleteOneTimePreKeyById:
-DELETE FROM one_time_prekeys
-WHERE opk_id = ? AND device_id = ?;
-
 selectDeviceById:
 SELECT *
 FROM devices
@@ -250,16 +196,14 @@ WHERE account_id = ? AND status != 'BANNED';
 selectDevicesByAccountIds:
 SELECT device_id FROM devices WHERE account_id IN ? AND status != 'BANNED';
 
-selectAccountIdByDeviceId:
-SELECT account_id
+selectDeviceTorEndpoint:
+SELECT onion_address, onion_port
 FROM devices
 WHERE device_id = ?;
 
-updateDeviceTorEndpoint:
-UPDATE devices
-SET
-    onion_address = ?,
-    onion_port = ?
+selectAccountIdByDeviceId:
+SELECT account_id
+FROM devices
 WHERE device_id = ?;
 
 selectAllDeviceIds:
@@ -271,36 +215,6 @@ SELECT device_id
 FROM devices
 WHERE status != 'BANNED';
 
-markDeviceLastSeen:
-UPDATE devices
-SET last_seen_timestamp = ?
-WHERE device_id = ?;
-
-updateDeviceReliability:
-UPDATE devices
-SET
-    reliability_score = :score,
-    last_seen_timestamp = CASE WHEN :seenAt IS NULL THEN last_seen_timestamp ELSE :seenAt END
-WHERE device_id = :deviceId;
-
-selectDeviceAvailabilityById:
-SELECT
-    device_id AS deviceId,
-    reliability_score AS reliabilityScore,
-    last_seen_timestamp AS lastSeenEpoch
-FROM devices
-WHERE device_id = ?;
-
-selectAllDeviceAvailability:
-SELECT
-    device_id AS deviceId,
-    reliability_score AS reliabilityScore,
-    last_seen_timestamp AS lastSeenEpoch
-FROM devices;
-
 CREATE INDEX devices_account_idx ON devices(account_id);
 CREATE INDEX signed_prekeys_device_idx ON signed_prekeys(device_id);
 CREATE INDEX signed_prekeys_device_active_idx ON signed_prekeys(device_id, is_active);
-CREATE INDEX one_time_prekeys_device_idx ON one_time_prekeys(device_id);
-CREATE INDEX one_time_prekeys_device_status_offered_idx
-ON one_time_prekeys(device_id, status, offered_at_epoch_seconds);

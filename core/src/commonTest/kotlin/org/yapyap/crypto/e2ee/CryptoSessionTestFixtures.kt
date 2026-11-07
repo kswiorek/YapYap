@@ -1,5 +1,9 @@
 package org.yapyap.crypto.e2ee
 
+import org.yapyap.routing.directory.DeviceRouteStore
+
+import org.yapyap.routing.directory.DeviceDirectory
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.config.TransportLimits
@@ -9,12 +13,12 @@ import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
 import org.yapyap.crypto.e2ee.session.CryptoLimits
 import org.yapyap.crypto.e2ee.session.CryptoWireCodec
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
-import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.keys.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.key.OpkRepository
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
@@ -23,71 +27,69 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 
 internal data class TestPeerIdentity(
-    val device: DeviceIdentityRecord,
-    val signingPrivateKey: ByteArray,
-    val encryptionPrivateKey: ByteArray,
-    val signedPreKey: SignedPreKeyRecord,
+    val device: DeviceIdentity,
+    val signingPrivateKey: SigningPrivateKey,
+    val encryptionPrivateKey: EncryptionPrivateKey,
+    val signedPreKey: LocalSignedPreKey,
 )
 
 internal class TestIdentityResolver(
     private val local: TestPeerIdentity,
     private val peers: Map<PeerId, TestPeerIdentity>,
     private val cryptoProvider: CryptoProvider = DefaultCryptoProvider(),
-) : IdentityResolver {
+) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
 
-    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = local.device
 
-    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
+    override suspend fun getLocalAccountIdentity(): AccountIdentity =
         error("not used in crypto session tests")
 
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
 
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         error("not used in crypto session tests")
 
-    override suspend fun isLocalAccountAdmin(): Boolean =
+    suspend fun isLocalAccountAdmin(): Boolean =
         error("not used in crypto session tests")
 
-    override suspend fun isLocalAccountOwner(): Boolean =
+    suspend fun isLocalAccountOwner(): Boolean =
         error("not used in crypto session tests")
 
-    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
-        when (purpose) {
-            IdentityKeyPurpose.ENCRYPTION -> local.encryptionPrivateKey
-            else -> error("unexpected purpose $purpose")
-        }
+    override suspend fun localDeviceSigningKey(): SigningPrivateKey = local.signingPrivateKey
 
-    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+    override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = local.encryptionPrivateKey
+
+    override suspend fun localAccountSigningKey(): SigningPrivateKey =
         error("not used in crypto session tests")
 
     override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
     override suspend fun getLocalAccountId(): AccountId = error("not used in crypto session tests")
 
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+    override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity =
         peers[deviceId]?.device ?: error("Missing peer identity record for deviceId=$deviceId")
 
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? =
         TorEndpoint(onionAddress = "peer.onion", port = 80)
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         error("not used in crypto session tests")
 
-    override suspend fun getAllPeers(): List<PeerId> = peers.keys.toList()
+    suspend fun getAllPeers(): List<PeerId> = peers.keys.toList()
 
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         error("not used in crypto session tests")
 
-    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
         error("not used in crypto session tests")
 
-    override suspend fun resolvePeerX3dhRemoteKeys(
+    override suspend fun resolvePeerPreKeyBundle(
         deviceId: PeerId,
-        signedPreKeyId: String?,
-    ): X3dhRemotePeerKeys {
-        val device = resolvePeerIdentityRecord(deviceId)
+        signedPreKeyId: SignedPreKeyId?,
+    ): PeerPreKeyBundle {
+        val device = resolvePeerIdentity(deviceId)
         val signedPreKey = when {
             signedPreKeyId != null -> {
-                device.signedPreKey?.takeIf { it.keyId == signedPreKeyId }
+                device.signedPreKey?.takeIf { it.id == signedPreKeyId }
                     ?: error("Signed prekey not found: $signedPreKeyId")
             }
 
@@ -96,28 +98,31 @@ internal class TestIdentityResolver(
         }
         require(
             cryptoProvider.verifyDetached(
-                device.signing.publicKey,
-                signedPreKey.publicKey,
+                device.signingKey,
+                signedPreKey.publicKey.bytes,
                 signedPreKey.signature
             )
         ) {
             "failed to verify signed prekey signature"
         }
-        return X3dhRemotePeerKeys(
-            identityEncryptionPublicKey = device.encryption.publicKey,
-            signedPreKeyPublicKey = signedPreKey.publicKey,
-            signedPreKeyId = signedPreKey.keyId,
-        )
+        return PeerPreKeyBundle(identityKey = device.encryptionKey, signedPreKey = signedPreKey)
     }
 
-    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = local.signedPreKey
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = local.signedPreKey
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord {
-        require(signedPreKeyId == local.signedPreKey.keyId) {
-            "Signed prekey not found: $signedPreKeyId"
-        }
+    override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey {
+        require(id == local.signedPreKey.id) { "Signed prekey not found: $id" }
         return local.signedPreKey
     }
+
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
 internal suspend fun buildTestPeerIdentity(
@@ -128,36 +133,20 @@ internal suspend fun buildTestPeerIdentity(
     val encryption = crypto.generateEncryptionKeyPair()
     val spk = crypto.generateEncryptionKeyPair()
     val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
-    val spkId = "spk-$label"
-    val spkSignature = crypto.signDetached(signing.privateKey, spk.publicKey)
+    val spkId = SignedPreKeyId("spk-$label")
+    val spkSignature = crypto.signDetached(signing.privateKey, spk.publicKey.bytes)
+    val signedPreKey =
+        SignedPreKey(id = spkId, deviceId = deviceId, publicKey = spk.publicKey, signature = spkSignature)
     return TestPeerIdentity(
         signingPrivateKey = signing.privateKey,
-        device = DeviceIdentityRecord(
+        device = DeviceIdentity(
             deviceId = deviceId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signing.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryption.publicKey,
-            ),
-            signedPreKey = SignedPreKeyRecord(
-                deviceId = deviceId,
-                keyId = spkId,
-                publicKey = spk.publicKey,
-                signature = spkSignature,
-                privateKey = null
-            ),
+            signingKey = signing.publicKey,
+            encryptionKey = encryption.publicKey,
+            signedPreKey = signedPreKey,
         ),
         encryptionPrivateKey = encryption.privateKey,
-        signedPreKey = SignedPreKeyRecord(
-            deviceId = deviceId,
-            keyId = spkId,
-            publicKey = spk.publicKey,
-            privateKey = spk.privateKey,
-            signature = spkSignature,
-        ),
+        signedPreKey = LocalSignedPreKey(signedPreKey, spk.privateKey),
     )
 }
 
@@ -171,21 +160,25 @@ internal fun managerForPeer(
     sessionConfig: CryptoSessionConfig = CryptoSessionConfig(),
     clock: FakeClock = FakeClock(epochSeconds(0)),
     cryptoLimits: CryptoLimits = testCryptoLimits(),
-): DefaultCryptoSessionManager =
-    DefaultCryptoSessionManager(
+): DefaultCryptoSessionManager {
+    val identity = TestIdentityResolver(
+        local = local,
+        peers = mapOf(peer.device.deviceId to peer),
+    )
+    return DefaultCryptoSessionManager(
         crypto = crypto,
         x3dh = X3dhHandshake(crypto),
         sessionStore = sessionStore,
-        identityResolver = TestIdentityResolver(
-            local = local,
-            peers = mapOf(peer.device.deviceId to peer),
-        ),
+        localIdentity = identity,
+        localKeys = identity,
+        peerKeys = identity,
         opkRepository = oneTimePreKeyStore,
         clock = clock,
         upgradePolicy = upgradePolicy,
         sessionConfig = MutableStateFlow(sessionConfig),
         cryptoLimits = MutableStateFlow(cryptoLimits),
     )
+}
 
 /** Legacy-equivalent capacity limits for tests (matches the pre-config crypto constants). */
 internal fun testCryptoLimits() = CryptoLimits(

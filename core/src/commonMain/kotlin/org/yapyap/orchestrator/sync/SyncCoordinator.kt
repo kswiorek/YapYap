@@ -28,7 +28,7 @@ internal interface SyncCoordinator {
      * Membership refresh for [roomId]: appends the room's current ACTIVE
      * members (own devices included — they are valid sync candidates) to all
      * of its pending sync rows' candidates
-     * (insert-if-absent). Wired to the projectors' state-change flows plus a
+     * (insert-if-absent). Driven by the folds' state-change flows plus a
      * boot sweep — candidates frozen at row-mint time would otherwise never
      * learn about later-added members (docs/room events.md §6). Append-only,
      * never replace: ping-sender and author candidates contributed by other

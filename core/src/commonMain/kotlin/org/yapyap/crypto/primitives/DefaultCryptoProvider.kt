@@ -5,7 +5,7 @@ import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.algorithms.*
 import dev.whyoleg.cryptography.random.CryptographyRandom
 import org.kotlincrypto.error.SignatureException
-import org.yapyap.crypto.identity.IdentityKeyPurpose
+import org.yapyap.crypto.keys.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -90,18 +90,18 @@ internal class DefaultCryptoProvider(
             associatedData = associatedData,
         )
 
-    override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
-        val privateEdDsaKey =
-            edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(EdDSA.PrivateKey.Format.RAW, privateKey)
+    override suspend fun privateSigningKeyToPublicKey(privateKey: SigningPrivateKey): SigningPublicKey {
+        val privateEdDsaKey = edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519)
+            .decodeFromByteArray(EdDSA.PrivateKey.Format.RAW, privateKey.bytes)
 
-        return privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.RAW)
+        return SigningPublicKey(privateEdDsaKey.getPublicKey().encodeToByteArray(EdDSA.PublicKey.Format.RAW))
     }
 
-    override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray {
-        val privateXdhKey =
-            xdh.privateKeyDecoder(XDH.Curve.X25519).decodeFromByteArray(XDH.PrivateKey.Format.RAW, privateKey)
+    override suspend fun privateEncryptionKeyToPublicKey(privateKey: EncryptionPrivateKey): EncryptionPublicKey {
+        val privateXdhKey = xdh.privateKeyDecoder(XDH.Curve.X25519)
+            .decodeFromByteArray(XDH.PrivateKey.Format.RAW, privateKey.bytes)
 
-        return privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.RAW)
+        return EncryptionPublicKey(privateXdhKey.getPublicKey().encodeToByteArray(XDH.PublicKey.Format.RAW))
     }
 
     private suspend fun aeadKey(key: ByteArray): ChaCha20Poly1305.Key {
@@ -120,11 +120,10 @@ internal class DefaultCryptoProvider(
             component = LogComponent.CRYPTO,
             event = LogEvent.CRYPTO_KEYPAIR_GENERATED,
             message = "Generated signing key pair",
-            fields = mapOf("keyPurpose" to IdentityKeyPurpose.SIGNING.name),
         )
         return SigningKeyPair(
-            publicKey = keyPair.publicKey.encodeToByteArray(EdDSA.PublicKey.Format.RAW),
-            privateKey = keyPair.privateKey.encodeToByteArray(EdDSA.PrivateKey.Format.RAW),
+            publicKey = SigningPublicKey(keyPair.publicKey.encodeToByteArray(EdDSA.PublicKey.Format.RAW)),
+            privateKey = SigningPrivateKey(keyPair.privateKey.encodeToByteArray(EdDSA.PrivateKey.Format.RAW)),
         )
     }
 
@@ -134,33 +133,32 @@ internal class DefaultCryptoProvider(
             component = LogComponent.CRYPTO,
             event = LogEvent.CRYPTO_KEYPAIR_GENERATED,
             message = "Generated encryption key pair",
-            fields = mapOf("keyPurpose" to IdentityKeyPurpose.ENCRYPTION.name),
         )
         return EncryptionKeyPair(
-            publicKey = keyPair.publicKey.encodeToByteArray(XDH.PublicKey.Format.RAW),
-            privateKey = keyPair.privateKey.encodeToByteArray(XDH.PrivateKey.Format.RAW),
+            publicKey = EncryptionPublicKey(keyPair.publicKey.encodeToByteArray(XDH.PublicKey.Format.RAW)),
+            privateKey = EncryptionPrivateKey(keyPair.privateKey.encodeToByteArray(XDH.PrivateKey.Format.RAW)),
         )
     }
 
-    override suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray {
-        val privateKey = edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
+    override suspend fun signDetached(privateKey: SigningPrivateKey, message: ByteArray): ByteArray {
+        val decoded = edDsa.privateKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
             format = EdDSA.PrivateKey.Format.RAW,
-            bytes = privateSigningKey,
+            bytes = privateKey.bytes,
         )
-        return privateKey.signatureGenerator().generateSignature(message)
+        return decoded.signatureGenerator().generateSignature(message)
     }
 
     override suspend fun verifyDetached(
-        publicSigningKey: ByteArray,
+        publicKey: SigningPublicKey,
         message: ByteArray,
         signature: ByteArray
     ): Boolean {
-        val publicKey = edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
+        val decoded = edDsa.publicKeyDecoder(EdDSA.Curve.Ed25519).decodeFromByteArray(
             format = EdDSA.PublicKey.Format.RAW,
-            bytes = publicSigningKey,
+            bytes = publicKey.bytes,
         )
         return try {
-            publicKey.signatureVerifier().tryVerifySignature(message, signature)
+            decoded.signatureVerifier().tryVerifySignature(message, signature)
         } catch (e: SignatureException) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,

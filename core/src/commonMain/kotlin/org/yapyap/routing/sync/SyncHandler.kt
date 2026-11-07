@@ -24,7 +24,7 @@ internal class SyncHandler(
 ) {
     /** What to send [sourceDevice] for [request]; empty when the request is declined. */
     suspend fun messagesFor(request: SyncRequest, sourceDevice: PeerId): List<MessagePayload> {
-        val requester = ctx.identityResolver.getAccountIdForDevice(sourceDevice) ?: return emptyList()
+        val requester = ctx.devices.getAccountIdForDevice(sourceDevice) ?: return emptyList()
         return syncPayloadProvider.syncMessages(request, requester)
     }
 

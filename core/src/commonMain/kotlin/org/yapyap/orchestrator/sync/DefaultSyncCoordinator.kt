@@ -1,7 +1,9 @@
 package org.yapyap.orchestrator.sync
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -11,10 +13,12 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.fold.global.IdentityStateChange
+import org.yapyap.orchestrator.fold.room.RoomStateChange
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.RoomRepository
-import org.yapyap.persistence.sync.PendingSyncRepository
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
@@ -44,6 +48,10 @@ internal class DefaultSyncCoordinator(
     private val messageRepository: MessageRepository,
     private val pendingSyncRepository: PendingSyncRepository,
     private val router: Router,
+    /** Room-fold commits: every change re-appends the room's members to its live rows. */
+    private val roomChanges: Flow<RoomStateChange>,
+    /** Global-fold commits: any identity change re-appends the global members to GLOBAL's rows. */
+    private val identityChanges: Flow<IdentityStateChange>,
     private val clock: Clock = Clock.System,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>
 ) : SyncCoordinator {
@@ -53,19 +61,19 @@ internal class DefaultSyncCoordinator(
 
     @Volatile
     private var serviceScope: CoroutineScope? = null
-    private var subscriptionJob: Job? = null
+    private val jobs = mutableListOf<Job>()
     private val syncMutex = Mutex()
 
     override fun start(scope: CoroutineScope) {
-        check(subscriptionJob == null) { "SyncCoordinator already started" }
+        check(jobs.isEmpty()) { "SyncCoordinator already started" }
         serviceScope = scope
         // The router asks for every pending sync; hand it the ones from before this run
         // (idempotent: a sync it already tracks keeps its attempt state).
-        scope.launch {
+        jobs += scope.launch {
             val now = clock.now()
             pendingSyncRepository.allSyncIds().forEach { router.startSync(it, now) }
         }
-        subscriptionJob = scope.launch {
+        jobs += scope.launch {
             pipeline.ingestResults.collect { result ->
                 when (result) {
                     is IngestResult.BecameOrphan -> processBecameOrphan(result)
@@ -73,11 +81,51 @@ internal class DefaultSyncCoordinator(
                 }
             }
         }
+        jobs += scope.launch {
+            router.pingPayloads.collect { ping ->
+                ping.roomFrontiers.forEach { (roomId, tips) ->
+                    // One room failing must not end this collector: every later ping's
+                    // frontiers would go unsynced until restart.
+                    try {
+                        requestFrontierSync(roomId, tips, ping.senderAccount)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        AppLog.error(
+                            component = LogComponent.ORCHESTRATOR,
+                            event = LogEvent.SYNC_PROCESS_FAILED,
+                            message = "Frontier sync request from ping failed",
+                            throwable = e,
+                            fields = mapOf("roomId" to roomId, "senderAccount" to ping.senderAccount),
+                        )
+                    }
+                }
+            }
+        }
+        // Candidate freshness (docs/room events.md §6): rows freeze their candidates at mint
+        // time, so every fold commit re-appends the room's current ACTIVE members to its live
+        // rows (insert-if-absent: ping-sender and author candidates survive). The global room
+        // has no room-fold changes, so any identity change refreshes it.
+        jobs += scope.launch {
+            roomChanges.collect { change -> refreshCandidatesFor(change.roomId) }
+        }
+        jobs += scope.launch {
+            identityChanges.collect { refreshCandidatesFor(RoomId.GLOBAL) }
+        }
+        // Boot sweep for the same freshness: the folds' boot baselines are silent, so members
+        // that arrived while we were offline would never refresh existing rows. Idempotent, so
+        // racing a still-running boot fold is harmless (its commits re-trigger the collectors).
+        jobs += scope.launch {
+            for (roomId in roomRepository.allChatRoomIds() + RoomId.GLOBAL) {
+                refreshCandidatesFor(roomId)
+            }
+        }
     }
 
     override suspend fun stop() {
-        subscriptionJob?.cancel()
-        subscriptionJob?.join()
+        jobs.forEach { it.cancel() }
+        jobs.forEach { it.join() }
+        jobs.clear()
         serviceScope = null
     }
 

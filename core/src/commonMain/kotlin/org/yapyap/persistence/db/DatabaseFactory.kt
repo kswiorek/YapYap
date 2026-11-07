@@ -7,6 +7,10 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import org.yapyap.crypto.e2ee.session.X3dhMode
+import org.yapyap.crypto.keys.EncryptionPublicKey
+import org.yapyap.crypto.keys.OneTimePreKeyId
+import org.yapyap.crypto.keys.SignedPreKeyId
+import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -51,12 +55,19 @@ internal class DatabaseFactory(
                     statusAdapter = EnumColumnAdapter(),
                     roleAdapter = EnumColumnAdapter(),
                     account_idAdapter = AccountIdAdapter(),
+                    account_pub_keyAdapter = SigningPublicKeyAdapter,
                 ),
                 devicesAdapter = Devices.Adapter(
                     device_typeAdapter = EnumColumnAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                     account_idAdapter = AccountIdAdapter(),
                     statusAdapter = EnumColumnAdapter(),
+                    signing_pub_keyAdapter = SigningPublicKeyAdapter,
+                    encryption_pub_keyAdapter = EncryptionPublicKeyAdapter,
+                    current_signed_prekey_idAdapter = SignedPreKeyIdAdapter,
+                ),
+                device_routesAdapter = Device_routes.Adapter(
+                    device_idAdapter = PeerIdAdapter(),
                     last_seen_timestampAdapter = InstantEpochSecondsAdapter,
                 ),
                 dedupAdapter = Dedup.Adapter(
@@ -73,6 +84,8 @@ internal class DatabaseFactory(
                     updated_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
                 one_time_prekeysAdapter = One_time_prekeys.Adapter(
+                    opk_idAdapter = OneTimePreKeyIdAdapter,
+                    public_keyAdapter = EncryptionPublicKeyAdapter,
                     statusAdapter = EnumColumnAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
@@ -135,6 +148,8 @@ internal class DatabaseFactory(
                     device_idAdapter = PeerIdAdapter(),
                 ),
                 signed_prekeysAdapter = Signed_prekeys.Adapter(
+                    spk_idAdapter = SignedPreKeyIdAdapter,
+                    public_keyAdapter = EncryptionPublicKeyAdapter,
                     device_idAdapter = PeerIdAdapter(),
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,
                 ),
@@ -163,6 +178,26 @@ internal class UuidAdapter : ColumnAdapter<Uuid, String> {
 internal object InstantEpochSecondsAdapter : ColumnAdapter<Instant, Long> {
     override fun decode(databaseValue: Long): Instant = Instant.fromEpochSeconds(databaseValue)
     override fun encode(value: Instant): Long = value.epochSeconds
+}
+
+internal object SigningPublicKeyAdapter : ColumnAdapter<SigningPublicKey, ByteArray> {
+    override fun decode(databaseValue: ByteArray) = SigningPublicKey(databaseValue)
+    override fun encode(value: SigningPublicKey) = value.bytes
+}
+
+internal object EncryptionPublicKeyAdapter : ColumnAdapter<EncryptionPublicKey, ByteArray> {
+    override fun decode(databaseValue: ByteArray) = EncryptionPublicKey(databaseValue)
+    override fun encode(value: EncryptionPublicKey) = value.bytes
+}
+
+internal object SignedPreKeyIdAdapter : ColumnAdapter<SignedPreKeyId, String> {
+    override fun decode(databaseValue: String) = SignedPreKeyId(databaseValue)
+    override fun encode(value: SignedPreKeyId) = value.value
+}
+
+internal object OneTimePreKeyIdAdapter : ColumnAdapter<OneTimePreKeyId, String> {
+    override fun decode(databaseValue: String) = OneTimePreKeyId(databaseValue)
+    override fun encode(value: OneTimePreKeyId) = value.value
 }
 
 internal class RoomIdAdapter : ColumnAdapter<RoomId, String> {

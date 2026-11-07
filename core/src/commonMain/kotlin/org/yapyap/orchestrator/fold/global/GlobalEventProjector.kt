@@ -1,15 +1,19 @@
 package org.yapyap.orchestrator.fold.global
 
+import org.yapyap.orchestrator.identity.IdentityWriter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityResolver
-import org.yapyap.crypto.identity.SignedPreKeyRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.SignedPreKey
+import org.yapyap.crypto.keys.EncryptionPublicKey
+import org.yapyap.crypto.keys.SignedPreKeyId
+import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -20,10 +24,10 @@ import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
 import org.yapyap.orchestrator.fold.graph.childAdjacency
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.MessageRow
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.Invite
@@ -84,8 +88,8 @@ internal interface GlobalEventProjector {
      * The global room must be empty — the DAG structure itself enforces the "only once".
      */
     suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -117,6 +121,14 @@ internal interface GlobalEventProjector {
     suspend fun publishRemoveDevice(targetDeviceId: PeerId)
 
     /**
+     * Provisional GLOBAL membership for an account the chain has not committed yet: the
+     * local account right after setup, or the sponsor named in an intro. Insert-or-update,
+     * and overwritten by the next fold that knows the account; nothing else outside the
+     * fold writes GLOBAL membership.
+     */
+    suspend fun seedProvisionalMember(accountId: AccountId)
+
+    /**
      * Still-active devices whose branch-1 `AddDevice` was authored by [authorDeviceId], per the
      * last committed fold — the cascade-ban source set for the ban UI (ban-first-then-query:
      * the set is frozen once the ban lands, docs/global events.md §3). Empty until the first
@@ -129,8 +141,9 @@ internal class DefaultGlobalEventProjector(
     private val dagEngine: DagEngine,
     private val pipeline: InboundMessagePipeline,
     private val messageRepository: MessageRepository,
-    private val identityKeyRepository: IdentityKeyRepository,
-    private val identityResolver: IdentityResolver,
+    private val identityReader: IdentityReader,
+    private val identityWriter: IdentityWriter,
+    private val localIdentity: LocalIdentity,
     private val roomRepository: RoomRepository,
     private val router: Router,
     private val cryptoProvider: CryptoProvider,
@@ -149,18 +162,23 @@ internal class DefaultGlobalEventProjector(
     private var lastFoldDevices: Map<PeerId, FoldDevice> = emptyMap()
 
     private var collectJob: Job? = null
+    private var reverifyJob: Job? = null
     private var scope: CoroutineScope? = null
 
     override fun start(scope: CoroutineScope) {
         this.scope = scope
         // Boot fold: commits whatever global history is already stored (idempotent full re-fold).
-        scope.launch {
-            // Step 0 (docs/global events.md §9): the GLOBAL room must exist as a real room
-            // (messages FK target, sync candidates, ping frontiers, broadcast recipients).
-            roomRepository.ensureRoomExists(RoomId.GLOBAL, RoomType.GLOBAL_CONTROL, "global-control")
-            foldAndCommit("boot")
-        }
+        // The GLOBAL room itself is seeded by the schema (docs/global events.md §9).
+        scope.launch { foldAndCommit("boot") }
         if (collectJob?.isActive == true) return
+        // Chat messages wait PENDING on authors we can't resolve yet: a newly committed device
+        // may resolve them (docs/room events.md §10), and the boot sweep re-checks them all.
+        reverifyJob = scope.launch {
+            stateChanges.collect { change ->
+                if (change is IdentityStateChange.DeviceAdded) dagEngine.reverifyPendingFor(change.deviceId)
+            }
+        }
+        scope.launch { dagEngine.reverifyAllPending() }
         // Local appends bypass the pipeline, so every trigger here is a remote insert.
         // At 10–20 users the global log is tiny: a full re-fold on every trigger is
         // correct and cheap (optimize with watermarks only if ever needed).
@@ -174,12 +192,18 @@ internal class DefaultGlobalEventProjector(
     override suspend fun stop() {
         collectJob?.cancel()
         collectJob = null
+        reverifyJob?.cancel()
+        reverifyJob = null
         scope = null
     }
 
+    override suspend fun seedProvisionalMember(accountId: AccountId) {
+        roomRepository.upsertMember(RoomId.GLOBAL, accountId, RoomMemberRole.MEMBER)
+    }
+
     override suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -187,21 +211,21 @@ internal class DefaultGlobalEventProjector(
         require(!messageRepository.hasMessages(RoomId.GLOBAL)) {
             "genesis requires an empty global room"
         }
-        val accountKey = requireNotNull(account.key) { "genesis requires the account public key" }
+        val accountKey = requireNotNull(account.signingKey) { "genesis requires the account public key" }
         require(accountKeySignature.isNotEmpty()) { "genesis requires the account signature over the device binding" }
         val spk = devicePreKey(device)
         publish(
             listOf(
                 GlobalEventPayload.AddAccount(
                     accountId = account.accountId,
-                    accountSigningPublicKey = accountKey.publicKey,
+                    accountSigningPublicKey = accountKey.bytes,
                     displayName = account.displayName,
                 ),
                 GlobalEventPayload.AddDevice(
                     accountId = account.accountId,
                     deviceId = device.deviceId,
-                    signingPublicKey = device.signing.publicKey,
-                    encryptionPublicKey = device.encryption.publicKey,
+                    signingPublicKey = device.signingKey.bytes,
+                    encryptionPublicKey = device.encryptionKey.bytes,
                     torEndpoint = torEndpoint,
                     deviceType = deviceType,
                     keySignature = accountKeySignature,
@@ -217,28 +241,28 @@ internal class DefaultGlobalEventProjector(
         val account = requireNotNull(invite.account) {
             "sponsored new-account publish requires invite.account"
         }
-        val accountKey = requireNotNull(account.key) {
+        val accountKey = requireNotNull(account.signingKey) {
             "sponsored new-account publish requires the account public key"
         }
         val keySignature = requireNotNull(invite.accountKeySignature) {
             "sponsored new-account publish requires invite.accountKeySignature"
         }
         // Fail fast: GrantAdmin is valid only if the sponsor is admin at this fold position.
-        check(!grantAdmin || identityResolver.isLocalAccountAdmin()) {
+        check(!grantAdmin || identityReader.isLocalAccountAdmin()) {
             "local account is not an admin"
         }
         val spk = devicePreKey(invite.device)
         val events = mutableListOf(
             GlobalEventPayload.AddAccount(
                 accountId = account.accountId,
-                accountSigningPublicKey = accountKey.publicKey,
+                accountSigningPublicKey = accountKey.bytes,
                 displayName = account.displayName,
             ),
             GlobalEventPayload.AddDevice(
                 accountId = account.accountId,
                 deviceId = invite.device.deviceId,
-                signingPublicKey = invite.device.signing.publicKey,
-                encryptionPublicKey = invite.device.encryption.publicKey,
+                signingPublicKey = invite.device.signingKey.bytes,
+                encryptionPublicKey = invite.device.encryptionKey.bytes,
                 torEndpoint = invite.torEndpoint,
                 deviceType = invite.deviceType,
                 keySignature = keySignature,
@@ -255,15 +279,15 @@ internal class DefaultGlobalEventProjector(
 
     override suspend fun publishOwnAccountDevice(invite: Invite) {
         require(invite.account == null) { "own-account device publish takes an account-less invite" }
-        val localAccount = identityResolver.getLocalAccountIdentityRecord()
+        val localAccount = localIdentity.getLocalAccountIdentity()
         val spk = devicePreKey(invite.device)
         publish(
             listOf(
                 GlobalEventPayload.AddDevice(
                     accountId = localAccount.accountId,
                     deviceId = invite.device.deviceId,
-                    signingPublicKey = invite.device.signing.publicKey,
-                    encryptionPublicKey = invite.device.encryption.publicKey,
+                    signingPublicKey = invite.device.signingKey.bytes,
+                    encryptionPublicKey = invite.device.encryptionKey.bytes,
                     torEndpoint = invite.torEndpoint,
                     deviceType = invite.deviceType,
                     // Branch 1: the sponsor's own authorship is the authorization — a sibling
@@ -278,7 +302,7 @@ internal class DefaultGlobalEventProjector(
     }
 
     override suspend fun publishRelayedDevice(request: RecoveryRequest) {
-        requireNotNull(request.account.key) { "relayed device publish requires the account public key" }
+        requireNotNull(request.account.signingKey) { "relayed device publish requires the account public key" }
         require(request.accountSignature.isNotEmpty()) { "relayed device publish requires request.accountSignature" }
         val spk = devicePreKey(request.device)
         publish(
@@ -286,8 +310,8 @@ internal class DefaultGlobalEventProjector(
                 GlobalEventPayload.AddDevice(
                     accountId = request.account.accountId,
                     deviceId = request.device.deviceId,
-                    signingPublicKey = request.device.signing.publicKey,
-                    encryptionPublicKey = request.device.encryption.publicKey,
+                    signingPublicKey = request.device.signingKey.bytes,
+                    encryptionPublicKey = request.device.encryptionKey.bytes,
                     torEndpoint = request.torEndpoint,
                     deviceType = request.deviceType,
                     keySignature = request.accountSignature,
@@ -327,8 +351,8 @@ internal class DefaultGlobalEventProjector(
      * device signing key from the same event and commits it as the device's SPK, so any
      * member can initiate E2EE straight from the fold.
      */
-    private fun devicePreKey(device: DeviceIdentityRecord): Triple<String, ByteArray, ByteArray>? =
-        device.signedPreKey?.let { Triple(it.keyId, it.publicKey, it.signature) }
+    private fun devicePreKey(device: DeviceIdentity): Triple<String, ByteArray, ByteArray>? =
+        device.signedPreKey?.let { Triple(it.id.value, it.publicKey.bytes, it.signature) }
 
     /**
      * Shared writer path: append (DagEngine signs with the local device key and chains off the
@@ -384,10 +408,10 @@ internal class DefaultGlobalEventProjector(
             for ((id, row) in byId) nodes[id] = foldNodeOf(row)
             val crypto = object : FoldCrypto {
                 override suspend fun verifyAuthor(key: ByteArray, msg: ByteArray, sig: ByteArray): Boolean =
-                    cryptoProvider.verifyDetached(key, msg, sig)
+                    cryptoProvider.verifyDetached(SigningPublicKey(key), msg, sig)
 
                 override suspend fun verifyBinding(key: ByteArray, binding: ByteArray, sig: ByteArray): Boolean =
-                    cryptoProvider.verifyDetached(key, binding, sig)
+                    cryptoProvider.verifyDetached(SigningPublicKey(key), binding, sig)
             }
 
             val current = foldToFixpoint(
@@ -423,7 +447,7 @@ internal class DefaultGlobalEventProjector(
      * Storage→core adapter: decodes one row; null event = proven forgery (the core
      * assigns REJECTED). Id-derivation is precomputed here.
      */
-    private suspend fun foldNodeOf(row: MessageRow): FoldNode {
+    private suspend fun foldNodeOf(row: StoredMessage): FoldNode {
         val payload = row.payload
         val event = runCatching {
             (payload as? MessagePayload.GlobalEvent)?.decodeEvent()
@@ -432,10 +456,10 @@ internal class DefaultGlobalEventProjector(
         // stays crypto-free apart from the [FoldCrypto] oracles.
         val derivationOk = when (event) {
             is GlobalEventPayload.AddAccount ->
-                cryptoProvider.accountIdFromPublicKey(event.accountSigningPublicKey) == event.accountId
+                cryptoProvider.accountIdFromPublicKey(SigningPublicKey(event.accountSigningPublicKey)) == event.accountId
 
             is GlobalEventPayload.AddDevice ->
-                cryptoProvider.peerIdFromPublicKey(event.signingPublicKey) == event.deviceId
+                cryptoProvider.peerIdFromPublicKey(SigningPublicKey(event.signingPublicKey)) == event.deviceId
 
             else -> true
         }
@@ -458,7 +482,7 @@ internal class DefaultGlobalEventProjector(
      * Genesis resolution (§3): the empty-`prevIds` `AddAccount` with the most transitive
      * descendants. Forged roots have (almost) none; the pre-forgery margin is permanent.
      */
-    private fun resolveGenesis(byId: Map<Uuid, MessageRow>, children: Map<Uuid, List<Uuid>>): GenesisInfo? {
+    private fun resolveGenesis(byId: Map<Uuid, StoredMessage>, children: Map<Uuid, List<Uuid>>): GenesisInfo? {
         val candidates = byId.values.mapNotNull { row ->
             val event = runCatching { (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent() }.getOrNull()
             if (row.payload.prevIds.isEmpty() && event is GlobalEventPayload.AddAccount) {
@@ -491,7 +515,7 @@ internal class DefaultGlobalEventProjector(
 
     /** Nodes reachable from the winning root over present edges. */
     private fun reachableFrom(
-        byId: Map<Uuid, MessageRow>,
+        byId: Map<Uuid, StoredMessage>,
         children: Map<Uuid, List<Uuid>>,
         genesis: GenesisInfo?,
     ): Set<Uuid> {
@@ -512,7 +536,7 @@ internal class DefaultGlobalEventProjector(
     /** First self-authored `AddDevice` for the genesis account. */
     private fun genesisSelfIntroKey(
         order: List<Uuid>,
-        byId: Map<Uuid, MessageRow>,
+        byId: Map<Uuid, StoredMessage>,
         genesis: GenesisInfo?,
     ): GenesisKey? {
         if (genesis == null) return null
@@ -543,9 +567,9 @@ internal class DefaultGlobalEventProjector(
             // decisions (ids + admin/status), never display data.
             val add = nodes[acc.nodeId]?.event as? GlobalEventPayload.AddAccount
                 ?: error("fold invariant violated: account ${acc.accountId} without a defining AddAccount")
-            identityKeyRepository.upsertChainAccount(
+            identityWriter.upsertChainAccount(
                 accountId = acc.accountId,
-                accountSigningPublicKey = acc.accountSigningPublicKey,
+                accountSigningPublicKey = SigningPublicKey(acc.accountSigningPublicKey),
                 role = acc.role,
                 status = IdentityStatus.ACTIVE,
                 displayName = add.displayName,
@@ -554,13 +578,13 @@ internal class DefaultGlobalEventProjector(
         for ((_, dev) in output.devices) {
             val add = nodes[dev.nodeId]?.event as? GlobalEventPayload.AddDevice
                 ?: error("fold invariant violated: device ${dev.deviceId} without a defining AddDevice")
-            identityKeyRepository.upsertChainDevice(
+            identityWriter.upsertChainDevice(
                 deviceId = dev.deviceId,
                 accountId = dev.accountId,
                 deviceType = add.deviceType,
                 torEndpoint = add.torEndpoint,
-                signingPublicKey = add.signingPublicKey,
-                encryptionPublicKey = add.encryptionPublicKey,
+                signingPublicKey = SigningPublicKey(add.signingPublicKey),
+                encryptionPublicKey = EncryptionPublicKey(add.encryptionPublicKey),
                 status = IdentityStatus.ACTIVE,
             )
             // First-write-wins SPK seeding from the defining Add event: later commits must
@@ -570,27 +594,24 @@ internal class DefaultGlobalEventProjector(
             val spkPub = add.signedPreKeyPublicKey
             val spkSig = add.signedPreKeySignature
             if (spkId != null && spkPub != null && spkSig != null &&
-                identityKeyRepository.getActiveSignedPreKeyForDevice(dev.deviceId) == null
+                identityReader.getActiveSignedPreKeyForDevice(dev.deviceId) == null
             ) {
-                identityKeyRepository.upsertDeviceSignedPreKey(
-                    SignedPreKeyRecord(
+                identityWriter.upsertDeviceSignedPreKey(
+                    SignedPreKey(
+                        id = SignedPreKeyId(spkId),
                         deviceId = dev.deviceId,
-                        keyId = spkId,
-                        publicKey = spkPub,
+                        publicKey = EncryptionPublicKey(spkPub),
                         signature = spkSig,
-                        privateKey = null,
-                        isActive = true,
-                        createdAt = null,
                     ),
                 )
             }
         }
         for (accountId in result.tombstonedAccounts) {
-            identityKeyRepository.tombstoneAccount(accountId)
+            identityWriter.tombstoneAccount(accountId)
             roomRepository.removeMember(RoomId.GLOBAL, accountId)
         }
         for (deviceId in result.tombstonedDevices) {
-            identityKeyRepository.tombstoneDevice(deviceId)
+            identityWriter.tombstoneDevice(deviceId)
         }
         val prev = lastCommit
         if (prev == null && trigger == "boot") {

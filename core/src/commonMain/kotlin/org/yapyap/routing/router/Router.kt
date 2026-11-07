@@ -81,6 +81,18 @@ internal interface Router {
     suspend fun announceOnline()
 
     /**
+     * Our own onion endpoint, as Tor published it on [start]. The orchestrator puts it in invites,
+     * intros and its own AddDevice — the one place it handles an address (bootstrap). Throws before [start].
+     */
+    fun localTorEndpoint(): TorEndpoint
+
+    /**
+     * When each device was last heard from, for display only (the roster's "last seen").
+     * Devices never heard from are absent. Routing decisions stay inside the router.
+     */
+    suspend fun deviceLastSeen(): Map<PeerId, Instant>
+
+    /**
      * Pushes [payload] to every device of [target]. Transport selection is owned by the
      * outbox retry loop, per attempt — there is no per-send override.
      *

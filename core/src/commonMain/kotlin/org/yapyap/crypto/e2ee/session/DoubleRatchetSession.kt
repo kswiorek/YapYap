@@ -174,8 +174,8 @@ internal class DoubleRatchetSession private constructor(
 
     private suspend fun generateLocalDhKeyPair() {
         val generated = crypto.generateEncryptionKeyPair()
-        state.localDhPrivateKey = generated.privateKey
-        state.localDhPublicKey = generated.publicKey
+        state.localDhPrivateKey = generated.privateKey.bytes
+        state.localDhPublicKey = generated.publicKey.bytes
     }
 
     private suspend fun kdfRootKey(rootKey: ByteArray, dhOutput: ByteArray): Pair<ByteArray, ByteArray> {

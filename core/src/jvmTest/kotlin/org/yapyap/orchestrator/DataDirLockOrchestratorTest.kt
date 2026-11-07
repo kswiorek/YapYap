@@ -1,21 +1,9 @@
 package org.yapyap.orchestrator
 
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.files.Path
-import org.yapyap.config.BootConfig
-import org.yapyap.config.ConfigFileWatcher
-import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.boot.DataDirectoryInUseException
 import org.yapyap.orchestrator.boot.currentProcessPid
-import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.persistence.key.MapBackedKeyringSessionFactory
-import org.yapyap.protocol.DeviceType
-import org.yapyap.transport.tor.RecordingTorBackend
-import org.yapyap.transport.webrtc.RecordingWebRtcBackend
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -29,25 +17,7 @@ import kotlin.test.fail
  */
 class DataDirLockOrchestratorTest {
 
-    private fun orchestrator(dir: Path): DefaultOrchestrator {
-        val dbUrl = "jdbc:sqlite:${dir}/vault.db"
-        val driverFactory = object : DriverFactory {
-            override fun createDriver(): SqlDriver = JdbcSqliteDriver(dbUrl)
-        }
-        val watcher = object : ConfigFileWatcher {
-            override fun changes(): Flow<Unit> = emptyFlow()
-        }
-        return DefaultOrchestrator(
-            dataDirectory = dir,
-            bootConfig = BootConfig(mode = NodeMode.FULL_CLIENT, localDeviceType = DeviceType.DESKTOP),
-            keyringSessionFactory = MapBackedKeyringSessionFactory(),
-            createDriverFactory = { _, _ -> driverFactory },
-            createTorBackend = { _, _ -> RecordingTorBackend() },
-            createWebRtcBackend = { _ -> RecordingWebRtcBackend() },
-            createLogger = { _ -> NoopAppLogger },
-            createConfigFileWatcher = { _ -> watcher },
-        )
-    }
+    private fun orchestrator(dir: Path): DefaultOrchestrator = testOrchestrator(dir)
 
     @Test
     fun second_start_on_same_dir_fails_fast_and_reset_releases() = runBlocking {

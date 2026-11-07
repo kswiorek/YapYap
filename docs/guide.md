@@ -50,7 +50,9 @@ lose the boundary that matters most here: who knows about devices and packets, a
   and room events.
 - Owns the message history (the DAG), the global and room folds, onboarding and recovery, typing state, and **sync**
   (working out what is missing, serving sync requests, retrying them).
-- Hands a payload to the router addressed to an account and gets back an account-level report.
+- Hands a payload to the router addressed to an account and gets back an account-level report. Its own onion
+  endpoint (for invites and its own AddDevice) comes from `Router.localTorEndpoint()`; per-device "last seen"
+  for the roster comes from `Router.deviceLastSeen()`, display only.
 - May name a device as the *subject* of an identity fact (add/remove a device, re-verify messages from a device)
   using `PeerId`, but **never addresses** one. The single exception is bootstrap: before an account exists, an
   intro or recovery request is sent to a device id plus an out-of-band `TorEndpoint`.
@@ -63,8 +65,9 @@ lose the boundary that matters most here: who knows about devices and packets, a
   outbox, picks a link, retries, deposits relay copies, and handles ACK/NACK and dedup.
 - Keeps links alive, sends pings, tracks peer availability, and exposes presence to the orchestrator **per
   account only** (`onlineAccounts`); which device carries an account stays inside the router.
-- Reads accounts and devices (account → devices, device → endpoint and keys) through read-only views. It never
-  writes identity facts other than the routing state it owns (see §4).
+- Reads accounts and devices through `DeviceDirectory` (account → devices, status, the endpoint a device
+  declared), a read-only view it declares, and who it is through crypto's `LocalIdentity`. What it learns about
+  reaching peers (proven endpoints, reliability, last seen) is its own state, in its own table (§4).
 - Treats payloads as opaque beyond their routing header. It never reads a `RoomId`, never looks at the DAG or
   membership, and never decides what content to send. When it needs content it does not own (the frontiers it
   advertises in a ping), it asks through an interface it declares itself, implemented by the orchestrator.
@@ -86,29 +89,35 @@ lose the boundary that matters most here: who knows about devices and packets, a
   `TorEndpoint`), and the observability profiles (`EnvelopeObservability`) that say which routing metadata is
   visible on the wire. It is the bottom of the graph: it depends on nothing else in the core. Codecs encode and
   decode; signing, hashing and encryption happen elsewhere.
-- **crypto** — primitives (`CryptoProvider`), identity keys, signatures, and 1:1 E2EE (X3DH, Double Ratchet,
-  session manager). Owns its own stores, including the keyring-backed key store.
+- **crypto** — primitives (`CryptoProvider`), typed keys (`crypto/keys`), identity services, signatures, and 1:1
+  E2EE (X3DH, Double Ratchet, session manager). The identity services: `LocalIdentity` (who this device is;
+  readable by every layer), `LocalKeys` (this device's private keys; crypto, protection and setup only) and
+  `PeerKeys` (peers' public keys, strictly resolved). Owns its stores, including the keyring-backed key store.
 - **protection** — turns a payload into protected envelope bytes and back (sign, encrypt, verify, decrypt) for
   each envelope family. Used by the router; built on crypto.
-- **storage** — SQLDelight schema, database setup and migrations, and repository implementations. Storage is
-  infrastructure, not a layer: each repository belongs to the layer that owns its tables (§4).
+- **persistence** — the database only: SQLDelight schema (`.sq`), migrations (`.sqm`), driver and column
+  adapters, and the generated queries. It is infrastructure, not a layer. Stores — interface and SQL
+  implementation — live with the layer that owns their tables: `crypto/store`, `routing/store`,
+  `orchestrator/store`, `orchestrator/identity` (§4).
 - **config** — each layer defines its own config type next to its code (`OrchestratorConfig`, `RouterConfig`,
-  `TorBackendConfig`, …). Loading, watching and distributing config is done by the composition root.
+  `TorBackendConfig`, …); shared settings and limit types (`TransportLimits`, `MessageLimits`, the GUI's
+  setting types) live in `config`. Loading, watching and distributing config is done by the composition root.
 - **logging** — `AppLog`, usable everywhere.
 
 ## 3. Dependency rules
 
-A package may import only what its row allows (plus `logging` and the standard libraries).
+A package may import only what its row allows (plus `logging`, `config`, `persistence` and the standard
+libraries).
 
-| Package      | May depend on                                                         |
-|--------------|-----------------------------------------------------------------------|
-| protocol     | —                                                                     |
-| transport    | protocol                                                              |
-| crypto       | protocol                                                              |
-| protection   | crypto, protocol                                                      |
-| routing      | transport, protection, protocol, read-only identity views from crypto |
-| orchestrator | routing (`Router` and its vocabulary types only), crypto, protocol    |
-| wiring       | everything                                                            |
+| Package      | May depend on                                                                   |
+|--------------|---------------------------------------------------------------------------------|
+| protocol     | —                                                                               |
+| transport    | protocol                                                                        |
+| crypto       | protocol                                                                        |
+| protection   | crypto, protocol                                                                |
+| routing      | transport, protection, protocol, crypto's identity views (`crypto.identity`)    |
+| orchestrator | routing (`Router`, its vocabulary, and the ports it declares), crypto, protocol |
+| wiring       | everything                                                                      |
 
 Consequences:
 
@@ -116,47 +125,83 @@ Consequences:
   higher layer implements it. The composition root connects them. Lower layers never import upper-layer types.
 - Exceptions cross a layer boundary only as the receiving layer's own vocabulary (e.g. a crypto failure becomes a
   protection verdict before the router sees it).
-- The rules are checked by an architecture test; a new dependency that breaks the table fails the build.
+- The rules are checked by `ArchitectureTest` (jvmTest); a new dependency that breaks the table fails the build.
+  Violations still being worked off are listed there by file as known debt — the list only shrinks.
 
 ## 4. Data ownership
 
 Every table has exactly **one owning layer**, and only that layer writes it. Other layers read through narrow
-read-only interfaces that the *reading* layer declares (e.g. the router's device directory: account → devices,
-device → endpoint and keys). A repository interface with both read and write methods is handed only to its
-owner.
+read-only interfaces that the *reading* layer declares (the router's `DeviceDirectory`, crypto's
+`PeerKeyDirectory`). A store with write methods is handed only to the component that is allowed to write.
 
-| Tables                                                                                 | Owner          | Writer within the owner                  |
-|----------------------------------------------------------------------------------------|----------------|------------------------------------------|
-| `accounts`, `devices` (chain identity, roles)                                          | orchestrator   | the global fold, and nothing else        |
-| `devices` routing state (current endpoint, availability)                               | routing        | the router                               |
-| `signed_prekeys`, `one_time_prekeys`, `crypto_sessions`, `crypto_session_skipped_keys` | crypto         | the session manager / key services       |
-| `messages`, `message_parents`, `causal_hold`                                           | orchestrator   | the DAG engine                           |
-| `message_deliveries`                                                                   | orchestrator   | the delivery tracker                     |
-| `rooms`, `room_members`                                                                | orchestrator   | the room fold (rooms are seeded at boot) |
-| `pending_syncs`, `pending_sync_candidate_accounts`                                     | orchestrator   | the sync coordinator                     |
-| `sync_attempts`, `sync_declined_devices`                                               | routing        | the sync retry processor                 |
-| `outbox`, `dedup`                                                                      | routing        | the router                               |
-| `file_transfers`, `file_chunk_tracker`, `spaces`                                       | not in use yet | —                                        |
+| Tables                                                               | Owner          | Writers                                                                                                                                                                                                         |
+|----------------------------------------------------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `accounts`, `devices`, `signed_prekeys`                              | orchestrator   | the global fold (`IdentityWriter`); intro seeding of provisional rows (`ProvisionalIdentitySeeder`, onboarding only); this device's own rows and prekeys at setup (`LocalIdentityStore`, identity provisioning) |
+| `one_time_prekeys`, `crypto_sessions`, `crypto_session_skipped_keys` | crypto         | the session manager and its key services                                                                                                                                                                        |
+| `messages`, `message_parents`, `causal_hold`                         | orchestrator   | the DAG engine                                                                                                                                                                                                  |
+| `message_deliveries`                                                 | orchestrator   | the delivery tracker                                                                                                                                                                                            |
+| `rooms`, `room_members`                                              | orchestrator   | the room fold; GLOBAL membership: the global fold (the GLOBAL room itself is seeded by the schema)                                                                                                              |
+| `pending_syncs`, `pending_sync_candidate_accounts`                   | orchestrator   | the sync coordinator                                                                                                                                                                                            |
+| `sync_attempts`, `sync_declined_devices`                             | routing        | the sync retry processor                                                                                                                                                                                        |
+| `device_routes`                                                      | routing        | the router: endpoints it proved, reliability, last seen (a proven endpoint overrides the declared one in `devices`)                                                                                             |
+| `outbox`, `dedup`                                                    | routing        | the router                                                                                                                                                                                                      |
+| `file_transfers`, `file_chunk_tracker`, `spaces`                     | not in use yet | —                                                                                                                                                                                                               |
 
 Rules:
 
 - The folds are the only writers of state derived from the event chains. Services that act on the user's behalf (add a
   member, remove a device) **publish an event**; they never write the projected tables directly.
-- Adding a table means adding a row to this table in the same change.
+- The full identity store (`IdentityStore`) is held only by the composition root. Everyone else gets the view
+  they need: `IdentityReader`, `IdentityWriter`, `ProvisionalIdentitySeeder`, `LocalIdentityStore`,
+  `PeerKeyDirectory`, `DeviceDirectory`.
+- Each `.sq` file's generated `*Queries` is used only in its owner's package; `ArchitectureTest` checks it.
+  Adding a table means adding a row here and an owner there in the same change.
 - Schema changes ship with a migration; the database is the only thing that has to survive a rewrite.
+  Migrations run with foreign keys off and are checked with `foreign_key_check` before they come back on, so a
+  table can be rebuilt in place (SQLite's procedure for changes `ALTER TABLE` can't make).
+
+### Data types
+
+- **Keys are typed.** `SigningPublicKey`, `SigningPrivateKey`, `EncryptionPublicKey`, `EncryptionPrivateKey`
+  (`crypto/keys`) wrap the bytes, compare by content, and never print a private key. Prekey ids are
+  `SignedPreKeyId` / `OneTimePreKeyId`. Raw `ByteArray` keys appear only at the wire (codecs, payload classes)
+  and inside the ratchet; convert at that boundary.
+- **Keyring entries are `KeySlot`s.** Each key the app holds outside the database has one slot; its keyring
+  name never changes for an existing slot.
+- **One entity per table, named for what it is.** `Account`/`Device` are stored rows; `AccountIdentity`/
+  `DeviceIdentity` are what an account or device presents about itself (carried in bootstrap payloads), and a row
+  contains its identity rather than duplicating it. Public and private halves are separate types:
+  `SignedPreKey` is what peers see, `LocalSignedPreKey` adds our private half. No `Row`/`Record` suffixes.
+- **Generated SQLDelight classes never leave their store.** Column adapters map columns straight to these
+  types where they can.
 
 ## 5. The composition root
 
-The composition root (`wiring`) builds the core: it opens the data directory and database, creates the key
-store and config store, constructs every store, service, transport and the router, and hands the orchestrator
-the finished parts. Platform factories (JVM, Android, iOS) supply the platform pieces (database driver, Tor
-backend, WebRTC backend, network monitor).
+The composition root (`wiring`) builds the core in two phases, each built fresh on every start:
 
-- The orchestrator does not construct transports, the router or repositories.
-- Boot diagnosis, first-run setup (genesis, join by invite, recovery) and reset live in `orchestrator/boot` and
-  `orchestrator/onboarding`, not in the orchestrator class itself.
+- **Vault** (`VaultGraph`): what exists as soon as the data directory is open, before any local identity —
+  config store, key store, database, the identity store with `LocalIdentity`, `LocalKeys` and `PeerKeys`,
+  provisioning. Boot diagnosis and the
+  first half of setup run against it.
+- **Node** (`NodeGraph`): everything that needs the local identity — stores, crypto sessions, protection,
+  transports, the router, the DAG, the folds, sync, onboarding and the runtime services. Its constructor only
+  wires; `start()` starts the parts in dependency order.
+
+The orchestrator never constructs anything. It declares what its lifecycle needs (`NodeAssembler`, `Vault`,
+`Node` in `orchestrator/boot`), and `wiring` implements those. The public entry point
+`OrchestratorFactory` lives in `wiring`; each platform (JVM, Android, iOS) gives it a `Platform` (keyring,
+database driver, Tor and WebRTC backends, logger, config watcher).
+
+- `DefaultOrchestrator` is the lifecycle only: lock, boot diagnosis, setup, start/stop, reset, and the
+  public state flows.
+- Setup is split around node assembly: `LocalSetupPreparer` provisions the identity on the vault, and
+  `LocalSetup` finishes the chosen path on the running node (`orchestrator/onboarding`).
+- **Components subscribe to their own inputs.** A component that reacts to another's flow takes that flow (or
+  its owner) in its constructor and collects it in its own `start()`. The composition root contains no
+  `launch`/`collect`; the only collectors in the lifecycle mirror the node's flows into the stable public ones.
 - Each component takes its dependencies through its constructor as interfaces; no service locators, no
-  `lateinit` wiring after construction.
+  `lateinit` wiring after construction. Something that needs a value only known at runtime (the local device
+  id) is built after that value is resolved, not patched in later.
 
 ## 6. Delivery model
 
@@ -240,6 +285,8 @@ never a loss.
   and when the fold confirms the device under its real account, that account becomes the local one (the
   stand-in and its memberships fold into it).
 - Device identity keys are immutable; there is no identity-key rotation.
+- Private keys are reached only through `LocalKeys`; peers' public keys through `PeerKeys`, which throws on a
+  missing record rather than returning a partial one.
 - Private keys and the database master key live in the OS keyring, outside the data directory. Deleting the data
   directory therefore leaves keys behind; a freshly created database can't own any of them, so boot deletes
   them and goes to setup. A reset deletes everything in the data directory except the held `app.lock`.
@@ -273,8 +320,9 @@ Not done yet:
    moves bytes, it is transport code.
 2. **Check the dependency table.** If you need something from a higher layer, declare an interface in your own
    package and let the higher layer implement it.
-3. **Check data ownership.** Write only tables your layer owns; read others through a read-only view. If
-   identity or room state must change, publish an event and let the fold write it.
+3. **Check data ownership.** Write only tables your layer owns; read others through a read-only view your
+   layer declares. If identity or room state must change, publish an event and let the fold write it.
+   Use the typed keys, ids and entities (§4, data types), not raw bytes and strings.
 4. **Wire it in the composition root**, with constructor-injected interfaces.
 5. **Wire types go in `protocol`.** A new envelope or payload gets a codec with round-trip tests and an
    observability profile if it adds routing metadata.

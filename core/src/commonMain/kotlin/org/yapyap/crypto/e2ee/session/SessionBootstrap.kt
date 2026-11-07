@@ -1,15 +1,18 @@
 package org.yapyap.crypto.e2ee.session
 
 import org.yapyap.crypto.e2ee.CryptoSessionException
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.keys.EncryptionPublicKey
+import org.yapyap.crypto.keys.OneTimePreKeyId
+import org.yapyap.crypto.keys.SignedPreKeyId
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.PeerKeys
 import org.yapyap.crypto.primitives.CryptoProvider
-import org.yapyap.crypto.primitives.EncryptionKeyPair
+import org.yapyap.crypto.keys.EncryptionKeyPair
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.key.OpkRepository
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 
@@ -22,21 +25,17 @@ internal class SessionBootstrap(
     private val crypto: CryptoProvider,
     private val x3dh: X3dhHandshake,
     private val sessionStore: CryptoSessionStore,
-    private val identityResolver: IdentityResolver,
+    private val localKeys: LocalKeys,
+    private val peerKeys: PeerKeys,
     private val opkRepository: OpkRepository,
     private val clock: Clock,
 ) {
 
     suspend fun bootstrapEpoch1Initiator(peerDeviceId: PeerId, sessionGeneration: Int): LoadedSession {
-        val remote = identityResolver.resolvePeerX3dhRemoteKeys(peerDeviceId)
-        val localIkPrivate = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION)
-        val localIkPublic = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey
+        val remote = peerKeys.resolvePeerPreKeyBundle(peerDeviceId)
         val ephemeral = crypto.generateEncryptionKeyPair()
         val result = x3dh.initiatorCompute3Dh(
-            local = X3dhLocalInitiatorKeys(
-                identityEncryptionPrivateKey = localIkPrivate,
-                identityEncryptionPublicKey = localIkPublic,
-            ),
+            localIdentityKey = localKeys.localDeviceEncryptionKey(),
             remote = remote,
             ephemeral = ephemeral,
         )
@@ -46,8 +45,8 @@ internal class SessionBootstrap(
         val meta = CryptoSessionMeta(
             role = SessionRole.INITIATOR,
             x3dhMode = X3dhMode.THREE_DH,
-            handshakeSpkId = remote.signedPreKeyId,
-            initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey,
+            handshakeSpkId = remote.signedPreKey.id.value,
+            initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey.bytes,
             sessionGeneration = sessionGeneration,
             createdAt = now,
             updatedAt = now,
@@ -86,21 +85,16 @@ internal class SessionBootstrap(
         }
         val epoch1 = sessionStore.loadActiveCanonical(peerDeviceId, sessionEpoch = 1)
             ?: throw CryptoSessionException.NoSession(peerDeviceId, sessionEpoch = 1)
-        val remote = identityResolver.resolvePeerX3dhRemoteKeys(
+        val remote = peerKeys.resolvePeerPreKeyBundle(
             peerDeviceId,
-            signedPreKeyId = epoch1.meta.handshakeSpkId,
+            signedPreKeyId = SignedPreKeyId(epoch1.meta.handshakeSpkId),
         )
-        val localIkPrivate = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION)
-        val localIkPublic = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey
         val ephemeral = crypto.generateEncryptionKeyPair()
         val result = x3dh.initiatorCompute4Dh(
-            local = X3dhLocalInitiatorKeys(
-                identityEncryptionPrivateKey = localIkPrivate,
-                identityEncryptionPublicKey = localIkPublic,
-            ),
+            localIdentityKey = localKeys.localDeviceEncryptionKey(),
             remote = remote,
             ephemeral = ephemeral,
-            oneTimePreKeyPublicKey = offer.opkPublicKey,
+            oneTimePreKeyPublicKey = EncryptionPublicKey(offer.opkPublicKey),
             oneTimePreKeyId = offer.opkId,
         )
         val session = DoubleRatchetSession.createInitiator(crypto, result.ratchetBootstrap)
@@ -109,9 +103,9 @@ internal class SessionBootstrap(
         val meta = CryptoSessionMeta(
             role = SessionRole.INITIATOR,
             x3dhMode = X3dhMode.FOUR_DH,
-            handshakeSpkId = remote.signedPreKeyId,
+            handshakeSpkId = remote.signedPreKey.id.value,
             handshakeOpkId = offer.opkId,
-            initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey,
+            initiatorEphemeralPublicKey = result.ephemeralKeyPair.publicKey.bytes,
             status = SessionStatus.PENDING,
             createdAt = now,
             updatedAt = now,
@@ -156,17 +150,12 @@ internal class SessionBootstrap(
         if (wire.mode != X3dhMode.THREE_DH) {
             throw CryptoSessionException.HandshakeMismatch("expected THREE_DH for epoch 1 bootstrap")
         }
-        val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
-        val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId).encryption.publicKey
+        val localSpk = localKeys.resolveLocalSignedPreKey(SignedPreKeyId(wire.signedPreKeyId))
+        val remoteIk = peerKeys.resolvePeerIdentity(peerDeviceId).encryptionKey
         val result = x3dh.responderCompute3Dh(
-            local = X3dhLocalResponderKeys(
-                identityEncryptionPrivateKey = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION),
-                identityEncryptionPublicKey = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey,
-                signedPreKeyPrivateKey = localSpk.privateKey!!,
-                signedPreKeyPublicKey = localSpk.publicKey,
-                signedPreKeyId = localSpk.keyId,
-            ),
-            remoteIdentityEncryptionPublicKey = remoteIk,
+            localIdentityKey = localKeys.localDeviceEncryptionKey(),
+            localSignedPreKey = localSpk,
+            remoteIdentityKey = remoteIk,
             wire = wire,
         )
         val session = DoubleRatchetSession.createResponder(crypto, result.ratchetBootstrap)
@@ -174,7 +163,7 @@ internal class SessionBootstrap(
         val meta = CryptoSessionMeta(
             role = SessionRole.RESPONDER,
             x3dhMode = X3dhMode.THREE_DH,
-            handshakeSpkId = localSpk.keyId,
+            handshakeSpkId = localSpk.id.value,
             initiatorEphemeralPublicKey = wire.ephemeralPublicKey,
             sessionGeneration = wire.sessionGeneration,
             createdAt = now,
@@ -197,21 +186,15 @@ internal class SessionBootstrap(
             )
         }
         val opkId = wire.oneTimePreKeyId ?: offeredOpkId
-        val opk = opkRepository.consume(opkId)
+        val opk = opkRepository.consume(OneTimePreKeyId(opkId))
             ?: throw CryptoSessionException.OpkConsumeFailed(opkId)
-        val localSpk = identityResolver.resolveLocalSignedPreKey(wire.signedPreKeyId)
-        val remoteIk = identityResolver.resolvePeerIdentityRecord(peerDeviceId).encryption.publicKey
+        val localSpk = localKeys.resolveLocalSignedPreKey(SignedPreKeyId(wire.signedPreKeyId))
+        val remoteIk = peerKeys.resolvePeerIdentity(peerDeviceId).encryptionKey
         val result = x3dh.responderCompute4Dh(
-            local = X3dhLocalResponderKeys(
-                identityEncryptionPrivateKey = identityResolver.getLocalDevicePrivateKey(IdentityKeyPurpose.ENCRYPTION),
-                identityEncryptionPublicKey = identityResolver.getLocalDeviceIdentityRecord().encryption.publicKey,
-                signedPreKeyPrivateKey = localSpk.privateKey!!,
-                signedPreKeyPublicKey = localSpk.publicKey,
-                signedPreKeyId = localSpk.keyId,
-            ),
-            oneTimePreKeyPrivateKey = opk.privateKey,
-            oneTimePreKeyId = opk.keyId,
-            remoteIdentityEncryptionPublicKey = remoteIk,
+            localIdentityKey = localKeys.localDeviceEncryptionKey(),
+            localSignedPreKey = localSpk,
+            oneTimePreKey = opk,
+            remoteIdentityKey = remoteIk,
             wire = wire,
         )
         val session = DoubleRatchetSession.createResponder(crypto, result.ratchetBootstrap)
@@ -219,8 +202,8 @@ internal class SessionBootstrap(
         val meta = CryptoSessionMeta(
             role = SessionRole.RESPONDER,
             x3dhMode = X3dhMode.FOUR_DH,
-            handshakeSpkId = localSpk.keyId,
-            handshakeOpkId = opk.keyId,
+            handshakeSpkId = localSpk.id.value,
+            handshakeOpkId = opk.id.value,
             sessionGeneration = wire.sessionGeneration,
             createdAt = now,
             updatedAt = now,
@@ -251,7 +234,7 @@ internal class SessionBootstrap(
         ephemeral: EncryptionKeyPair,
         result: X3dhInitiatorResult,
     ) {
-        ephemeral.privateKey.fill(0)
-        result.ephemeralKeyPair.privateKey.fill(0)
+        ephemeral.privateKey.bytes.fill(0)
+        result.ephemeralKeyPair.privateKey.bytes.fill(0)
     }
 }

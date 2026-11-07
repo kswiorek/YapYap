@@ -6,16 +6,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.dag.RoomCreatedDraft
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.RoomMemberRecord
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.*
 
 /**
@@ -28,8 +28,8 @@ import org.yapyap.protocol.*
 internal class DefaultRoomService(
     private val projector: RoomEventProjector,
     private val roomRepository: RoomRepository,
-    private val identityKeyRepository: IdentityKeyRepository,
-    private val identityResolver: IdentityResolver,
+    private val identityReader: IdentityReader,
+    private val localIdentity: LocalIdentity,
 ) : RoomService {
 
     private val _rooms = MutableStateFlow<List<RoomDetails>>(emptyList())
@@ -67,10 +67,10 @@ internal class DefaultRoomService(
 
     override suspend fun createRoom(name: String?, members: Set<AccountId>): CreateRoomResult {
         if (members.isEmpty()) return CreateRoomResult.Refused(CreateRoomRefusal.EMPTY_MEMBERS)
-        val local = identityResolver.getLocalAccountId()
+        val local = localIdentity.getLocalAccountId()
         val full = members + local
         for (member in full) {
-            if (identityKeyRepository.getAccountRecord(member) == null) {
+            if (identityReader.getAccountIdentity(member) == null) {
                 return CreateRoomResult.Refused(CreateRoomRefusal.UNKNOWN_MEMBER)
             }
         }
@@ -85,7 +85,7 @@ internal class DefaultRoomService(
             return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
         }
         checkAdmin(roomId)?.let { return it }
-        if (identityKeyRepository.getAccountRecord(target) == null) {
+        if (identityReader.getAccountIdentity(target) == null) {
             return RoomEventOutcome.Refused(RoomEventRefusal.UnknownMember)
         }
         return publish { projector.publishMemberAdd(roomId, target) }
@@ -133,7 +133,7 @@ internal class DefaultRoomService(
         if (roomRepository.roomOf(roomId) == null) {
             return RoomEventOutcome.Refused(RoomEventRefusal.RoomNotFound)
         }
-        val local = identityResolver.getLocalAccountId()
+        val local = localIdentity.getLocalAccountId()
         val self = roomRepository.memberRowOf(roomId, local)
             ?.takeIf { it.status == RoomMemberStatus.ACTIVE }
             ?: return RoomEventOutcome.Refused(RoomEventRefusal.NotMember)
@@ -169,8 +169,8 @@ internal class DefaultRoomService(
         return null
     }
 
-    private suspend fun localActiveRow(roomId: RoomId): RoomMemberRecord? {
-        val local = identityResolver.getLocalAccountId()
+    private suspend fun localActiveRow(roomId: RoomId): RoomMember? {
+        val local = localIdentity.getLocalAccountId()
         return roomRepository.memberRowOf(roomId, local)
             ?.takeIf { it.status == RoomMemberStatus.ACTIVE }
     }

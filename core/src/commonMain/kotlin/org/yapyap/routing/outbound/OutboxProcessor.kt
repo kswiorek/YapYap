@@ -7,10 +7,10 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.packet.OutboxEntry
-import org.yapyap.persistence.packet.OutboxTag
-import org.yapyap.persistence.packet.PacketOutbox
-import org.yapyap.persistence.packet.RelayBackup
+import org.yapyap.routing.store.OutboxEntry
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.RelayBackup
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint

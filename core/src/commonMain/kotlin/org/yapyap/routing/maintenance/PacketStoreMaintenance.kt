@@ -1,8 +1,8 @@
 package org.yapyap.routing.maintenance
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.persistence.packet.PacketDeduplicator
-import org.yapyap.persistence.packet.PacketOutbox
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.router.RouterConfig
 import kotlin.time.Clock
 

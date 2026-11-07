@@ -1,6 +1,11 @@
 package org.yapyap.persistence.key
 
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.keys.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.*
@@ -10,17 +15,17 @@ import kotlin.time.Instant
 
 /** In-memory [KeyStore] for unit tests. */
 internal class InMemoryKeyStore : KeyStore {
-    private val keys = mutableMapOf<KeyReference, ByteArray>()
+    private val keys = mutableMapOf<KeySlot, ByteArray>()
 
-    override suspend fun putKey(ref: KeyReference, key: ByteArray) {
-        keys[ref] = key.copyOf()
+    override suspend fun putKey(slot: KeySlot, key: ByteArray) {
+        keys[slot] = key.copyOf()
     }
 
-    override suspend fun getKey(ref: KeyReference): ByteArray? =
-        keys[ref]?.copyOf()
+    override suspend fun getKey(slot: KeySlot): ByteArray? =
+        keys[slot]?.copyOf()
 
-    override suspend fun deleteKey(ref: KeyReference) {
-        keys.remove(ref)
+    override suspend fun deleteKey(slot: KeySlot) {
+        keys.remove(slot)
     }
 
     override suspend fun deleteAll() {
@@ -29,33 +34,32 @@ internal class InMemoryKeyStore : KeyStore {
 }
 
 /**
- * Minimal [IdentityKeyRepository] backing store for [org.yapyap.crypto.identity.DefaultIdentityResolver] /
+ * Minimal [IdentityStore] backing store for [org.yapyap.crypto.identity.DefaultIdentityResolver] /
  * [org.yapyap.crypto.identity.DefaultIdentityProvisioning] contract tests.
  */
-internal class InMemoryIdentityKeyRepository(
+internal class InMemoryIdentityStore(
     private val defaultLocalTor: TorEndpoint = TorEndpoint(onionAddress = "unknown.onion", port = 80),
     private val defaultLocalDeviceType: DeviceType = DeviceType.DESKTOP,
-) : IdentityKeyRepository {
+) : IdentityStore {
 
-    val accounts = mutableMapOf<String, AccountIdentityRecord>()
-    val devices = mutableMapOf<String, DeviceIdentityRecord>()
+    val accounts = mutableMapOf<String, AccountIdentity>()
+    val devices = mutableMapOf<String, DeviceIdentity>()
     val identityStatuses = mutableMapOf<String, IdentityStatus>()
     val accountRoles = mutableMapOf<String, AccountRole>()
     val deviceStatuses = mutableMapOf<String, IdentityStatus>()
     val provisionalDevices = mutableSetOf<String>()
     val provisionalAccounts = mutableSetOf<String>()
-    var localDevice: DeviceIdentityRecord? = null
-    var localAccount: AccountIdentityRecord? = null
+    var localDevice: DeviceIdentity? = null
+    var localAccount: AccountIdentity? = null
     var localRole: AccountRole = AccountRole.MEMBER
-    private val signedPreKeys = mutableMapOf<String, SignedPreKeyRecord>()
-    private val activeSignedPreKeyByDevice = mutableMapOf<String, String>()
+    private val signedPreKeys = mutableMapOf<SignedPreKeyId, SignedPreKey>()
+    private val activeSignedPreKeyByDevice = mutableMapOf<String, SignedPreKeyId>()
     private val deviceToAccount = mutableMapOf<String, String>()
     private val peersForAccount = mutableMapOf<String, MutableSet<String>>()
     private val torForDevice = mutableMapOf<String, TorEndpoint>()
     private val deviceTypes = mutableMapOf<String, DeviceType>()
-    private val deviceLastSeen = mutableMapOf<String, Instant>()
 
-    override suspend fun getAccountRecord(accountId: AccountId): AccountIdentityRecord? =
+    override suspend fun getAccountIdentity(accountId: AccountId): AccountIdentity? =
         accounts[accountId.id]
 
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
@@ -66,18 +70,13 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun upsertChainAccount(
         accountId: AccountId,
-        accountSigningPublicKey: ByteArray?,
+        accountSigningPublicKey: SigningPublicKey?,
         role: AccountRole,
         status: IdentityStatus,
         displayName: String,
     ) {
-        val key = accountSigningPublicKey?.let {
-            IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = it,
-            )
-        } ?: accounts[accountId.id]?.key
-        accounts[accountId.id] = AccountIdentityRecord(accountId, displayName, key)
+        val key = accountSigningPublicKey ?: accounts[accountId.id]?.signingKey
+        accounts[accountId.id] = AccountIdentity(accountId, displayName, key)
         identityStatuses[accountId.id] = status
         accountRoles[accountId.id] = role
         provisionalAccounts.remove(accountId.id)
@@ -89,23 +88,17 @@ internal class InMemoryIdentityKeyRepository(
         accountId: AccountId,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
-        signingPublicKey: ByteArray,
-        encryptionPublicKey: ByteArray,
+        signingPublicKey: SigningPublicKey,
+        encryptionPublicKey: EncryptionPublicKey,
         status: IdentityStatus,
     ) {
         val existing = devices[deviceId.id]
         val confirmed = existing != null && deviceId.id !in provisionalDevices
         if (!confirmed) torForDevice[deviceId.id] = torEndpoint
-        val merged = DeviceIdentityRecord(
+        val merged = DeviceIdentity(
             deviceId = deviceId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signingPublicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryptionPublicKey,
-            ),
+            signingKey = signingPublicKey,
+            encryptionKey = encryptionPublicKey,
             signedPreKey = existing?.signedPreKey,
         )
         devices[deviceId.id] = merged
@@ -157,7 +150,7 @@ internal class InMemoryIdentityKeyRepository(
         provisionalDevices.remove(deviceId.id)
     }
 
-    override suspend fun getDeviceRecord(deviceId: PeerId): DeviceIdentityRecord? =
+    override suspend fun getDeviceIdentity(deviceId: PeerId): DeviceIdentity? =
         devices[deviceId.id]?.let { device ->
             val activeSpkId = activeSignedPreKeyByDevice[deviceId.id]
             val activeSpk = activeSpkId?.let { signedPreKeys[it] } ?: device.signedPreKey
@@ -166,7 +159,7 @@ internal class InMemoryIdentityKeyRepository(
 
     override suspend fun insertLocalDevice(
         accountId: AccountId,
-        identity: DeviceIdentityRecord,
+        identity: DeviceIdentity,
         provisional: Boolean,
     ) {
         devices[identity.deviceId.id] = identity
@@ -178,17 +171,12 @@ internal class InMemoryIdentityKeyRepository(
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
         torForDevice[identity.deviceId.id] = defaultLocalTor
         identity.signedPreKey?.let { spk ->
-            persistSignedPreKey(
-                deviceId = identity.deviceId,
-                signedPreKey = spk,
-                isActive = true,
-                createdAt = epochSeconds(0L),
-            )
+            persistSignedPreKey(spk)
         }
     }
 
-    override suspend fun getLocalDeviceRecord(): DeviceIdentityRecord? = localDevice
-    override suspend fun getLocalAccountRecord(): AccountIdentityRecord? = localAccount
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity? = localDevice
+    override suspend fun getLocalAccountIdentity(): AccountIdentity? = localAccount
 
     fun clearLocalDeviceRecord() {
         localDevice = null
@@ -197,7 +185,7 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun insertPeerDevice(
         accountId: AccountId,
         deviceType: DeviceType,
-        identity: DeviceIdentityRecord,
+        identity: DeviceIdentity,
         torEndpoint: TorEndpoint,
         provisional: Boolean,
     ) {
@@ -209,17 +197,12 @@ internal class InMemoryIdentityKeyRepository(
         peersForAccount.getOrPut(accountId.id) { mutableSetOf() }.add(identity.deviceId.id)
         torForDevice[identity.deviceId.id] = torEndpoint
         identity.signedPreKey?.let { spk ->
-            persistSignedPreKey(
-                deviceId = identity.deviceId,
-                signedPreKey = spk,
-                isActive = true,
-                createdAt = epochSeconds(0L),
-            )
+            persistSignedPreKey(spk)
         }
     }
 
     override suspend fun insertLocalAccount(
-        identity: AccountIdentityRecord,
+        identity: AccountIdentity,
         role: AccountRole,
         provisional: Boolean,
     ) {
@@ -245,28 +228,10 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun getOwnerAccountId(): AccountId? =
         accountRoles.entries.firstOrNull { it.value == AccountRole.OWNER }?.let { AccountId(it.key) }
 
-    override suspend fun resolveDeviceKey(deviceId: PeerId, purpose: IdentityKeyPurpose): IdentityPublicKeyRecord? {
-        val d = devices[deviceId.id] ?: return null
-        return when (purpose) {
-            IdentityKeyPurpose.SIGNING -> d.signing
-            IdentityKeyPurpose.ENCRYPTION -> d.encryption
-            IdentityKeyPurpose.SIGNED_PREKEY -> getActiveSignedPreKeyForDevice(deviceId)?.let { spk ->
-                IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.SIGNED_PREKEY,
-                    publicKey = spk.publicKey,
-                )
-            }
-
-            IdentityKeyPurpose.BOOTSTRAP_SECRET -> null
-        }
-    }
-
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? =
-        torForDevice[deviceId.id]
-            ?: return null
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = torForDevice[deviceId.id]
 
     override suspend fun insertPeerAccount(
-        identity: AccountIdentityRecord,
+        identity: AccountIdentity,
         role: AccountRole,
         status: IdentityStatus,
         displayName: String,
@@ -287,90 +252,57 @@ internal class InMemoryIdentityKeyRepository(
     override suspend fun getAllDeviceIds(): List<PeerId> =
         devices.keys.map { PeerId(it) }.sortedBy { it.id }
 
-    override suspend fun getAllAccountRows(): List<AccountRow> =
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllDeviceIds().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllAccounts(): List<Account> =
         accounts.keys.map { id ->
-            AccountRow(
-                accountId = AccountId(id),
-                displayName = accounts.getValue(id).displayName,
+            Account(
+                identity = accounts.getValue(id),
                 role = accountRoles[id] ?: AccountRole.MEMBER,
                 status = identityStatuses[id] ?: IdentityStatus.ACTIVE,
                 isLocal = localAccount?.accountId?.id == id,
             )
         }
 
-    override suspend fun getAllDeviceRows(): List<DeviceRow> =
+    override suspend fun getAllDevices(): List<Device> =
         devices.keys.map { id ->
-            DeviceRow(
-                deviceId = PeerId(id),
+            Device(
+                identity = devices.getValue(id),
                 torEndpoint = torForDevice[id] ?: TorEndpoint("placeholder.onion", 80),
                 accountId = AccountId(deviceToAccount.getValue(id)),
                 deviceType = deviceTypes[id] ?: defaultLocalDeviceType,
                 status = deviceStatuses[id] ?: IdentityStatus.ACTIVE,
                 isLocal = localDevice?.deviceId?.id == id,
                 provisional = provisionalDevices.contains(id),
-                lastSeen = deviceLastSeen[id],
             )
         }
 
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         deviceToAccount[deviceId.id]?.let { AccountId(it) }
 
-    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
-        torForDevice[deviceId.id] = torEndpoint
-    }
+    override suspend fun getSignedPreKey(id: SignedPreKeyId): SignedPreKey? = signedPreKeys[id]
 
-    override suspend fun getSignedPreKey(spkId: String): SignedPreKeyRecord = signedPreKeys[spkId]!!
+    override suspend fun getSignedPreKeyIds(deviceId: PeerId): List<SignedPreKeyId> =
+        signedPreKeys.values.filter { it.deviceId == deviceId }.map { it.id }.sortedBy { it.value }
 
-    override suspend fun getSignedPreKeyIds(deviceId: PeerId): List<String> =
-        signedPreKeys.values.filter { it.deviceId == deviceId }.map { it.keyId }.sorted()
-
-    override suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKeyRecord? =
+    override suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKey? =
         activeSignedPreKeyByDevice[deviceId.id]?.let { signedPreKeys[it]!! }
 
-    override suspend fun insertSignedPreKey(spk: SignedPreKeyRecord) {
-        signedPreKeys[spk.keyId] = spk
-        if (spk.isActive) {
-            activeSignedPreKeyByDevice[spk.deviceId.id] = spk.keyId
-        }
+    override suspend fun insertSignedPreKey(spk: SignedPreKey, createdAt: Instant) {
+        signedPreKeys[spk.id] = spk
+        activeSignedPreKeyByDevice[spk.deviceId.id] = spk.id
     }
 
-    override suspend fun upsertDeviceSignedPreKey(spk: SignedPreKeyRecord) {
-        val deviceId = spk.deviceId
-        val existing = devices[deviceId.id] ?: error("Device not found: $deviceId")
-        signedPreKeys.values
-            .filter { it.deviceId == deviceId && it.isActive }
-            .forEach { signedPreKeys[it.keyId] = it.copy(isActive = false) }
-        devices[deviceId.id] = existing.copy(signedPreKey = spk)
-        persistSignedPreKey(
-            deviceId = deviceId,
-            signedPreKey = spk,
-            isActive = true,
-            createdAt = spk.createdAt,
-        )
+    override suspend fun upsertDeviceSignedPreKey(spk: SignedPreKey) {
+        val existing = devices[spk.deviceId.id] ?: error("Device not found: ${spk.deviceId}")
+        devices[spk.deviceId.id] = existing.copy(signedPreKey = spk)
+        persistSignedPreKey(spk)
     }
 
-    private fun persistSignedPreKey(
-        deviceId: PeerId,
-        signedPreKey: SignedPreKeyRecord,
-        isActive: Boolean,
-        createdAt: Instant?,
-    ) {
-        signedPreKeys.values
-            .filter { it.deviceId == deviceId && it.isActive }
-            .forEach { signedPreKeys[it.keyId] = it.copy(isActive = false) }
-        val stored = SignedPreKeyRecord(
-            deviceId = deviceId,
-            keyId = signedPreKey.keyId,
-            publicKey = signedPreKey.publicKey,
-            privateKey = signedPreKey.privateKey,
-            signature = signedPreKey.signature,
-            isActive = isActive,
-            createdAt = createdAt,
-        )
-        signedPreKeys[stored.keyId] = stored
-        if (isActive) {
-            activeSignedPreKeyByDevice[deviceId.id] = stored.keyId
-        }
+    private fun persistSignedPreKey(signedPreKey: SignedPreKey) {
+        signedPreKeys[signedPreKey.id] = signedPreKey
+        activeSignedPreKeyByDevice[signedPreKey.deviceId.id] = signedPreKey.id
     }
 
     /** Seeds Tor for a device already stored (e.g. after [insertLocalDevice]). */
@@ -378,15 +310,11 @@ internal class InMemoryIdentityKeyRepository(
         torForDevice[deviceId.id] = endpoint
     }
 
-    /** Seeds last-seen for a device already stored (absent = never seen). */
-    fun seedLastSeen(deviceId: PeerId, at: Instant) {
-        deviceLastSeen[deviceId.id] = at
-    }
 
     override suspend fun seedProvisionalPeerDevice(
         accountId: AccountId,
         deviceType: DeviceType,
-        identity: DeviceIdentityRecord,
+        identity: DeviceIdentity,
         torEndpoint: TorEndpoint,
     ) {
         if (devices.containsKey(identity.deviceId.id)) return
@@ -395,7 +323,7 @@ internal class InMemoryIdentityKeyRepository(
     }
 
     override suspend fun seedProvisionalPeerAccount(
-        identity: AccountIdentityRecord,
+        identity: AccountIdentity,
         role: AccountRole,
         displayName: String,
     ) {
@@ -419,14 +347,14 @@ internal class InMemoryOpkRepository(
         var offeredAt: Instant? = null,
     )
 
-    private val keys = mutableMapOf<String, OpkEntry>()
+    private val keys = mutableMapOf<OneTimePreKeyId, OpkEntry>()
     private var counter = 0
 
     override suspend fun allocate(): LocalOneTimePreKey {
         val keyPair = crypto.generateEncryptionKeyPair()
-        val opkId = "opk-test-${++counter}"
+        val opkId = OneTimePreKeyId("opk-test-${++counter}")
         val opk = LocalOneTimePreKey(
-            keyId = opkId,
+            id = opkId,
             publicKey = keyPair.publicKey,
             privateKey = keyPair.privateKey,
         )
@@ -434,21 +362,21 @@ internal class InMemoryOpkRepository(
         return opk
     }
 
-    override suspend fun markOffered(opkId: String) {
+    override suspend fun markOffered(opkId: OneTimePreKeyId) {
         val entry = keys[opkId] ?: error("Unknown OPK id=$opkId")
         require(entry.status == OpkStatus.ALLOCATED) { "OPK $opkId is not ALLOCATED" }
         entry.status = OpkStatus.OFFERED
         entry.offeredAt = clock.now()
     }
 
-    override suspend fun consume(opkId: String): LocalOneTimePreKey? {
+    override suspend fun consume(opkId: OneTimePreKeyId): LocalOneTimePreKey? {
         val entry = keys[opkId] ?: return null
         if (entry.status != OpkStatus.OFFERED) return null
         entry.status = OpkStatus.CONSUMED
         return entry.opk
     }
 
-    override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? {
+    override suspend fun loadOffered(opkId: OneTimePreKeyId): LocalOneTimePreKey? {
         val entry = keys[opkId] ?: return null
         return when (entry.status) {
             OpkStatus.ALLOCATED, OpkStatus.OFFERED -> entry.opk
@@ -456,7 +384,7 @@ internal class InMemoryOpkRepository(
         }
     }
 
-    override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> {
+    override suspend fun pruneExpiredOffers(cutoff: Instant): List<OneTimePreKeyId> {
         val expired = keys.filterValues {
             it.status == OpkStatus.OFFERED &&
                     it.offeredAt != null &&
@@ -468,9 +396,9 @@ internal class InMemoryOpkRepository(
         return expired
     }
 
-    override suspend fun opkIds(): List<String> = keys.keys.sorted()
+    override suspend fun opkIds(): List<OneTimePreKeyId> = keys.keys.sortedBy { it.value }
 
-    fun status(opkId: String): OpkStatus? = keys[opkId]?.status
+    fun status(opkId: OneTimePreKeyId): OpkStatus? = keys[opkId]?.status
 }
 
 /** [OpkRepository] that fails allocation for fail-soft offer tests. */
@@ -478,13 +406,31 @@ internal class FailingAllocateOpkRepository : OpkRepository {
     override suspend fun allocate(): LocalOneTimePreKey =
         throw IllegalStateException("OPK pool exhausted")
 
-    override suspend fun markOffered(opkId: String) = Unit
+    override suspend fun markOffered(opkId: OneTimePreKeyId) = Unit
 
-    override suspend fun consume(opkId: String): LocalOneTimePreKey? = null
+    override suspend fun consume(opkId: OneTimePreKeyId): LocalOneTimePreKey? = null
 
-    override suspend fun loadOffered(opkId: String): LocalOneTimePreKey? = null
+    override suspend fun loadOffered(opkId: OneTimePreKeyId): LocalOneTimePreKey? = null
 
-    override suspend fun pruneExpiredOffers(cutoff: Instant): List<String> = emptyList()
+    override suspend fun pruneExpiredOffers(cutoff: Instant): List<OneTimePreKeyId> = emptyList()
 
-    override suspend fun opkIds(): List<String> = emptyList()
+    override suspend fun opkIds(): List<OneTimePreKeyId> = emptyList()
+}
+
+/** The crypto identity services as production wires them, over one store — for tests that exercise them together. */
+internal class TestIdentityStack private constructor(
+    localIdentity: LocalIdentity,
+    localKeys: LocalKeys,
+    peerKeys: PeerKeys,
+) : LocalIdentity by localIdentity, LocalKeys by localKeys, PeerKeys by peerKeys {
+    companion object {
+        operator fun invoke(crypto: CryptoProvider, store: IdentityStore, keyStore: KeyStore): TestIdentityStack {
+            val localIdentity = DefaultLocalIdentity(crypto, store, keyStore)
+            return TestIdentityStack(
+                localIdentity,
+                DefaultLocalKeys(localIdentity, store, keyStore),
+                DefaultPeerKeys(crypto, store),
+            )
+        }
+    }
 }

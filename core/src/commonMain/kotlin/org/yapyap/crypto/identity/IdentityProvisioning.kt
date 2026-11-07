@@ -3,7 +3,7 @@ package org.yapyap.crypto.identity
 import org.yapyap.protocol.AccountRole
 
 internal interface IdentityProvisioning {
-    suspend fun createNewDeviceIdentity(): DeviceIdentityRecord
+    suspend fun createNewDeviceIdentity(): DeviceIdentity
 
     /**
      * @param role initial `role` for the local accounts row. OWNER for the genesis of a new
@@ -14,9 +14,9 @@ internal interface IdentityProvisioning {
     suspend fun createNewAccountIdentity(
         displayName: String,
         role: AccountRole = AccountRole.MEMBER,
-    ): AccountIdentityRecord
+    ): AccountIdentity
 
-    suspend fun createPlaceholderAccountIdentity(): AccountIdentityRecord
+    suspend fun createPlaceholderAccountIdentity(): AccountIdentity
 
     /** Export local account signing key + display name as a pasteable recovery code. */
     suspend fun exportLocalAccountRecoveryKey(): String
@@ -29,7 +29,7 @@ internal interface IdentityProvisioning {
     suspend fun verifyRecoveryKey(recoveryKey: String): Boolean
 
     /** Restore local account from a recovery code (keystore + local accounts row). */
-    suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentityRecord
+    suspend fun importLocalAccountFromRecovery(recoveryKey: String): AccountIdentity
 
-    suspend fun provisionSignedPreKey(): SignedPreKeyRecord
+    suspend fun provisionSignedPreKey(): LocalSignedPreKey
 }

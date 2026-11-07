@@ -1,7 +1,7 @@
 package org.yapyap.orchestrator.sync
 
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId

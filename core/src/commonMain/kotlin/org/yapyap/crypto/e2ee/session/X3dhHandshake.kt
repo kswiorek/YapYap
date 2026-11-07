@@ -1,9 +1,14 @@
 package org.yapyap.crypto.e2ee.session
 
 import org.yapyap.crypto.e2ee.CryptoSessionException
+import org.yapyap.crypto.identity.LocalOneTimePreKey
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerPreKeyBundle
+import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.EncryptionPublicKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.crypto.primitives.EncryptionKeyPair
 
 private const val SHARED_SECRET_SIZE = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 private val X3DH_KDF_INFO = "YapYapX3DH".encodeToByteArray()
@@ -19,25 +24,6 @@ public enum class X3dhMode(public val wireValue: Byte) {
                 ?: error("Unsupported packet type value: $value")
     }
 }
-
-internal data class X3dhRemotePeerKeys(
-    val identityEncryptionPublicKey: ByteArray,
-    val signedPreKeyPublicKey: ByteArray,
-    val signedPreKeyId: String,
-)
-
-internal data class X3dhLocalInitiatorKeys(
-    val identityEncryptionPrivateKey: ByteArray,
-    val identityEncryptionPublicKey: ByteArray,
-)
-
-internal data class X3dhLocalResponderKeys(
-    val identityEncryptionPrivateKey: ByteArray,
-    val identityEncryptionPublicKey: ByteArray,
-    val signedPreKeyPrivateKey: ByteArray,
-    val signedPreKeyPublicKey: ByteArray,
-    val signedPreKeyId: String,
-)
 
 internal data class X3dhWireInfo(
     val ephemeralPublicKey: ByteArray,
@@ -72,96 +58,97 @@ internal class X3dhHandshake(
     private val crypto: CryptoProvider,
 ) {
     suspend fun initiatorCompute3Dh(
-        local: X3dhLocalInitiatorKeys,
-        remote: X3dhRemotePeerKeys,
+        localIdentityKey: EncryptionPrivateKey,
+        remote: PeerPreKeyBundle,
         ephemeral: EncryptionKeyPair,
         sessionEpoch: Int = 1,
     ): X3dhInitiatorResult {
         require(sessionEpoch > 0) { "sessionEpoch must be positive" }
         val sharedSecret = computeSharedSecretInitiator(
-            identityEncryptionPrivateKey = local.identityEncryptionPrivateKey,
-            ephemeralPrivateKey = ephemeral.privateKey,
-            remoteIdentityEncryptionPublicKey = remote.identityEncryptionPublicKey,
-            remoteSignedPreKeyPublicKey = remote.signedPreKeyPublicKey,
+            identityEncryptionPrivateKey = localIdentityKey.bytes,
+            ephemeralPrivateKey = ephemeral.privateKey.bytes,
+            remoteIdentityEncryptionPublicKey = remote.identityKey.bytes,
+            remoteSignedPreKeyPublicKey = remote.signedPreKey.publicKey.bytes,
             oneTimePreKeyPublicKey = null,
         )
         return X3dhInitiatorResult(
             sharedSecret = sharedSecret,
             ratchetBootstrap = RatchetBootstrap(
                 sharedSecret = sharedSecret,
-                remoteDhPublicKey = remote.signedPreKeyPublicKey.copyOf(),
-                localDhPrivateKey = ephemeral.privateKey.copyOf(),
-                localDhPublicKey = ephemeral.publicKey.copyOf(),
+                remoteDhPublicKey = remote.signedPreKey.publicKey.bytes.copyOf(),
+                localDhPrivateKey = ephemeral.privateKey.bytes.copyOf(),
+                localDhPublicKey = ephemeral.publicKey.bytes.copyOf(),
             ),
             wire = X3dhWireInfo(
-                ephemeralPublicKey = ephemeral.publicKey.copyOf(),
-                signedPreKeyId = remote.signedPreKeyId,
+                ephemeralPublicKey = ephemeral.publicKey.bytes.copyOf(),
+                signedPreKeyId = remote.signedPreKey.id.value,
                 sessionEpoch = sessionEpoch,
                 mode = X3dhMode.THREE_DH,
             ),
             ephemeralKeyPair = EncryptionKeyPair(
-                publicKey = ephemeral.publicKey.copyOf(),
-                privateKey = ephemeral.privateKey.copyOf(),
+                publicKey = EncryptionPublicKey(ephemeral.publicKey.bytes.copyOf()),
+                privateKey = EncryptionPrivateKey(ephemeral.privateKey.bytes.copyOf()),
             ),
         )
     }
 
     suspend fun initiatorCompute4Dh(
-        local: X3dhLocalInitiatorKeys,
-        remote: X3dhRemotePeerKeys,
+        localIdentityKey: EncryptionPrivateKey,
+        remote: PeerPreKeyBundle,
         ephemeral: EncryptionKeyPair,
-        oneTimePreKeyPublicKey: ByteArray,
+        oneTimePreKeyPublicKey: EncryptionPublicKey,
         oneTimePreKeyId: String,
         sessionEpoch: Int = 2,
     ): X3dhInitiatorResult {
         require(sessionEpoch > 0) { "sessionEpoch must be positive" }
         require(oneTimePreKeyId.isNotBlank()) { "oneTimePreKeyId must not be blank" }
         val sharedSecret = computeSharedSecretInitiator(
-            identityEncryptionPrivateKey = local.identityEncryptionPrivateKey,
-            ephemeralPrivateKey = ephemeral.privateKey,
-            remoteIdentityEncryptionPublicKey = remote.identityEncryptionPublicKey,
-            remoteSignedPreKeyPublicKey = remote.signedPreKeyPublicKey,
-            oneTimePreKeyPublicKey = oneTimePreKeyPublicKey,
+            identityEncryptionPrivateKey = localIdentityKey.bytes,
+            ephemeralPrivateKey = ephemeral.privateKey.bytes,
+            remoteIdentityEncryptionPublicKey = remote.identityKey.bytes,
+            remoteSignedPreKeyPublicKey = remote.signedPreKey.publicKey.bytes,
+            oneTimePreKeyPublicKey = oneTimePreKeyPublicKey.bytes,
         )
         return X3dhInitiatorResult(
             sharedSecret = sharedSecret,
             ratchetBootstrap = RatchetBootstrap(
                 sharedSecret = sharedSecret,
-                remoteDhPublicKey = remote.signedPreKeyPublicKey.copyOf(),
-                localDhPrivateKey = ephemeral.privateKey.copyOf(),
-                localDhPublicKey = ephemeral.publicKey.copyOf(),
+                remoteDhPublicKey = remote.signedPreKey.publicKey.bytes.copyOf(),
+                localDhPrivateKey = ephemeral.privateKey.bytes.copyOf(),
+                localDhPublicKey = ephemeral.publicKey.bytes.copyOf(),
             ),
             wire = X3dhWireInfo(
-                ephemeralPublicKey = ephemeral.publicKey.copyOf(),
-                signedPreKeyId = remote.signedPreKeyId,
+                ephemeralPublicKey = ephemeral.publicKey.bytes.copyOf(),
+                signedPreKeyId = remote.signedPreKey.id.value,
                 sessionEpoch = sessionEpoch,
                 mode = X3dhMode.FOUR_DH,
                 oneTimePreKeyId = oneTimePreKeyId,
             ),
             ephemeralKeyPair = EncryptionKeyPair(
-                publicKey = ephemeral.publicKey.copyOf(),
-                privateKey = ephemeral.privateKey.copyOf(),
+                publicKey = EncryptionPublicKey(ephemeral.publicKey.bytes.copyOf()),
+                privateKey = EncryptionPrivateKey(ephemeral.privateKey.bytes.copyOf()),
             ),
         )
     }
 
     suspend fun responderCompute3Dh(
-        local: X3dhLocalResponderKeys,
-        remoteIdentityEncryptionPublicKey: ByteArray,
+        localIdentityKey: EncryptionPrivateKey,
+        localSignedPreKey: LocalSignedPreKey,
+        remoteIdentityKey: EncryptionPublicKey,
         wire: X3dhWireInfo,
     ): X3dhResponderResult {
         if (wire.mode != X3dhMode.THREE_DH) {
             throw CryptoSessionException.HandshakeMismatch("expected THREE_DH wire mode but got ${wire.mode}")
         }
-        if (wire.signedPreKeyId != local.signedPreKeyId) {
+        if (wire.signedPreKeyId != localSignedPreKey.id.value) {
             throw CryptoSessionException.HandshakeMismatch(
-                "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${local.signedPreKeyId}",
+                "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${localSignedPreKey.id}",
             )
         }
         val sharedSecret = computeSharedSecretResponder(
-            identityEncryptionPrivateKey = local.identityEncryptionPrivateKey,
-            signedPreKeyPrivateKey = local.signedPreKeyPrivateKey,
-            remoteIdentityEncryptionPublicKey = remoteIdentityEncryptionPublicKey,
+            identityEncryptionPrivateKey = localIdentityKey.bytes,
+            signedPreKeyPrivateKey = localSignedPreKey.privateKey.bytes,
+            remoteIdentityEncryptionPublicKey = remoteIdentityKey.bytes,
             remoteEphemeralPublicKey = wire.ephemeralPublicKey,
             oneTimePreKeyPrivateKey = null,
         )
@@ -169,45 +156,45 @@ internal class X3dhHandshake(
             sharedSecret = sharedSecret,
             ratchetBootstrap = RatchetBootstrap(
                 sharedSecret = sharedSecret,
-                localDhPrivateKey = local.signedPreKeyPrivateKey.copyOf(),
-                localDhPublicKey = local.signedPreKeyPublicKey.copyOf(),
+                localDhPrivateKey = localSignedPreKey.privateKey.bytes.copyOf(),
+                localDhPublicKey = localSignedPreKey.publicKey.bytes.copyOf(),
             ),
         )
     }
 
     suspend fun responderCompute4Dh(
-        local: X3dhLocalResponderKeys,
-        oneTimePreKeyPrivateKey: ByteArray,
-        oneTimePreKeyId: String,
-        remoteIdentityEncryptionPublicKey: ByteArray,
+        localIdentityKey: EncryptionPrivateKey,
+        localSignedPreKey: LocalSignedPreKey,
+        oneTimePreKey: LocalOneTimePreKey,
+        remoteIdentityKey: EncryptionPublicKey,
         wire: X3dhWireInfo,
     ): X3dhResponderResult {
         if (wire.mode != X3dhMode.FOUR_DH) {
             throw CryptoSessionException.HandshakeMismatch("expected FOUR_DH wire mode but got ${wire.mode}")
         }
-        if (wire.signedPreKeyId != local.signedPreKeyId) {
+        if (wire.signedPreKeyId != localSignedPreKey.id.value) {
             throw CryptoSessionException.HandshakeMismatch(
-                "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${local.signedPreKeyId}",
+                "signed prekey id mismatch: wire=${wire.signedPreKeyId}, local=${localSignedPreKey.id}",
             )
         }
-        if (wire.oneTimePreKeyId != oneTimePreKeyId) {
+        if (wire.oneTimePreKeyId != oneTimePreKey.id.value) {
             throw CryptoSessionException.HandshakeMismatch(
-                "one-time prekey id mismatch: wire=${wire.oneTimePreKeyId}, local=$oneTimePreKeyId",
+                "one-time prekey id mismatch: wire=${wire.oneTimePreKeyId}, local=${oneTimePreKey.id}",
             )
         }
         val sharedSecret = computeSharedSecretResponder(
-            identityEncryptionPrivateKey = local.identityEncryptionPrivateKey,
-            signedPreKeyPrivateKey = local.signedPreKeyPrivateKey,
-            remoteIdentityEncryptionPublicKey = remoteIdentityEncryptionPublicKey,
+            identityEncryptionPrivateKey = localIdentityKey.bytes,
+            signedPreKeyPrivateKey = localSignedPreKey.privateKey.bytes,
+            remoteIdentityEncryptionPublicKey = remoteIdentityKey.bytes,
             remoteEphemeralPublicKey = wire.ephemeralPublicKey,
-            oneTimePreKeyPrivateKey = oneTimePreKeyPrivateKey,
+            oneTimePreKeyPrivateKey = oneTimePreKey.privateKey.bytes,
         )
         return X3dhResponderResult(
             sharedSecret = sharedSecret,
             ratchetBootstrap = RatchetBootstrap(
                 sharedSecret = sharedSecret,
-                localDhPrivateKey = local.signedPreKeyPrivateKey.copyOf(),
-                localDhPublicKey = local.signedPreKeyPublicKey.copyOf(),
+                localDhPrivateKey = localSignedPreKey.privateKey.bytes.copyOf(),
+                localDhPublicKey = localSignedPreKey.publicKey.bytes.copyOf(),
             ),
         )
     }

@@ -7,13 +7,15 @@ import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.crypto.e2ee.CryptoSessionException
 import org.yapyap.crypto.e2ee.policy.SimultaneousInitPolicy
 import org.yapyap.crypto.e2ee.session.*
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.PeerKeys
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.key.OpkRepository
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 
@@ -21,7 +23,9 @@ internal class DefaultCryptoSessionManager(
     private val crypto: CryptoProvider,
     private val x3dh: X3dhHandshake,
     private val sessionStore: CryptoSessionStore,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
+    private val localKeys: LocalKeys,
+    private val peerKeys: PeerKeys,
     private val opkRepository: OpkRepository,
     private val cryptoLimits: StateFlow<CryptoLimits>,
     private val clock: Clock = Clock.System,
@@ -37,7 +41,8 @@ internal class DefaultCryptoSessionManager(
         crypto = crypto,
         x3dh = x3dh,
         sessionStore = sessionStore,
-        identityResolver = identityResolver,
+        localKeys = localKeys,
+        peerKeys = peerKeys,
         opkRepository = opkRepository,
         clock = clock,
     )
@@ -45,7 +50,7 @@ internal class DefaultCryptoSessionManager(
     private val epoch2Upgrade = Epoch2Upgrade(
         crypto = crypto,
         sessionStore = sessionStore,
-        identityResolver = identityResolver,
+        localIdentity = localIdentity,
         opkRepository = opkRepository,
         sessionBootstrap = sessionBootstrap,
         clock = clock,
@@ -175,7 +180,7 @@ internal class DefaultCryptoSessionManager(
             canonicalRecord = canonicalRecord,
         )
 
-        val localDeviceId = identityResolver.getLocalDeviceId()
+        val localDeviceId = localIdentity.getLocalDeviceId()
         val responderIsCanonical = SimultaneousInitPolicy.inboundResponderSessionIsCanonical(
             localDeviceId,
             remoteDeviceId,

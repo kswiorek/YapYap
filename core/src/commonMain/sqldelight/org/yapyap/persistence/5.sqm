@@ -1,0 +1,46 @@
+-- Router state moves out of devices (owned by the global fold) into device_routes (Routes.sq),
+-- written only by the router: the endpoint it last proved for each device, reliability and
+-- last-seen. devices keeps the declared endpoint. push_token was never used and is dropped.
+-- Runs with foreign keys off (see DatabaseInitializer): devices is rebuilt in place.
+CREATE TABLE device_routes (
+    device_id TEXT NOT NULL PRIMARY KEY,
+    onion_address TEXT,
+    onion_port INTEGER,
+    reliability_score REAL,
+    last_seen_timestamp INTEGER
+);
+INSERT INTO device_routes (device_id, onion_address, onion_port, reliability_score, last_seen_timestamp)
+SELECT
+    device_id,
+    onion_address,
+    onion_port,
+    reliability_score,
+    -- Instant.DISTANT_PAST was the "never seen" sentinel; absence says that now.
+    CASE WHEN last_seen_timestamp < -100000000000 THEN NULL ELSE last_seen_timestamp END
+FROM devices;
+
+CREATE TABLE devices_rebuilt (
+    device_id TEXT NOT NULL PRIMARY KEY,
+    is_local_device INTEGER NOT NULL,
+    account_id TEXT NOT NULL,
+    device_type TEXT NOT NULL,
+    onion_address TEXT NOT NULL,
+    onion_port INTEGER NOT NULL,
+    signing_pub_key BLOB NOT NULL,
+    encryption_pub_key BLOB NOT NULL,
+    status TEXT NOT NULL,
+    current_signed_prekey_id TEXT,
+    provisional INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+);
+INSERT INTO devices_rebuilt (
+    device_id, is_local_device, account_id, device_type, onion_address, onion_port,
+    signing_pub_key, encryption_pub_key, status, current_signed_prekey_id, provisional
+)
+SELECT
+    device_id, is_local_device, account_id, device_type, onion_address, onion_port,
+    signing_pub_key, encryption_pub_key, status, current_signed_prekey_id, provisional
+FROM devices;
+DROP TABLE devices;
+ALTER TABLE devices_rebuilt RENAME TO devices;
+CREATE INDEX devices_account_idx ON devices(account_id);

@@ -1,14 +1,15 @@
 package org.yapyap.sync
 
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.persistence.db.DatabaseConnection
 import org.yapyap.persistence.db.openMemoryDatabase
-import org.yapyap.persistence.messaging.DefaultMessageRepository
-import org.yapyap.persistence.messaging.DefaultRoomRepository
-import org.yapyap.persistence.sync.DefaultPendingSyncRepository
+import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
+import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -45,6 +46,8 @@ class PingFrontierUnknownRoomJvmTest {
             messageRepository = DefaultMessageRepository(db),
             pendingSyncRepository = syncs,
             router = RecordingSyncRouter(),
+            roomChanges = emptyFlow(),
+            identityChanges = emptyFlow(),
             clock = FakeClock(epochSeconds(1_000L)),
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
         )

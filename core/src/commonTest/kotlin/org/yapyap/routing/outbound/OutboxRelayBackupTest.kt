@@ -1,14 +1,14 @@
 package org.yapyap.routing.outbound
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
-import org.yapyap.persistence.packet.RelayBackup
+import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.routing.store.RelayBackup
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -54,10 +54,10 @@ class OutboxRelayBackupTest {
         val clock = FakeClock(epochSeconds(nowSeconds))
         val backedUp = mutableListOf<Uuid>()
         val identity = FakeIdentityResolverForRouter(
-            localDevice = DeviceIdentityRecord(
+            localDevice = DeviceIdentity(
                 deviceId = local,
-                signing = IdentityPublicKeyRecord(IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-                encryption = IdentityPublicKeyRecord(IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+                signingKey = SigningPublicKey(byteArrayOf(1)),
+                encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
             ),
             peersByAccount = mapOf(AccountId("backup-account") to listOf(peer)),
             torByPeer = mutableMapOf(peer to peerTor),

@@ -1,11 +1,13 @@
 package org.yapyap.persistence.db
 
+import org.yapyap.crypto.keys.*
+
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import org.yapyap.crypto.identity.*
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.key.DefaultIdentityKeyRepository
+import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.testfixtures.epochSeconds
@@ -27,25 +29,16 @@ internal suspend fun seedLocalAccountAndDevice(
     accountId: AccountId,
     deviceId: PeerId,
 ) {
-    val repo = DefaultIdentityKeyRepository(database, DeviceType.DESKTOP)
-    val accountRecord = AccountIdentityRecord(
+    val repo = DefaultIdentityStore(database, DeviceType.DESKTOP)
+    val accountRecord = AccountIdentity(
         accountId = accountId,
         displayName = "Fixture Account",
-        key = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.SIGNING,
-            publicKey = byteArrayOf(0x0A, 0x0B, 0x0C),
-        ),
+        signingKey = SigningPublicKey(byteArrayOf(0x0A, 0x0B, 0x0C)),
     )
-    val deviceRecord = DeviceIdentityRecord(
+    val deviceRecord = DeviceIdentity(
         deviceId = deviceId,
-        signing = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.SIGNING,
-            publicKey = byteArrayOf(0x01, 0x02),
-        ),
-        encryption = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.ENCRYPTION,
-            publicKey = byteArrayOf(0x03, 0x04),
-        ),
+        signingKey = SigningPublicKey(byteArrayOf(0x01, 0x02)),
+        encryptionKey = EncryptionPublicKey(byteArrayOf(0x03, 0x04)),
     )
     repo.insertLocalAccount(identity = accountRecord)
     repo.insertLocalDevice(accountId = accountId, identity = deviceRecord)
@@ -77,17 +70,11 @@ internal suspend fun seedPeerDevice(
     deviceId: PeerId,
     torEndpoint: TorEndpoint = TorEndpoint(onionAddress = "peer.onion", port = 80),
 ) {
-    val repo = DefaultIdentityKeyRepository(database, DeviceType.DESKTOP)
-    val deviceRecord = DeviceIdentityRecord(
+    val repo = DefaultIdentityStore(database, DeviceType.DESKTOP)
+    val deviceRecord = DeviceIdentity(
         deviceId = deviceId,
-        signing = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.SIGNING,
-            publicKey = byteArrayOf(0x05, 0x06),
-        ),
-        encryption = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.ENCRYPTION,
-            publicKey = byteArrayOf(0x07, 0x08),
-        ),
+        signingKey = SigningPublicKey(byteArrayOf(0x05, 0x06)),
+        encryptionKey = EncryptionPublicKey(byteArrayOf(0x07, 0x08)),
     )
     repo.insertPeerDevice(
         accountId = accountId,

@@ -1,5 +1,7 @@
 package org.yapyap.sync
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -8,13 +10,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.sync.PendingSyncRepository
-import org.yapyap.persistence.sync.PendingSyncRow
+import org.yapyap.orchestrator.store.PendingSyncRepository
+import org.yapyap.orchestrator.store.PendingSync
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -58,7 +58,7 @@ internal class FakeInboundMessagePipeline : InboundMessagePipeline {
 internal class FakePendingSyncRepository(
     private val frontierOf: suspend (RoomId) -> List<Uuid> = { emptyList() },
 ) : PendingSyncRepository {
-    private val rows = linkedMapOf<Uuid, PendingSyncRow>()
+    private val rows = linkedMapOf<Uuid, PendingSync>()
 
     // Test-only concurrency: multithreaded tests (Dispatchers.Default
     // background loops racing the test thread) must not CME on iteration.
@@ -71,7 +71,7 @@ internal class FakePendingSyncRepository(
         candidateAccounts: List<AccountId>,
     ) = mutex.withLock {
         if (rows.values.none { it.roomId == roomId && it.targetMessageId == targetMessageId }) {
-            rows[syncId] = PendingSyncRow(syncId, roomId, targetMessageId, candidateAccounts.distinct())
+            rows[syncId] = PendingSync(syncId, roomId, targetMessageId, candidateAccounts.distinct())
         }
     }
 
@@ -123,10 +123,10 @@ internal class FakePendingSyncRepository(
             }
         }
 
-    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow? =
+    override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSync? =
         mutex.withLock { rows.values.firstOrNull { it.roomId == roomId && it.targetMessageId == targetMessageId } }
 
-    suspend fun all(): List<PendingSyncRow> = mutex.withLock { rows.values.toList() }
+    suspend fun all(): List<PendingSync> = mutex.withLock { rows.values.toList() }
 }
 
 /**
@@ -182,12 +182,12 @@ internal class FixedSyncPeerPolicy(
         nextDevice
 }
 
-/** Minimal [DeviceIdentityRecord] — signing/encryption keys are not validated here. */
-internal fun testDeviceIdentity(deviceId: PeerId): DeviceIdentityRecord =
-    DeviceIdentityRecord(
+/** Minimal [DeviceIdentity] — signing/encryption keys are not validated here. */
+internal fun testDeviceIdentity(deviceId: PeerId): DeviceIdentity =
+    DeviceIdentity(
         deviceId = deviceId,
-        signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-        encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+        signingKey = SigningPublicKey(byteArrayOf(1)),
+        encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
     )
 
 /** Wires a real router-internal send path against recording transports + in-memory outbox. */
@@ -203,7 +203,7 @@ internal class SyncRoutingStack(
 )
 
 internal fun buildSyncRoutingStack(
-    localDevice: DeviceIdentityRecord,
+    localDevice: DeviceIdentity,
     peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
     torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     clock: FakeClock = FakeClock(epochSeconds(10_000L)),
@@ -212,7 +212,9 @@ internal fun buildSyncRoutingStack(
     val webRtc = RecordingWebRtcTransport()
     val identity = FakeIdentityResolverForRouter(localDevice, peersByAccount, torByPeer)
     val ctx = RoutingContext(
-        identityResolver = identity,
+        localIdentity = identity,
+        devices = identity,
+        routes = identity,
         packetDeduplicator = InMemoryPacketDeduplicator(),
         envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
         torTransport = tor,

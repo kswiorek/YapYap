@@ -1,6 +1,9 @@
 package org.yapyap.protocol.envelopes
 
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.keys.EncryptionPublicKey
+import org.yapyap.crypto.keys.SignedPreKeyId
+import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.protocol.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -171,8 +174,8 @@ internal enum class BootstrapPayloadKind(public val wireValue: Byte) {
 internal sealed interface BootstrapPayload {
     val version: Int
     val kind: BootstrapPayloadKind
-    val account: AccountIdentityRecord?
-    val device: DeviceIdentityRecord
+    val account: AccountIdentity?
+    val device: DeviceIdentity
     val deviceType: DeviceType
     val torEndpoint: TorEndpoint
 
@@ -194,8 +197,8 @@ internal sealed interface BootstrapPayload {
 /** Sponsor → newcomer: sponsor's identity + DAG head; AEAD-encrypted under the newcomer's secret. */
 internal data class Intro(
     override val version: Int = 1,
-    override val account: AccountIdentityRecord,
-    override val device: DeviceIdentityRecord,
+    override val account: AccountIdentity,
+    override val device: DeviceIdentity,
     override val deviceType: DeviceType,
     override val torEndpoint: TorEndpoint,
     /** The sponsor's chainable frontier of the global room at reply time. */
@@ -223,8 +226,8 @@ internal data class Intro(
                 dagHeadTipIds == other.dagHeadTipIds &&
                 deviceType == other.deviceType &&
                 torEndpoint == other.torEndpoint &&
-                bootstrapPayloadAccountEquals(account, other.account) &&
-                bootstrapPayloadDeviceEquals(device, other.device)
+                account == other.account &&
+                device == other.device
     }
 
     override fun hashCode(): Int {
@@ -233,8 +236,8 @@ internal data class Intro(
         result = 31 * result + deviceType.hashCode()
         result = 31 * result + torEndpoint.onionAddress.hashCode()
         result = 31 * result + torEndpoint.port
-        result = 31 * result + bootstrapPayloadAccountHashCode(account)
-        result = 31 * result + bootstrapPayloadDeviceHashCode(device)
+        result = 31 * result + account.hashCode()
+        result = 31 * result + device.hashCode()
         return result
     }
 
@@ -258,8 +261,8 @@ internal data class Intro(
 /** Newcomer → sponsor (out-of-band QR/CLI only): the newcomer's identity + one-time shared secret. */
 internal class Invite(
     public override val version: Int = 1,
-    public override val account: AccountIdentityRecord?,
-    public override val device: DeviceIdentityRecord,
+    public override val account: AccountIdentity?,
+    public override val device: DeviceIdentity,
     public override val deviceType: DeviceType,
     public override val torEndpoint: TorEndpoint,
     internal val sharedSecret: ByteArray,
@@ -291,8 +294,8 @@ internal class Invite(
         return accountSignedDeviceBindingBytes(
             accountId = account.accountId,
             deviceId = device.deviceId,
-            signingPublicKey = device.signing.publicKey,
-            encryptionPublicKey = device.encryption.publicKey,
+            signingPublicKey = device.signingKey.bytes,
+            encryptionPublicKey = device.encryptionKey.bytes,
             torEndpoint = torEndpoint,
             deviceType = deviceType,
         )
@@ -315,8 +318,8 @@ internal class Invite(
                 torEndpoint == other.torEndpoint &&
                 sharedSecret.contentEquals(other.sharedSecret) &&
                 accountKeySignature.contentEquals(other.accountKeySignature) &&
-                bootstrapPayloadAccountEquals(account, other.account) &&
-                bootstrapPayloadDeviceEquals(device, other.device)
+                account == other.account &&
+                device == other.device
     }
 
     override fun hashCode(): Int {
@@ -326,8 +329,8 @@ internal class Invite(
         result = 31 * result + torEndpoint.port
         result = 31 * result + sharedSecret.contentHashCode()
         result = 31 * result + (accountKeySignature?.contentHashCode() ?: 0)
-        result = 31 * result + bootstrapPayloadAccountHashCode(account)
-        result = 31 * result + bootstrapPayloadDeviceHashCode(device)
+        result = 31 * result + account.hashCode()
+        result = 31 * result + device.hashCode()
         return result
     }
 
@@ -367,8 +370,8 @@ internal class Invite(
 /** Recovering device → mesh node (account-recovery over the network): account-signed device binding. */
 internal data class RecoveryRequest(
     override val version: Int = 1,
-    override val account: AccountIdentityRecord,
-    override val device: DeviceIdentityRecord,
+    override val account: AccountIdentity,
+    override val device: DeviceIdentity,
     override val deviceType: DeviceType,
     override val torEndpoint: TorEndpoint,
     val sharedSecret: ByteArray,
@@ -380,7 +383,7 @@ internal data class RecoveryRequest(
         require(version in 0..255) { "version must be in 0..255" }
         require(sharedSecret.isNotEmpty()) { "RECOVERY_REQUEST requires a non-empty sharedSecret" }
         require(accountSignature.isNotEmpty()) { "RECOVERY_REQUEST requires the account signature over the device binding" }
-        require(account.key != null) { "RECOVERY_REQUEST requires the account record with its public key" }
+        require(account.signingKey != null) { "RECOVERY_REQUEST requires the account record with its public key" }
     }
 
     /**
@@ -394,8 +397,8 @@ internal data class RecoveryRequest(
         accountSignedDeviceBindingBytes(
             accountId = account.accountId,
             deviceId = device.deviceId,
-            signingPublicKey = device.signing.publicKey,
-            encryptionPublicKey = device.encryption.publicKey,
+            signingPublicKey = device.signingKey.bytes,
+            encryptionPublicKey = device.encryptionKey.bytes,
             torEndpoint = torEndpoint,
             deviceType = deviceType,
         )
@@ -417,8 +420,8 @@ internal data class RecoveryRequest(
                 torEndpoint == other.torEndpoint &&
                 sharedSecret.contentEquals(other.sharedSecret) &&
                 accountSignature.contentEquals(other.accountSignature) &&
-                bootstrapPayloadAccountEquals(account, other.account) &&
-                bootstrapPayloadDeviceEquals(device, other.device)
+                account == other.account &&
+                device == other.device
     }
 
     override fun hashCode(): Int {
@@ -428,8 +431,8 @@ internal data class RecoveryRequest(
         result = 31 * result + torEndpoint.port
         result = 31 * result + sharedSecret.contentHashCode()
         result = 31 * result + accountSignature.contentHashCode()
-        result = 31 * result + bootstrapPayloadAccountHashCode(account)
-        result = 31 * result + bootstrapPayloadDeviceHashCode(device)
+        result = 31 * result + account.hashCode()
+        result = 31 * result + device.hashCode()
         return result
     }
 
@@ -458,20 +461,29 @@ internal data class RecoveryRequest(
 
 private const val SIGNED_PREKEY_WIRE_VERSION: Byte = 1
 
-private fun ByteWriter.writeAccountIdentity(account: AccountIdentityRecord) {
+private fun ByteWriter.writeAccountIdentity(account: AccountIdentity) {
     writeString(account.accountId.id)
     writeString(account.displayName)
-    writeNullableIdentityPublicKey(account.key)
+    if (account.signingKey == null) {
+        writeByte(0)
+    } else {
+        writeByte(1)
+        writeKey(SIGNING_KEY_TAG, account.signingKey.bytes)
+    }
 }
 
-private fun ByteReader.readAccountIdentity(): AccountIdentityRecord {
+private fun ByteReader.readAccountIdentity(): AccountIdentity {
     val accountId = AccountId(readString())
     val displayName = readString()
-    val key = readNullableIdentityPublicKey()
-    return AccountIdentityRecord(accountId, displayName, key)
+    val signingKey = when (val marker = readUnsignedByte()) {
+        0 -> null
+        1 -> SigningPublicKey(readKey(SIGNING_KEY_TAG))
+        else -> error("invalid nullable identity public key marker: $marker")
+    }
+    return AccountIdentity(accountId, displayName, signingKey)
 }
 
-private fun ByteWriter.writeNullableAccountIdentity(account: AccountIdentityRecord?) {
+private fun ByteWriter.writeNullableAccountIdentity(account: AccountIdentity?) {
     if (account == null) {
         writeByte(0)
     } else {
@@ -480,7 +492,7 @@ private fun ByteWriter.writeNullableAccountIdentity(account: AccountIdentityReco
     }
 }
 
-private fun ByteReader.readNullableAccountIdentity(): AccountIdentityRecord? =
+private fun ByteReader.readNullableAccountIdentity(): AccountIdentity? =
     when (val marker = readUnsignedByte()) {
         0 -> null
         1 -> readAccountIdentity()
@@ -493,8 +505,8 @@ private const val PAYLOAD_VERSION: Byte = 1
 
 private data class BootstrapPayloadPrefix(
     val version: Int,
-    val account: AccountIdentityRecord?,
-    val device: DeviceIdentityRecord,
+    val account: AccountIdentity?,
+    val device: DeviceIdentity,
     val deviceType: DeviceType,
     val torEndpoint: TorEndpoint,
 )
@@ -503,8 +515,8 @@ private data class BootstrapPayloadPrefix(
 private fun ByteWriter.writeBootstrapPayloadPrefix(
     kind: BootstrapPayloadKind,
     version: Int,
-    account: AccountIdentityRecord?,
-    device: DeviceIdentityRecord,
+    account: AccountIdentity?,
+    device: DeviceIdentity,
     deviceType: DeviceType,
     torEndpoint: TorEndpoint,
 ) {
@@ -532,87 +544,68 @@ private fun ByteReader.readBootstrapPayloadPrefix(): BootstrapPayloadPrefix {
     return BootstrapPayloadPrefix(version, account, device, deviceType, TorEndpoint(onionAddress, port))
 }
 
-private fun ByteWriter.writeDeviceIdentity(device: DeviceIdentityRecord) {
+private fun ByteWriter.writeDeviceIdentity(device: DeviceIdentity) {
     writePeerId(device.deviceId)
-    writeIdentityPublicKey(device.signing)
-    writeIdentityPublicKey(device.encryption)
+    writeKey(SIGNING_KEY_TAG, device.signingKey.bytes)
+    writeKey(ENCRYPTION_KEY_TAG, device.encryptionKey.bytes)
     writeNullableSignedPreKey(device.signedPreKey)
 }
 
-private fun ByteReader.readDeviceIdentity(): DeviceIdentityRecord {
+private fun ByteReader.readDeviceIdentity(): DeviceIdentity {
     val deviceId = readPeerId()
-    val signing = readIdentityPublicKey()
-    val encryption = readIdentityPublicKey()
+    val signingKey = SigningPublicKey(readKey(SIGNING_KEY_TAG))
+    val encryptionKey = EncryptionPublicKey(readKey(ENCRYPTION_KEY_TAG))
     val signedPreKey = readNullableSignedPreKey()
-    return DeviceIdentityRecord(
+    return DeviceIdentity(
         deviceId = deviceId,
-        signing = signing,
-        encryption = encryption,
+        signingKey = signingKey,
+        encryptionKey = encryptionKey,
         signedPreKey = signedPreKey,
     )
 }
 
-private fun ByteWriter.writeIdentityPublicKey(record: IdentityPublicKeyRecord) {
-    writeByte(record.purpose.ordinal)
-    writeByteArray(record.publicKey)
+/** Identity keys are tagged on the wire (signing = 0, encryption = 1); a mismatched tag is a malformed payload. */
+private const val SIGNING_KEY_TAG = 0
+private const val ENCRYPTION_KEY_TAG = 1
+
+private fun ByteWriter.writeKey(tag: Int, bytes: ByteArray) {
+    writeByte(tag)
+    writeByteArray(bytes)
 }
 
-private fun ByteReader.readIdentityPublicKey(): IdentityPublicKeyRecord {
-    val purposeOrdinal = readUnsignedByte()
-    val purpose = IdentityKeyPurpose.entries.firstOrNull { it.ordinal == purposeOrdinal }
-        ?: error("Unsupported identity key purpose: $purposeOrdinal")
-    val publicKey = readByteArray()
-    return IdentityPublicKeyRecord(purpose, publicKey)
+private fun ByteReader.readKey(expectedTag: Int): ByteArray {
+    val tag = readUnsignedByte()
+    require(tag == expectedTag) { "Unexpected identity key tag: $tag (expected $expectedTag)" }
+    return readByteArray()
 }
 
-private fun ByteWriter.writeNullableIdentityPublicKey(record: IdentityPublicKeyRecord?) {
-    if (record == null) {
-        writeByte(0)
-    } else {
-        writeByte(1)
-        writeIdentityPublicKey(record)
-    }
-}
-
-private fun ByteReader.readNullableIdentityPublicKey(): IdentityPublicKeyRecord? =
-    when (val marker = readUnsignedByte()) {
-        0 -> null
-        1 -> readIdentityPublicKey()
-        else -> error("invalid nullable identity public key marker: $marker")
-    }
-
-/** Public-only SPK serialization — [SignedPreKeyRecord.privateKey] is deliberately excluded. */
-private fun ByteWriter.writeSignedPreKey(spk: SignedPreKeyRecord) {
+/**
+ * Public-only SPK serialization. The trailing active flag and creation time are kept for wire
+ * compatibility: always written as active / unknown, ignored on read.
+ */
+private fun ByteWriter.writeSignedPreKey(spk: SignedPreKey) {
     writeByte(SIGNED_PREKEY_WIRE_VERSION.toInt())
-    writeString(spk.keyId)
-    writeByteArray(spk.publicKey)
+    writeString(spk.id.value)
+    writeByteArray(spk.publicKey.bytes)
     writeByteArray(spk.signature)
     writePeerId(spk.deviceId)
-    writeByte(if (spk.isActive) 1 else 0)
-    writeNullableEpochSeconds(spk.createdAt)
+    writeByte(1)
+    writeNullableEpochSeconds(null)
 }
 
-private fun ByteReader.readSignedPreKey(): SignedPreKeyRecord {
+private fun ByteReader.readSignedPreKey(): SignedPreKey {
     val version = readByte().toInt() and 0xff
     require(version == SIGNED_PREKEY_WIRE_VERSION.toInt()) { "Unsupported signed prekey wire version: $version" }
-    val keyId = readString()
-    val publicKey = readByteArray()
+    val id = SignedPreKeyId(readString())
+    val publicKey = EncryptionPublicKey(readByteArray())
     val signature = readByteArray()
     val deviceId = readPeerId()
-    val isActive = readByte().toInt() == 1
-    val createdAt = readNullableInstant()
-    return SignedPreKeyRecord(
-        keyId = keyId,
-        publicKey = publicKey,
-        signature = signature,
-        privateKey = null,
-        deviceId = deviceId,
-        isActive = isActive,
-        createdAt = createdAt,
-    )
+    readByte()
+    readNullableInstant()
+    return SignedPreKey(id = id, deviceId = deviceId, publicKey = publicKey, signature = signature)
 }
 
-private fun ByteWriter.writeNullableSignedPreKey(spk: SignedPreKeyRecord?) {
+private fun ByteWriter.writeNullableSignedPreKey(spk: SignedPreKey?) {
     if (spk == null) {
         writeByte(0)
     } else {
@@ -621,7 +614,7 @@ private fun ByteWriter.writeNullableSignedPreKey(spk: SignedPreKeyRecord?) {
     }
 }
 
-private fun ByteReader.readNullableSignedPreKey(): SignedPreKeyRecord? =
+private fun ByteReader.readNullableSignedPreKey(): SignedPreKey? =
     when (val marker = readUnsignedByte()) {
         0 -> null
         1 -> readSignedPreKey()
@@ -646,71 +639,3 @@ private fun ByteReader.readNullableInstant(): Instant? =
 
 /* ------------------------------ deep equality for [BootstrapPayload] ------------------------------ */
 
-private fun bootstrapPayloadAccountEquals(a: AccountIdentityRecord?, b: AccountIdentityRecord?): Boolean {
-    if (a === b) return true
-    if (a == null || b == null) return false
-    return a.accountId == b.accountId &&
-            a.displayName == b.displayName &&
-            identityPublicKeyEquals(a.key, b.key)
-}
-
-private fun identityPublicKeyEquals(a: IdentityPublicKeyRecord?, b: IdentityPublicKeyRecord?): Boolean {
-    if (a === b) return true
-    if (a == null || b == null) return false
-    return a.purpose == b.purpose &&
-            a.publicKey.contentEquals(b.publicKey)
-}
-
-private fun bootstrapPayloadDeviceEquals(a: DeviceIdentityRecord, b: DeviceIdentityRecord): Boolean {
-    return a === b || a.deviceId == b.deviceId &&
-            identityPublicKeyEquals(a.signing, b.signing) &&
-            identityPublicKeyEquals(a.encryption, b.encryption) &&
-            signedPreKeyEquals(a.signedPreKey, b.signedPreKey)
-}
-
-private fun signedPreKeyEquals(a: SignedPreKeyRecord?, b: SignedPreKeyRecord?): Boolean {
-    if (a === b) return true
-    if (a == null || b == null) return false
-    return a.keyId == b.keyId &&
-            a.publicKey.contentEquals(b.publicKey) &&
-            a.signature.contentEquals(b.signature) &&
-            a.privateKey.contentEquals(b.privateKey) &&
-            a.deviceId == b.deviceId &&
-            a.isActive == b.isActive &&
-            a.createdAt == b.createdAt
-}
-
-private fun bootstrapPayloadAccountHashCode(account: AccountIdentityRecord?): Int {
-    if (account == null) return 0
-    var result = account.accountId.hashCode()
-    result = 31 * result + account.displayName.hashCode()
-    result = 31 * result + identityPublicKeyHashCode(account.key)
-    return result
-}
-
-private fun identityPublicKeyHashCode(key: IdentityPublicKeyRecord?): Int {
-    if (key == null) return 0
-    var result = key.purpose.hashCode()
-    result = 31 * result + key.publicKey.contentHashCode()
-    return result
-}
-
-private fun bootstrapPayloadDeviceHashCode(device: DeviceIdentityRecord): Int {
-    var result = device.deviceId.hashCode()
-    result = 31 * result + identityPublicKeyHashCode(device.signing)
-    result = 31 * result + identityPublicKeyHashCode(device.encryption)
-    result = 31 * result + signedPreKeyHashCode(device.signedPreKey)
-    return result
-}
-
-private fun signedPreKeyHashCode(spk: SignedPreKeyRecord?): Int {
-    if (spk == null) return 0
-    var result = spk.keyId.hashCode()
-    result = 31 * result + spk.publicKey.contentHashCode()
-    result = 31 * result + spk.signature.contentHashCode()
-    result = 31 * result + (spk.privateKey?.contentHashCode() ?: 0)
-    result = 31 * result + spk.deviceId.hashCode()
-    result = 31 * result + spk.isActive.hashCode()
-    result = 31 * result + spk.createdAt.hashCode()
-    return result
-}

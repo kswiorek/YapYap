@@ -3,7 +3,7 @@
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.messaging.MessageCursor
+import org.yapyap.orchestrator.store.MessageCursor
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -48,7 +48,7 @@ class DefaultDagEngineTest {
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             roomRepository = roomRepo,
-            identityResolver = identityResolver,
+            localIdentity = identityResolver,
             signatureProvider = signatureProvider,
             cryptoProvider = DefaultCryptoProvider(),
             clock = clock,
@@ -437,7 +437,7 @@ class DefaultDagEngineTest {
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             roomRepository = roomRepo,
-            identityResolver = identityResolver,
+            localIdentity = identityResolver,
             signatureProvider = FakeRejectingSignatureProvider(),
             cryptoProvider = DefaultCryptoProvider(),
             clock = clock,
@@ -499,7 +499,7 @@ class DefaultDagEngineTest {
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             roomRepository = roomRepo,
-            identityResolver = identityResolver,
+            localIdentity = identityResolver,
             signatureProvider = FakeUnknownAuthorSignatureProvider(),
             cryptoProvider = DefaultCryptoProvider(),
             clock = clock,
@@ -621,7 +621,7 @@ class DefaultDagEngineTest {
             messageRepository = messageRepo,
             causalHoldRepository = causalHoldRepo,
             roomRepository = roomRepo,
-            identityResolver = identityResolver,
+            localIdentity = identityResolver,
             signatureProvider = FakeUnknownAuthorSignatureProvider(),
             cryptoProvider = crypto,
             clock = clock,

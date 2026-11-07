@@ -4,8 +4,8 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.persistence.db.DatabaseFactory
 import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.persistence.db.readPragmaUserVersion
-import org.yapyap.persistence.packet.DefaultPacketOutbox
-import org.yapyap.persistence.packet.RelayBackup
+import org.yapyap.routing.store.DefaultPacketOutbox
+import org.yapyap.routing.store.RelayBackup
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -22,6 +22,7 @@ import kotlin.uuid.Uuid
  * tags, the sync split, message deliveries) by recreating the version-3 shapes.
  */
 internal fun revertToVersionThree(driver: app.cash.sqldelight.db.SqlDriver) {
+    revertToVersionFive(driver)
     listOf(
         "DROP INDEX outbox_tag_idx",
         "ALTER TABLE outbox DROP COLUMN tag_kind",

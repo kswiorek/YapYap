@@ -1,5 +1,7 @@
 package org.yapyap.routing.inbound.handlers
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -7,13 +9,11 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.key.BootstrapKeySource
+import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.PlaintextMessageProtection
@@ -45,11 +45,11 @@ class BootstrapInboundHandlerTest {
         PeerId("otherdeviceffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
     private val now = epochSeconds(10_000L)
 
-    private fun localDeviceRecord(): DeviceIdentityRecord =
-        DeviceIdentityRecord(
+    private fun localDeviceRecord(): DeviceIdentity =
+        DeviceIdentity(
             deviceId = newcomerDevice,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
 
     private fun routingContext(activeSecret: ByteArray?): RoutingContext {
@@ -62,7 +62,9 @@ class BootstrapInboundHandlerTest {
         )
         val local = localDeviceRecord()
         val ctx = RoutingContext(
-            identityResolver = FakeIdentityResolverForRouter(localDevice = local),
+            localIdentity = FakeIdentityResolverForRouter(localDevice = local),
+            devices = FakeIdentityResolverForRouter(localDevice = local),
+            routes = FakeIdentityResolverForRouter(localDevice = local),
             packetDeduplicator = InMemoryPacketDeduplicator(),
             envelopeProtectionService = service,
             torTransport = RecordingTorTransport(),
@@ -75,23 +77,20 @@ class BootstrapInboundHandlerTest {
         return ctx
     }
 
-    private suspend fun deviceRecord(deviceId: PeerId): DeviceIdentityRecord {
+    private suspend fun deviceRecord(deviceId: PeerId): DeviceIdentity {
         val signing = crypto.generateSigningKeyPair()
         val encryption = crypto.generateEncryptionKeyPair()
-        return DeviceIdentityRecord(
+        return DeviceIdentity(
             deviceId = deviceId,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, signing.publicKey),
-            encryption = IdentityPublicKeyRecord(
-                IdentityKeyPurpose.ENCRYPTION,
-                encryption.publicKey
-            ),
+            signingKey = signing.publicKey,
+            encryptionKey = encryption.publicKey,
         )
     }
 
     private suspend fun sampleIntro(deviceId: PeerId): Intro =
         Intro(
             version = 1,
-            account = AccountIdentityRecord(AccountId("sponsor-account"), "Sponsor", key = null),
+            account = AccountIdentity(AccountId("sponsor-account"), "Sponsor", signingKey = null),
             device = deviceRecord(deviceId),
             deviceType = DeviceType.DESKTOP,
             torEndpoint = TorEndpoint("sponsor.onion", 80),
@@ -100,10 +99,10 @@ class BootstrapInboundHandlerTest {
 
     private suspend fun sampleRecoveryRequest(deviceId: PeerId): RecoveryRequest {
         val accountKeys = crypto.generateSigningKeyPair()
-        val account = AccountIdentityRecord(
+        val account = AccountIdentity(
             AccountId("recovering-account"),
             "Recovering",
-            key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, accountKeys.publicKey),
+            signingKey = accountKeys.publicKey,
         )
         val unsigned = RecoveryRequest(
             version = 1,
@@ -300,7 +299,7 @@ class BootstrapInboundHandlerTest {
         val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
-        (ctx.identityResolver as FakeIdentityResolverForRouter)
+        (ctx.devices as FakeIdentityResolverForRouter)
             .accountStatuses[payload.account.accountId] = IdentityStatus.ACTIVE
         val result = handler.handle(
             binaryEnvelope(
@@ -326,7 +325,7 @@ class BootstrapInboundHandlerTest {
         val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
-        (ctx.identityResolver as FakeIdentityResolverForRouter)
+        (ctx.devices as FakeIdentityResolverForRouter)
             .accountStatuses[payload.account.accountId] = IdentityStatus.ACTIVE
         val result = handler.handle(
             binaryEnvelope(
@@ -349,7 +348,7 @@ class BootstrapInboundHandlerTest {
         val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice)
-        (ctx.identityResolver as FakeIdentityResolverForRouter)
+        (ctx.devices as FakeIdentityResolverForRouter)
             .accountStatuses[payload.account.accountId] = IdentityStatus.BANNED
         val result = handler.handle(
             binaryEnvelope(
@@ -394,7 +393,7 @@ class BootstrapInboundHandlerTest {
         val handler = handlerUnderTest(ctx, packets)
 
         val payload = sampleRecoveryRequest(otherDevice).copy(accountSignature = ByteArray(64) { 1 })
-        (ctx.identityResolver as FakeIdentityResolverForRouter)
+        (ctx.devices as FakeIdentityResolverForRouter)
             .accountStatuses[payload.account.accountId] = IdentityStatus.ACTIVE
         val result = handler.handle(
             binaryEnvelope(

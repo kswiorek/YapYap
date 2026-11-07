@@ -1,10 +1,10 @@
 package org.yapyap.crypto
 
 import com.github.javakeyring.Keyring
-import org.yapyap.persistence.key.KeyringSession
-import org.yapyap.persistence.key.KeyringSessionFactory
-import org.yapyap.persistence.key.keyringServiceName
-import org.yapyap.persistence.key.validateKeyringNamespace
+import org.yapyap.crypto.store.KeyringSession
+import org.yapyap.crypto.store.KeyringSessionFactory
+import org.yapyap.crypto.store.keyringServiceName
+import org.yapyap.crypto.store.validateKeyringNamespace
 
 internal class JavaKeyringSessionFactory(
     private val keyringNamespace: String? = null,

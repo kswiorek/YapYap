@@ -1,11 +1,11 @@
 package org.yapyap.routing.outbound
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -211,11 +211,11 @@ class DefaultRouterOutboxTest {
         )
     }
 
-    private fun localDevice(): DeviceIdentityRecord =
-        DeviceIdentityRecord(
+    private fun localDevice(): DeviceIdentity =
+        DeviceIdentity(
             deviceId = localPeer,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
 
     private fun outboxMessageEnvelope(

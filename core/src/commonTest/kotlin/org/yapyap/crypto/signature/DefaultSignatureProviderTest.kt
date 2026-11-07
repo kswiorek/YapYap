@@ -1,8 +1,13 @@
 package org.yapyap.crypto.signature
 
+import org.yapyap.routing.directory.DeviceRouteStore
+
+import org.yapyap.routing.directory.DeviceDirectory
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
@@ -28,23 +33,17 @@ class DefaultSignatureProviderTest {
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
 
-        val peerRecord = DeviceIdentityRecord(
+        val peerRecord = DeviceIdentity(
             deviceId = peerId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signingKeys.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryptionKeys.publicKey,
-            ),
+            signingKey = signingKeys.publicKey,
+            encryptionKey = encryptionKeys.publicKey,
         )
 
         val resolver = FakeIdentityResolverForSignature(
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(peerId to peerRecord),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
 
         val message = "router-bound payload".encodeToByteArray()
         val sig = signatureProvider.sign(message)
@@ -58,23 +57,17 @@ class DefaultSignatureProviderTest {
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
 
-        val peerRecord = DeviceIdentityRecord(
+        val peerRecord = DeviceIdentity(
             deviceId = peerId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signingKeys.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryptionKeys.publicKey,
-            ),
+            signingKey = signingKeys.publicKey,
+            encryptionKey = encryptionKeys.publicKey,
         )
 
         val resolver = FakeIdentityResolverForSignature(
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(peerId to peerRecord),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
 
         val message = "original".encodeToByteArray()
         val sig = signatureProvider.sign(message)
@@ -89,23 +82,17 @@ class DefaultSignatureProviderTest {
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
 
-        val peerRecord = DeviceIdentityRecord(
+        val peerRecord = DeviceIdentity(
             deviceId = peerId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signingKeys.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryptionKeys.publicKey,
-            ),
+            signingKey = signingKeys.publicKey,
+            encryptionKey = encryptionKeys.publicKey,
         )
 
         val resolver = FakeIdentityResolverForSignature(
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(peerId to peerRecord),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
 
         val message = "integrity".encodeToByteArray()
         val sig = signatureProvider.sign(message).copyOf()
@@ -120,23 +107,17 @@ class DefaultSignatureProviderTest {
         val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
         val encryptionKeys = crypto.generateEncryptionKeyPair()
 
-        val peerRecord = DeviceIdentityRecord(
+        val peerRecord = DeviceIdentity(
             deviceId = peerId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signingKeys.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryptionKeys.publicKey,
-            ),
+            signingKey = signingKeys.publicKey,
+            encryptionKey = encryptionKeys.publicKey,
         )
 
         val resolver = FakeIdentityResolverForSignature(
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(peerId to peerRecord),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
 
         val otherPeerId = crypto.peerIdFromPublicKey(crypto.generateSigningKeyPair().publicKey)
         val message = "m".encodeToByteArray()
@@ -146,54 +127,62 @@ class DefaultSignatureProviderTest {
     }
 
     /**
-     * Only [getLocalDevicePrivateKey] and [resolvePeerIdentityRecord] are used by [DefaultSignatureProvider].
+     * Only [getLocalDevicePrivateKey] and [resolvePeerIdentity] are used by [DefaultSignatureProvider].
      */
     private class FakeIdentityResolverForSignature(
-        private val localSigningPrivateKey: ByteArray,
-        private val peerRecords: Map<PeerId, DeviceIdentityRecord>,
-    ) : IdentityResolver {
+        private val localSigningPrivateKey: SigningPrivateKey,
+        private val peerRecords: Map<PeerId, DeviceIdentity>,
+    ) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
 
-        override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used in test")
+        override suspend fun getLocalDeviceIdentity(): DeviceIdentity = error("not used in test")
 
-        override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used in test")
-        override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+        override suspend fun getLocalAccountIdentity(): AccountIdentity = error("not used in test")
+        override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
         override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used in test")
-        override suspend fun isLocalAccountAdmin(): Boolean = error("not used in test")
-        override suspend fun isLocalAccountOwner(): Boolean = error("not used in test")
+        suspend fun isLocalAccountAdmin(): Boolean = error("not used in test")
+        suspend fun isLocalAccountOwner(): Boolean = error("not used in test")
 
-        override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
-            require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }
-            return localSigningPrivateKey
-        }
+        override suspend fun localDeviceSigningKey(): SigningPrivateKey = localSigningPrivateKey
 
-        override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
-            error("not used in test")
+        override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = error("not used")
+
+        override suspend fun localAccountSigningKey(): SigningPrivateKey = error("not used in test")
 
         override suspend fun getLocalDeviceId(): PeerId = error("not used in test")
         override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
-        override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+        override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity =
             peerRecords[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-        override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used in test")
+        override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? = error("not used in test")
 
         override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used in test")
 
-        override suspend fun getAllPeers(): List<PeerId> = error("not used in test")
+        suspend fun getAllPeers(): List<PeerId> = error("not used in test")
 
         override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used in test")
 
-        override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
+        override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) =
             error("not used in test")
 
-        override suspend fun resolvePeerX3dhRemoteKeys(
+        override suspend fun resolvePeerPreKeyBundle(
             deviceId: PeerId,
-            signedPreKeyId: String?,
-        ): X3dhRemotePeerKeys = error("not used in test")
+            signedPreKeyId: SignedPreKeyId?
+        ): PeerPreKeyBundle = error("not used in test")
 
-        override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used in test")
+        override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used in test")
 
-        override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord =
+        override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey =
             error("not used in test")
+
+        override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+            getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+        override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+            accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+        override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? =
+            resolveTorEndpointForDevice(deviceId)
     }
 }

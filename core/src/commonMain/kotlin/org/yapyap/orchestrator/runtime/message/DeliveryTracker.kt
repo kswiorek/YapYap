@@ -6,12 +6,12 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.messaging.MessageDeliveryRepository
-import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.orchestrator.store.MessageDeliveryRepository
+import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.routing.router.Delivery
@@ -37,7 +37,7 @@ internal class DeliveryTracker(
     private val router: Router,
     private val messageRepository: MessageRepository,
     private val deliveryRepository: MessageDeliveryRepository,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
     private val clock: Clock = Clock.System,
 ) {
     private val updateFlow = MutableSharedFlow<MessageDelivery>(extraBufferCapacity = 64)
@@ -57,7 +57,7 @@ internal class DeliveryTracker(
     private suspend fun onPushAck(delivery: Delivery) {
         val messageId = (delivery.subject as? DeliverySubject.Message)?.messageId ?: return
         val account = delivery.account ?: return
-        val local = identityResolver.getLocalAccountId()
+        val local = localIdentity.getLocalAccountId()
         if (account == local) return
         val payload = messageRepository.findById(messageId)?.payload ?: return
         if (payload.senderAccountId != local) return
@@ -70,7 +70,7 @@ internal class DeliveryTracker(
      */
     private suspend fun onFrontiers(ping: PingFrontiers) {
         val account = ping.senderAccount ?: return
-        val local = identityResolver.getLocalAccountId()
+        val local = localIdentity.getLocalAccountId()
         if (account == local) return
         for ((roomId, tips) in ping.roomFrontiers) {
             val pending = deliveryRepository

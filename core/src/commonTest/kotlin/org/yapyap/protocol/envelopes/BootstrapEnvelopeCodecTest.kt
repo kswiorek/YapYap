@@ -1,5 +1,7 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -28,32 +30,20 @@ class BootstrapEnvelopeCodecTest {
         val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
         return Intro(
             version = 1,
-            account = AccountIdentityRecord(
+            account = AccountIdentity(
                 accountId = AccountId("sponsor-account"),
                 displayName = "Sponsor Name",
-                key = IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    publicKey = crypto.privateSigningKeyToPublicKey(signing.privateKey),
-                ),
+                signingKey = SigningPublicKey(crypto.privateSigningKeyToPublicKey(signing.privateKey).bytes),
             ),
-            device = DeviceIdentityRecord(
+            device = DeviceIdentity(
                 deviceId = deviceId,
-                signing = IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    publicKey = signing.publicKey,
-                ),
-                encryption = IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.ENCRYPTION,
-                    publicKey = encryption.publicKey,
-                ),
-                signedPreKey = SignedPreKeyRecord(
+                signingKey = signing.publicKey,
+                encryptionKey = encryption.publicKey,
+                signedPreKey = SignedPreKey(
+                    id = SignedPreKeyId("spk-sponsor"),
                     deviceId = deviceId,
-                    keyId = "spk-sponsor",
                     publicKey = spk.publicKey,
-                    signature = crypto.signDetached(signing.privateKey, spk.publicKey),
-                    privateKey = null,
-                    isActive = true,
-                    createdAt = now,
+                    signature = crypto.signDetached(signing.privateKey, spk.publicKey.bytes)
                 ),
             ),
             deviceType = DeviceType.DESKTOP,
@@ -123,9 +113,10 @@ class BootstrapEnvelopeCodecTest {
     fun bootstrapIntro_encodeDoesNotSerializePrivatePreKey() = runTest {
         val payload = sampleIntroPayload()
         val encoded = payload.encode()
-        // privateKey must always decode to null — private key material never leaves the device.
+        // Private key material never leaves the device: the wire type [SignedPreKey] has no private
+        // half (that lives only in LocalSignedPreKey), so the decoded prekey is exactly the public one.
         val decoded = BootstrapPayload.decode(encoded)
-        assertEquals(null, (decoded as Intro).device.signedPreKey!!.privateKey)
+        assertEquals(payload.device.signedPreKey, (decoded as Intro).device.signedPreKey)
     }
 
     @Test
@@ -141,16 +132,10 @@ class BootstrapEnvelopeCodecTest {
         val signing = crypto.generateSigningKeyPair()
         val encryption = crypto.generateEncryptionKeyPair()
         val deviceId = crypto.peerIdFromPublicKey(signing.publicKey)
-        val device = DeviceIdentityRecord(
+        val device = DeviceIdentity(
             deviceId = deviceId,
-            signing = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = signing.publicKey,
-            ),
-            encryption = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.ENCRYPTION,
-                publicKey = encryption.publicKey,
-            ),
+            signingKey = signing.publicKey,
+            encryptionKey = encryption.publicKey,
             signedPreKey = null,
         )
         val torEndpoint = TorEndpoint("newcomer.onion", 80)
@@ -168,19 +153,16 @@ class BootstrapEnvelopeCodecTest {
         val accountSigning = crypto.generateSigningKeyPair()
         val accountPublic = crypto.privateSigningKeyToPublicKey(accountSigning.privateKey)
         val accountId = crypto.accountIdFromPublicKey(accountPublic)
-        val account = AccountIdentityRecord(
+        val account = AccountIdentity(
             accountId = accountId,
             displayName = "Newcomer",
-            key = IdentityPublicKeyRecord(
-                purpose = IdentityKeyPurpose.SIGNING,
-                publicKey = accountPublic,
-            ),
+            signingKey = accountPublic,
         )
         val binding = accountSignedDeviceBindingBytes(
             accountId = accountId,
             deviceId = deviceId,
-            signingPublicKey = signing.publicKey,
-            encryptionPublicKey = encryption.publicKey,
+            signingPublicKey = signing.publicKey.bytes,
+            encryptionPublicKey = encryption.publicKey.bytes,
             torEndpoint = torEndpoint,
             deviceType = deviceType,
         )

@@ -1,14 +1,15 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
+import org.yapyap.orchestrator.identity.IdentityReader
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.onboarding.OnboardingState
-import org.yapyap.persistence.messaging.MessageRepository
+import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
@@ -28,7 +29,8 @@ import org.yapyap.routing.router.Router
 internal class DefaultOnboardingService(
     private val provider: OnboardingProvider,
     private val router: Router,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
+    private val identityReader: IdentityReader,
     private val messageRepository: MessageRepository,
     private val cryptoProvider: CryptoProvider,
     private val localDeviceType: DeviceType,
@@ -56,7 +58,7 @@ internal class DefaultOnboardingService(
         //    adminGranted = false. On a new account it requires a local admin; the bit can flip
         //    (revocation race) between UI render and scan, hence a refusal, not a throw.
         val grantAdmin = admin && newcomerAccount != null
-        if (grantAdmin && !identityResolver.isLocalAccountAdmin()) {
+        if (grantAdmin && !identityReader.isLocalAccountAdmin()) {
             return SponsorOutcome.Refused(SponsorRefusal.SponsorNotAdmin)
         }
         // 3. Readiness, BEFORE any write: an empty global room means this device hasn't
@@ -79,9 +81,9 @@ internal class DefaultOnboardingService(
             return SponsorOutcome.Refused(SponsorRefusal.SponsorNotReady)
         }
 
-        val sponsorAccount = identityResolver.getLocalAccountIdentityRecord()
-        val sponsorDevice = identityResolver.getLocalDeviceIdentityRecord()
-        val torEndpoint = identityResolver.resolveTorEndpointForDevice(sponsorDevice.deviceId)
+        val sponsorAccount = localIdentity.getLocalAccountIdentity()
+        val sponsorDevice = localIdentity.getLocalDeviceIdentity()
+        val torEndpoint = router.localTorEndpoint()
         router.sendBootstrap(
             Intro(
                 account = sponsorAccount,
@@ -124,7 +126,7 @@ internal class DefaultOnboardingService(
  */
 internal sealed interface DecodedSponsorInvite {
     data class Refused(val reason: SponsorRefusal) : DecodedSponsorInvite
-    data class Ok(val invite: Invite, val account: AccountIdentityRecord?) : DecodedSponsorInvite
+    data class Ok(val invite: Invite, val account: AccountIdentity?) : DecodedSponsorInvite
 }
 
 internal suspend fun decodeSponsorInvite(
@@ -143,11 +145,11 @@ internal suspend fun decodeSponsorInvite(
     // 1. Shape: pure checks on the decoded invite, no I/O. A failure here means a corrupt
     //    QR / version skew — the GUI should ask for a fresh code, not crash.
     val newcomerAccount = invite.account?.let { account ->
-        val key = account.key
+        val key = account.signingKey
             ?: return DecodedSponsorInvite.Refused(
                 SponsorRefusal.MalformedInvite(InviteDefect.MISSING_ACCOUNT_KEY),
             )
-        if (crypto.accountIdFromPublicKey(key.publicKey) != account.accountId) {
+        if (crypto.accountIdFromPublicKey(key) != account.accountId) {
             return DecodedSponsorInvite.Refused(
                 SponsorRefusal.MalformedInvite(InviteDefect.ACCOUNT_ID_MISMATCH),
             )

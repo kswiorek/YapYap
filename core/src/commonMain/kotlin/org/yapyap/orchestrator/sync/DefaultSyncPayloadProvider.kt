@@ -5,9 +5,9 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.RoomRepository
-import org.yapyap.persistence.sync.PendingSyncRepository
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.MessagePayload

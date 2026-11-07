@@ -6,7 +6,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
-import org.yapyap.crypto.identity.AccountIdentityRecord
+import org.yapyap.crypto.identity.AccountIdentity
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protocol.AccountId
@@ -59,7 +59,7 @@ class BootstrapInboundIntegrationTest {
         try {
             val payload = Intro(
                 version = 1,
-                account = AccountIdentityRecord(AccountId("sponsor-account"), "Sponsor", key = null),
+                account = AccountIdentity(AccountId("sponsor-account"), "Sponsor", signingKey = null),
                 device = sponsor.device,
                 deviceType = DeviceType.DESKTOP,
                 torEndpoint = TorEndpoint("sponsor.onion", 80),

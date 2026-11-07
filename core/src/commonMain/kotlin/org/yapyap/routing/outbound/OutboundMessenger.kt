@@ -6,8 +6,8 @@ import kotlinx.coroutines.coroutineScope
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.packet.OutboxTag
-import org.yapyap.persistence.packet.RelayBackup
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.RelayBackup
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
@@ -32,10 +32,10 @@ internal class OutboundMessenger(
         target: AccountId,
         payload: MessagePayload,
     ): AccountPushReport {
-        val peers = ctx.identityResolver.getAllPeerDevicesForAccount(target)
+        val peers = ctx.devices.getAllPeerDevicesForAccount(target)
             .filter { it != ctx.localDeviceId }   // skip originating device only
         if (peers.isEmpty()) {
-            if (target == ctx.identityResolver.getLocalAccountId()) {
+            if (target == ctx.localIdentity.getLocalAccountId()) {
                 // Own account, no other devices: the steady state for single-device
                 // users — the pull path converges own devices regardless. Quiet by
                 // design, never a failure.

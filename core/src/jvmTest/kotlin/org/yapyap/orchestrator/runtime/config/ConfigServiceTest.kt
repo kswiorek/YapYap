@@ -8,7 +8,7 @@ import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import kotlinx.io.writeString
 import org.yapyap.config.*
-import org.yapyap.persistence.config.ConfigStore
+import org.yapyap.wiring.ConfigStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

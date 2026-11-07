@@ -2,7 +2,7 @@ package org.yapyap.sync
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import org.yapyap.persistence.packet.OutboxTag
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy

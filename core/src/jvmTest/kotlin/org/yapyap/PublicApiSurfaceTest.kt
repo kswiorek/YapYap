@@ -1,5 +1,6 @@
 package org.yapyap
 
+
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -30,7 +31,7 @@ class PublicApiSurfaceTest {
     private val publicTopLevelWhitelist: Set<String> = setOf(
         // --- GUI API: orchestrator entry points -------------------------------------
         "org.yapyap.orchestrator.Orchestrator",
-        "org.yapyap.orchestrator.OrchestratorFactory",
+        "org.yapyap.wiring.OrchestratorFactory",
         "org.yapyap.orchestrator.OrchestratorState",
         "org.yapyap.orchestrator.LocalTransportStatus",
         "org.yapyap.orchestrator.TransportProblem",
@@ -106,6 +107,11 @@ class PublicApiSurfaceTest {
         "org.yapyap.persistence.db.FileTransferStatus",
         "org.yapyap.persistence.db.FileChunkStatus",
         "org.yapyap.persistence.db.OpkStatus",
+        "org.yapyap.crypto.keys.KeyBytes",
+        "org.yapyap.crypto.keys.SigningPublicKey",
+        "org.yapyap.crypto.keys.EncryptionPublicKey",
+        "org.yapyap.crypto.keys.SignedPreKeyId",
+        "org.yapyap.crypto.keys.OneTimePreKeyId",
     )
 
     private val visibilityModifiers = setOf("public", "internal", "private", "protected")

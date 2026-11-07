@@ -22,7 +22,7 @@ class GuiApiBoundaryTest {
 
     private val allowedExactImports: Set<String> = setOf(
         "org.yapyap.orchestrator.Orchestrator",
-        "org.yapyap.orchestrator.OrchestratorFactory",
+        "org.yapyap.wiring.OrchestratorFactory",
         "org.yapyap.orchestrator.OrchestratorState",
         "org.yapyap.orchestrator.LocalTransportStatus",
         "org.yapyap.orchestrator.TransportProblem",

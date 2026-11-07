@@ -63,7 +63,7 @@ class SyncIntegrationTest {
         messageRepository = localMessageRepo,
         causalHoldRepository = localCausalHold,
         roomRepository = localRoomRepo,
-        identityResolver = localIdentity,
+        localIdentity = localIdentity,
         signatureProvider = FakeSignatureProvider(),
         cryptoProvider = DefaultCryptoProvider(),
         clock = localTime,
@@ -79,6 +79,8 @@ class SyncIntegrationTest {
         messageRepository = localMessageRepo,
         pendingSyncRepository = pendingRepo,
         router = router,
+        roomChanges = emptyFlow(),
+        identityChanges = emptyFlow(),
         clock = localTime,
         orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = Duration.ZERO)),
     )
@@ -440,6 +442,10 @@ private class RecordingRouter : Router {
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
+    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
+        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+
+    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
 
     override suspend fun sendMessage(
         target: AccountId,

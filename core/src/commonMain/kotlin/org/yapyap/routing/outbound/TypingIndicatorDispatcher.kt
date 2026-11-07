@@ -41,7 +41,7 @@ internal class TypingIndicatorDispatcher(
             roomId = roomId,
             intervalMillis = interval.inWholeMilliseconds.toInt(),
         )
-        val devices = ctx.identityResolver.getAllPeerDevicesForAccounts(targets)
+        val devices = ctx.devices.getAllPeerDevicesForAccounts(targets)
             .filter { it != ctx.localDeviceId }
         if (devices.isEmpty()) {
             AppLog.debug(

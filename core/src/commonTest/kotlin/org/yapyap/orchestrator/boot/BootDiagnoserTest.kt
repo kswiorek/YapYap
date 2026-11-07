@@ -1,9 +1,16 @@
 package org.yapyap.orchestrator.boot
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.key.*
 import org.yapyap.protocol.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -22,10 +29,10 @@ class BootDiagnoserTest {
     private class Fixture {
         val crypto = DefaultCryptoProvider()
         val keyStore = InMemoryKeyStore()
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val clock = FakeClock(epochSeconds(10_000L))
         val sessionStore = BootstrapSessionStore(keyStore)
-        val diagnoser = BootDiagnoser(repo, keyStore, crypto, sessionStore, clock)
+        val diagnoser = BootDiagnoser(repo, repo, keyStore, crypto, sessionStore, clock)
 
         suspend fun seedIdentity(provisional: Boolean, withSpkKey: Boolean = true) {
             val deviceSigning = crypto.generateSigningKeyPair()
@@ -34,33 +41,34 @@ class BootDiagnoserTest {
             val deviceId = crypto.peerIdFromPublicKey(deviceSigning.publicKey)
             val accountId = crypto.accountIdFromPublicKey(accountSigning.publicKey)
             val spkPair = crypto.generateEncryptionKeyPair()
-            keyStore.putKey(deviceSigningPrivateRef(), deviceSigning.privateKey)
-            keyStore.putKey(deviceEncryptionPrivateRef(), deviceEncryption.privateKey)
-            keyStore.putKey(accountSigningPrivateRef(), accountSigning.privateKey)
-            keyStore.putKey(accountSigningPublicRef(), accountSigning.publicKey)
-            if (withSpkKey) keyStore.putKey(signedPreKeyPrivateRef(SPK_ID), spkPair.privateKey)
+            keyStore.putKey(KeySlot.DeviceSigningPrivate, deviceSigning.privateKey.bytes)
+            keyStore.putKey(KeySlot.DeviceEncryptionPrivate, deviceEncryption.privateKey.bytes)
+            keyStore.putKey(KeySlot.AccountSigningPrivate, accountSigning.privateKey.bytes)
+            keyStore.putKey(KeySlot.AccountSigningPublic, accountSigning.publicKey.bytes)
+            if (withSpkKey) keyStore.putKey(
+                KeySlot.SignedPreKeyPrivate(SignedPreKeyId(SPK_ID)),
+                spkPair.privateKey.bytes
+            )
             repo.insertLocalAccount(
-                AccountIdentityRecord(
+                AccountIdentity(
                     accountId,
                     "test",
-                    IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, accountSigning.publicKey),
+                    accountSigning.publicKey,
                 ),
                 role = AccountRole.MEMBER,
                 provisional = provisional,
             )
             repo.insertLocalDevice(
                 accountId,
-                DeviceIdentityRecord(
+                DeviceIdentity(
                     deviceId,
-                    IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, deviceSigning.publicKey),
-                    IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, deviceEncryption.publicKey),
-                    signedPreKey = SignedPreKeyRecord(
-                        keyId = SPK_ID,
-                        publicKey = spkPair.publicKey,
-                        signature = crypto.signDetached(deviceSigning.privateKey, spkPair.publicKey),
-                        privateKey = spkPair.privateKey,
+                    deviceSigning.publicKey,
+                    deviceEncryption.publicKey,
+                    signedPreKey = SignedPreKey(
+                        id = SignedPreKeyId(SPK_ID),
                         deviceId = deviceId,
-                        isActive = true,
+                        publicKey = spkPair.publicKey,
+                        signature = crypto.signDetached(deviceSigning.privateKey, spkPair.publicKey.bytes)
                     ),
                 ),
                 provisional = provisional,
@@ -76,23 +84,21 @@ class BootDiagnoserTest {
             val deviceEncryption = crypto.generateEncryptionKeyPair()
             val deviceId = crypto.peerIdFromPublicKey(deviceSigning.publicKey)
             val spkPair = crypto.generateEncryptionKeyPair()
-            keyStore.putKey(deviceSigningPrivateRef(), deviceSigning.privateKey)
-            keyStore.putKey(deviceEncryptionPrivateRef(), deviceEncryption.privateKey)
-            keyStore.putKey(signedPreKeyPrivateRef(SPK_ID), spkPair.privateKey)
-            repo.insertLocalAccount(AccountIdentityRecord(STAND_IN, "placeholder"))
+            keyStore.putKey(KeySlot.DeviceSigningPrivate, deviceSigning.privateKey.bytes)
+            keyStore.putKey(KeySlot.DeviceEncryptionPrivate, deviceEncryption.privateKey.bytes)
+            keyStore.putKey(KeySlot.SignedPreKeyPrivate(SignedPreKeyId(SPK_ID)), spkPair.privateKey.bytes)
+            repo.insertLocalAccount(AccountIdentity(STAND_IN, "placeholder"))
             repo.insertLocalDevice(
                 STAND_IN,
-                DeviceIdentityRecord(
+                DeviceIdentity(
                     deviceId,
-                    IdentityPublicKeyRecord(IdentityKeyPurpose.SIGNING, deviceSigning.publicKey),
-                    IdentityPublicKeyRecord(IdentityKeyPurpose.ENCRYPTION, deviceEncryption.publicKey),
-                    signedPreKey = SignedPreKeyRecord(
-                        keyId = SPK_ID,
-                        publicKey = spkPair.publicKey,
-                        signature = crypto.signDetached(deviceSigning.privateKey, spkPair.publicKey),
-                        privateKey = spkPair.privateKey,
+                    deviceSigning.publicKey,
+                    deviceEncryption.publicKey,
+                    signedPreKey = SignedPreKey(
+                        id = SignedPreKeyId(SPK_ID),
                         deviceId = deviceId,
-                        isActive = true,
+                        publicKey = spkPair.publicKey,
+                        signature = crypto.signDetached(deviceSigning.privateKey, spkPair.publicKey.bytes)
                     ),
                 ),
                 provisional = true,
@@ -110,8 +116,8 @@ class BootDiagnoserTest {
                 accountId = accountId,
                 deviceType = DeviceType.DESKTOP,
                 torEndpoint = TorEndpoint("self.onion", 80),
-                signingPublicKey = device.signing.publicKey,
-                encryptionPublicKey = device.encryption.publicKey,
+                signingPublicKey = device.signingKey,
+                encryptionPublicKey = device.encryptionKey,
                 status = IdentityStatus.ACTIVE,
             )
         }
@@ -135,7 +141,7 @@ class BootDiagnoserTest {
         fixture.confirmUnder(deviceId, realAccount)
 
         assertEquals(BootDiagnosis.Healthy, fixture.diagnoser.diagnose())
-        assertEquals(realAccount, fixture.repo.getLocalAccountRecord()?.accountId)
+        assertEquals(realAccount, fixture.repo.getLocalAccountIdentity()?.accountId)
     }
 
     @Test
@@ -150,7 +156,7 @@ class BootDiagnoserTest {
         fixture.repo.accounts[STAND_IN.id] = standIn
 
         assertEquals(BootDiagnosis.Healthy, fixture.diagnoser.diagnose())
-        assertEquals(realAccount, fixture.repo.getLocalAccountRecord()?.accountId)
+        assertEquals(realAccount, fixture.repo.getLocalAccountIdentity()?.accountId)
     }
 
     @Test
@@ -158,7 +164,7 @@ class BootDiagnoserTest {
         val fixture = Fixture()
         val deviceId = fixture.seedKeylessDevice()
         fixture.sessionStore.setActiveSecret(ByteArray(32) { 7 }, t0 + 5.minutes)
-        fixture.repo.insertLocalAccount(AccountIdentityRecord(realAccount, "someone"))
+        fixture.repo.insertLocalAccount(AccountIdentity(realAccount, "someone"))
 
         val diagnosis = fixture.diagnoser.diagnose()
         assertIs<BootDiagnosis.ResetRequired>(diagnosis)
@@ -176,12 +182,12 @@ class BootDiagnoserTest {
     /** The data directory was deleted while the OS keyring kept the identity keys. */
     private suspend fun Fixture.leaveKeysWithoutRows() {
         val crypto = DefaultCryptoProvider()
-        keyStore.putKey(masterKeyRef(), ByteArray(32) { 1 })
-        keyStore.putKey(deviceSigningPrivateRef(), crypto.generateSigningKeyPair().privateKey)
-        keyStore.putKey(deviceEncryptionPrivateRef(), crypto.generateEncryptionKeyPair().privateKey)
+        keyStore.putKey(KeySlot.DatabaseMasterKey, ByteArray(32) { 1 })
+        keyStore.putKey(KeySlot.DeviceSigningPrivate, crypto.generateSigningKeyPair().privateKey.bytes)
+        keyStore.putKey(KeySlot.DeviceEncryptionPrivate, crypto.generateEncryptionKeyPair().privateKey.bytes)
         val account = crypto.generateSigningKeyPair()
-        keyStore.putKey(accountSigningPrivateRef(), account.privateKey)
-        keyStore.putKey(accountSigningPublicRef(), account.publicKey)
+        keyStore.putKey(KeySlot.AccountSigningPrivate, account.privateKey.bytes)
+        keyStore.putKey(KeySlot.AccountSigningPublic, account.publicKey.bytes)
     }
 
     @Test
@@ -190,8 +196,8 @@ class BootDiagnoserTest {
         fixture.leaveKeysWithoutRows()
 
         assertEquals(BootDiagnosis.SetupRequired, fixture.diagnoser.diagnose(storeIsNew = true))
-        for (ref in localIdentityKeyRefs()) assertNull(fixture.keyStore.getKey(ref), "${ref.keyId} cleared")
-        assertNotNull(fixture.keyStore.getKey(masterKeyRef()), "the new store's master key stays")
+        for (ref in KeySlot.localIdentity) assertNull(fixture.keyStore.getKey(ref), "${ref.keyringName} cleared")
+        assertNotNull(fixture.keyStore.getKey(KeySlot.DatabaseMasterKey), "the new store's master key stays")
     }
 
     @Test
@@ -203,7 +209,7 @@ class BootDiagnoserTest {
         val diagnosis = fixture.diagnoser.diagnose()
         assertIs<BootDiagnosis.ResetRequired>(diagnosis)
         assertEquals(ResetReason.INCONSISTENT_STORAGE, diagnosis.reason)
-        assertNotNull(fixture.keyStore.getKey(deviceSigningPrivateRef()))
+        assertNotNull(fixture.keyStore.getKey(KeySlot.DeviceSigningPrivate))
     }
 
     @Test
@@ -264,7 +270,7 @@ class BootDiagnoserTest {
     fun partialRows_returnsInconsistentStorage() = runTest {
         val fixture = Fixture()
         fixture.seedIdentity(provisional = false)
-        fixture.keyStore.deleteKey(accountSigningPrivateRef())
+        fixture.keyStore.deleteKey(KeySlot.AccountSigningPrivate)
 
         val diagnosis = fixture.diagnoser.diagnose()
         assertIs<BootDiagnosis.ResetRequired>(diagnosis)

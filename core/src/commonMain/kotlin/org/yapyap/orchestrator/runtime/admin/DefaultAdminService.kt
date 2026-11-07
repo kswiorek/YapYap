@@ -6,14 +6,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.onboarding.isWaitingOnboarding
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
-import org.yapyap.persistence.key.IdentityKeyRepository
+import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
@@ -33,8 +33,8 @@ import org.yapyap.protocol.PeerId
  */
 internal class DefaultAdminService(
     private val projector: GlobalEventProjector,
-    private val identityResolver: IdentityResolver,
-    private val identityKeyRepository: IdentityKeyRepository,
+    private val localIdentity: LocalIdentity,
+    private val identityReader: IdentityReader,
     private val onboardingState: StateFlow<OnboardingState>,
 ) : AdminService {
 
@@ -61,9 +61,9 @@ internal class DefaultAdminService(
         // Fold mirror (GrantAdmin): the target must exist, be ACTIVE, and be a
         // MEMBER — anything else is a silent no-op the GUI would report as
         // Published. (OWNER implies admin: granting to the owner is a no-op.)
-        val status = identityKeyRepository.getAccountStatus(target)
+        val status = identityReader.getAccountStatus(target)
             ?: return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotFound)
-        if (status != IdentityStatus.ACTIVE || identityKeyRepository.isAccountAdmin(target)) {
+        if (status != IdentityStatus.ACTIVE || identityReader.isAccountAdmin(target)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotEligible)
         }
         return publish { projector.publishGrantAdmin(target) }
@@ -71,17 +71,17 @@ internal class DefaultAdminService(
 
     override suspend fun revokeAdmin(target: AccountId): GlobalEventOutcome {
         commonRefusal()?.let { return it }
-        val status = identityKeyRepository.getAccountStatus(target)
+        val status = identityReader.getAccountStatus(target)
             ?: return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotFound)
         // Owner irrevocable (§3): no forgery — and no admin — can strip the
         // network's repair path. The owner's exit is the self-service handover.
-        if (identityKeyRepository.isAccountOwner(target)) {
+        if (identityReader.isAccountOwner(target)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.OwnerIrrevocable)
         }
         // Fold mirror: the target must be ACTIVE and currently ADMIN. Self
         // step-down is legal — the fold honors an admin demoting their own
         // account (the demotion seal is interval-scoped, reversible by re-grant).
-        if (status != IdentityStatus.ACTIVE || !identityKeyRepository.isAccountAdmin(target)) {
+        if (status != IdentityStatus.ACTIVE || !identityReader.isAccountAdmin(target)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotEligible)
         }
         return publish { projector.publishRemoveAdmin(target) }
@@ -92,12 +92,12 @@ internal class DefaultAdminService(
         // Own account: self-service owns it — it carries the owner-handover
         // gate (the successor field is owner-only; this signature takes none,
         // so an owner self-leave here would be a guaranteed silent no-op).
-        if (target == identityResolver.getLocalAccountId()) {
+        if (target == localIdentity.getLocalAccountId()) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.SelfServiceRequired)
         }
-        val status = identityKeyRepository.getAccountStatus(target)
+        val status = identityReader.getAccountStatus(target)
             ?: return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotFound)
-        if (identityKeyRepository.isAccountOwner(target)) {
+        if (identityReader.isAccountOwner(target)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.OwnerIrrevocable)
         }
         if (status != IdentityStatus.ACTIVE) {
@@ -108,16 +108,16 @@ internal class DefaultAdminService(
 
     override suspend fun removeDevice(target: PeerId): GlobalEventOutcome {
         commonRefusal()?.let { return it }
-        val targetAccount = identityResolver.getAccountIdForDevice(target)
+        val targetAccount = identityReader.getAccountIdForDevice(target)
             ?: return GlobalEventOutcome.Refused(GlobalEventRefusal.TargetNotFound)
         // Own-account device: self-service owns it — the admin path would
         // bypass the last-device recovery-key gate (self-harm prevention).
-        if (targetAccount == identityResolver.getLocalAccountId()) {
+        if (targetAccount == localIdentity.getLocalAccountId()) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.SelfServiceRequired)
         }
         // The owner's devices are unbannable by admins (§3) — the owner removes
         // their own via self-service. A null owner (nothing committed yet) passes.
-        if (targetAccount == identityKeyRepository.getOwnerAccountId()) {
+        if (targetAccount == identityReader.getOwnerAccountId()) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.OwnerIrrevocable)
         }
         // Provisional target: its AddDevice has not folded here yet, so the
@@ -125,7 +125,7 @@ internal class DefaultAdminService(
         // assertion — peer rows are committed non-provisional by the fold, never
         // seeded (the only seeding path is the newcomer's own intro handler,
         // mid-onboarding, which [commonRefusal] already refuses).
-        if (identityKeyRepository.isDeviceProvisional(target)) {
+        if (identityReader.isDeviceProvisional(target)) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotReady)
         }
         // Deliberately NO ACTIVE gate: the fold honors RemoveDevice of an
@@ -137,10 +137,10 @@ internal class DefaultAdminService(
     /** Shared preamble: onboarding in flight → unanchored local device → not admin. */
     private suspend fun commonRefusal(): GlobalEventOutcome.Refused? {
         if (isOnboardingActive()) return GlobalEventOutcome.Refused(GlobalEventRefusal.OnboardingActive)
-        if (identityKeyRepository.isDeviceProvisional(identityResolver.getLocalDeviceId())) {
+        if (identityReader.isDeviceProvisional(localIdentity.getLocalDeviceId())) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotReady)
         }
-        if (!identityResolver.isLocalAccountAdmin()) {
+        if (!identityReader.isLocalAccountAdmin()) {
             return GlobalEventOutcome.Refused(GlobalEventRefusal.NotAdmin)
         }
         return null
@@ -156,7 +156,7 @@ internal class DefaultAdminService(
     }
 
     private suspend fun refreshLocalIsAdmin() {
-        _localIsAdmin.value = identityKeyRepository.isLocalAccountAdmin()
+        _localIsAdmin.value = identityReader.isLocalAccountAdmin()
     }
 
     private fun isOnboardingActive(): Boolean = onboardingState.value.isWaitingOnboarding()

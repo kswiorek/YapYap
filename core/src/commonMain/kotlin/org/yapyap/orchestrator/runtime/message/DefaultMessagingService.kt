@@ -1,11 +1,13 @@
 package org.yapyap.orchestrator.runtime.message
 
+import org.yapyap.orchestrator.store.*
+
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.config.MessageLimits
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -13,7 +15,6 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
@@ -32,7 +33,7 @@ internal class DefaultMessagingService(
     private val messageRepository: MessageRepository,
     deliveryRepository: MessageDeliveryRepository,
     private val causalHoldRepository: CausalHoldRepository,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
     private val messageLimits: StateFlow<MessageLimits>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
 ) : MessagingService {
@@ -40,7 +41,7 @@ internal class DefaultMessagingService(
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
 
-    private val deliveryTracker = DeliveryTracker(router, messageRepository, deliveryRepository, identityResolver)
+    private val deliveryTracker = DeliveryTracker(router, messageRepository, deliveryRepository, localIdentity)
     private var deliveryJobs: List<Job> = emptyList()
     override val deliveryUpdates: Flow<MessageDelivery> = deliveryTracker.updates
 
@@ -193,7 +194,7 @@ internal class DefaultMessagingService(
 
     private suspend fun onTypingIndicatorReceived(event: TypingIndicatorEvent) {
         val scope = serviceScope ?: return
-        val localAccountId = identityResolver.getLocalAccountId()
+        val localAccountId = localIdentity.getLocalAccountId()
         if (event.senderAccountId == localAccountId) return
         // Typing from anyone without an ACTIVE row (removed, never-member,
         // pre-fold) is ignored — the same boundary as the render policy, for an
@@ -242,7 +243,7 @@ internal class DefaultMessagingService(
         // GUI banner gates compose, and this refusal is the backend feedback
         // (docs/room events.md §3). Only a committed REMOVED row refuses: no row
         // (pre-fold, unknown room) keeps the previous behavior.
-        val localAccountId = identityResolver.getLocalAccountId()
+        val localAccountId = localIdentity.getLocalAccountId()
         if (roomRepository.memberRowOf(roomId, localAccountId)?.status == RoomMemberStatus.REMOVED) {
             AppLog.warn(
                 component = LogComponent.MESSAGING,
@@ -376,7 +377,7 @@ internal class DefaultMessagingService(
      * The emitted item is policy-vetted and unformatted.
      */
     private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload, item: MessageDisplayItem) {
-        val localAccountId = identityResolver.getLocalAccountId()
+        val localAccountId = localIdentity.getLocalAccountId()
         if (payload.senderAccountId == localAccountId) return
         incomingMessageEventFlow.emit(
             IncomingMessageEvent(

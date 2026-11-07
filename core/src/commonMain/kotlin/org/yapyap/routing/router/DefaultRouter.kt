@@ -3,16 +3,18 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.yapyap.config.TransportLimits
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.availability.PeerAvailabilityStore
-import org.yapyap.persistence.packet.OutboxTag
-import org.yapyap.persistence.packet.PacketDeduplicator
-import org.yapyap.persistence.packet.PacketOutbox
-import org.yapyap.persistence.sync.SyncAttemptStore
+import org.yapyap.routing.store.PeerAvailabilityStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
@@ -47,7 +49,9 @@ import kotlin.uuid.Uuid
 internal class DefaultRouter(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
-    val identityResolver: IdentityResolver,
+    val localIdentity: LocalIdentity,
+    val devices: DeviceDirectory,
+    val routes: DeviceRouteStore,
     val packetDeduplicator: PacketDeduplicator,
     val packetOutbox: PacketOutbox,
     val syncAttemptStore: SyncAttemptStore,
@@ -70,7 +74,9 @@ internal class DefaultRouter(
 
 
     private val routingContext = RoutingContext(
-        identityResolver = identityResolver,
+        localIdentity = localIdentity,
+        devices = devices,
+        routes = routes,
         packetDeduplicator = packetDeduplicator,
         envelopeProtectionService = envelopeProtectionService,
         torTransport = torTransport,
@@ -190,7 +196,7 @@ internal class DefaultRouter(
     private val torLinkKeeper: LinkKeeper = LinkKeeper(
         name = "Tor",
         sessions = routingContext.peerLinks.tor,
-        targets = { identityResolver.getAllActivePeers().filter { it != routingContext.localDeviceId } },
+        targets = { devices.getAllActiveDeviceIds().filter { it != routingContext.localDeviceId } },
         ready = torTransport.health.map { it == TorHealth.Ready },
         config = routerConfig
             .map { it.torLinkKeeperConfig() }
@@ -226,7 +232,7 @@ internal class DefaultRouter(
 
     private var started = false
     private var torEndpoint: TorEndpoint? = null
-    private var localDeviceIdentity: DeviceIdentityRecord? = null
+    private var localDeviceIdentity: DeviceIdentity? = null
 
     private var torIncomingJob: Job? = null
     private var webRtcIncomingEnvelopeJob: Job? = null
@@ -252,7 +258,7 @@ internal class DefaultRouter(
     // device flaps re-emit the same set and are deduped below.
     override val onlineAccounts: Flow<Set<AccountId>> =
         peerAvailabilityRegistry.onlineDevices
-            .map { online -> online.mapNotNull { identityResolver.getAccountIdForDevice(it) }.toSet() }
+            .map { online -> online.mapNotNull { devices.getAccountIdForDevice(it) }.toSet() }
             .distinctUntilChanged()
 
     override val localPublishState: StateFlow<TorPublishState>
@@ -266,7 +272,7 @@ internal class DefaultRouter(
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
-        localDeviceIdentity = identityResolver.getLocalDeviceIdentityRecord()
+        localDeviceIdentity = localIdentity.getLocalDeviceIdentity()
         routingContext.localDeviceIdentity = localDeviceIdentity!!
 
         try {
@@ -278,7 +284,7 @@ internal class DefaultRouter(
             throw e
         }
         checkNotNull(torEndpoint) { "Tor endpoint must be initialized after starting transport" }
-        identityResolver.updatePeerTorEndpoint(
+        routes.upsertPeerTorEndpoint(
             deviceId = localDeviceIdentity!!.deviceId,
             torEndpoint = torEndpoint!!,
         )
@@ -433,6 +439,14 @@ internal class DefaultRouter(
 
     override fun isRunning(): Boolean = started
 
+    override suspend fun deviceLastSeen(): Map<PeerId, Instant> =
+        peerAvailabilityStore.availabilityForAll()
+            .filter { it.lastSeen != Instant.DISTANT_PAST }
+            .associate { it.deviceId to it.lastSeen }
+
+    override fun localTorEndpoint(): TorEndpoint =
+        checkNotNull(torEndpoint) { "Router not started: local Tor endpoint unknown" }
+
     override suspend fun announceOnline() {
         check(started) { "Router must be started before announcing online" }
         // Peers without a link get one opened (now, not after their backoff); each successful
@@ -485,12 +499,12 @@ internal class DefaultRouter(
         when (outcome.tag.kind) {
             OutboxTag.Kind.MESSAGE -> if (outcome is OutboxOutcome.Acked) {
                 // A device we can't place in an account can't be shown as anyone's delivery.
-                val account = identityResolver.getAccountIdForDevice(outcome.target) ?: return
+                val account = devices.getAccountIdForDevice(outcome.target) ?: return
                 deliveryFlow.emit(Delivery(DeliverySubject.Message(id), account))
             }
 
             OutboxTag.Kind.BOOTSTRAP -> if (outcome is OutboxOutcome.Acked) {
-                val account = identityResolver.getAccountIdForDevice(outcome.target)
+                val account = devices.getAccountIdForDevice(outcome.target)
                 deliveryFlow.emit(Delivery(DeliverySubject.Bootstrap(id), account))
             }
 

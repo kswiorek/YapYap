@@ -4,7 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.internal.SynchronizedObject
 import kotlinx.coroutines.internal.synchronized
-import org.yapyap.persistence.availability.PeerAvailabilityStore
+import org.yapyap.routing.store.PeerAvailabilityStore
 import org.yapyap.protocol.PeerId
 import kotlin.math.pow
 import kotlin.math.sqrt

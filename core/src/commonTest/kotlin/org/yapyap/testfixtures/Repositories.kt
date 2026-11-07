@@ -1,10 +1,17 @@
 package org.yapyap.testfixtures
 
+import org.yapyap.orchestrator.store.*
+
+import org.yapyap.routing.directory.DeviceRouteStore
+
+import org.yapyap.routing.directory.DeviceDirectory
+
+import org.yapyap.crypto.keys.*
+
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Instant
@@ -18,7 +25,7 @@ import kotlin.uuid.Uuid
  */
 
 internal class FakeMessageRepository : MessageRepository {
-    val byId = mutableMapOf<Uuid, MessageRow>()
+    val byId = mutableMapOf<Uuid, StoredMessage>()
     private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
 
     /** Wired by tests exercising the removal-boundary render queries. */
@@ -34,13 +41,13 @@ internal class FakeMessageRepository : MessageRepository {
             // INSERT OR IGNORE semantics — duplicated key is a no-op.
             return true
         }
-        byId[payload.messageId] = MessageRow(payload, isOrphaned, verificationState, ancestryComplete)
+        byId[payload.messageId] = StoredMessage(payload, isOrphaned, verificationState, ancestryComplete)
         return true
     }
 
-    override suspend fun findById(messageId: Uuid): MessageRow? = byId[messageId]
+    override suspend fun findById(messageId: Uuid): StoredMessage? = byId[messageId]
 
-    override suspend fun findRoomFrontier(roomId: RoomId): List<MessageRow> {
+    override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> {
         // Mirror selectRoomFrontier: VERIFIED-chainable messages no VERIFIED-chainable
         // message references as a parent. PENDING tips are never advertised nor built on.
         val chainable = byId.values.filter {
@@ -59,7 +66,7 @@ internal class FakeMessageRepository : MessageRepository {
         parentIds.getOrPut(messageId) { mutableListOf() }.add(parentId)
     }
 
-    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<MessageRow> =
+    override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> =
         byId.values.filter { row ->
             row.payload.roomId == roomId && parentId in parentIds[row.payload.messageId].orEmpty()
         }
@@ -68,11 +75,11 @@ internal class FakeMessageRepository : MessageRepository {
         roomId: RoomId,
         limit: Int,
         cursor: MessageCursor?
-    ): List<MessageRow> {
+    ): List<StoredMessage> {
         val all = byId.values
             .filter { it.payload.roomId == roomId && it.verificationState != VerificationState.REJECTED }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAt }
+                compareByDescending<StoredMessage> { it.payload.createdAt }
                     .thenByDescending { it.payload.messageId }
             )
         val filtered = if (cursor == null) {
@@ -88,11 +95,11 @@ internal class FakeMessageRepository : MessageRepository {
         return filtered.take(limit)
     }
 
-    override suspend fun findAllInRoom(roomId: RoomId): List<MessageRow> =
+    override suspend fun findAllInRoom(roomId: RoomId): List<StoredMessage> =
         byId.values
             .filter { it.payload.roomId == roomId }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAt }
+                compareByDescending<StoredMessage> { it.payload.createdAt }
                     .thenByDescending { it.payload.messageId }
             )
 
@@ -100,7 +107,7 @@ internal class FakeMessageRepository : MessageRepository {
         roomId: RoomId,
         limit: Int,
         cursor: MessageCursor?,
-    ): List<MessageRow> {
+    ): List<StoredMessage> {
         val all = byId.values
             .filter { row ->
                 row.payload.roomId == roomId &&
@@ -108,7 +115,7 @@ internal class FakeMessageRepository : MessageRepository {
                         isVisible(roomId, row.payload.senderAccountId, row.payload.messageId)
             }
             .sortedWith(
-                compareByDescending<MessageRow> { it.payload.createdAt }
+                compareByDescending<StoredMessage> { it.payload.createdAt }
                     .thenByDescending { it.payload.messageId }
             )
         val filtered = if (cursor == null) {
@@ -157,7 +164,7 @@ internal class FakeMessageRepository : MessageRepository {
     override suspend fun hasMessages(roomId: RoomId): Boolean =
         byId.values.any { it.payload.roomId == roomId }
 
-    override suspend fun findFoldableInRoom(roomId: RoomId): List<MessageRow> =
+    override suspend fun findFoldableInRoom(roomId: RoomId): List<StoredMessage> =
         // Mirror selectFoldableInRoom: VERIFIED ∧ stored flag, all payload types.
         byId.values.filter {
             it.payload.roomId == roomId &&
@@ -180,12 +187,12 @@ internal class FakeMessageRepository : MessageRepository {
         byId[messageId] = row.copy(verificationState = state)
     }
 
-    override suspend fun findPendingByAuthor(deviceId: PeerId): List<MessageRow> =
+    override suspend fun findPendingByAuthor(deviceId: PeerId): List<StoredMessage> =
         byId.values
             .filter { it.payload.authorDeviceId == deviceId && it.verificationState == VerificationState.PENDING }
             .toList()
 
-    override suspend fun findAllPending(): List<MessageRow> =
+    override suspend fun findAllPending(): List<StoredMessage> =
         byId.values.filter { it.verificationState == VerificationState.PENDING }.toList()
 }
 
@@ -210,19 +217,19 @@ internal class FakeRoomRepository(
             accounts.map { (room to it) to Cell(RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE) }
         }.toMap().toMutableMap()
     private val roomsFound = mutableSetOf<RoomId>()
-    private val roomCells = mutableMapOf<RoomId, RoomRecord>()
+    private val roomCells = mutableMapOf<RoomId, Room>()
 
     override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> =
         cells.filter { (key, cell) -> key.first == roomId && cell.status == RoomMemberStatus.ACTIVE }
             .map { it.key.second }
 
-    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
+    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMember> =
         cells.filter { (key, _) -> key.first == roomId }
-            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status, cell.removalNodeId) }
+            .map { (key, cell) -> RoomMember(key.second, cell.role, cell.status, cell.removalNodeId) }
 
-    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMember? =
         cells[roomId to accountId]
-            ?.let { RoomMemberRecord(accountId, it.role, it.status, it.removalNodeId) }
+            ?.let { RoomMember(accountId, it.role, it.status, it.removalNodeId) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> {
         // Mirror selectRoomsOfPeer: REMOVED rows never grant sync access.
@@ -246,7 +253,7 @@ internal class FakeRoomRepository(
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         roomsFound.add(roomId)
-        roomCells.getOrPut(roomId) { RoomRecord(roomId, null, type, name) }
+        roomCells.getOrPut(roomId) { Room(roomId, null, type, name) }
     }
 
     override suspend fun upsertMember(
@@ -268,11 +275,11 @@ internal class FakeRoomRepository(
     override suspend fun allChatRoomIds(): List<RoomId> =
         (cells.keys.map { it.first } + roomsFound).filter { it != RoomId.GLOBAL }.toSet().toList()
 
-    override suspend fun roomOf(roomId: RoomId): RoomRecord? = roomCells[roomId]
+    override suspend fun roomOf(roomId: RoomId): Room? = roomCells[roomId]
 
     override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) {
         roomsFound.add(roomId)
-        roomCells[roomId] = RoomRecord(roomId, spaceId, type, name)
+        roomCells[roomId] = Room(roomId, spaceId, type, name)
     }
 
     override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) {
@@ -320,28 +327,41 @@ internal class FakeIdentityResolver(
     private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
     private val localOwner: Boolean = false,
     private val localAdmin: Boolean = false,
-) : IdentityResolver {
-    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
-    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = error("not used")
+    override suspend fun getLocalAccountIdentity(): AccountIdentity = error("not used")
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         accountStatuses[accountId]
-    override suspend fun isLocalAccountAdmin(): Boolean = localAdmin
-    override suspend fun isLocalAccountOwner(): Boolean = localOwner
-    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
-    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
+    suspend fun isLocalAccountAdmin(): Boolean = localAdmin
+    suspend fun isLocalAccountOwner(): Boolean = localOwner
+    override suspend fun localDeviceSigningKey(): SigningPrivateKey = error("not used")
+
+    override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = error("not used")
+    override suspend fun localAccountSigningKey(): SigningPrivateKey = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = localDeviceId
     override suspend fun getLocalAccountId(): AccountId = localAccountId
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
+    override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity = error("not used")
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
-    override suspend fun getAllPeers(): List<PeerId> = error("not used")
+    suspend fun getAllPeers(): List<PeerId> = error("not used")
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         accountByDevice[deviceId]
-    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
-    override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?) = error("not used")
-    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used")
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
+    override suspend fun resolvePeerPreKeyBundle(deviceId: PeerId, signedPreKeyId: SignedPreKeyId?): PeerPreKeyBundle =
+        error("not used")
+
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used")
+    override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey = error("not used")
+
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
 internal class FakeSignatureProvider : SignatureProvider {

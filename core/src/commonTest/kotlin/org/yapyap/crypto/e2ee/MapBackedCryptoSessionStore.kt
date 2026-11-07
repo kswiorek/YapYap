@@ -3,12 +3,12 @@ package org.yapyap.crypto.e2ee
 import org.yapyap.crypto.e2ee.session.CryptoSessionRecord
 import org.yapyap.crypto.e2ee.session.SessionRole
 import org.yapyap.crypto.e2ee.session.SessionStatus
-import org.yapyap.persistence.crypto.CryptoSessionCanonicalInvariant
-import org.yapyap.persistence.crypto.CryptoSessionStore
+import org.yapyap.crypto.store.CryptoSessionCanonicalInvariant
+import org.yapyap.crypto.store.CryptoSessionStore
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 
-/** In-memory [org.yapyap.persistence.crypto.CryptoSessionStore] for unit tests. */
+/** In-memory [org.yapyap.crypto.store.CryptoSessionStore] for unit tests. */
 internal class MapBackedCryptoSessionStore : CryptoSessionStore {
     private val records = mutableMapOf<SessionKey, CryptoSessionRecord>()
 

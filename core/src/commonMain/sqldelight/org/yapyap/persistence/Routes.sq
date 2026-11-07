@@ -1,0 +1,42 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.PeerId;
+
+-- Router-owned: how devices can be reached, as the router learned it. The router is the only
+-- writer. A row exists once the router has observed something about the device; absent
+-- columns mean "nothing observed" (an absent endpoint falls back to the declared one in devices).
+CREATE TABLE device_routes (
+    device_id TEXT AS PeerId NOT NULL PRIMARY KEY,
+    onion_address TEXT,
+    onion_port INTEGER,
+    reliability_score REAL,
+    last_seen_timestamp INTEGER AS Instant
+);
+
+ensureRoute:
+INSERT OR IGNORE INTO device_routes (device_id) VALUES (?);
+
+updateTorEndpoint:
+UPDATE device_routes
+SET onion_address = :onionAddress, onion_port = :onionPort
+WHERE device_id = :deviceId;
+
+updateLastSeen:
+UPDATE device_routes
+SET last_seen_timestamp = :at
+WHERE device_id = :deviceId;
+
+updateReliability:
+UPDATE device_routes
+SET
+    reliability_score = :score,
+    last_seen_timestamp = CASE WHEN :seenAt IS NULL THEN last_seen_timestamp ELSE :seenAt END
+WHERE device_id = :deviceId;
+
+selectRoute:
+SELECT *
+FROM device_routes
+WHERE device_id = ?;
+
+selectAllRoutes:
+SELECT *
+FROM device_routes;

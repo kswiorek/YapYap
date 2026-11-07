@@ -1,5 +1,15 @@
 package org.yapyap.routing.router
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.routing.store.*
+
+import org.yapyap.routing.directory.DeviceRouteStore
+
+import org.yapyap.routing.directory.DeviceDirectory
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,16 +21,14 @@ import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.*
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
-import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.persistence.key.BootstrapKeySource
+import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.persistence.key.InMemoryOpkRepository
-import org.yapyap.persistence.packet.*
-import org.yapyap.persistence.sync.SyncAttemptRow
-import org.yapyap.persistence.sync.SyncAttemptStore
+import org.yapyap.routing.store.SyncAttempt
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -238,9 +246,9 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
 
     override suspend fun earliestDueAt(): Instant? = mutex.withLock { rows.values.minOfOrNull { it.nextAttemptAt } }
 
-    override suspend fun findDue(now: Instant, limit: Int): List<SyncAttemptRow> = mutex.withLock {
+    override suspend fun findDue(now: Instant, limit: Int): List<SyncAttempt> = mutex.withLock {
         rows.filterValues { it.nextAttemptAt <= now }.entries.take(limit)
-            .map { (id, row) -> SyncAttemptRow(id, row.attempts, row.declined.toSet()) }
+            .map { (id, row) -> SyncAttempt(id, row.attempts, row.declined.toSet()) }
     }
 
     override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) = mutex.withLock {
@@ -339,24 +347,21 @@ internal class RecordingPacketDeduplicator(private val delegate: PacketDeduplica
 }
 
 internal class FakeIdentityResolverForRouter(
-    private val localDevice: DeviceIdentityRecord,
+    private val localDevice: DeviceIdentity,
     private val peersByAccount: Map<AccountId, List<PeerId>> = emptyMap(),
     private val torByPeer: MutableMap<PeerId, TorEndpoint> = mutableMapOf(),
     val torUpdates: MutableList<Pair<PeerId, TorEndpoint>> = mutableListOf(),
     val accountStatuses: MutableMap<AccountId, IdentityStatus> = mutableMapOf(),
     private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
     private val localAccount: AccountId = AccountId("local-account"),
-) : IdentityResolver {
+) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
 
-    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = localDevice
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = localDevice
 
-    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
+    override suspend fun getLocalAccountIdentity(): AccountIdentity =
         error("FakeIdentityResolverForRouter: account record not stubbed")
 
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus =
-        getDeviceStatusOrNull(deviceId) ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
-
-    override suspend fun getDeviceStatusOrNull(deviceId: PeerId): IdentityStatus? =
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? =
         deviceStatuses[deviceId] ?: if (isKnownDevice(deviceId)) IdentityStatus.ACTIVE else null
 
     private fun isKnownDevice(deviceId: PeerId): Boolean =
@@ -365,50 +370,60 @@ internal class FakeIdentityResolverForRouter(
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         accountStatuses[accountId]
 
-    override suspend fun isLocalAccountAdmin(): Boolean =
+    suspend fun isLocalAccountAdmin(): Boolean =
         error("FakeIdentityResolverForRouter: admin flag not stubbed")
 
-    override suspend fun isLocalAccountOwner(): Boolean =
+    suspend fun isLocalAccountOwner(): Boolean =
         error("FakeIdentityResolverForRouter: owner flag not stubbed")
 
-    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+    override suspend fun localDeviceSigningKey(): SigningPrivateKey =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
-    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+    override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey =
+        error("FakeIdentityResolverForRouter: private key not stubbed")
+
+    override suspend fun localAccountSigningKey(): SigningPrivateKey =
         error("FakeIdentityResolverForRouter: private key not stubbed")
 
     override suspend fun getLocalDeviceId(): PeerId = error("not used")
     override suspend fun getLocalAccountId(): AccountId = localAccount
 
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+    override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity =
         throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
-        torByPeer[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? =
+        torByPeer[deviceId]
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
-    override suspend fun getAllPeers(): List<PeerId> = peersByAccount.values.flatten().distinct()
+    suspend fun getAllPeers(): List<PeerId> = peersByAccount.values.flatten().distinct()
 
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         peersByAccount.entries.firstOrNull { deviceId in it.value }?.key
 
-    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torUpdates.add(deviceId to torEndpoint)
         torByPeer[deviceId] = torEndpoint
     }
 
-    override suspend fun resolvePeerX3dhRemoteKeys(
-        deviceId: PeerId,
-        signedPreKeyId: String?,
-    ): X3dhRemotePeerKeys = error("not used in test")
+    override suspend fun resolvePeerPreKeyBundle(deviceId: PeerId, signedPreKeyId: SignedPreKeyId?): PeerPreKeyBundle =
+        error("not used in test")
 
-    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord =
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey =
         error("FakeIdentityResolverForRouter: signed prekey not stubbed")
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord =
+    override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey =
         error("FakeIdentityResolverForRouter: signed prekey not stubbed")
+
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
 @OptIn(InternalCoroutinesApi::class)
@@ -575,93 +590,90 @@ internal class E2eeIdentityResolverForRouter(
     private val accountStatuses: Map<AccountId, IdentityStatus> = emptyMap(),
     private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
     private val localAccount: AccountId = AccountId("local-account"),
-) : IdentityResolver {
+) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
 
-    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = local.device
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = local.device
 
-    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord =
+    override suspend fun getLocalAccountIdentity(): AccountIdentity =
         error("E2eeIdentityResolverForRouter: account record not stubbed")
 
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus =
-        getDeviceStatusOrNull(deviceId) ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
-
-    override suspend fun getDeviceStatusOrNull(deviceId: PeerId): IdentityStatus? =
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? =
         deviceStatuses[deviceId]
             ?: if (deviceId == local.device.deviceId || deviceId in peers) IdentityStatus.ACTIVE else null
 
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? =
         accountStatuses[accountId]
 
-    override suspend fun isLocalAccountAdmin(): Boolean =
+    suspend fun isLocalAccountAdmin(): Boolean =
         error("E2eeIdentityResolverForRouter: admin flag not stubbed")
 
-    override suspend fun isLocalAccountOwner(): Boolean =
+    suspend fun isLocalAccountOwner(): Boolean =
         error("E2eeIdentityResolverForRouter: owner flag not stubbed")
 
-    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray =
-        when (purpose) {
-            IdentityKeyPurpose.SIGNING -> local.signingPrivateKey
-            IdentityKeyPurpose.ENCRYPTION -> local.encryptionPrivateKey
-            else -> error("unexpected purpose $purpose")
-        }
+    override suspend fun localDeviceSigningKey(): SigningPrivateKey = local.signingPrivateKey
 
-    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray =
+    override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = local.encryptionPrivateKey
+
+    override suspend fun localAccountSigningKey(): SigningPrivateKey =
         error("E2eeIdentityResolverForRouter: account private key not stubbed")
 
     override suspend fun getLocalDeviceId(): PeerId = local.device.deviceId
     override suspend fun getLocalAccountId(): AccountId = localAccount
 
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+    override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity =
         peers[deviceId]?.device ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint =
-        torByPeer[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? =
+        torByPeer[deviceId]
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> =
         peersByAccount[accountId].orEmpty()
 
-    override suspend fun getAllPeers(): List<PeerId> = peers.keys.toList()
+    suspend fun getAllPeers(): List<PeerId> = peers.keys.toList()
 
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? =
         peersByAccount.entries.firstOrNull { deviceId in it.value }?.key
 
-    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) {
         torUpdates.add(deviceId to torEndpoint)
         torByPeer[deviceId] = torEndpoint
     }
 
-    override suspend fun resolvePeerX3dhRemoteKeys(
+    override suspend fun resolvePeerPreKeyBundle(
         deviceId: PeerId,
-        signedPreKeyId: String?,
-    ): X3dhRemotePeerKeys {
-        val device = resolvePeerIdentityRecord(deviceId)
+        signedPreKeyId: SignedPreKeyId?,
+    ): PeerPreKeyBundle {
+        val device = resolvePeerIdentity(deviceId)
         val signedPreKey = when {
             signedPreKeyId != null -> {
-                device.signedPreKey?.takeIf { it.keyId == signedPreKeyId }
+                device.signedPreKey?.takeIf { it.id == signedPreKeyId }
                     ?: error("Signed prekey not found: $signedPreKeyId")
             }
 
             else -> device.signedPreKey
                 ?: error("Missing signed prekey on roster for deviceId=$deviceId")
         }
-        require(crypto.verifyDetached(device.signing.publicKey, signedPreKey.publicKey, signedPreKey.signature)) {
+        require(crypto.verifyDetached(device.signingKey, signedPreKey.publicKey.bytes, signedPreKey.signature)) {
             "failed to verify signed prekey signature"
         }
-        return X3dhRemotePeerKeys(
-            identityEncryptionPublicKey = device.encryption.publicKey,
-            signedPreKeyPublicKey = signedPreKey.publicKey,
-            signedPreKeyId = signedPreKey.keyId,
-        )
+        return PeerPreKeyBundle(identityKey = device.encryptionKey, signedPreKey = signedPreKey)
     }
 
-    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = local.signedPreKey
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = local.signedPreKey
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord {
-        require(signedPreKeyId == local.signedPreKey.keyId) {
-            "Signed prekey not found: $signedPreKeyId"
-        }
+    override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey {
+        require(id == local.signedPreKey.id) { "Signed prekey not found: $id" }
         return local.signedPreKey
     }
+
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
 internal data class E2eeRouterTestStack(
@@ -690,7 +702,9 @@ internal fun buildE2eeRouterStack(
         crypto = crypto,
         x3dh = X3dhHandshake(crypto),
         sessionStore = MapBackedCryptoSessionStore(),
-        identityResolver = identity,
+        localIdentity = identity,
+        localKeys = identity,
+        peerKeys = identity,
         opkRepository = InMemoryOpkRepository(crypto),
         clock = clock,
         cryptoLimits = MutableStateFlow(testCryptoLimits()),
@@ -698,7 +712,7 @@ internal fun buildE2eeRouterStack(
             CryptoSessionConfig()
         )
     )
-    val signatureProvider = DefaultSignatureProvider(identity, crypto)
+    val signatureProvider = DefaultSignatureProvider(identity, identity, crypto)
     val protection = DefaultEnvelopeProtectionService(
         webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider, crypto),
         fileProtection = PassthroughFileProtection(),
@@ -730,7 +744,9 @@ internal fun e2eeRouterUnderTest(
     DefaultRouter(
         torTransport = tor,
         webRtcTransport = webRtc,
-        identityResolver = stack.identity,
+        localIdentity = stack.identity,
+        devices = stack.identity,
+        routes = stack.identity,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
         envelopeProtectionService = stack.protection,
@@ -756,7 +772,9 @@ internal fun outboxProcessorUnderTest(
 ): OutboxProcessor {
     val ctx =
         RoutingContext(
-            identityResolver = identity,
+            localIdentity = identity,
+            devices = identity,
+            routes = identity,
             packetDeduplicator = InMemoryPacketDeduplicator(),
             envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
             torTransport = tor,
@@ -791,7 +809,9 @@ internal fun defaultRouterUnderTest(
     DefaultRouter(
         torTransport = tor,
         webRtcTransport = webRtc,
-        identityResolver = identity,
+        localIdentity = identity,
+        devices = identity,
+        routes = identity,
         packetDeduplicator = dedup,
         packetOutbox = outbox,
         envelopeProtectionService = envelopeProtectionService,

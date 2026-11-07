@@ -2,10 +2,10 @@ package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.persistence.db.*
-import org.yapyap.persistence.key.DefaultIdentityKeyRepository
-import org.yapyap.persistence.messaging.DefaultMessageRepository
-import org.yapyap.persistence.messaging.DefaultRoomRepository
-import org.yapyap.persistence.messaging.RoomMemberRecord
+import org.yapyap.orchestrator.identity.DefaultIdentityStore
+import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
+import org.yapyap.orchestrator.store.RoomMember
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.epochSeconds
@@ -148,7 +148,7 @@ class RoomFoldQueriesJvmTest {
         val room = RoomId(Uuid.random())
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "members")
         val gone = AccountId("gone-account")
-        DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
+        DefaultIdentityStore(db, DeviceType.DESKTOP).upsertChainAccount(
             gone, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "gone",
         )
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER)
@@ -194,7 +194,7 @@ class RoomFoldQueriesJvmTest {
         val room = RoomId(Uuid.random())
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "active-only")
         val removed = AccountId("removed-account")
-        DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
+        DefaultIdentityStore(db, DeviceType.DESKTOP).upsertChainAccount(
             removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
         )
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
@@ -213,7 +213,7 @@ class RoomFoldQueriesJvmTest {
         val room = RoomId(Uuid.random())
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "statuses")
         val removed = AccountId("removed-account")
-        DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
+        DefaultIdentityStore(db, DeviceType.DESKTOP).upsertChainAccount(
             removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
         )
         rooms.upsertMember(room, FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
@@ -223,11 +223,11 @@ class RoomFoldQueriesJvmTest {
         // member list and removal banner (docs/room events.md §3) — including REMOVED rows.
         val rows = rooms.memberStatusesOfRoom(room).associateBy { it.accountId }
         assertEquals(
-            RoomMemberRecord(FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE),
+            RoomMember(FixtureAccountId, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE),
             rows[FixtureAccountId],
         )
         assertEquals(
-            RoomMemberRecord(removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED),
+            RoomMember(removed, RoomMemberRole.ADMIN, RoomMemberStatus.REMOVED),
             rows[removed],
         )
     }

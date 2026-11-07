@@ -1,8 +1,8 @@
 package org.yapyap.crypto.signature
 
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.PeerKeys
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -11,14 +11,13 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 
 internal class DefaultSignatureProvider(
-    private val identityResolver: IdentityResolver,
+    private val localKeys: LocalKeys,
+    private val peerKeys: PeerKeys,
     private val cryptoProvider: CryptoProvider,
 ) : SignatureProvider {
 
     override suspend fun sign(message: ByteArray): ByteArray {
-        val privateKey = identityResolver.getLocalDevicePrivateKey(
-            purpose = IdentityKeyPurpose.SIGNING,
-        )
+        val privateKey = localKeys.localDeviceSigningKey()
         AppLog.debug(
             component = LogComponent.CRYPTO,
             event = LogEvent.SIGNATURE_SIGNED,
@@ -29,7 +28,7 @@ internal class DefaultSignatureProvider(
     }
 
     override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean {
-        val publicKey = identityResolver.resolvePeerIdentityRecord(deviceId).signing.publicKey
+        val publicKey = peerKeys.resolvePeerIdentity(deviceId).signingKey
 
         val verified = cryptoProvider.verifyDetached(publicKey, message, signature)
         if (!verified) {
@@ -71,7 +70,7 @@ internal class DefaultSignatureProvider(
         // caught up yet — defer rather than reject (the message may verify once the AddDevice
         // event is known).
         val deviceRecord = try {
-            identityResolver.resolvePeerIdentityRecord(authorDeviceId)
+            peerKeys.resolvePeerIdentity(authorDeviceId)
         } catch (_: CryptoException) {
             AppLog.debug(
                 component = LogComponent.CRYPTO,
@@ -84,7 +83,7 @@ internal class DefaultSignatureProvider(
 
         // The device must belong to the claimed account.
         val accountForDevice =
-            identityResolver.getAccountIdForDevice(authorDeviceId) ?: return AuthorshipOutcome.UNKNOWN_AUTHOR
+            peerKeys.getAccountIdForDevice(authorDeviceId) ?: return AuthorshipOutcome.UNKNOWN_AUTHOR
         if (accountForDevice != accountId) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,
@@ -100,7 +99,7 @@ internal class DefaultSignatureProvider(
         }
 
         // Cryptographic check against the known signing key.
-        val verified = cryptoProvider.verifyDetached(deviceRecord.signing.publicKey, signedBytes, signature)
+        val verified = cryptoProvider.verifyDetached(deviceRecord.signingKey, signedBytes, signature)
         if (!verified) {
             AppLog.warn(
                 component = LogComponent.CRYPTO,

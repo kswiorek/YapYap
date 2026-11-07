@@ -1,5 +1,9 @@
 package org.yapyap.orchestrator.runtime.admin
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -8,17 +12,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
@@ -39,8 +41,8 @@ private class RecordingProjector : GlobalEventProjector {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
     override suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -68,6 +70,8 @@ private class RecordingProjector : GlobalEventProjector {
         if (frontierUnavailable) throw DagException.FrontierUnavailable(RoomId.GLOBAL)
         removedDevices += targetDeviceId
     }
+
+    override suspend fun seedProvisionalMember(accountId: AccountId) = Unit
 
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = emptyList()
 }
@@ -99,7 +103,7 @@ class DefaultAdminServiceTest {
             ),
             localAdmin = localAdmin,
         )
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val onboardingState = MutableStateFlow(OnboardingState.IDLE)
         val service = DefaultAdminService(projector, resolver, repo, onboardingState)
 
@@ -154,16 +158,16 @@ class DefaultAdminServiceTest {
             repo.insertLocalAccount(accountRecord(localAccount), role = AccountRole.ADMIN, provisional = false)
         }
 
-        private fun accountRecord(account: AccountId) = AccountIdentityRecord(
+        private fun accountRecord(account: AccountId) = AccountIdentity(
             accountId = account,
             displayName = account.id,
-            key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
         )
 
-        private fun dummyDevice(id: PeerId) = DeviceIdentityRecord(
+        private fun dummyDevice(id: PeerId) = DeviceIdentity(
             deviceId = id,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
     }
 

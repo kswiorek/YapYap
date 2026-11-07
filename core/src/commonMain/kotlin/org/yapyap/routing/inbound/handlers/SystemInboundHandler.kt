@@ -177,7 +177,7 @@ internal class SystemInboundHandler(
                         "intervalMillis" to payload.intervalMillis,
                     ),
                 )
-                val accountId = ctx.identityResolver.getAccountIdForDevice(systemEnvelope.source)
+                val accountId = ctx.devices.getAccountIdForDevice(systemEnvelope.source)
                 if (accountId != null) {
                     typingIndicatorFlow.emit(
                         TypingIndicatorEvent(

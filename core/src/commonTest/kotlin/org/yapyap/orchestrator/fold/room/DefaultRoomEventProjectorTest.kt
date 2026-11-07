@@ -1,21 +1,23 @@
 package org.yapyap.orchestrator.fold.room
 
+import org.yapyap.persistence.key.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
-import org.yapyap.persistence.messaging.RoomMemberRecord
-import org.yapyap.persistence.messaging.RoomRecord
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
+import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.orchestrator.store.Room
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
@@ -67,13 +69,13 @@ private class RecordingRoomRepository : RoomRepository {
         members.filter { (key, cell) -> key.first == roomId && cell.status == RoomMemberStatus.ACTIVE }
             .map { it.key.second }
 
-    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMemberRecord> =
+    override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMember> =
         members.filter { (key, _) -> key.first == roomId }
-            .map { (key, cell) -> RoomMemberRecord(key.second, cell.role, cell.status, cell.removalNodeId) }
+            .map { (key, cell) -> RoomMember(key.second, cell.role, cell.status, cell.removalNodeId) }
 
-    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMemberRecord? =
+    override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMember? =
         members[roomId to accountId]
-            ?.let { RoomMemberRecord(accountId, it.role, it.status, it.removalNodeId) }
+            ?.let { RoomMember(accountId, it.role, it.status, it.removalNodeId) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = error("not used")
 
@@ -100,8 +102,8 @@ private class RecordingRoomRepository : RoomRepository {
     override suspend fun allChatRoomIds(): List<RoomId> =
         rooms.keys.filter { it != RoomId.GLOBAL }
 
-    override suspend fun roomOf(roomId: RoomId): RoomRecord? =
-        rooms[roomId]?.let { RoomRecord(roomId, it.spaceId, it.type, it.name) }
+    override suspend fun roomOf(roomId: RoomId): Room? =
+        rooms[roomId]?.let { Room(roomId, it.spaceId, it.type, it.name) }
 
     override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) {
         val cell = rooms.getOrPut(roomId) { RoomCell(name, type, null) }
@@ -143,8 +145,8 @@ private class FakeGlobalEventProjector : GlobalEventProjector {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
     override suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -159,6 +161,7 @@ private class FakeGlobalEventProjector : GlobalEventProjector {
         error("not used")
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = error("not used")
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = error("not used")
+    override suspend fun seedProvisionalMember(accountId: AccountId) = Unit
 }
 
 private class FakeRouter : Router {
@@ -184,6 +187,10 @@ private class FakeRouter : Router {
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
+    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
+        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+
+    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
@@ -209,7 +216,7 @@ private class FakeRouter : Router {
 private class Harness {
     val messageRepo = FakeMessageRepository()
     val roomRepo = RecordingRoomRepository()
-    val identityRepo = InMemoryIdentityKeyRepository()
+    val identityRepo = InMemoryIdentityStore()
     val pipeline = FakeInboundMessagePipeline()
     val dagEngine = FakeDagEngine()
     val globalProjector = FakeGlobalEventProjector()
@@ -221,7 +228,7 @@ private class Harness {
         globalEventProjector = globalProjector,
         messageRepository = messageRepo,
         roomRepository = roomRepo,
-        identityKeyRepository = identityRepo,
+        identityReader = identityRepo,
         router = router,
     )
     private var tick = 1000L

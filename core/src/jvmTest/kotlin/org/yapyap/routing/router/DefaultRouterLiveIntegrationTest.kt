@@ -1,5 +1,7 @@
 package org.yapyap.routing.router
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -7,9 +9,7 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentityRecord
-import org.yapyap.crypto.identity.IdentityKeyPurpose
-import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
@@ -52,11 +52,11 @@ class DefaultRouterLiveIntegrationTest {
     private val bobPeer =
         PeerId("routerbobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
-    private fun localDevice(peer: PeerId): DeviceIdentityRecord =
-        DeviceIdentityRecord(
+    private fun localDevice(peer: PeerId): DeviceIdentity =
+        DeviceIdentity(
             deviceId = peer,
-            signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(1)),
-            encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, byteArrayOf(2)),
+            signingKey = SigningPublicKey(byteArrayOf(1)),
+            encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
         )
 
     private fun sampleText(): MessagePayload.Text =
@@ -121,7 +121,9 @@ class DefaultRouterLiveIntegrationTest {
             DefaultRouter(
                 torTransport = aliceTorTransport,
                 webRtcTransport = aliceWebRtc,
-                identityResolver = aliceIdentity,
+                localIdentity = aliceIdentity,
+                devices = aliceIdentity,
+                routes = aliceIdentity,
                 packetDeduplicator = InMemoryPacketDeduplicator(),
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
@@ -137,7 +139,9 @@ class DefaultRouterLiveIntegrationTest {
             DefaultRouter(
                 torTransport = bobTorTransport,
                 webRtcTransport = bobWebRtc,
-                identityResolver = bobIdentity,
+                localIdentity = bobIdentity,
+                devices = bobIdentity,
+                routes = bobIdentity,
                 packetDeduplicator = InMemoryPacketDeduplicator(),
                 packetOutbox = TrackingPacketOutbox(),
                 envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
@@ -162,8 +166,8 @@ class DefaultRouterLiveIntegrationTest {
                 bobRouter.localPublishState.first { it == TorPublishState.PUBLISHED }
             }
 
-            aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)
-            bobTorMap[alicePeer] = aliceIdentity.resolveTorEndpointForDevice(alicePeer)
+            aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)!!
+            bobTorMap[alicePeer] = aliceIdentity.resolveTorEndpointForDevice(alicePeer)!!
 
             val outbound = sampleText()
 

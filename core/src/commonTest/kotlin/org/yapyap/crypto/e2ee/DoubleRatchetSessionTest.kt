@@ -2,6 +2,7 @@ package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.session.*
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import kotlin.test.*
 
@@ -327,31 +328,18 @@ class DoubleRatchetSessionTest {
     }
 
     private suspend fun testBootstraps(): Triple<RatchetBootstrap, RatchetBootstrap, ByteArray> {
-        val aliceIk = crypto.generateEncryptionKeyPair()
-        val bobIk = crypto.generateEncryptionKeyPair()
-        val bobSpk = crypto.generateEncryptionKeyPair()
+        val alice = buildTestPeerIdentity(crypto, "alice")
+        val bob = buildTestPeerIdentity(crypto, "test")
         val ekA = crypto.generateEncryptionKeyPair()
         val initiator = x3dh.initiatorCompute3Dh(
-            local = X3dhLocalInitiatorKeys(
-                identityEncryptionPrivateKey = aliceIk.privateKey,
-                identityEncryptionPublicKey = aliceIk.publicKey,
-            ),
-            remote = X3dhRemotePeerKeys(
-                identityEncryptionPublicKey = bobIk.publicKey,
-                signedPreKeyPublicKey = bobSpk.publicKey,
-                signedPreKeyId = "spk-test",
-            ),
+            localIdentityKey = alice.encryptionPrivateKey,
+            remote = PeerPreKeyBundle(identityKey = bob.device.encryptionKey, signedPreKey = bob.signedPreKey.preKey),
             ephemeral = ekA,
         )
         val responder = x3dh.responderCompute3Dh(
-            local = X3dhLocalResponderKeys(
-                identityEncryptionPrivateKey = bobIk.privateKey,
-                identityEncryptionPublicKey = bobIk.publicKey,
-                signedPreKeyPrivateKey = bobSpk.privateKey,
-                signedPreKeyPublicKey = bobSpk.publicKey,
-                signedPreKeyId = "spk-test",
-            ),
-            remoteIdentityEncryptionPublicKey = aliceIk.publicKey,
+            localIdentityKey = bob.encryptionPrivateKey,
+            localSignedPreKey = bob.signedPreKey,
+            remoteIdentityKey = alice.device.encryptionKey,
             wire = initiator.wire,
         )
         return Triple(initiator.ratchetBootstrap, responder.ratchetBootstrap, initiator.wire.ephemeralPublicKey)

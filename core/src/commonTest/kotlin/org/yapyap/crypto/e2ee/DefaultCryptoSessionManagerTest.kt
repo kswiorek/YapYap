@@ -1,11 +1,15 @@
 package org.yapyap.crypto.e2ee
 
+import org.yapyap.persistence.key.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.maintenance.maintainPeerSessions
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
 import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.crypto.e2ee.session.*
+import org.yapyap.crypto.identity.PeerPreKeyBundle
+import org.yapyap.crypto.keys.OneTimePreKeyId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.key.FailingAllocateOpkRepository
@@ -104,14 +108,13 @@ class SessionWireTypesTest {
     }
 
     private suspend fun sampleRatchetCiphertext(): RatchetCiphertext {
-        val aliceIk = crypto.generateEncryptionKeyPair()
-        val bobIk = crypto.generateEncryptionKeyPair()
-        val bobSpk = crypto.generateEncryptionKeyPair()
+        val alicePeer = buildTestPeerIdentity(crypto, "alice")
+        val bobPeer = buildTestPeerIdentity(crypto, "test")
         val ekA = crypto.generateEncryptionKeyPair()
         val x3dh = X3dhHandshake(crypto)
         val initiator = x3dh.initiatorCompute3Dh(
-            local = X3dhLocalInitiatorKeys(aliceIk.privateKey, aliceIk.publicKey),
-            remote = X3dhRemotePeerKeys(bobIk.publicKey, bobSpk.publicKey, "spk-test"),
+            localIdentityKey = alicePeer.encryptionPrivateKey,
+            remote = PeerPreKeyBundle(bobPeer.device.encryptionKey, bobPeer.signedPreKey.preKey),
             ephemeral = ekA,
         )
         val alice = DoubleRatchetSession.createInitiator(crypto, initiator.ratchetBootstrap)
@@ -446,7 +449,7 @@ class DefaultCryptoSessionManagerTest {
             bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
 
         assertEquals(firstOfferedOpkId, secondOfferedOpkId)
-        assertEquals(OpkStatus.OFFERED, bobOpkStore.status(firstOfferedOpkId))
+        assertEquals(OpkStatus.OFFERED, bobOpkStore.status(OneTimePreKeyId(firstOfferedOpkId)))
     }
 
     @Test
@@ -1342,7 +1345,7 @@ class DefaultCryptoSessionManagerTest {
         bob.encryptMessage(alicePeer.device.deviceId, byteArrayOf(2))
 
         val opkId = bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId!!
-        assertEquals(OpkStatus.OFFERED, bobOpkStore.status(opkId))
+        assertEquals(OpkStatus.OFFERED, bobOpkStore.status(OneTimePreKeyId(opkId)))
         testTime.advanceBy(61L.seconds)
         cryptoHousekeepingFor(
             sessionStore = bobStore,
@@ -1351,7 +1354,7 @@ class DefaultCryptoSessionManagerTest {
             clock = testTime,
         ).run()
 
-        assertEquals(null, bobOpkStore.status(opkId))
+        assertEquals(null, bobOpkStore.status(OneTimePreKeyId(opkId)))
         assertEquals(
             null,
             bobStore.loadActiveCanonical(alicePeer.device.deviceId, sessionEpoch = 1)!!.meta.offeredOpkId,

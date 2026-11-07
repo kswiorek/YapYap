@@ -1,6 +1,6 @@
 package org.yapyap.orchestrator.fold.graph
 
-import org.yapyap.persistence.messaging.MessageRow
+import org.yapyap.orchestrator.store.StoredMessage
 import kotlin.uuid.Uuid
 
 /**
@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
  */
 
 /** Stored-graph child adjacency, for the topo sort and genesis descent. */
-internal fun childAdjacency(byId: Map<Uuid, MessageRow>): Map<Uuid, List<Uuid>> {
+internal fun childAdjacency(byId: Map<Uuid, StoredMessage>): Map<Uuid, List<Uuid>> {
     val children = HashMap<Uuid, MutableList<Uuid>>()
     for ((id, row) in byId) {
         for (parent in row.payload.prevIds) {
@@ -30,7 +30,7 @@ internal fun childAdjacency(byId: Map<Uuid, MessageRow>): Map<Uuid, List<Uuid>> 
  * Canonical order: topological over stored `prevIds` (`createdAt, messageId`
  * tiebreak). Unorderable cycles replay last, deterministically.
  */
-internal fun canonicalOrder(byId: Map<Uuid, MessageRow>, children: Map<Uuid, List<Uuid>>): List<Uuid> {
+internal fun canonicalOrder(byId: Map<Uuid, StoredMessage>, children: Map<Uuid, List<Uuid>>): List<Uuid> {
     val orderOf = Comparator<Uuid> { a, b ->
         val ra = byId.getValue(a).payload
         val rb = byId.getValue(b).payload
@@ -66,7 +66,7 @@ internal fun canonicalOrder(byId: Map<Uuid, MessageRow>, children: Map<Uuid, Lis
 }
 
 /** Memoized transitive `prevIds` closures (the seals' vouching sets). */
-internal fun ancestorClosures(byId: Map<Uuid, MessageRow>): Map<Uuid, Set<Uuid>> {
+internal fun ancestorClosures(byId: Map<Uuid, StoredMessage>): Map<Uuid, Set<Uuid>> {
     val memo = HashMap<Uuid, Set<Uuid>>()
     fun ancestorsOf(node: Uuid): Set<Uuid> = memo.getOrPut(node) {
         val seen = HashSet<Uuid>()

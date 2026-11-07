@@ -448,7 +448,7 @@ org.yapyap.orchestrator.rbac (or globalevents)
 RbacProjector(
     pipeline: InboundMessagePipeline,       // collect ingestResults for triggers
     messageRepository: MessageRepository,   // fold source (global room)
-    identityKeyRepository: IdentityKeyRepository,  // commit target (sole writer of identity/RBAC columns)
+    identityWriter: IdentityWriter,  // commit target (sole writer of identity/RBAC columns)
     cryptoProvider,                         // primitive only — fold verifies signatures against
                                             // shadow-state keys; NOT SignatureProvider (live-table backed)
 )

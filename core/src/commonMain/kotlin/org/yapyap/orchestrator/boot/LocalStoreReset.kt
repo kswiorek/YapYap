@@ -6,13 +6,13 @@ import kotlinx.io.files.SystemFileSystem
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.key.KeyReference
-import org.yapyap.persistence.key.KeyStore
+import org.yapyap.crypto.keys.KeySlot
+import org.yapyap.crypto.store.KeyStore
 
 /**
- * Terminal offline wipe: enumerates dynamic key refs (`spk-*`/`opk-*` IDs from
+ * Terminal offline wipe: enumerates prekey key slots (`spk-*`/`opk-*` IDs from
  * the DB, which the OS keyring cannot list), closes the DB, clears the keyring
- * ([KeyStore.deleteAll] for well-known refs + each enumerated ref), then deletes
+ * ([KeyStore.deleteAll] for well-known slots + each enumerated slot), then deletes
  * everything under [dataDirectory] except the lock file (PoC: `vault.db*`, `tor/`,
  * `state.toml`, `userSettings.toml`, `logs/` — the user copies out anything worth
  * keeping beforehand). Next `start()` recreates the directories and reopens the
@@ -33,7 +33,7 @@ internal class LocalStoreReset(
     private val dataDirectory: Path,
     private val keyStore: KeyStore,
     private val closeDatabase: suspend () -> Unit = {},
-    private val collectKeyRefs: suspend () -> List<KeyReference> = { emptyList() },
+    private val collectKeySlots: suspend () -> List<KeySlot> = { emptyList() },
     /**
      * Top-level entries left in place. The data-directory lock file is held open by the
      * caller during the wipe, and Windows refuses to delete an open file; it holds only a PID.
@@ -42,11 +42,11 @@ internal class LocalStoreReset(
 ) {
     suspend fun wipe() {
         // DB must stay open for enumeration; tolerate corrupt/missing DB (fall back
-        // to well-known refs + file deletion, which still fully resets the node).
-        val dynamicRefs = runCatching { collectKeyRefs() }.getOrDefault(emptyList())
+        // to well-known slots + file deletion, which still fully resets the node).
+        val dynamicSlots = runCatching { collectKeySlots() }.getOrDefault(emptyList())
         runCatching { closeDatabase() }
-        for (ref in dynamicRefs) {
-            runCatching { keyStore.deleteKey(ref) }
+        for (slot in dynamicSlots) {
+            runCatching { keyStore.deleteKey(slot) }
         }
         runCatching { keyStore.deleteAll() }
         // Every entry gets its attempt even when one fails, and the failures are named.

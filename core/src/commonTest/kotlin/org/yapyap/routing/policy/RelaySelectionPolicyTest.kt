@@ -3,7 +3,7 @@ package org.yapyap.routing.policy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.router.*
@@ -153,12 +153,14 @@ class RelaySelectionPolicyTest {
 
     /** Minimal context: no dispatchers, outbox, or background jobs to leak across runTest cases. */
     private fun testRoutingContext(
-        localDevice: DeviceIdentityRecord,
+        localDevice: DeviceIdentity,
         peersByAccount: Map<AccountId, List<PeerId>>,
     ): RoutingContext {
         val clock = FakeClock(epochSeconds(1_000L))
         return RoutingContext(
-            identityResolver = FakeIdentityResolverForRouter(localDevice, peersByAccount),
+            localIdentity = FakeIdentityResolverForRouter(localDevice, peersByAccount),
+            devices = FakeIdentityResolverForRouter(localDevice, peersByAccount),
+            routes = FakeIdentityResolverForRouter(localDevice, peersByAccount),
             packetDeduplicator = InMemoryPacketDeduplicator(),
             envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
             torTransport = RecordingTorTransport(),

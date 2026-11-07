@@ -1,7 +1,7 @@
 package org.yapyap.sync
 
-import org.yapyap.persistence.availability.PeerAvailability
-import org.yapyap.persistence.availability.PeerAvailabilityStore
+import org.yapyap.routing.store.PeerAvailability
+import org.yapyap.routing.store.PeerAvailabilityStore
 import org.yapyap.protocol.PeerId
 import kotlin.time.Instant
 

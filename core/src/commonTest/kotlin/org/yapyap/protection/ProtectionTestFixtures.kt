@@ -1,14 +1,21 @@
 package org.yapyap.protection
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.routing.directory.DeviceRouteStore
+
+import org.yapyap.routing.directory.DeviceDirectory
+
+import org.yapyap.crypto.keys.*
+
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.e2ee.managerForPeer
-import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.crypto.primitives.EncryptionKeyPair
-import org.yapyap.crypto.primitives.SigningKeyPair
+import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.SigningKeyPair
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
@@ -136,20 +143,14 @@ internal suspend fun sampleSignedAndEncryptedProtectionPair(
         sessionStore = MapBackedCryptoSessionStore(),
         oneTimePreKeyStore = InMemoryOpkRepository(crypto),
     )
-    val senderSignatureProvider = DefaultSignatureProvider(
-        FakeIdentityResolverForProtection(
+    val senderSignatureProvider = FakeIdentityResolverForProtection(
             localSigningPrivateKey = senderPeer.signingPrivateKey,
             peerRecords = emptyMap(),
-        ),
-        crypto,
-    )
-    val receiverSignatureProvider = DefaultSignatureProvider(
-        FakeIdentityResolverForProtection(
+    ).let { DefaultSignatureProvider(it, it, crypto) }
+    val receiverSignatureProvider = FakeIdentityResolverForProtection(
             localSigningPrivateKey = receiverPeer.signingPrivateKey,
             peerRecords = mapOf(senderPeer.device.deviceId to senderPeer.device),
-        ),
-        crypto,
-    )
+    ).let { DefaultSignatureProvider(it, it, crypto) }
     return SignedAndEncryptedProtectionPair(
         sender = SignedAndEncryptedMessageProtection(senderSignatureProvider, senderSession, crypto),
         receiver = SignedAndEncryptedMessageProtection(receiverSignatureProvider, receiverSession, crypto),
@@ -162,18 +163,12 @@ internal suspend fun deviceRecordFor(
     crypto: DefaultCryptoProvider,
     signingKeys: SigningKeyPair,
     encryptionKeys: EncryptionKeyPair,
-): DeviceIdentityRecord {
+): DeviceIdentity {
     val peerId = crypto.peerIdFromPublicKey(signingKeys.publicKey)
-    return DeviceIdentityRecord(
+    return DeviceIdentity(
         deviceId = peerId,
-        signing = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.SIGNING,
-            publicKey = signingKeys.publicKey,
-        ),
-        encryption = IdentityPublicKeyRecord(
-            purpose = IdentityKeyPurpose.ENCRYPTION,
-            publicKey = encryptionKeys.publicKey,
-        ),
+        signingKey = signingKeys.publicKey,
+        encryptionKey = encryptionKeys.publicKey,
     )
 }
 
@@ -181,48 +176,54 @@ internal suspend fun deviceRecordFor(
  * Minimal fake: local signing private key and optional peer lookup for verification.
  */
 internal class FakeIdentityResolverForProtection(
-    private val localSigningPrivateKey: ByteArray,
-    private val peerRecords: Map<PeerId, DeviceIdentityRecord>,
-) : IdentityResolver {
+    private val localSigningPrivateKey: SigningPrivateKey,
+    private val peerRecords: Map<PeerId, DeviceIdentity>,
+) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
 
-    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = error("not used")
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = error("not used")
 
-    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = error("not used")
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+    override suspend fun getLocalAccountIdentity(): AccountIdentity = error("not used")
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used")
-    override suspend fun isLocalAccountAdmin(): Boolean = error("not used")
-    override suspend fun isLocalAccountOwner(): Boolean = error("not used")
+    suspend fun isLocalAccountAdmin(): Boolean = error("not used")
+    suspend fun isLocalAccountOwner(): Boolean = error("not used")
 
-    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray {
-        require(purpose == IdentityKeyPurpose.SIGNING) { "unexpected purpose $purpose" }
-        return localSigningPrivateKey
-    }
+    override suspend fun localDeviceSigningKey(): SigningPrivateKey = localSigningPrivateKey
 
-    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
+    override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = error("not used")
+
+    override suspend fun localAccountSigningKey(): SigningPrivateKey = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = error("not used")
     override suspend fun getLocalAccountId(): AccountId = error("not used in test")
 
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord =
+    override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity =
         peerRecords[deviceId] ?: throw CryptoException.MissingDeviceRecord(deviceId.id)
 
     override suspend fun resolveTorEndpointForDevice(deviceId: PeerId) = error("not used")
 
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId) = error("not used")
 
-    override suspend fun getAllPeers(): List<PeerId> = error("not used")
+    suspend fun getAllPeers(): List<PeerId> = error("not used")
 
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
 
-    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
 
-    override suspend fun resolvePeerX3dhRemoteKeys(
-        deviceId: PeerId,
-        signedPreKeyId: String?,
-    ): X3dhRemotePeerKeys = error("not used in test")
+    override suspend fun resolvePeerPreKeyBundle(deviceId: PeerId, signedPreKeyId: SignedPreKeyId?): PeerPreKeyBundle =
+        error("not used in test")
 
-    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord = error("not used")
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey = error("not used")
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord = error("not used")
+    override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey = error("not used")
+
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
 /**

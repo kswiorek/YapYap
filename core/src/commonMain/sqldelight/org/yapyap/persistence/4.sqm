@@ -1,0 +1,4 @@
+-- The GLOBAL control room moves from a boot-time seed into the schema (see Room.sq);
+-- existing stores already have it.
+INSERT OR IGNORE INTO rooms (room_id, space_id, type, name)
+VALUES ('00000000000000000000000000000000', NULL, 'GLOBAL_CONTROL', 'global');

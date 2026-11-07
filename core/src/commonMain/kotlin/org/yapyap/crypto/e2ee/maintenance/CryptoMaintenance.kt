@@ -3,8 +3,8 @@ package org.yapyap.crypto.e2ee.maintenance
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.crypto.e2ee.session.SessionStatus
-import org.yapyap.persistence.crypto.CryptoSessionStore
-import org.yapyap.persistence.key.OpkRepository
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.PeerId
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -22,7 +22,7 @@ internal class CryptoMaintenance(
             cutoff = now - sessionConfig.value.offeredOpkRetention,
         )
         if (prunedOpkIds.isNotEmpty()) {
-            sessionStore.clearOfferedOpkIds(prunedOpkIds, updatedAt = now)
+            sessionStore.clearOfferedOpkIds(prunedOpkIds.map { it.value }, updatedAt = now)
         }
         for (peerDeviceId in sessionStore.listPeerDeviceIds()) {
             maintainPeerSessions(

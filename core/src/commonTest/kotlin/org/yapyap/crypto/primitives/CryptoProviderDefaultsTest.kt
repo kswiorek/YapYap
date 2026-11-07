@@ -1,5 +1,7 @@
 package org.yapyap.crypto.primitives
 
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.test.Test
@@ -25,14 +27,14 @@ class CryptoProviderDefaultsTest {
     fun accountIdFromPublicKey_isHexOfSha256OfPublicKey() = runTest {
         val digest = ByteArray(32) { 9 }
         val crypto = sha256FixedStub(digest)
-        assertEquals(crypto.toHex(digest), crypto.accountIdFromPublicKey(byteArrayOf(1, 2, 3)).id)
+        assertEquals(crypto.toHex(digest), crypto.accountIdFromPublicKey(SigningPublicKey(byteArrayOf(1, 2, 3))).id)
     }
 
     @Test
     fun peerIdFromPublicKey_isHexOfSha256OfPublicKey() = runTest {
         val digest = ByteArray(32) { (it + 3).toByte() }
         val crypto = sha256FixedStub(digest)
-        assertEquals(crypto.toHex(digest), crypto.peerIdFromPublicKey(byteArrayOf(7)).id)
+        assertEquals(crypto.toHex(digest), crypto.peerIdFromPublicKey(SigningPublicKey(byteArrayOf(7))).id)
     }
 
     @Test
@@ -41,8 +43,8 @@ class CryptoProviderDefaultsTest {
         val crypto = sha256FixedStub(digest)
         val key = byteArrayOf(11)
         assertEquals(
-            crypto.accountIdFromPublicKey(key).id,
-            crypto.peerIdFromPublicKey(key).id,
+            crypto.accountIdFromPublicKey(SigningPublicKey(key)).id,
+            crypto.peerIdFromPublicKey(SigningPublicKey(key)).id,
         )
     }
 
@@ -61,11 +63,11 @@ class CryptoProviderDefaultsTest {
         override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair =
             error("not stubbed: generateEncryptionKeyPair")
 
-        override suspend fun signDetached(privateSigningKey: ByteArray, message: ByteArray): ByteArray =
+        override suspend fun signDetached(privateKey: SigningPrivateKey, message: ByteArray): ByteArray =
             error("not stubbed: signDetached")
 
         override suspend fun verifyDetached(
-            publicSigningKey: ByteArray,
+            publicKey: SigningPublicKey,
             message: ByteArray,
             signature: ByteArray
         ): Boolean =
@@ -86,11 +88,11 @@ class CryptoProviderDefaultsTest {
         override suspend fun decryptAead(key: ByteArray, ciphertext: ByteArray, associatedData: ByteArray?): ByteArray =
             error("not stubbed: decryptAead")
 
-        override suspend fun privateSigningKeyToPublicKey(privateKey: ByteArray): ByteArray {
+        override suspend fun privateSigningKeyToPublicKey(privateKey: SigningPrivateKey): SigningPublicKey {
             error("not stubbed: privateSigningKeyToPublicKey")
         }
 
-        override suspend fun privateEncryptionKeyToPublicKey(privateKey: ByteArray): ByteArray {
+        override suspend fun privateEncryptionKeyToPublicKey(privateKey: EncryptionPrivateKey): EncryptionPublicKey {
             error("not stubbed: privateEncryptionKeyToPublicKey")
         }
     }

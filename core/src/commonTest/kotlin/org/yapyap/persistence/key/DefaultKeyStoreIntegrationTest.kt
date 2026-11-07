@@ -1,7 +1,12 @@
 package org.yapyap.persistence.key
 
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import kotlin.random.Random
 import kotlin.test.Test
@@ -14,11 +19,7 @@ class DefaultKeyStoreIntegrationTest {
     @Test
     fun putKey_then_getKey_roundTrip() = runTest {
         val store = defaultStore(serviceName = "yapyap.test.pk")
-        val ref = KeyReference(
-            keyId = "device-local-signing",
-            purpose = IdentityKeyPurpose.SIGNING,
-            type = KeyType.PRIVATE,
-        )
+        val ref = KeySlot.SignedPreKeyPrivate(SignedPreKeyId("device-local-signing"))
         val material = byteArrayOf(0x01, 0x02, 0x03, 0x04)
 
         store.putKey(ref, material)
@@ -29,11 +30,7 @@ class DefaultKeyStoreIntegrationTest {
     @Test
     fun getKey_returnsNullWhenEntryMissing() = runTest {
         val store = defaultStore(serviceName = "yapyap.test.pk.miss")
-        val ref = KeyReference(
-            keyId = "missing",
-            purpose = IdentityKeyPurpose.SIGNING,
-            type = KeyType.PRIVATE,
-        )
+        val ref = KeySlot.SignedPreKeyPrivate(SignedPreKeyId("missing"))
 
         assertNull(store.getKey(ref))
     }
@@ -42,12 +39,8 @@ class DefaultKeyStoreIntegrationTest {
     fun deleteKey_removesEntry_andIsIdempotentWhenMissing() = runTest {
         val backing = mutableMapOf<Pair<String, String>, String>()
         val store = defaultStore(serviceName = "yapyap.test.pk.delete", backing = backing)
-        val ref = KeyReference(
-            keyId = "device-local-signing",
-            purpose = IdentityKeyPurpose.SIGNING,
-            type = KeyType.PRIVATE,
-        )
-        val otherRef = ref.copy(keyId = "other-key")
+        val ref = KeySlot.SignedPreKeyPrivate(SignedPreKeyId("device-local-signing"))
+        val otherRef = KeySlot.SignedPreKeyPrivate(SignedPreKeyId("other-key"))
         val material = byteArrayOf(0x0A, 0x0B)
 
         store.putKey(ref, material)
@@ -91,7 +84,7 @@ class DefaultKeyStoreIntegrationTest {
         val key = DefaultMasterKeyProvider(
             keyStore = store,
             crypto = DefaultCryptoProvider(random = Random(seed)),
-            keyId = "slot",
+            slot = KeySlot.SignedPreKeyPrivate(SignedPreKeyId("slot")),
             keySizeBytes = keySize,
         ).getOrCreate()
 

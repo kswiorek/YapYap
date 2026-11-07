@@ -73,7 +73,7 @@ internal class PingProvider(
         noPeersMessage: String,
         block: suspend (PeerId) -> Unit,
     ) {
-        val peers = ctx.identityResolver.getAllActivePeers()
+        val peers = ctx.devices.getAllActiveDeviceIds()
             .filter { it != ctx.localDeviceId && ctx.peerLinks.linksOf(it).isNotEmpty() }
         if (peers.isEmpty()) {
             AppLog.debug(
@@ -99,7 +99,7 @@ internal class PingProvider(
      * (sync, reopening declined syncs, removal re-push) is decided upstream.
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
-        val senderAccount = ctx.identityResolver.getAccountIdForDevice(peerId)
+        val senderAccount = ctx.devices.getAccountIdForDevice(peerId)
         pingPayloadFlow.emit(PingFrontiers(senderAccount, ping.roomFrontiers))
         peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
 
@@ -115,7 +115,7 @@ internal class PingProvider(
             pingId = echoPingId ?: Uuid.random(),
             isReply = echoPingId != null,
             selfReportedAvailability = peerAvailabilityRegistry.currentSelfScore(),
-            roomFrontiers = ctx.identityResolver.getAccountIdForDevice(peerId)
+            roomFrontiers = ctx.devices.getAccountIdForDevice(peerId)
                 ?.let { frontierSnapshotProvider.latestRoomFrontiers(it) }
                 .orEmpty(),
         )

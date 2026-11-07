@@ -12,7 +12,7 @@ internal class DatabaseInitializer(
 ) {
     /** Brings the schema up to date; true when the schema was created (the store was new). */
     fun initialize(driver: SqlDriver): Boolean {
-        enableForeignKeys(driver)
+        setForeignKeys(driver, enabled = true)
 
         val currentVersion = readUserVersion(driver)
         val targetVersion = schema.version
@@ -31,7 +31,13 @@ internal class DatabaseInitializer(
             }
 
             currentVersion < targetVersion -> {
+                // SQLite's table-rebuild procedure: migrations may drop and recreate a table
+                // other tables reference, so they run with foreign keys off and the result is
+                // checked before they are back on.
+                setForeignKeys(driver, enabled = false)
                 schema.migrate(driver, currentVersion, targetVersion)
+                checkForeignKeys(driver)
+                setForeignKeys(driver, enabled = true)
                 setUserVersion(driver, targetVersion)
                 AppLog.info(
                     component = LogComponent.DATABASE,
@@ -70,13 +76,33 @@ internal class DatabaseInitializer(
         ).value
     }
 
-    private fun enableForeignKeys(driver: SqlDriver) {
+    private fun setForeignKeys(driver: SqlDriver, enabled: Boolean) {
         driver.execute(
             identifier = null,
-            sql = "PRAGMA foreign_keys = ON",
+            sql = "PRAGMA foreign_keys = ${if (enabled) "ON" else "OFF"}",
             parameters = 0,
             binders = null,
         )
+    }
+
+    /** Fails the migration when it left a row pointing at a missing parent. */
+    private fun checkForeignKeys(driver: SqlDriver) {
+        val violations = driver.executeQuery(
+            identifier = null,
+            sql = "PRAGMA foreign_key_check",
+            mapper = { cursor ->
+                val tables = mutableListOf<String>()
+                while (cursor.next().value) tables += cursor.getString(0).orEmpty()
+                QueryResult.Value(tables)
+            },
+            parameters = 0,
+            binders = null,
+        ).value
+        check(violations.isEmpty()) {
+            "Migration left foreign key violations in: ${
+                violations.distinct().joinToString()
+            }"
+        }
     }
 
     private fun setUserVersion(driver: SqlDriver, version: Long) {

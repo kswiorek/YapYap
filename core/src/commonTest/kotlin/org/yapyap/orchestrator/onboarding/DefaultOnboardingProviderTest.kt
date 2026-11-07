@@ -1,20 +1,21 @@
 package org.yapyap.orchestrator.onboarding
 
+import org.yapyap.persistence.key.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentityRecord
-import org.yapyap.crypto.identity.DeviceIdentityRecord
+import org.yapyap.crypto.identity.AccountIdentity
+import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.persistence.key.BootstrapSessionStore
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.crypto.store.BootstrapSessionStore
+import org.yapyap.orchestrator.identity.IdentityStore
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
-import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
@@ -22,7 +23,6 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
@@ -56,6 +56,10 @@ private class FakeOnboardingRouter(
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
+    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
+        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+
+    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
@@ -87,8 +91,8 @@ private class NoopGlobalEventProjector : GlobalEventProjector {
     override fun start(scope: CoroutineScope) = Unit
     override suspend fun stop() = Unit
     override suspend fun publishGenesisAccount(
-        account: AccountIdentityRecord,
-        device: DeviceIdentityRecord,
+        account: AccountIdentity,
+        device: DeviceIdentity,
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         accountKeySignature: ByteArray,
@@ -102,6 +106,7 @@ private class NoopGlobalEventProjector : GlobalEventProjector {
     override suspend fun publishRemoveAccount(targetAccountId: AccountId, successorAccountId: AccountId?) = Unit
     override suspend fun publishRemoveDevice(targetDeviceId: PeerId) = Unit
     override suspend fun activeDevicesAddedBy(authorDeviceId: PeerId): List<PeerId> = emptyList()
+    override suspend fun seedProvisionalMember(accountId: AccountId) = Unit
 }
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -114,16 +119,15 @@ class DefaultOnboardingProviderTest {
         sessionStore: BootstrapSessionStore,
         packets: MutableSharedFlow<BootstrapPacketEvent> = MutableSharedFlow(extraBufferCapacity = 64),
         routerConfig: RouterConfig = RouterConfig(),
-        identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
-        roomRepository: RoomRepository = FakeRoomRepository(),
+        identityKeyRepository: IdentityStore = InMemoryIdentityStore(),
         deliveries: MutableSharedFlow<Delivery> = MutableSharedFlow(extraBufferCapacity = 16),
     ): DefaultOnboardingProvider =
         DefaultOnboardingProvider(
             router = FakeOnboardingRouter(packets, deliveries),
             sessionStore = sessionStore,
             syncCoordinator = NoopSyncCoordinator(),
-            identityKeyRepository = identityKeyRepository,
-            roomRepository = roomRepository,
+            identityReader = identityKeyRepository,
+            provisionalSeeder = identityKeyRepository,
             projector = NoopGlobalEventProjector(),
             clock = clock,
             routerConfig = MutableStateFlow(routerConfig),

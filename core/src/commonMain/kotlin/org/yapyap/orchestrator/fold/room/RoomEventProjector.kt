@@ -17,10 +17,10 @@ import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
 import org.yapyap.orchestrator.fold.graph.childAdjacency
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.MessageRow
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
@@ -99,7 +99,7 @@ internal class DefaultRoomEventProjector(
     private val globalEventProjector: GlobalEventProjector,
     private val messageRepository: MessageRepository,
     private val roomRepository: RoomRepository,
-    private val identityKeyRepository: IdentityKeyRepository,
+    private val identityReader: IdentityReader,
     private val router: Router,
 ) : RoomEventProjector {
 
@@ -321,7 +321,7 @@ internal class DefaultRoomEventProjector(
      * order as a no-op) or undecodable bytes (unreachable for VERIFIED rows — the
      * engine REJECTs those at ingest — kept as the defensive backstop).
      */
-    private fun foldNodeOf(row: MessageRow): RoomFoldNode {
+    private fun foldNodeOf(row: StoredMessage): RoomFoldNode {
         val payload = row.payload
         val event = runCatching {
             (payload as? MessagePayload.RoomEvent)?.decodeEvent()
@@ -339,7 +339,7 @@ internal class DefaultRoomEventProjector(
      * `roomId`s admit exactly one per room (the engine REJECTs forged shapes), so this
      * is a lookup, not a competition — first in canonical order wins defensively.
      */
-    private fun resolveGenesis(order: List<Uuid>, byId: Map<Uuid, MessageRow>): RoomGenesisInfo? {
+    private fun resolveGenesis(order: List<Uuid>, byId: Map<Uuid, StoredMessage>): RoomGenesisInfo? {
         for (id in order) {
             val row = byId.getValue(id)
             if (row.payload.prevIds.isNotEmpty()) continue
@@ -379,7 +379,7 @@ internal class DefaultRoomEventProjector(
         // account row, so deferred rows are unobservable in the interim.
         // TODO: [Finishing touches] bulk account-existence check once rooms outgrow the 10–20-user profile.
         val committed = output.members.filterKeys { accountId ->
-            identityKeyRepository.getAccountRecord(accountId) != null
+            identityReader.getAccountIdentity(accountId) != null
         }
         for ((accountId, member) in committed) {
             // The removal boundary rides the recompute: non-null exactly on

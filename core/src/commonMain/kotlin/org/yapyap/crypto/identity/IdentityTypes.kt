@@ -1,76 +1,104 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.EncryptionPublicKey
+import org.yapyap.crypto.keys.OneTimePreKeyId
+import org.yapyap.crypto.keys.SignedPreKeyId
+import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import kotlin.time.Instant
 
-internal enum class IdentityKeyPurpose {
-    SIGNING,
-    ENCRYPTION,
-    SIGNED_PREKEY,
-
-    /** One-time bootstrap secret (symmetric, not an identity key — keystore namespacing only). */
-    BOOTSTRAP_SECRET,
-}
-
-internal data class IdentityPublicKeyRecord(
-    val purpose: IdentityKeyPurpose,
-    val publicKey: ByteArray,
+/**
+ * What a device presents about itself: its id, public identity keys and, when known, its
+ * current signed prekey. Carried in bootstrap payloads and stored in `devices`.
+ */
+internal data class DeviceIdentity(
+    val deviceId: PeerId,
+    val signingKey: SigningPublicKey,
+    val encryptionKey: EncryptionPublicKey,
+    val signedPreKey: SignedPreKey? = null,
 )
 
-internal data class SignedPreKeyRecord(
-    val keyId: String,
-    val publicKey: ByteArray,
-    val signature: ByteArray,
-    val privateKey: ByteArray?,
-    val deviceId: PeerId,
-    val isActive: Boolean = true,
-    val createdAt: Instant? = null,
-) {
-    init {
-        require(keyId.isNotBlank()) { "keyId must not be blank" }
-        require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
-        require(signature.isNotEmpty()) { "signature must not be empty" }
-    }
-}
-
-/** One-time prekey allocated locally and offered to a peer for 4-DH upgrade. */
-internal data class LocalOneTimePreKey(
-    val keyId: String,
-    val publicKey: ByteArray,
-    val privateKey: ByteArray,
-) {
-    init {
-        require(keyId.isNotBlank()) { "keyId must not be blank" }
-        require(publicKey.isNotEmpty()) { "publicKey must not be empty" }
-        require(privateKey.isNotEmpty()) { "privateKey must not be empty" }
-    }
-}
-
-internal data class DeviceIdentityRecord(
-    val deviceId: PeerId,
-    val signing: IdentityPublicKeyRecord,
-    val encryption: IdentityPublicKeyRecord,
-    val signedPreKey: SignedPreKeyRecord? = null,
-)
-
-internal data class AccountIdentityRecord(
+/**
+ * What an account presents about itself. [signingKey] is null for the key-less stand-in a
+ * newly added device starts on, until the fold confirms its real account.
+ */
+internal data class AccountIdentity(
     val accountId: AccountId,
     val displayName: String,
-    val key: IdentityPublicKeyRecord? = null,
+    val signingKey: SigningPublicKey? = null,
 )
 
-/** Single keystore/DB key namespace for all YapYap-held keys. All key IDs below derive from this. */
-internal const val YAPYAP_KEY_PREFIX: String = "yapyap:"
+/** A stored `accounts` row. */
+internal data class Account(
+    val identity: AccountIdentity,
+    val role: AccountRole,
+    val status: IdentityStatus,
+    val isLocal: Boolean,
+) {
+    val accountId: AccountId get() = identity.accountId
+    val displayName: String get() = identity.displayName
+}
 
-internal const val LOCAL_DEVICE_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "local_device:"
-internal const val LOCAL_ACCOUNT_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "local_account:"
+/** A stored `devices` row. */
+internal data class Device(
+    val identity: DeviceIdentity,
+    val accountId: AccountId,
+    val deviceType: DeviceType,
+    val torEndpoint: TorEndpoint,
+    val status: IdentityStatus,
+    val isLocal: Boolean,
+    val provisional: Boolean,
+) {
+    val deviceId: PeerId get() = identity.deviceId
+}
 
-/** Signed-prekey IDs (`yapyap:spk-<hex>`, wire-visible in X3DH). */
-internal const val SPK_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "spk-"
+/** The public half of a device's signed prekey, as peers see it. */
+internal class SignedPreKey(
+    val id: SignedPreKeyId,
+    val deviceId: PeerId,
+    val publicKey: EncryptionPublicKey,
+    /** The device's signing key over [publicKey]. */
+    val signature: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is SignedPreKey && id == other.id && deviceId == other.deviceId &&
+                publicKey == other.publicKey && signature.contentEquals(other.signature))
 
-/** One-time-prekey IDs (`yapyap:opk-<hex>`, wire-visible in 4-DH upgrade offers). */
-internal const val OPK_KEY_PREFIX: String = YAPYAP_KEY_PREFIX + "opk-"
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + deviceId.hashCode()
+        result = 31 * result + publicKey.hashCode()
+        result = 31 * result + signature.contentHashCode()
+        return result
+    }
 
-/** SQLCipher master-key ID (keystore only, never on the wire). */
-internal const val MASTER_KEY_ID: String = YAPYAP_KEY_PREFIX + "db-master-key"
+    override fun toString(): String = "SignedPreKey(id=$id, deviceId=$deviceId)"
+}
+
+/** Our own signed prekey, with the private half from the keystore. */
+internal data class LocalSignedPreKey(
+    val preKey: SignedPreKey,
+    val privateKey: EncryptionPrivateKey,
+) {
+    val id: SignedPreKeyId get() = preKey.id
+    val publicKey: EncryptionPublicKey get() = preKey.publicKey
+}
+
+/** One-time prekey allocated locally and offered to a peer for the 4-DH upgrade. */
+internal data class LocalOneTimePreKey(
+    val id: OneTimePreKeyId,
+    val publicKey: EncryptionPublicKey,
+    val privateKey: EncryptionPrivateKey,
+)
+
+/** A peer's keys needed to start an X3DH handshake with it; the prekey signature is already verified. */
+internal data class PeerPreKeyBundle(
+    val identityKey: EncryptionPublicKey,
+    val signedPreKey: SignedPreKey,
+)

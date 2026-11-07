@@ -2,9 +2,9 @@ package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.persistence.db.*
-import org.yapyap.persistence.key.DefaultIdentityKeyRepository
-import org.yapyap.persistence.messaging.DefaultMessageRepository
-import org.yapyap.persistence.messaging.DefaultRoomRepository
+import org.yapyap.orchestrator.identity.DefaultIdentityStore
+import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.epochSeconds
@@ -65,7 +65,7 @@ class RenderableQueriesJvmTest {
         eraParents: List<Uuid>,
     ): Uuid {
         seedLocalAccountAndDevice(connection!!.database, FixtureAccountId, FixtureDevicePeerId)
-        DefaultIdentityKeyRepository(connection!!.database, DeviceType.DESKTOP).upsertChainAccount(
+        DefaultIdentityStore(connection!!.database, DeviceType.DESKTOP).upsertChainAccount(
             removed, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "removed",
         )
         rooms.ensureRoomExists(room, RoomType.TEXT_CHANNEL, "boundary")
@@ -174,7 +174,7 @@ class RenderableQueriesJvmTest {
         )
         // REMOVED row without a defining node (should not exist; fail closed).
         val nodeless = AccountId("nodeless-account")
-        DefaultIdentityKeyRepository(db, DeviceType.DESKTOP).upsertChainAccount(
+        DefaultIdentityStore(db, DeviceType.DESKTOP).upsertChainAccount(
             nodeless, null, AccountRole.MEMBER, IdentityStatus.ACTIVE, "nodeless",
         )
         rooms.upsertMember(room, nodeless, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, null)

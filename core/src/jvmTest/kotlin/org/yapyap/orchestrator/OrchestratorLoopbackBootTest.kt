@@ -9,7 +9,8 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.JavaKeyringSessionFactory
-import org.yapyap.persistence.key.DefaultKeyStore
+import org.yapyap.crypto.store.DefaultKeyStore
+import org.yapyap.wiring.OrchestratorFactory
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource

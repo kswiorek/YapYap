@@ -1,11 +1,18 @@
 package org.yapyap.orchestrator.boot
 
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
+import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.crypto.identity.LocalIdentityStore
+import org.yapyap.crypto.keys.KeySlot
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.DatabaseConnection
-import org.yapyap.persistence.key.*
 import org.yapyap.protocol.IdentityStatus
 import kotlin.time.Clock
 
@@ -32,7 +39,8 @@ import kotlin.time.Clock
  *   wipe + fresh setup recovers; checked last so consistency reasons win)
  */
 internal class BootDiagnoser(
-    private val identityRepository: IdentityKeyRepository,
+    private val identityReader: IdentityReader,
+    private val localIdentityStore: LocalIdentityStore,
     private val keyStore: KeyStore,
     private val cryptoProvider: CryptoProvider,
     private val sessionStore: BootstrapSessionStore,
@@ -41,12 +49,12 @@ internal class BootDiagnoser(
     /** [storeIsNew]: the database was created on this boot (see [DatabaseConnection.created]). */
     suspend fun diagnose(storeIsNew: Boolean = false): BootDiagnosis {
         if (storeIsNew) clearLeftoverIdentityKeys()
-        val deviceRow = identityRepository.getLocalDeviceRecord()
-        val accountRow = identityRepository.getLocalAccountRecord()
-        val deviceSigningPriv = keyStore.getKey(deviceSigningPrivateRef())
-        val deviceEncryptionPriv = keyStore.getKey(deviceEncryptionPrivateRef())
-        val accountSigningPriv = keyStore.getKey(accountSigningPrivateRef())
-        val accountSigningPub = keyStore.getKey(accountSigningPublicRef())
+        val deviceRow = identityReader.getLocalDeviceIdentity()
+        val accountRow = identityReader.getLocalAccountIdentity()
+        val deviceSigningPriv = keyStore.getKey(KeySlot.DeviceSigningPrivate)
+        val deviceEncryptionPriv = keyStore.getKey(KeySlot.DeviceEncryptionPrivate)
+        val accountSigningPriv = keyStore.getKey(KeySlot.AccountSigningPrivate)
+        val accountSigningPub = keyStore.getKey(KeySlot.AccountSigningPublic)
 
         if (deviceRow == null && accountRow == null && deviceSigningPriv == null &&
             deviceEncryptionPriv == null && accountSigningPriv == null && accountSigningPub == null
@@ -74,10 +82,10 @@ internal class BootDiagnoser(
         val device = checkNotNull(deviceRow)
         var account = checkNotNull(accountRow)
         val derivedDeviceId = cryptoProvider.peerIdFromPublicKey(
-            cryptoProvider.privateSigningKeyToPublicKey(checkNotNull(deviceSigningPriv)),
+            cryptoProvider.privateSigningKeyToPublicKey(SigningPrivateKey(checkNotNull(deviceSigningPriv))),
         )
         val derivedAccountId = accountSigningPriv?.let {
-            cryptoProvider.accountIdFromPublicKey(cryptoProvider.privateSigningKeyToPublicKey(it))
+            cryptoProvider.accountIdFromPublicKey(cryptoProvider.privateSigningKeyToPublicKey(SigningPrivateKey(it)))
         }
         if (derivedDeviceId != device.deviceId || (derivedAccountId != null && derivedAccountId != account.accountId)) {
             return BootDiagnosis.ResetRequired(
@@ -89,12 +97,12 @@ internal class BootDiagnoser(
             // Key-less device: no key ties the account row to us, the device row's account does.
             // Stores from before the projector rebound the local account on confirmation still
             // point at the pre-confirmation stand-in; the chain's answer is repaired in.
-            if (identityRepository.getAccountIdForDevice(device.deviceId) != account.accountId &&
-                identityRepository.rebindLocalAccountToLocalDevice() != null
+            if (identityReader.getAccountIdForDevice(device.deviceId) != account.accountId &&
+                localIdentityStore.rebindLocalAccountToLocalDevice() != null
             ) {
-                account = identityRepository.getLocalAccountRecord() ?: account
+                account = identityReader.getLocalAccountIdentity() ?: account
             }
-            val deviceAccount = identityRepository.getAccountIdForDevice(device.deviceId)
+            val deviceAccount = identityReader.getAccountIdForDevice(device.deviceId)
             if (deviceAccount != account.accountId) {
                 return BootDiagnosis.ResetRequired(
                     reason = ResetReason.INCONSISTENT_STORAGE,
@@ -103,8 +111,8 @@ internal class BootDiagnoser(
             }
         }
 
-        val deviceStatus = identityRepository.getDeviceStatus(device.deviceId)
-        val accountStatus = identityRepository.getAccountStatus(account.accountId)
+        val deviceStatus = identityReader.getDeviceStatus(device.deviceId)
+        val accountStatus = identityReader.getAccountStatus(account.accountId)
         if (deviceStatus == IdentityStatus.BANNED || accountStatus == IdentityStatus.BANNED) {
             return BootDiagnosis.ResetRequired(
                 reason = ResetReason.SELF_BANNED,
@@ -114,8 +122,8 @@ internal class BootDiagnoser(
 
         // Rotation keeps exactly one active SPK; its absence means crypto would fail
         // later in init() — flag it here for the early ResetRequired screen instead.
-        val activeSpk = identityRepository.getActiveSignedPreKeyForDevice(device.deviceId)
-        val activeSpkPriv = activeSpk?.let { keyStore.getKey(signedPreKeyPrivateRef(it.keyId)) }
+        val activeSpk = identityReader.getActiveSignedPreKeyForDevice(device.deviceId)
+        val activeSpkPriv = activeSpk?.let { keyStore.getKey(KeySlot.SignedPreKeyPrivate(it.id)) }
         if (activeSpk == null || activeSpkPriv == null) {
             return BootDiagnosis.ResetRequired(
                 reason = ResetReason.INCONSISTENT_STORAGE,
@@ -133,7 +141,7 @@ internal class BootDiagnoser(
         // AddAccount and AddDevice together — so one predicate covers both.)
         // Note: session() repairs corrupt keyring entries (deletes them); benign and
         // idempotent — the only "write" in this otherwise read-only check.
-        if (identityRepository.isDeviceProvisional(device.deviceId)) {
+        if (identityReader.isDeviceProvisional(device.deviceId)) {
             val session = sessionStore.session()
             if (session == null || clock.now() >= session.deadline) {
                 return BootDiagnosis.ResetRequired(
@@ -147,14 +155,14 @@ internal class BootDiagnoser(
     }
 
     private suspend fun clearLeftoverIdentityKeys() {
-        val leftovers = localIdentityKeyRefs().filter { keyStore.getKey(it) != null }
+        val leftovers = KeySlot.localIdentity.filter { keyStore.getKey(it) != null }
         if (leftovers.isEmpty()) return
         AppLog.warn(
             component = LogComponent.ORCHESTRATOR,
             event = LogEvent.LEFTOVER_KEYS_CLEARED,
             message = "New database but identity keys left in the keyring; deleting them",
-            fields = mapOf("keyIds" to leftovers.joinToString { it.keyId + ":" + it.type.name.lowercase() }),
+            fields = mapOf("slots" to leftovers.joinToString { it.keyringName }),
         )
-        for (ref in leftovers) keyStore.deleteKey(ref)
+        for (slot in leftovers) keyStore.deleteKey(slot)
     }
 }

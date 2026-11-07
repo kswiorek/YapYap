@@ -3,7 +3,6 @@ package org.yapyap.routing.inbound
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import org.yapyap.crypto.CryptoException
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -106,7 +105,7 @@ internal class InboundEnvelopeProcessor(
         // the newcomer/recovering device has no row yet by construction. BANNED always
         // wins, even for BOOTSTRAP (re-entry attempts are answered DECLINED by the
         // handler's own account-status policy).
-        val deviceStatus = ctx.identityResolver.getDeviceStatusOrNull(inbound.source)
+        val deviceStatus = ctx.devices.getDeviceStatus(inbound.source)
         if (deviceStatus == IdentityStatus.BANNED) {
             AppLog.warn(
                 component = LogComponent.ROUTER,
@@ -368,11 +367,7 @@ internal class InboundEnvelopeProcessor(
      * disposition override for the immediate exchange.
      */
     private suspend fun reconcileSourceEndpoint(source: PeerId, provenEndpoint: TorEndpoint) {
-        val knownEndpoint = try {
-            ctx.identityResolver.resolveTorEndpointForDevice(source)
-        } catch (_: CryptoException) {
-            null
-        }
+        val knownEndpoint = ctx.routes.resolveTorEndpointForDevice(source)
         if (knownEndpoint == null) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
@@ -394,7 +389,7 @@ internal class InboundEnvelopeProcessor(
                     "provenEndpoint" to provenEndpoint,
                 ),
             )
-            ctx.identityResolver.updatePeerTorEndpoint(
+            ctx.routes.upsertPeerTorEndpoint(
                 deviceId = source,
                 torEndpoint = provenEndpoint,
             )

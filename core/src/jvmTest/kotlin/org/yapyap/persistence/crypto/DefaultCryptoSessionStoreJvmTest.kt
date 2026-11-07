@@ -1,5 +1,7 @@
 package org.yapyap.persistence.crypto
 
+import org.yapyap.crypto.store.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.persistence.db.*

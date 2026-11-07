@@ -1,10 +1,16 @@
 package org.yapyap.protection.envelope
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.persistence.key.TestIdentityStack
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protection.*
 import org.yapyap.protocol.AccountId
@@ -79,7 +85,7 @@ class MessageProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
         val protection = SignedMessageProtection(signatureProvider, crypto)
 
         val payload = sampleTextPayload()
@@ -99,7 +105,7 @@ class MessageProtectionTest {
         val encryptionKeys = crypto.generateEncryptionKeyPair()
         val record = deviceRecordFor(crypto, signingKeys, encryptionKeys)
         val resolver = FakeIdentityResolverForProtection(signingKeys.privateKey, mapOf(sourcePeer to record))
-        val protection = SignedMessageProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+        val protection = SignedMessageProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
 
         val ctx = sampleEnvelopeContext(
             scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
@@ -120,7 +126,7 @@ class MessageProtectionTest {
             localSigningPrivateKey = signingKeys.privateKey,
             peerRecords = mapOf(sourcePeer to record),
         )
-        val signatureProvider = DefaultSignatureProvider(resolver, crypto)
+        val signatureProvider = DefaultSignatureProvider(resolver, resolver, crypto)
         val protection = SignedMessageProtection(signatureProvider, crypto)
 
         val payload = sampleTextPayload()
@@ -192,9 +198,9 @@ class MessageProtectionTest {
     @Test
     fun signed_open_succeedsWithoutPeerKeyAttestation() = runTest {
         val crypto = DefaultCryptoProvider()
-        val repo = InMemoryIdentityKeyRepository()
+        val repo = InMemoryIdentityStore()
         val store = InMemoryKeyStore()
-        val resolver = DefaultIdentityResolver(crypto, repo, store)
+        val resolver = TestIdentityStack(crypto, repo, store)
 
         val senderSigning = crypto.generateSigningKeyPair()
         val senderEncryption = crypto.generateEncryptionKeyPair()
@@ -202,40 +208,31 @@ class MessageProtectionTest {
 
         val accountId = AccountId("protection-attest-account")
         repo.insertLocalAccount(
-            identity = AccountIdentityRecord(
+            identity = AccountIdentity(
                 accountId = accountId,
                 displayName = "Protection Attest",
-                key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, byteArrayOf(0x01)),
+                signingKey = SigningPublicKey(byteArrayOf(0x01)),
             ),
         )
         repo.insertPeerDevice(
             accountId = accountId,
             deviceType = DeviceType.DESKTOP,
-            identity = DeviceIdentityRecord(
+            identity = DeviceIdentity(
                 deviceId = senderPeer,
-                signing = IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.SIGNING,
-                    publicKey = senderSigning.publicKey,
-                ),
-                encryption = IdentityPublicKeyRecord(
-                    purpose = IdentityKeyPurpose.ENCRYPTION,
-                    publicKey = senderEncryption.publicKey,
-                ),
+                signingKey = senderSigning.publicKey,
+                encryptionKey = senderEncryption.publicKey,
             ),
             torEndpoint = TorEndpoint(onionAddress = "sender-attest.onion", port = 443),
         )
 
         val senderProtection = SignedMessageProtection(
-            DefaultSignatureProvider(
-                FakeIdentityResolverForProtection(
+            FakeIdentityResolverForProtection(
                     localSigningPrivateKey = senderSigning.privateKey,
                     peerRecords = emptyMap(),
-                ),
-                crypto,
-            ),
+            ).let { DefaultSignatureProvider(it, it, crypto) },
             crypto,
         )
-        val receiverProtection = SignedMessageProtection(DefaultSignatureProvider(resolver, crypto), crypto)
+        val receiverProtection = SignedMessageProtection(DefaultSignatureProvider(resolver, resolver, crypto), crypto)
 
         val payload = sampleTextPayload()
         val envelope = senderProtection.protect(

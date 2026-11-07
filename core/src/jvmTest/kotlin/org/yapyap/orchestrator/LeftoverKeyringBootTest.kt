@@ -1,20 +1,15 @@
 package org.yapyap.orchestrator
 
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
+import org.yapyap.persistence.key.*
+
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.files.Path
-import org.yapyap.config.BootConfig
-import org.yapyap.config.ConfigFileWatcher
+import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.logging.NoopAppLogger
-import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.persistence.key.*
-import org.yapyap.protocol.DeviceType
-import org.yapyap.transport.tor.RecordingTorBackend
-import org.yapyap.transport.webrtc.RecordingWebRtcBackend
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
@@ -32,11 +27,11 @@ class LeftoverKeyringBootTest {
         val keyring = MapBackedKeyringSessionFactory()
         val crypto = DefaultCryptoProvider()
         DefaultKeyStore(keyring).apply {
-            putKey(deviceSigningPrivateRef(), crypto.generateSigningKeyPair().privateKey)
-            putKey(deviceEncryptionPrivateRef(), crypto.generateEncryptionKeyPair().privateKey)
+            putKey(KeySlot.DeviceSigningPrivate, crypto.generateSigningKeyPair().privateKey.bytes)
+            putKey(KeySlot.DeviceEncryptionPrivate, crypto.generateEncryptionKeyPair().privateKey.bytes)
             val account = crypto.generateSigningKeyPair()
-            putKey(accountSigningPrivateRef(), account.privateKey)
-            putKey(accountSigningPublicRef(), account.publicKey)
+            putKey(KeySlot.AccountSigningPrivate, account.privateKey.bytes)
+            putKey(KeySlot.AccountSigningPublic, account.publicKey.bytes)
         }
         val orchestrator = orchestrator(dir, keyring)
         try {
@@ -48,22 +43,6 @@ class LeftoverKeyringBootTest {
         }
     }
 
-    private fun orchestrator(dir: File, keyring: MapBackedKeyringSessionFactory): DefaultOrchestrator {
-        val driverFactory = object : DriverFactory {
-            override fun createDriver(): SqlDriver = JdbcSqliteDriver("jdbc:sqlite:${dir.absolutePath}/vault.db")
-        }
-        val watcher = object : ConfigFileWatcher {
-            override fun changes(): Flow<Unit> = emptyFlow()
-        }
-        return DefaultOrchestrator(
-            dataDirectory = Path(dir.absolutePath),
-            bootConfig = BootConfig(mode = NodeMode.FULL_CLIENT, localDeviceType = DeviceType.DESKTOP),
-            keyringSessionFactory = keyring,
-            createDriverFactory = { _, _ -> driverFactory },
-            createTorBackend = { _, _ -> RecordingTorBackend() },
-            createWebRtcBackend = { _ -> RecordingWebRtcBackend() },
-            createLogger = { _ -> NoopAppLogger },
-            createConfigFileWatcher = { _ -> watcher },
-        )
-    }
+    private fun orchestrator(dir: File, keyring: MapBackedKeyringSessionFactory): DefaultOrchestrator =
+        testOrchestrator(Path(dir.absolutePath), TestPlatform(keyring))
 }

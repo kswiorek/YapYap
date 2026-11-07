@@ -1,9 +1,16 @@
 package org.yapyap.crypto.identity
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.orchestrator.identity.*
+
+import org.yapyap.crypto.store.*
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.key.*
 import org.yapyap.protocol.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -14,47 +21,48 @@ class DefaultIdentityOrchestrationTest {
     private val fixedTor = TorEndpoint(onionAddress = "fixture-identity.onion", port = 443)
 
     private fun stack(): Triple<
-            InMemoryIdentityKeyRepository,
+            InMemoryIdentityStore,
             InMemoryKeyStore,
-            Pair<DefaultIdentityResolver, DefaultIdentityProvisioning>,
+            Pair<TestIdentityStack, DefaultIdentityProvisioning>,
             > {
-        val repo = InMemoryIdentityKeyRepository(defaultLocalTor = fixedTor)
+        val repo = InMemoryIdentityStore(defaultLocalTor = fixedTor)
         val store = InMemoryKeyStore()
         val crypto = DefaultCryptoProvider()
-        val resolver = DefaultIdentityResolver(crypto, repo, store)
+        val resolver = TestIdentityStack(crypto, repo, store)
         val clock = FakeClock(epochSeconds(0L))
-        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, clock)
+        val provisioning = DefaultIdentityProvisioning(crypto, repo, store, resolver, resolver, clock)
         return Triple(repo, store, Pair(resolver, provisioning))
     }
 
     @Test
     fun provisioning_createAccount_then_createDevice_resolver_roundTrip() = runTest {
-        val (_, _, triple) = stack()
+        val (repo, store, triple) = stack()
         val (resolver, provisioning) = triple
 
         val account = provisioning.createNewAccountIdentity(displayName = "Local User")
         val device = provisioning.createNewDeviceIdentity()
 
-        val resolvedAccount = resolver.getLocalAccountIdentityRecord()
+        val resolvedAccount = resolver.getLocalAccountIdentity()
         assertEquals(account.accountId, resolvedAccount.accountId)
 
-        val resolvedDevice = resolver.getLocalDeviceIdentityRecord()
+        val resolvedDevice = resolver.getLocalDeviceIdentity()
         assertEquals(device.deviceId, resolvedDevice.deviceId)
-        assertEquals(device.signing.publicKey.contentHashCode(), resolvedDevice.signing.publicKey.contentHashCode())
+        assertEquals(device.signingKey, resolvedDevice.signingKey)
         assertNotNull(resolvedDevice.signedPreKey)
-        assertEquals(device.signedPreKey!!.keyId, resolvedDevice.signedPreKey.keyId)
+        assertEquals(device.signedPreKey!!.id, resolvedDevice.signedPreKey.id)
 
         val localSpk = resolver.getCurrentLocalSignedPreKey()
-        assertEquals(resolvedDevice.signedPreKey.keyId, localSpk.keyId)
-        assertContentEquals(resolvedDevice.signedPreKey.publicKey, localSpk.publicKey)
+        assertEquals(resolvedDevice.signedPreKey.id, localSpk.id)
+        assertEquals(resolvedDevice.signedPreKey.publicKey, localSpk.publicKey)
         // Responder paths (X3DH bootstrap) sign/decrypt with this key: the DB row
         // never carries private material, so the resolver must attach the keystore key.
         assertNotNull(localSpk.privateKey)
-        assertContentEquals(device.signedPreKey!!.privateKey, localSpk.privateKey)
-        val direct = resolver.resolveLocalSignedPreKey(localSpk.keyId)
-        assertContentEquals(localSpk.privateKey, direct.privateKey)
+        val storedSpkPrivate = assertNotNull(store.getKey(KeySlot.SignedPreKeyPrivate(device.signedPreKey!!.id)))
+        assertContentEquals(storedSpkPrivate, localSpk.privateKey.bytes)
+        val direct = resolver.resolveLocalSignedPreKey(localSpk.id)
+        assertEquals(localSpk.privateKey, direct.privateKey)
 
-        assertEquals(fixedTor, resolver.resolveTorEndpointForDevice(device.deviceId))
+        assertEquals(fixedTor, repo.getDeclaredTorEndpoint(device.deviceId))
     }
 
     @Test
@@ -69,7 +77,7 @@ class DefaultIdentityOrchestrationTest {
 
         // Strict: missing rows are BootDiagnoser territory, never re-inserted here.
         assertFailsWith<CryptoException.MissingDeviceRecord> {
-            resolver.getLocalDeviceIdentityRecord()
+            resolver.getLocalDeviceIdentity()
         }
     }
 
@@ -81,14 +89,12 @@ class DefaultIdentityOrchestrationTest {
         provisioning.createNewAccountIdentity(displayName = "Private-only recovery")
         provisioning.createNewDeviceIdentity()
 
-        val signingKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.SIGNING.name.lowercase()
-        val encryptionKeyId = LOCAL_DEVICE_KEY_PREFIX + IdentityKeyPurpose.ENCRYPTION.name.lowercase()
-        store.deleteKey(KeyReference(signingKeyId, IdentityKeyPurpose.SIGNING, KeyType.PUBLIC))
-        store.deleteKey(KeyReference(encryptionKeyId, IdentityKeyPurpose.ENCRYPTION, KeyType.PUBLIC))
+        store.deleteKey(KeySlot.DeviceSigningPublic)
+        store.deleteKey(KeySlot.DeviceEncryptionPublic)
         repo.clearLocalDeviceRecord()
 
         assertFailsWith<CryptoException.MissingDeviceRecord> {
-            resolver.getLocalDeviceIdentityRecord()
+            resolver.getLocalDeviceIdentity()
         }
     }
 
@@ -103,7 +109,7 @@ class DefaultIdentityOrchestrationTest {
 
 
         assertFailsWith<CryptoException.MissingAccountRecord> {
-            resolver.getLocalAccountIdentityRecord()
+            resolver.getLocalAccountIdentity()
         }
     }
 
@@ -118,21 +124,18 @@ class DefaultIdentityOrchestrationTest {
         val remoteSigning = DefaultCryptoProvider().generateSigningKeyPair()
         val remoteEncryption = DefaultCryptoProvider().generateEncryptionKeyPair()
         val remotePeer =
-            DeviceIdentityRecord(
+            DeviceIdentity(
                 deviceId = PeerId("peerdevidaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-                signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, remoteSigning.publicKey),
-                encryption = IdentityPublicKeyRecord(
-                    IdentityKeyPurpose.ENCRYPTION,
-                    remoteEncryption.publicKey
-                ),
+                signingKey = remoteSigning.publicKey,
+                encryptionKey = remoteEncryption.publicKey,
             )
         val peerTor = TorEndpoint(onionAddress = "peerfixture.onion", port = 995)
 
         repo.insertPeerDevice(account.accountId, DeviceType.DESKTOP, remotePeer, peerTor)
 
-        assertEquals(peerTor, resolver.resolveTorEndpointForDevice(remotePeer.deviceId))
+        assertEquals(peerTor, repo.getDeclaredTorEndpoint(remotePeer.deviceId))
 
-        val peers = resolver.getAllPeerDevicesForAccount(account.accountId)
+        val peers = repo.getAllPeerDevicesForAccount(account.accountId)
         assertTrue(peers.map { it.id }.toSet().contains(localDevice.deviceId.id))
         assertTrue(peers.map { it.id }.toSet().contains(remotePeer.deviceId.id))
     }
@@ -143,10 +146,10 @@ class DefaultIdentityOrchestrationTest {
 
         val signing = DefaultCryptoProvider().generateSigningKeyPair()
         val acc =
-            AccountIdentityRecord(
+            AccountIdentity(
                 accountId = AccountId("external-acc-id"),
                 displayName = "Peer Account",
-                key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, signing.publicKey),
+                signingKey = signing.publicKey,
             )
         repo.insertPeerAccount(
             identity = acc,
@@ -173,12 +176,12 @@ class DefaultIdentityOrchestrationTest {
 
         assertEquals(original.accountId, imported.accountId)
         assertEquals(original.displayName, imported.displayName)
-        assertContentEquals(original.key!!.publicKey, imported.key!!.publicKey)
+        assertEquals(original.signingKey!!, imported.signingKey!!)
 
-        val resolved = targetResolver.getLocalAccountIdentityRecord()
+        val resolved = targetResolver.getLocalAccountIdentity()
         assertEquals(original.accountId, resolved.accountId)
         assertEquals("Recover Me", resolved.displayName)
-        assertTrue(targetResolver.getLocalAccountPrivateKey(IdentityKeyPurpose.SIGNING).isNotEmpty())
+        assertTrue(targetResolver.localAccountSigningKey().bytes.isNotEmpty())
     }
 
     @Test
@@ -224,10 +227,10 @@ class DefaultIdentityOrchestrationTest {
         val store = InMemoryOpkRepository(crypto)
 
         val opk = store.allocate()
-        store.markOffered(opk.keyId)
-        val consumed = store.consume(opk.keyId)
+        store.markOffered(opk.id)
+        val consumed = store.consume(opk.id)
         assertNotNull(consumed)
-        assertContentEquals(opk.publicKey, consumed.publicKey)
-        assertEquals(null, store.consume(opk.keyId))
+        assertEquals(opk.publicKey, consumed.publicKey)
+        assertEquals(null, store.consume(opk.id))
     }
 }

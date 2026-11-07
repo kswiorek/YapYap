@@ -1,5 +1,17 @@
 package org.yapyap.orchestrator.fold.global
 
+import org.yapyap.persistence.key.*
+
+import org.yapyap.orchestrator.identity.IdentityReader
+
+import org.yapyap.persistence.key.TestIdentityStack
+
+import org.yapyap.routing.directory.DeviceRouteStore
+
+import org.yapyap.routing.directory.DeviceDirectory
+
+import org.yapyap.crypto.keys.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -10,7 +22,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.e2ee.session.X3dhRemotePeerKeys
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -18,7 +29,7 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.key.InMemoryIdentityKeyRepository
+import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
@@ -55,8 +66,8 @@ private suspend fun newAccount(crypto: CryptoProvider, displayName: String): Tes
     val keys = crypto.generateSigningKeyPair()
     return TestAccount(
         accountId = crypto.accountIdFromPublicKey(keys.publicKey),
-        signingPublic = keys.publicKey,
-        signingPrivate = keys.privateKey,
+        signingPublic = keys.publicKey.bytes,
+        signingPrivate = keys.privateKey.bytes,
         displayName = displayName,
     )
 }
@@ -66,31 +77,31 @@ private suspend fun newDevice(crypto: CryptoProvider, account: TestAccount, onio
     val encryption = crypto.generateEncryptionKeyPair()
     return TestDevice(
         deviceId = crypto.peerIdFromPublicKey(signing.publicKey),
-        signingPublic = signing.publicKey,
-        signingPrivate = signing.privateKey,
-        encryptionPublic = encryption.publicKey,
+        signingPublic = signing.publicKey.bytes,
+        signingPrivate = signing.privateKey.bytes,
+        encryptionPublic = encryption.publicKey.bytes,
         account = account,
         torEndpoint = TorEndpoint("$onion.onion"),
     )
 }
 
-private fun toAccountRecord(account: TestAccount): AccountIdentityRecord =
-    AccountIdentityRecord(
+private fun toAccountRecord(account: TestAccount): AccountIdentity =
+    AccountIdentity(
         accountId = account.accountId,
         displayName = account.displayName,
-        key = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, account.signingPublic),
+        signingKey = SigningPublicKey(account.signingPublic),
     )
 
-private fun toDeviceRecord(device: TestDevice): DeviceIdentityRecord =
-    DeviceIdentityRecord(
+private fun toDeviceRecord(device: TestDevice): DeviceIdentity =
+    DeviceIdentity(
         deviceId = device.deviceId,
-        signing = IdentityPublicKeyRecord( IdentityKeyPurpose.SIGNING, device.signingPublic),
-        encryption = IdentityPublicKeyRecord( IdentityKeyPurpose.ENCRYPTION, device.encryptionPublic),
+        signingKey = SigningPublicKey(device.signingPublic),
+        encryptionKey = EncryptionPublicKey(device.encryptionPublic),
     )
 
 private suspend fun bindingSig(crypto: CryptoProvider, account: TestAccount, device: TestDevice): ByteArray =
     crypto.signDetached(
-        account.signingPrivate,
+        SigningPrivateKey(account.signingPrivate),
         accountSignedDeviceBindingBytes(
             accountId = account.accountId,
             deviceId = device.deviceId,
@@ -117,7 +128,7 @@ private suspend fun globalNode(
         createdAt = createdAt,
         eventBytes = event.encode(),
     )
-    return unsigned.withSignature(crypto.signDetached(signWith, unsigned.encodeForAuthorSigning()))
+    return unsigned.withSignature(crypto.signDetached(SigningPrivateKey(signWith), unsigned.encodeForAuthorSigning()))
 }
 
 private fun addAccountEvent(account: TestAccount): GlobalEventPayload.AddAccount =
@@ -163,7 +174,8 @@ private class KeyedSignatureProvider(
     private val crypto: CryptoProvider,
 ) : SignatureProvider {
     lateinit var privateKey: ByteArray
-    override suspend fun sign(message: ByteArray): ByteArray = crypto.signDetached(privateKey, message)
+    override suspend fun sign(message: ByteArray): ByteArray =
+        crypto.signDetached(SigningPrivateKey(privateKey), message)
     override suspend fun verify(deviceId: PeerId, message: ByteArray, signature: ByteArray): Boolean =
         error("not used")
 
@@ -175,36 +187,47 @@ private class KeyedSignatureProvider(
     ): Boolean = error("not used")
 }
 
-private class TestIdentities : IdentityResolver {
+private class TestIdentities : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
     lateinit var account: TestAccount
     lateinit var device: TestDevice
     var admin: Boolean = false
 
-    override suspend fun getLocalDeviceIdentityRecord(): DeviceIdentityRecord = toDeviceRecord(device)
-    override suspend fun getLocalAccountIdentityRecord(): AccountIdentityRecord = toAccountRecord(account)
-    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus = IdentityStatus.ACTIVE
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = toDeviceRecord(device)
+    override suspend fun getLocalAccountIdentity(): AccountIdentity = toAccountRecord(account)
+    override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? = IdentityStatus.ACTIVE
     override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = error("not used")
-    override suspend fun isLocalAccountAdmin(): Boolean = admin
-    override suspend fun isLocalAccountOwner(): Boolean = false
-    override suspend fun getLocalDevicePrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
-    override suspend fun getLocalAccountPrivateKey(purpose: IdentityKeyPurpose): ByteArray = error("not used")
+    suspend fun isLocalAccountAdmin(): Boolean = admin
+    suspend fun isLocalAccountOwner(): Boolean = false
+    override suspend fun localDeviceSigningKey(): SigningPrivateKey = error("not used")
+
+    override suspend fun localDeviceEncryptionKey(): EncryptionPrivateKey = error("not used")
+    override suspend fun localAccountSigningKey(): SigningPrivateKey = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = device.deviceId
     override suspend fun getLocalAccountId(): AccountId = account.accountId
-    override suspend fun resolvePeerIdentityRecord(deviceId: PeerId): DeviceIdentityRecord = error("not used")
-    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint = error("not used")
+    override suspend fun resolvePeerIdentity(deviceId: PeerId): DeviceIdentity = error("not used")
+    override suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint? = error("not used")
     override suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId> = error("not used")
     override suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId? = error("not used")
-    override suspend fun updatePeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
-    override suspend fun resolvePeerX3dhRemoteKeys(deviceId: PeerId, signedPreKeyId: String?): X3dhRemotePeerKeys =
+    override suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint) = error("not used")
+    override suspend fun resolvePeerPreKeyBundle(deviceId: PeerId, signedPreKeyId: SignedPreKeyId?): PeerPreKeyBundle =
         error("not used")
 
-    override suspend fun getCurrentLocalSignedPreKey(): SignedPreKeyRecord =
+    override suspend fun getCurrentLocalSignedPreKey(): LocalSignedPreKey =
         error("not used")
 
-    override suspend fun resolveLocalSignedPreKey(signedPreKeyId: String): SignedPreKeyRecord =
+    override suspend fun resolveLocalSignedPreKey(id: SignedPreKeyId): LocalSignedPreKey =
         error("not used")
 
-    override suspend fun getAllPeers(): List<PeerId> = error("not used")
+    suspend fun getAllPeers(): List<PeerId> = error("not used")
+
+    override suspend fun getAllActiveDeviceIds(): List<PeerId> =
+        getAllPeers().filter { getDeviceStatus(it) != IdentityStatus.BANNED }
+
+    override suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId> =
+        accountIds.flatMap { getAllPeerDevicesForAccount(it) }
+
+
+    override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
 private class RecordingProjectorRouter : Router {
@@ -228,6 +251,10 @@ private class RecordingProjectorRouter : Router {
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
+    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
+        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+
+    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,
@@ -257,7 +284,7 @@ private class Harness(
 ) {
     val messageRepo = FakeMessageRepository()
     val roomRepo = FakeRoomRepository()
-    val identityRepo = InMemoryIdentityKeyRepository()
+    val identityRepo = InMemoryIdentityStore()
     val pipeline = FakeInboundMessagePipeline()
     val router = RecordingProjectorRouter()
     val clock = FakeClock(epochSeconds(9_000L))
@@ -269,7 +296,7 @@ private class Harness(
         messageRepository = messageRepo,
         causalHoldRepository = FakeCausalHoldRepository(messageRepo),
         roomRepository = roomRepo,
-        identityResolver = identities,
+        localIdentity = identities,
         signatureProvider = signer,
         cryptoProvider = crypto,
         clock = clock,
@@ -278,8 +305,12 @@ private class Harness(
         dagEngine = engine,
         pipeline = pipeline,
         messageRepository = messageRepo,
-        identityKeyRepository = identityRepo,
-        identityResolver = identities,
+        // The admin flag is driven by the test (identities.admin); everything else reads the repo.
+        identityReader = object : IdentityReader by identityRepo {
+            override suspend fun isLocalAccountAdmin(): Boolean = identities.admin
+        },
+        identityWriter = identityRepo,
+        localIdentity = identities,
         roomRepository = roomRepo,
         router = router,
         cryptoProvider = crypto,
@@ -414,21 +445,20 @@ class DefaultGlobalEventProjectorTest {
         )
     }
 
-    private suspend fun spkFor(crypto: CryptoProvider, device: TestDevice): SignedPreKeyRecord {
+    private suspend fun spkFor(crypto: CryptoProvider, device: TestDevice): SignedPreKey {
         val spk = crypto.generateEncryptionKeyPair()
-        return SignedPreKeyRecord(
+        return SignedPreKey(
+            id = SignedPreKeyId("spk-${device.deviceId.id.take(8)}"),
             deviceId = device.deviceId,
-            keyId = "spk-${device.deviceId.id.take(8)}",
             publicKey = spk.publicKey,
-            signature = crypto.signDetached(device.signingPrivate, spk.publicKey),
-            privateKey = null,
+            signature = crypto.signDetached(SigningPrivateKey(device.signingPrivate), spk.publicKey.bytes)
         )
     }
 
     private fun inviteWithSpk(
         device: TestDevice,
         account: TestAccount,
-        spk: SignedPreKeyRecord,
+        spk: SignedPreKey,
         accountKeySignature: ByteArray,
     ): Invite = Invite(
         account = toAccountRecord(account),
@@ -462,13 +492,13 @@ class DefaultGlobalEventProjectorTest {
         )
         val stored = h.identityRepo.getActiveSignedPreKeyForDevice(newcomer.deviceId)
         assertNotNull(stored)
-        assertEquals(spk.keyId, stored.keyId)
-        assertContentEquals(spk.publicKey, stored.publicKey)
-        val resolver = DefaultIdentityResolver(h.crypto, h.identityRepo, InMemoryKeyStore())
-        val remote = resolver.resolvePeerX3dhRemoteKeys(newcomer.deviceId)
-        assertContentEquals(newcomer.encryptionPublic, remote.identityEncryptionPublicKey)
-        assertContentEquals(spk.publicKey, remote.signedPreKeyPublicKey)
-        assertEquals(spk.keyId, remote.signedPreKeyId)
+        assertEquals(spk.id, stored.id)
+        assertEquals(spk.publicKey, stored.publicKey)
+        val resolver = TestIdentityStack(h.crypto, h.identityRepo, InMemoryKeyStore())
+        val remote = resolver.resolvePeerPreKeyBundle(newcomer.deviceId)
+        assertEquals(EncryptionPublicKey(newcomer.encryptionPublic), remote.identityKey)
+        assertEquals(spk.publicKey, remote.signedPreKey.publicKey)
+        assertEquals(spk.id, remote.signedPreKey.id)
     }
 
     @Test
@@ -480,8 +510,12 @@ class DefaultGlobalEventProjectorTest {
 
         val newcomerAccount = newAccount(h.crypto, "newcomer")
         val newcomer = newDevice(h.crypto, newcomerAccount, "newcomer-device")
-        val spk = spkFor(h.crypto, newcomer).copy(
-            signature = spkFor(h.crypto, newcomer).signature.copyOf().also {
+        val genuine = spkFor(h.crypto, newcomer)
+        val spk = SignedPreKey(
+            id = genuine.id,
+            deviceId = genuine.deviceId,
+            publicKey = genuine.publicKey,
+            signature = genuine.signature.copyOf().also {
                 it[0] = (it[0].toInt() xor 0xff).toByte()
             },
         )
@@ -565,7 +599,7 @@ class DefaultGlobalEventProjectorTest {
 
         // Cut adds are ignored (authentic, stored VERIFIED) and project as tombstones.
         assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(evil.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(evil.deviceId))
         assertTrue(h.seen.none { it is IdentityStateChange.DeviceAdded && it.deviceId == evil.deviceId })
     }
 
@@ -606,8 +640,8 @@ class DefaultGlobalEventProjectorTest {
         // author — transitivity via PENDING, not via rejection.
         assertEquals(VerificationState.VERIFIED, h.verdictOf(evilAdd.messageId))
         assertEquals(VerificationState.PENDING, h.verdictOf(puppetAdd.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(evil.deviceId))
-        assertNull(h.identityRepo.getDeviceRecord(puppet.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(evil.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(puppet.deviceId))
     }
 
     @Test
@@ -635,7 +669,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         assertEquals(VerificationState.VERIFIED, h.verdictOf(lateAdd.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(late.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(late.deviceId))
     }
 
     @Test
@@ -669,7 +703,7 @@ class DefaultGlobalEventProjectorTest {
 
         assertEquals(IdentityStatus.BANNED, h.identityRepo.getDeviceStatus(h.oldPhone.deviceId))
         assertEquals(VerificationState.VERIFIED, h.verdictOf(forged.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(evil.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(evil.deviceId))
         assertEquals(IdentityStatus.ACTIVE, h.identityRepo.getDeviceStatus(pc.deviceId))
     }
 
@@ -872,7 +906,7 @@ class DefaultGlobalEventProjectorTest {
 
         assertEquals(VerificationState.PENDING, h.verdictOf(forgedRoot.messageId))
         assertTrue(h.identityRepo.isAccountAdmin(h.account.accountId))
-        assertEquals("genesis-user", h.identityRepo.getAccountRecord(h.account.accountId)?.displayName)
+        assertEquals("genesis-user", h.identityRepo.getAccountIdentity(h.account.accountId)?.displayName)
     }
 
     @Test
@@ -893,8 +927,8 @@ class DefaultGlobalEventProjectorTest {
             event = GlobalEventPayload.AddDevice(
                 accountId = h.account.accountId,
                 deviceId = victimId,
-                signingPublicKey = attackerKeys.publicKey,
-                encryptionPublicKey = h.crypto.generateEncryptionKeyPair().publicKey,
+                signingPublicKey = attackerKeys.publicKey.bytes,
+                encryptionPublicKey = h.crypto.generateEncryptionKeyPair().publicKey.bytes,
                 torEndpoint = TorEndpoint("hijack.onion"),
                 deviceType = DeviceType.DESKTOP,
                 keySignature = null,
@@ -904,7 +938,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         assertEquals(VerificationState.REJECTED, h.verdictOf(hijack.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(victimId))
+        assertNull(h.identityRepo.getDeviceIdentity(victimId))
     }
 
     @Test
@@ -967,7 +1001,7 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         assertEquals(VerificationState.VERIFIED, h.verdictOf(crossAdd.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(intruder.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(intruder.deviceId))
     }
 
     @Test
@@ -1195,7 +1229,7 @@ class DefaultGlobalEventProjectorTest {
             prevIds = h.frontier(),
             createdAt = epochSeconds(11_100L),
             event = addDeviceBranch1(h.account, pc),
-            signWith = wrongKey.privateKey,
+            signWith = wrongKey.privateKey.bytes,
         )
         h.store(badSig)
         runCurrent()
@@ -1206,7 +1240,7 @@ class DefaultGlobalEventProjectorTest {
             }
         }
         assertEquals(VerificationState.REJECTED, h.verdictOf(badSig.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(pc.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(pc.deviceId))
     }
 
     @Test
@@ -1219,18 +1253,18 @@ class DefaultGlobalEventProjectorTest {
         val strangerXKeys = h.crypto.generateSigningKeyPair()
         val strangerX = TestDevice(
             deviceId = h.crypto.peerIdFromPublicKey(strangerXKeys.publicKey),
-            signingPublic = strangerXKeys.publicKey,
-            signingPrivate = strangerXKeys.privateKey,
-            encryptionPublic = h.crypto.generateEncryptionKeyPair().publicKey,
+            signingPublic = strangerXKeys.publicKey.bytes,
+            signingPrivate = strangerXKeys.privateKey.bytes,
+            encryptionPublic = h.crypto.generateEncryptionKeyPair().publicKey.bytes,
             account = h.account,
             torEndpoint = TorEndpoint("stranger-x.onion"),
         )
         val strangerZKeys = h.crypto.generateSigningKeyPair()
         val strangerZ = TestDevice(
             deviceId = h.crypto.peerIdFromPublicKey(strangerZKeys.publicKey),
-            signingPublic = strangerZKeys.publicKey,
-            signingPrivate = strangerZKeys.privateKey,
-            encryptionPublic = h.crypto.generateEncryptionKeyPair().publicKey,
+            signingPublic = strangerZKeys.publicKey.bytes,
+            signingPrivate = strangerZKeys.privateKey.bytes,
+            encryptionPublic = h.crypto.generateEncryptionKeyPair().publicKey.bytes,
             account = h.account,
             torEndpoint = TorEndpoint("stranger-z.onion"),
         )
@@ -1258,9 +1292,9 @@ class DefaultGlobalEventProjectorTest {
         runCurrent()
 
         assertEquals(VerificationState.PENDING, h.verdictOf(orphan.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(otherFresh.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(otherFresh.deviceId))
         assertEquals(VerificationState.PENDING, h.verdictOf(selfAdd.messageId))
-        assertNull(h.identityRepo.getDeviceRecord(strangerZ.deviceId))
+        assertNull(h.identityRepo.getDeviceIdentity(strangerZ.deviceId))
     }
 
     @Test
@@ -2384,7 +2418,7 @@ class DefaultGlobalEventProjectorTest {
                 "seed $seed",
             )
             for (id in attacked.forgedDeviceIds) {
-                assertNull(attacked.harness.identityRepo.getDeviceRecord(id), "seed $seed")
+                assertNull(attacked.harness.identityRepo.getDeviceIdentity(id), "seed $seed")
             }
             // Refold stability on the attacked world: re-triggering a fold over the
             // identical stored set changes no verdict, no status, no emission.

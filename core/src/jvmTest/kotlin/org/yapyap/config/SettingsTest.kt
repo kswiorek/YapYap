@@ -5,7 +5,7 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import net.peanuuutz.tomlkt.Toml
-import org.yapyap.persistence.config.ConfigStore
+import org.yapyap.wiring.ConfigStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

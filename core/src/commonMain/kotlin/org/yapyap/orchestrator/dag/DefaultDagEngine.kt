@@ -1,11 +1,13 @@
 package org.yapyap.orchestrator.dag
 
+import org.yapyap.orchestrator.store.*
+
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
@@ -13,7 +15,6 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -42,7 +43,7 @@ internal class DefaultDagEngine(
     private val messageRepository: MessageRepository,
     private val causalHoldRepository: CausalHoldRepository,
     private val roomRepository: RoomRepository,
-    private val identityResolver: IdentityResolver,
+    private val localIdentity: LocalIdentity,
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
     private val clock: Clock,
@@ -66,8 +67,8 @@ internal class DefaultDagEngine(
     }
 
     override suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload = mutex.withLock {
-        val senderAccountId = identityResolver.getLocalAccountId()
-        val authorDeviceId = identityResolver.getLocalDeviceId()
+        val senderAccountId = localIdentity.getLocalAccountId()
+        val authorDeviceId = localIdentity.getLocalDeviceId()
         val createdAt = clock.now()
         val frontier = messageRepository.findRoomFrontier(roomId)
         val prevIds: List<Uuid> = if (frontier.isNotEmpty()) {
@@ -168,8 +169,8 @@ internal class DefaultDagEngine(
     }
 
     override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = mutex.withLock {
-        val senderAccountId = identityResolver.getLocalAccountId()
-        val authorDeviceId = identityResolver.getLocalDeviceId()
+        val senderAccountId = localIdentity.getLocalAccountId()
+        val authorDeviceId = localIdentity.getLocalDeviceId()
         val createdAt = clock.now()
         val messageId = Uuid.random()
         // Deterministic member order for canonical encoding.
@@ -391,11 +392,11 @@ internal class DefaultDagEngine(
     }
 
     /**
-     * Re-evaluates a stored [org.yapyap.persistence.messaging.MessageRow] under current identity
+     * Re-evaluates a stored [org.yapyap.orchestrator.store.StoredMessage] under current identity
      * state. Returns a [VerificationStateChange] only if its state actually changed, otherwise null
      * (nothing to report). Caller is responsible for emitting and for holding [mutex].
      */
-    private suspend fun reverify(row: MessageRow): VerificationStateChange? {
+    private suspend fun reverify(row: StoredMessage): VerificationStateChange? {
         val payload = row.payload
         val newState = classifyVerification(payload)
         if (newState == row.verificationState) return null

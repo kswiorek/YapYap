@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator.onboarding
 
+import org.yapyap.orchestrator.identity.ProvisionalIdentitySeeder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,12 +14,10 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.persistence.key.BootstrapSessionStore
-import org.yapyap.persistence.key.IdentityKeyRepository
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.crypto.store.BootstrapSessionStore
+import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.Router
@@ -43,8 +42,8 @@ internal class DefaultOnboardingProvider(
     private val router: Router,
     private val sessionStore: BootstrapSessionStore,
     private val syncCoordinator: SyncCoordinator,
-    private val identityKeyRepository: IdentityKeyRepository,
-    private val roomRepository: RoomRepository,
+    private val identityReader: IdentityReader,
+    private val provisionalSeeder: ProvisionalIdentitySeeder,
     private val projector: GlobalEventProjector,
     private val clock: Clock = Clock.System,
     private val routerConfig: StateFlow<RouterConfig>,
@@ -206,8 +205,8 @@ internal class DefaultOnboardingProvider(
      * provisional, so this reads false (same as the old hardcoded stub).
      */
     private suspend fun isLocalDeviceAnchoredInGlobalChain(): Boolean {
-        val localDeviceId = identityKeyRepository.getLocalDeviceRecord()?.deviceId ?: return false
-        return !identityKeyRepository.isDeviceProvisional(localDeviceId)
+        val localDeviceId = identityReader.getLocalDeviceIdentity()?.deviceId ?: return false
+        return !identityReader.isDeviceProvisional(localDeviceId)
     }
 
     /** Arm the in-memory expiry against the persisted deadline (re-armed on every transition). */
@@ -256,18 +255,18 @@ internal class DefaultOnboardingProvider(
         armTimeout(syncDeadline)
         // FK order: account, device, membership. Never clobber existing rows with intro data
         // (the role stays projector-owned; both seeds are insert-only).
-        identityKeyRepository.seedProvisionalPeerAccount(
+        provisionalSeeder.seedProvisionalPeerAccount(
             identity = intro.account,
             role = AccountRole.MEMBER,
             displayName = intro.account.displayName,
         )
-        identityKeyRepository.seedProvisionalPeerDevice(
+        provisionalSeeder.seedProvisionalPeerDevice(
             accountId = intro.account.accountId,
             deviceType = intro.deviceType,
             identity = intro.device,
             torEndpoint = intro.torEndpoint,
         )
-        roomRepository.upsertMember(RoomId.GLOBAL, intro.account.accountId, RoomMemberRole.MEMBER)
+        projector.seedProvisionalMember(intro.account.accountId)
         syncCoordinator.requestFrontierSync(RoomId.GLOBAL, intro.dagHeadTipIds)
         // SYNCING is terminal until the fold reports our own Add event: the projector's
         // stateChanges collector (see activate) drives COMPLETE + burn via onIdentityStateChange
@@ -283,7 +282,7 @@ internal class DefaultOnboardingProvider(
         if (change !is IdentityStateChange.DeviceAdded) return
         val current = _state.value
         if (!current.isWaitingOnboarding()) return
-        val localDeviceId = identityKeyRepository.getLocalDeviceRecord()?.deviceId ?: return
+        val localDeviceId = identityReader.getLocalDeviceIdentity()?.deviceId ?: return
         if (change.deviceId != localDeviceId) return
         timeoutJob?.cancel()
         timeoutJob = null

@@ -1,5 +1,6 @@
 package org.yapyap.routing.dispatch
 
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.routing.router.RouterTransport
@@ -27,7 +28,8 @@ internal class EnvelopeDispatcher(
     ) {
         when (transport) {
             RouterTransport.TOR -> ctx.torTransport.send(
-                endpointOverride ?: ctx.identityResolver.resolveTorEndpointForDevice(envelope.target),
+                endpointOverride ?: ctx.routes.resolveTorEndpointForDevice(envelope.target)
+                ?: throw NoKnownEndpointException(envelope.target),
                 envelope,
                 torBudget,
                 torReplyLink,
@@ -42,3 +44,7 @@ internal class EnvelopeDispatcher(
         }
     }
 }
+
+/** A Tor send to a device whose endpoint the router has never learned (no row, no override). */
+internal class NoKnownEndpointException(deviceId: PeerId) :
+    IllegalStateException("No Tor endpoint known for device ${deviceId.id}")

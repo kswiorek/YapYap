@@ -2,6 +2,13 @@ package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.session.*
+import org.yapyap.crypto.identity.LocalOneTimePreKey
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerPreKeyBundle
+import org.yapyap.crypto.identity.SignedPreKey
+import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.OneTimePreKeyId
+import org.yapyap.crypto.keys.SignedPreKeyId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import kotlin.test.*
 
@@ -14,10 +21,11 @@ class X3dhHandshakeTest {
     fun initiatorAndResponder_compute3Dh_agreeOnSharedSecret() = runTest {
         val fixture = fixtureKeys()
         val ekA = crypto.generateEncryptionKeyPair()
-        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceLocal, fixture.bobRemote, ekA)
+        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceIdentity.privateKey, fixture.bobRemote, ekA)
         val responder = x3dh.responderCompute3Dh(
-            local = fixture.bobLocal,
-            remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
+            localIdentityKey = fixture.bobIdentity.privateKey,
+            localSignedPreKey = fixture.bobSignedPreKey,
+            remoteIdentityKey = fixture.aliceIdentity.publicKey,
             wire = initiator.wire,
         )
         assertContentEquals(initiator.sharedSecret, responder.sharedSecret)
@@ -30,17 +38,17 @@ class X3dhHandshakeTest {
         val ekA = crypto.generateEncryptionKeyPair()
         val opk = crypto.generateEncryptionKeyPair()
         val initiator = x3dh.initiatorCompute4Dh(
-            local = fixture.aliceLocal,
+            localIdentityKey = fixture.aliceIdentity.privateKey,
             remote = fixture.bobRemote,
             ephemeral = ekA,
             oneTimePreKeyPublicKey = opk.publicKey,
             oneTimePreKeyId = "opk-1",
         )
         val responder = x3dh.responderCompute4Dh(
-            local = fixture.bobLocal,
-            oneTimePreKeyPrivateKey = opk.privateKey,
-            oneTimePreKeyId = "opk-1",
-            remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
+            localIdentityKey = fixture.bobIdentity.privateKey,
+            localSignedPreKey = fixture.bobSignedPreKey,
+            oneTimePreKey = LocalOneTimePreKey(OneTimePreKeyId("opk-1"), opk.publicKey, opk.privateKey),
+            remoteIdentityKey = fixture.aliceIdentity.publicKey,
             wire = initiator.wire,
         )
         assertContentEquals(initiator.sharedSecret, responder.sharedSecret)
@@ -52,9 +60,9 @@ class X3dhHandshakeTest {
         val fixture = fixtureKeys()
         val ekA = crypto.generateEncryptionKeyPair()
         val opk = crypto.generateEncryptionKeyPair()
-        val threeDh = x3dh.initiatorCompute3Dh(fixture.aliceLocal, fixture.bobRemote, ekA)
+        val threeDh = x3dh.initiatorCompute3Dh(fixture.aliceIdentity.privateKey, fixture.bobRemote, ekA)
         val fourDh = x3dh.initiatorCompute4Dh(
-            local = fixture.aliceLocal,
+            localIdentityKey = fixture.aliceIdentity.privateKey,
             remote = fixture.bobRemote,
             ephemeral = ekA,
             oneTimePreKeyPublicKey = opk.publicKey,
@@ -67,9 +75,9 @@ class X3dhHandshakeTest {
     fun initiatorBootstrap_usesEphemeralAsLocalRatchetKey() = runTest {
         val fixture = fixtureKeys()
         val ekA = crypto.generateEncryptionKeyPair()
-        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceLocal, fixture.bobRemote, ekA)
-        assertContentEquals(ekA.privateKey, initiator.ratchetBootstrap.localDhPrivateKey)
-        assertContentEquals(ekA.publicKey, initiator.ratchetBootstrap.localDhPublicKey)
+        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceIdentity.privateKey, fixture.bobRemote, ekA)
+        assertContentEquals(ekA.privateKey.bytes, initiator.ratchetBootstrap.localDhPrivateKey)
+        assertContentEquals(ekA.publicKey.bytes, initiator.ratchetBootstrap.localDhPublicKey)
         assertContentEquals(initiator.wire.ephemeralPublicKey, initiator.ratchetBootstrap.localDhPublicKey)
     }
 
@@ -77,10 +85,11 @@ class X3dhHandshakeTest {
     fun compute3Dh_ratchetRoundTrip() = runTest {
         val fixture = fixtureKeys()
         val ekA = crypto.generateEncryptionKeyPair()
-        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceLocal, fixture.bobRemote, ekA)
+        val initiator = x3dh.initiatorCompute3Dh(fixture.aliceIdentity.privateKey, fixture.bobRemote, ekA)
         val responder = x3dh.responderCompute3Dh(
-            local = fixture.bobLocal,
-            remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
+            localIdentityKey = fixture.bobIdentity.privateKey,
+            localSignedPreKey = fixture.bobSignedPreKey,
+            remoteIdentityKey = fixture.aliceIdentity.publicKey,
             wire = initiator.wire,
         )
         val alice = DoubleRatchetSession.createInitiator(crypto, initiator.ratchetBootstrap)
@@ -96,17 +105,17 @@ class X3dhHandshakeTest {
         val ekA = crypto.generateEncryptionKeyPair()
         val opk = crypto.generateEncryptionKeyPair()
         val initiator = x3dh.initiatorCompute4Dh(
-            local = fixture.aliceLocal,
+            localIdentityKey = fixture.aliceIdentity.privateKey,
             remote = fixture.bobRemote,
             ephemeral = ekA,
             oneTimePreKeyPublicKey = opk.publicKey,
             oneTimePreKeyId = "opk-1",
         )
         val responder = x3dh.responderCompute4Dh(
-            local = fixture.bobLocal,
-            oneTimePreKeyPrivateKey = opk.privateKey,
-            oneTimePreKeyId = "opk-1",
-            remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
+            localIdentityKey = fixture.bobIdentity.privateKey,
+            localSignedPreKey = fixture.bobSignedPreKey,
+            oneTimePreKey = LocalOneTimePreKey(OneTimePreKeyId("opk-1"), opk.publicKey, opk.privateKey),
+            remoteIdentityKey = fixture.aliceIdentity.publicKey,
             wire = initiator.wire,
         )
         val alice = DoubleRatchetSession.createInitiator(crypto, initiator.ratchetBootstrap)
@@ -120,15 +129,16 @@ class X3dhHandshakeTest {
     fun responderCompute3Dh_rejectsSignedPreKeyIdMismatch() = runTest {
         val fixture = fixtureKeys()
         val initiator = x3dh.initiatorCompute3Dh(
-            fixture.aliceLocal,
+            fixture.aliceIdentity.privateKey,
             fixture.bobRemote,
             crypto.generateEncryptionKeyPair(),
         )
         val badWire = initiator.wire.copy(signedPreKeyId = "wrong-spk")
         assertFailsWith<CryptoSessionException.HandshakeMismatch> {
             x3dh.responderCompute3Dh(
-                local = fixture.bobLocal,
-                remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
+                localIdentityKey = fixture.bobIdentity.privateKey,
+                localSignedPreKey = fixture.bobSignedPreKey,
+                remoteIdentityKey = fixture.aliceIdentity.publicKey,
                 wire = badWire,
             )
         }
@@ -139,7 +149,7 @@ class X3dhHandshakeTest {
         val fixture = fixtureKeys()
         val opk = crypto.generateEncryptionKeyPair()
         val initiator = x3dh.initiatorCompute4Dh(
-            local = fixture.aliceLocal,
+            localIdentityKey = fixture.aliceIdentity.privateKey,
             remote = fixture.bobRemote,
             ephemeral = crypto.generateEncryptionKeyPair(),
             oneTimePreKeyPublicKey = opk.publicKey,
@@ -147,10 +157,10 @@ class X3dhHandshakeTest {
         )
         assertFailsWith<CryptoSessionException.HandshakeMismatch> {
             x3dh.responderCompute4Dh(
-                local = fixture.bobLocal,
-                oneTimePreKeyPrivateKey = opk.privateKey,
-                oneTimePreKeyId = "opk-2",
-                remoteIdentityEncryptionPublicKey = fixture.aliceLocal.identityEncryptionPublicKey,
+                localIdentityKey = fixture.bobIdentity.privateKey,
+                localSignedPreKey = fixture.bobSignedPreKey,
+                oneTimePreKey = LocalOneTimePreKey(OneTimePreKeyId("opk-2"), opk.publicKey, opk.privateKey),
+                remoteIdentityKey = fixture.aliceIdentity.publicKey,
                 wire = initiator.wire,
             )
         }
@@ -158,31 +168,27 @@ class X3dhHandshakeTest {
 
     private suspend fun fixtureKeys(): FixtureKeys {
         val aliceIk = crypto.generateEncryptionKeyPair()
+        val bobSigning = crypto.generateSigningKeyPair()
         val bobIk = crypto.generateEncryptionKeyPair()
         val bobSpk = crypto.generateEncryptionKeyPair()
+        val bobSignedPreKey = SignedPreKey(
+            id = SignedPreKeyId("spk-1"),
+            deviceId = crypto.peerIdFromPublicKey(bobSigning.publicKey),
+            publicKey = bobSpk.publicKey,
+            signature = crypto.signDetached(bobSigning.privateKey, bobSpk.publicKey.bytes),
+        )
         return FixtureKeys(
-            aliceLocal = X3dhLocalInitiatorKeys(
-                identityEncryptionPrivateKey = aliceIk.privateKey,
-                identityEncryptionPublicKey = aliceIk.publicKey,
-            ),
-            bobRemote = X3dhRemotePeerKeys(
-                identityEncryptionPublicKey = bobIk.publicKey,
-                signedPreKeyPublicKey = bobSpk.publicKey,
-                signedPreKeyId = "spk-1",
-            ),
-            bobLocal = X3dhLocalResponderKeys(
-                identityEncryptionPrivateKey = bobIk.privateKey,
-                identityEncryptionPublicKey = bobIk.publicKey,
-                signedPreKeyPrivateKey = bobSpk.privateKey,
-                signedPreKeyPublicKey = bobSpk.publicKey,
-                signedPreKeyId = "spk-1",
-            ),
+            aliceIdentity = aliceIk,
+            bobRemote = PeerPreKeyBundle(identityKey = bobIk.publicKey, signedPreKey = bobSignedPreKey),
+            bobIdentity = bobIk,
+            bobSignedPreKey = LocalSignedPreKey(bobSignedPreKey, bobSpk.privateKey),
         )
     }
 
     private data class FixtureKeys(
-        val aliceLocal: X3dhLocalInitiatorKeys,
-        val bobRemote: X3dhRemotePeerKeys,
-        val bobLocal: X3dhLocalResponderKeys,
+        val aliceIdentity: EncryptionKeyPair,
+        val bobRemote: PeerPreKeyBundle,
+        val bobIdentity: EncryptionKeyPair,
+        val bobSignedPreKey: LocalSignedPreKey,
     )
 }
