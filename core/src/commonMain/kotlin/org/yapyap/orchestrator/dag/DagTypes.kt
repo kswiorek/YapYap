@@ -25,7 +25,7 @@ internal sealed interface MessageDraft {
 /**
  * Genesis input for [DagEngine.createRoom]. The roomId is derived from the minted
  * genesis messageId, never supplied — mirroring
- * [MessagePayload.RoomEvent.createGenesis].
+ * [RoomIds.createGenesis].
  */
 internal data class RoomCreatedDraft(
     val memberAccountIds: Set<AccountId>,

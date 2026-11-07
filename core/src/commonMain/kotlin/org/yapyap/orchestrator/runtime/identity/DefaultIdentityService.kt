@@ -9,12 +9,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
-import org.yapyap.crypto.identity.Account
-import org.yapyap.crypto.identity.Device
+import org.yapyap.orchestrator.identity.Account
 import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
-import kotlin.time.Instant
 import org.yapyap.protocol.PeerId
+import org.yapyap.routing.router.DeviceReach
 import org.yapyap.routing.router.Router
 
 /**
@@ -75,19 +74,17 @@ internal class DefaultIdentityService(
     }
 
     override suspend fun account(accountId: AccountId): AccountView? {
-        val rows = identityReader.getAllAccounts()
-        val row = rows.firstOrNull { it.accountId == accountId } ?: return null
-        val devices = identityReader.getAllDevices()
-            .filter { it.accountId == accountId }
-        return viewOf(row, devices, _onlineAccounts.value, router.deviceLastSeen())
+        val row = identityReader.getAllAccounts().firstOrNull { it.accountId == accountId } ?: return null
+        val reach = router.accountReach(listOf(accountId))[accountId].orEmpty()
+        return viewOf(row, _onlineAccounts.value, reach)
     }
 
     private suspend fun refresh() {
         val online = _onlineAccounts.value
-        val lastSeen = router.deviceLastSeen()
-        val devicesByAccount = identityReader.getAllDevices().groupBy { it.accountId }
-        val views = identityReader.getAllAccounts()
-            .map { row -> viewOf(row, devicesByAccount[row.accountId].orEmpty(), online, lastSeen) }
+        val rows = identityReader.getAllAccounts()
+        val reach = router.accountReach(rows.map { it.accountId })
+        val views = rows
+            .map { row -> viewOf(row, online, reach[row.accountId].orEmpty()) }
             .sortedWith(compareBy({ it.displayName }, { it.accountId.id }))
         _accounts.value = views
         _localAccount.value = views.firstOrNull { it.isLocal }
@@ -95,20 +92,19 @@ internal class DefaultIdentityService(
 
     private fun viewOf(
         row: Account,
-        devices: List<Device>,
         online: Set<AccountId>,
-        lastSeen: Map<PeerId, Instant>,
+        reach: Map<PeerId, DeviceReach>,
     ): AccountView {
-        val deviceViews = devices
+        val deviceViews = row.devices
             .map {
                 DeviceView(
                     deviceId = it.deviceId,
-                    torEndpoint = it.torEndpoint,
+                    torEndpoint = reach[it.deviceId]?.torEndpoint,
                     deviceType = it.deviceType,
                     status = it.status,
                     isLocal = it.isLocal,
                     provisional = it.provisional,
-                    lastSeen = lastSeen[it.deviceId],
+                    lastSeen = reach[it.deviceId]?.lastSeen,
                 )
             }
             .sortedBy { it.deviceId.id }

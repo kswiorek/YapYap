@@ -1,7 +1,5 @@
 package org.yapyap.orchestrator.dag
 
-import org.yapyap.orchestrator.store.*
-
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -14,6 +12,7 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.store.*
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -180,7 +179,7 @@ internal class DefaultDagEngine(
             roomType = draft.roomType,
             spaceId = draft.spaceId,
         )
-        val unsignedPayload = MessagePayload.RoomEvent.createGenesis(
+        val unsignedPayload = RoomIds.createGenesis(
             crypto = cryptoProvider,
             genesisMessageId = messageId,
             senderAccountId = senderAccountId,
@@ -369,7 +368,7 @@ internal class DefaultDagEngine(
         if (event !is RoomEventPayload.RoomCreated && payload.prevIds.isEmpty()) {
             return VerificationState.REJECTED
         }
-        if (event is RoomEventPayload.RoomCreated && payload.deriveRoomId(cryptoProvider) != payload.roomId) {
+        if (event is RoomEventPayload.RoomCreated && RoomIds.derive(cryptoProvider, payload) != payload.roomId) {
             return VerificationState.REJECTED
         }
         return null

@@ -4,10 +4,10 @@ import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 

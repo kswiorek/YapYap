@@ -446,11 +446,13 @@ private fun DevicesPane(session: YapSession, runtime: OrchestratorRuntime) {
                 )
                 // Recovery path: the sponsor needs this device's onion + port to
                 // bootstrap a recovery, so both stay visible and copiable.
-                CopyLine(
-                    label = stringResource(Res.string.settings_onion),
-                    value = "${d.torEndpoint.onionAddress}:${d.torEndpoint.port}",
-                    onCopied = { session.showToast(onionCopiedMsg, ToastKind.Success) },
-                )
+                d.torEndpoint?.let { endpoint ->
+                    CopyLine(
+                        label = stringResource(Res.string.settings_onion),
+                        value = "${endpoint.onionAddress}:${endpoint.port}",
+                        onCopied = { session.showToast(onionCopiedMsg, ToastKind.Success) },
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             YapButton(

@@ -2,13 +2,13 @@ package org.yapyap.crypto.primitives
 
 import org.yapyap.crypto.keys.EncryptionKeyPair
 import org.yapyap.crypto.keys.EncryptionPrivateKey
-import org.yapyap.crypto.keys.EncryptionPublicKey
 import org.yapyap.crypto.keys.SigningKeyPair
 import org.yapyap.crypto.keys.SigningPrivateKey
-import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.uuid.Uuid
 
 
@@ -57,7 +57,7 @@ internal interface CryptoProvider {
 
     /**
      * Generic `bytes -> Uuid`: `uuidFromHash(sha256(input))`.
-     * Room genesis is the first consumer (`MessagePayload.RoomEvent.deriveRoomId`);
+     * Room genesis is the first consumer (`orchestrator.dag.RoomIds`);
      * content-addressed messageIds / packetIds become call-sites with their own
      * domain separation — no new crypto code.
      */

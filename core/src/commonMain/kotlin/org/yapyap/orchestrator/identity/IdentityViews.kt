@@ -1,18 +1,7 @@
 package org.yapyap.orchestrator.identity
 
-import org.yapyap.crypto.identity.Account
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.Device
-import org.yapyap.crypto.identity.DeviceIdentity
-import org.yapyap.crypto.identity.SignedPreKey
-import org.yapyap.crypto.keys.EncryptionPublicKey
-import org.yapyap.crypto.keys.SigningPublicKey
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.AccountRole
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.*
 
 /** Read side of the `accounts`/`devices` tables for orchestrator services. */
 internal interface IdentityReader {
@@ -50,12 +39,11 @@ internal interface IdentityReader {
 
     suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId?
 
-    /** All account rows, any status (BANNED rows stay visible with their status) — the roster source. */
+    /**
+     * All accounts with their devices, any status (BANNED rows stay visible with their status) — the
+     * roster source.
+     */
     suspend fun getAllAccounts(): List<Account>
-
-    /** All device rows, any status — the roster source. */
-    suspend fun getAllDevices(): List<Device>
-
     suspend fun getActiveSignedPreKeyForDevice(deviceId: PeerId): SignedPreKey?
 }
 

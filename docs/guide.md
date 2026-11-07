@@ -51,10 +51,12 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - Owns the message history (the DAG), the global and room folds, onboarding and recovery, typing state, and **sync**
   (working out what is missing, serving sync requests, retrying them).
 - Hands a payload to the router addressed to an account and gets back an account-level report. Its own onion
-  endpoint (for invites and its own AddDevice) comes from `Router.localTorEndpoint()`; per-device "last seen"
-  for the roster comes from `Router.deviceLastSeen()`, display only.
-- May name a device as the *subject* of an identity fact (add/remove a device, re-verify messages from a device)
-  using `PeerId`, but **never addresses** one. The single exception is bootstrap: before an account exists, an
+  endpoint (for invites and its own AddDevice) comes from `Router.localTorEndpoint()`; the roster's per-device
+  endpoint and "last seen" come from `Router.accountReach()`, reported per account and for display only.
+- Models devices only as **members of an account**: an `Account` carries its `AccountDevice`s, which hold
+  identity facts (keys, type, status, provisional) and nothing about reaching them. It may name a device as the
+  *subject* of an identity fact (add/remove a device, re-verify messages from a device) using `PeerId`, but **never
+  addresses** one. The single exception is bootstrap: before an account exists, an
   intro or recovery request is sent to a device id plus an out-of-band `TorEndpoint`.
 - Never sees `BinaryEnvelope`, packet ids, link or session state, transport types, or Tor types.
 
@@ -71,7 +73,8 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - Treats payloads as opaque beyond their routing header. It never reads a `RoomId`, never looks at the DAG or
   membership, and never decides what content to send. When it needs content it does not own (the frontiers it
   advertises in a ping), it asks through an interface it declares itself, implemented by the orchestrator.
-- Lifts transport health into its own local link-status vocabulary; transport types stop at the router.
+- Folds transport health into its own `LocalLinkStatus` (`Router.localLinkStatus`); transport types stop at the
+  router.
 
 ### Transports — "move these bytes"
 
@@ -87,9 +90,11 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - **protocol** — wire types and codecs (`BinaryEnvelope`, `MessageEnvelope`, `SystemEnvelope`,
   `BootstrapEnvelope`, `FileEnvelope`, `WebRtcSignalEnvelope`), ids (`AccountId`, `PeerId`, `RoomId`,
   `TorEndpoint`), and the observability profiles (`EnvelopeObservability`) that say which routing metadata is
-  visible on the wire. It is the bottom of the graph: it depends on nothing else in the core. Codecs encode and
-  decode; signing, hashing and encryption happen elsewhere.
-- **crypto** — primitives (`CryptoProvider`), typed keys (`crypto/keys`), identity services, signatures, and 1:1
+  visible on the wire. Also the public identity vocabulary that travels on the wire (`protocol/identity`: public
+  keys, prekey ids, `SignedPreKey`, `AccountIdentity`, `DeviceIdentity`) and the WebRTC signal types. It is the
+  bottom of the graph: it depends on nothing else in the core. Codecs encode and decode; signing, hashing and
+  encryption happen elsewhere (e.g. room ids are hashed by the DAG's `RoomIds` from bytes `protocol` defines).
+- **crypto** — primitives (`CryptoProvider`), private keys (`crypto/keys`), identity services, signatures, and 1:1
   E2EE (X3DH, Double Ratchet, session manager). The identity services: `LocalIdentity` (who this device is;
   readable by every layer), `LocalKeys` (this device's private keys; crypto, protection and setup only) and
   `PeerKeys` (peers' public keys, strictly resolved). Owns its stores, including the keyring-backed key store.
@@ -151,6 +156,8 @@ Rules:
 
 - The folds are the only writers of state derived from the event chains. Services that act on the user's behalf (add a
   member, remove a device) **publish an event**; they never write the projected tables directly.
+- How to reach a device (endpoint, availability, last seen) is never part of the orchestrator's identity
+  model: the router owns it and reports it per account (`Router.accountReach()`), for display only.
 - The full identity store (`IdentityStore`) is held only by the composition root. Everyone else gets the view
   they need: `IdentityReader`, `IdentityWriter`, `ProvisionalIdentitySeeder`, `LocalIdentityStore`,
   `PeerKeyDirectory`, `DeviceDirectory`.
@@ -162,15 +169,18 @@ Rules:
 
 ### Data types
 
-- **Keys are typed.** `SigningPublicKey`, `SigningPrivateKey`, `EncryptionPublicKey`, `EncryptionPrivateKey`
-  (`crypto/keys`) wrap the bytes, compare by content, and never print a private key. Prekey ids are
-  `SignedPreKeyId` / `OneTimePreKeyId`. Raw `ByteArray` keys appear only at the wire (codecs, payload classes)
+- **Keys are typed.** Public keys (`SigningPublicKey`, `EncryptionPublicKey`, under `PublicKey` in
+  `protocol/identity`) and private keys (`SigningPrivateKey`, `EncryptionPrivateKey`, under `PrivateKey` in
+  `crypto/keys`) are separate hierarchies, so a private key can never stand where a wire key is expected. All
+  wrap the bytes, compare by content, and never print a private key. Prekey ids are `SignedPreKeyId` /
+  `OneTimePreKeyId`. Raw `ByteArray` keys appear only at the wire (codecs, payload classes)
   and inside the ratchet; convert at that boundary.
 - **Keyring entries are `KeySlot`s.** Each key the app holds outside the database has one slot; its keyring
   name never changes for an existing slot.
-- **One entity per table, named for what it is.** `Account`/`Device` are stored rows; `AccountIdentity`/
-  `DeviceIdentity` are what an account or device presents about itself (carried in bootstrap payloads), and a row
-  contains its identity rather than duplicating it. Public and private halves are separate types:
+- **One entity per table, named for what it is.** `Account` (with its `AccountDevice`s, in
+  `orchestrator/identity`) is the stored account; `AccountIdentity`/`DeviceIdentity` are what an account or
+  device presents about itself (carried in bootstrap payloads), and a stored entity contains its identity rather
+  than duplicating it. Public and private halves are separate types:
   `SignedPreKey` is what peers see, `LocalSignedPreKey` adds our private half. No `Row`/`Record` suffixes.
 - **Generated SQLDelight classes never leave their store.** Column adapters map columns straight to these
   types where they can.

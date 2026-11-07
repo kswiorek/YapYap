@@ -1,6 +1,5 @@
 package org.yapyap.routing.inbound.handlers
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,8 +8,6 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
@@ -22,6 +19,10 @@ import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds

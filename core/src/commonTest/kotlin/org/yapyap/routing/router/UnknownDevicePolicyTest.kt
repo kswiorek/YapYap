@@ -1,14 +1,15 @@
 package org.yapyap.routing.router
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds

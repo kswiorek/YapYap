@@ -1,10 +1,7 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.keys.EncryptionPublicKey
-import org.yapyap.crypto.keys.SignedPreKeyId
-import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 

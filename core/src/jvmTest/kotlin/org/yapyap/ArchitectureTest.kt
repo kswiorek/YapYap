@@ -27,7 +27,7 @@ class ArchitectureTest {
         "transport" to listOf("protocol"),
         "crypto" to listOf("protocol"),
         "protection" to listOf("crypto", "protocol"),
-        // The router reads identity through crypto's read-only views (LocalIdentity, DeviceIdentity).
+        // The router reads the local identity through crypto's read-only view (LocalIdentity).
         "routing" to listOf("transport", "protection", "protocol", "crypto.identity"),
         // The orchestrator talks to the router through its API and vocabulary, and implements the
         // ports the router declares for it (directory, sync content, ping frontiers).
@@ -59,21 +59,6 @@ class ArchitectureTest {
 
     /** "file (relative to org/yapyap) -> imported name" pairs that are known, scheduled debt. */
     private val knownDebt: Set<String> = setOf(
-        // Wire types still depend on crypto and transport (review point 5: protocol at the bottom).
-        "protocol/envelopes/BootstrapEnvelope.kt -> crypto.identity.*",
-        "protocol/envelopes/BootstrapEnvelope.kt -> crypto.keys.EncryptionPublicKey",
-        "protocol/envelopes/BootstrapEnvelope.kt -> crypto.keys.SignedPreKeyId",
-        "protocol/envelopes/BootstrapEnvelope.kt -> crypto.keys.SigningPublicKey",
-        "protocol/envelopes/MessageEnvelope.kt -> crypto.primitives.CryptoProvider",
-        "protocol/envelopes/WebRtcSignalEnvelope.kt -> transport.webrtc.types.WebRtcSignalKind",
-        "protection/envelope/WebRtcSignalProtection.kt -> transport.webrtc.types.WebRtcSignal",
-        "protection/service/DefaultEnvelopeProtectionService.kt -> transport.webrtc.types.WebRtcSignal",
-        "protection/service/EnvelopeProtectionService.kt -> transport.webrtc.types.WebRtcSignal",
-        // Tor status types still reach the orchestrator (review point 3: the router's own vocabulary).
-        "orchestrator/TransportStatusMapping.kt -> transport.tor.backend.TorBootstrapProblem",
-        "orchestrator/TransportStatusMapping.kt -> transport.tor.backend.TorHealth",
-        "orchestrator/TransportStatusMapping.kt -> transport.tor.backend.TorPublishState",
-        "orchestrator/TransportStatusMapping.kt -> transport.tor.backend.TorRecoveryStep",
     )
 
     private fun mainSources(): List<File> {

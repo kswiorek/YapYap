@@ -2,10 +2,10 @@ package org.yapyap.transport.webrtc.backend
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
-import org.yapyap.transport.webrtc.types.WebRtcSignal
 
 internal interface WebRtcBackend {
     val outgoingSignals: Flow<WebRtcSignal>

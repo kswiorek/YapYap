@@ -1,19 +1,15 @@
 package org.yapyap.orchestrator.onboarding
 
-import org.yapyap.persistence.key.*
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.crypto.store.BootstrapSessionStore
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.crypto.store.BootstrapSessionStore
 import org.yapyap.orchestrator.identity.IdentityStore
+import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.*
@@ -21,12 +17,11 @@ import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -46,12 +41,8 @@ private class FakeOnboardingRouter(
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
-    override val localPublishState: StateFlow<TorPublishState> =
-        MutableStateFlow(TorPublishState.PUBLISHING)
-    override val localTransportHealth: StateFlow<TorHealth> =
-        MutableStateFlow(TorHealth.Ready)
-    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
-        MutableStateFlow(null)
+    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
+        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true
@@ -59,7 +50,8 @@ private class FakeOnboardingRouter(
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+        emptyMap()
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,

@@ -3,6 +3,7 @@ package org.yapyap.transport.webrtc
 import kotlinx.coroutines.flow.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcTransport

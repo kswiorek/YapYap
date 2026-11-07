@@ -1,9 +1,5 @@
 package org.yapyap.crypto.e2ee
 
-import org.yapyap.routing.directory.DeviceRouteStore
-
-import org.yapyap.routing.directory.DeviceDirectory
-
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.yapyap.config.MessageLimits
 import org.yapyap.config.TransportLimits
@@ -14,7 +10,8 @@ import org.yapyap.crypto.e2ee.session.CryptoLimits
 import org.yapyap.crypto.e2ee.session.CryptoWireCodec
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.keys.*
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.CryptoSessionStore
@@ -23,6 +20,12 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 

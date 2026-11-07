@@ -1,19 +1,12 @@
 package org.yapyap.orchestrator.fold.global
 
-import org.yapyap.orchestrator.identity.IdentityWriter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.identity.LocalIdentity
-import org.yapyap.crypto.identity.SignedPreKey
-import org.yapyap.crypto.keys.EncryptionPublicKey
-import org.yapyap.crypto.keys.SignedPreKeyId
-import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -23,16 +16,18 @@ import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
 import org.yapyap.orchestrator.fold.graph.childAdjacency
-import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.identity.IdentityWriter
+import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
+import org.yapyap.protocol.identity.*
 import org.yapyap.routing.router.Router
 import kotlin.uuid.Uuid
 

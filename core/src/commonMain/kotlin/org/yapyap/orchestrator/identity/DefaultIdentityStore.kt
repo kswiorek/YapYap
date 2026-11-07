@@ -2,18 +2,16 @@ package org.yapyap.orchestrator.identity
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.keys.SignedPreKeyId
-import org.yapyap.crypto.keys.SigningPublicKey
-import org.yapyap.persistence.Accounts
-import org.yapyap.persistence.Devices
-import org.yapyap.persistence.Signed_prekeys
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.Accounts
+import org.yapyap.persistence.Devices
+import org.yapyap.persistence.Signed_prekeys
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.*
 import kotlin.time.Instant
 
 internal class DefaultIdentityStore(
@@ -87,7 +85,7 @@ internal class DefaultIdentityStore(
         deviceType: DeviceType,
         torEndpoint: TorEndpoint,
         signingPublicKey: SigningPublicKey,
-        encryptionPublicKey: org.yapyap.crypto.keys.EncryptionPublicKey,
+        encryptionPublicKey: org.yapyap.protocol.identity.EncryptionPublicKey,
         status: IdentityStatus,
     ) {
         withContext(dbDispatcher) {
@@ -550,28 +548,26 @@ internal class DefaultIdentityStore(
 
     override suspend fun getAllAccounts(): List<Account> =
         withContext(dbDispatcher) {
-            database.identityQueries.selectAllAccounts().executeAsList().map {
-                Account(
-                    identity = it.toIdentity(),
-                    role = it.role,
-                    status = it.status,
-                    isLocal = it.is_local_account,
-                )
-            }
-        }
-
-    override suspend fun getAllDevices(): List<Device> =
-        withContext(dbDispatcher) {
-            database.identityQueries.selectAllDevices().executeAsList().map {
-                Device(
-                    identity = it.toIdentity(),
-                    torEndpoint = TorEndpoint(it.onion_address, it.onion_port.toInt()),
-                    accountId = it.account_id,
-                    deviceType = it.device_type,
-                    status = it.status,
-                    isLocal = it.is_local_device,
-                    provisional = it.provisional,
-                )
+            database.transactionWithResult {
+                val devicesByAccount = database.identityQueries.selectAllDevices().executeAsList()
+                    .groupBy({ it.account_id }) {
+                        AccountDevice(
+                            identity = it.toIdentity(),
+                            deviceType = it.device_type,
+                            status = it.status,
+                            isLocal = it.is_local_device,
+                            provisional = it.provisional,
+                        )
+                    }
+                database.identityQueries.selectAllAccounts().executeAsList().map {
+                    Account(
+                        identity = it.toIdentity(),
+                        role = it.role,
+                        status = it.status,
+                        isLocal = it.is_local_account,
+                        devices = devicesByAccount[it.account_id].orEmpty(),
+                    )
+                }
             }
         }
 

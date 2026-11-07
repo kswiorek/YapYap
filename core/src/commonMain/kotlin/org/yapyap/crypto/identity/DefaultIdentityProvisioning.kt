@@ -1,22 +1,23 @@
 package org.yapyap.crypto.identity
 
 
-import org.yapyap.crypto.store.*
-
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.keys.SPK_ID_PREFIX
-import org.yapyap.crypto.keys.SignedPreKeyId
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.store.KeyStore
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
 import kotlin.time.Clock
-import kotlin.time.Instant
 
 internal class DefaultIdentityProvisioning(
     private val cryptoProvider: CryptoProvider,

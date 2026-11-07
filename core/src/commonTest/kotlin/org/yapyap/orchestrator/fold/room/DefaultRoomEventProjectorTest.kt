@@ -1,32 +1,27 @@
 package org.yapyap.orchestrator.fold.room
 
-import org.yapyap.persistence.key.*
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
+import org.yapyap.orchestrator.store.Room
+import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.orchestrator.store.RoomMember
-import org.yapyap.orchestrator.store.Room
-import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.router.*
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.epochSeconds
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -173,12 +168,8 @@ private class FakeRouter : Router {
 
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
-    override val localPublishState: StateFlow<TorPublishState> =
-        MutableStateFlow(TorPublishState.PUBLISHING)
-    override val localTransportHealth: StateFlow<TorHealth> =
-        MutableStateFlow(TorHealth.Ready)
-    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
-        MutableStateFlow(null)
+    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
+        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
@@ -190,7 +181,8 @@ private class FakeRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+        emptyMap()
     override suspend fun sendMessage(
         target: AccountId,
         payload: MessagePayload,

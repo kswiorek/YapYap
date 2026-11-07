@@ -5,7 +5,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -13,7 +13,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.routing.router.Router
 
 /**
- * The node's [LocalTransportStatus], lifted from the router's local transport flows.
+ * The node's [LocalTransportStatus], lifted from the router's [Router.localLinkStatus].
  * Transitions are logged for headless operators (this — plus the log — is their status
  * UX); bootstrap percentages alone don't log, only a new kind or problem.
  */
@@ -27,12 +27,7 @@ internal class TransportStatusMonitor(
 
     fun start(scope: CoroutineScope) {
         job = scope.launch {
-            combine(
-                router.localTransportHealth,
-                router.localPublishState,
-                router.localTransportRecovery,
-                ::localTransportStatus,
-            ).collect { status ->
+            router.localLinkStatus.map { it.toTransportStatus() }.collect { status ->
                 val previous = _status.value
                 if (status == previous) return@collect
                 _status.value = status

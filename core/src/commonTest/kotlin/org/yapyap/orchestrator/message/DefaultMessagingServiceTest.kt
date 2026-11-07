@@ -1,13 +1,5 @@
 package org.yapyap.orchestrator.message
 
-import org.yapyap.orchestrator.store.*
-
-import org.yapyap.routing.directory.DeviceRouteStore
-
-import org.yapyap.routing.directory.DeviceDirectory
-
-import org.yapyap.crypto.keys.*
-
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -17,6 +9,8 @@ import org.yapyap.crypto.e2ee.testCryptoLimits
 import org.yapyap.crypto.e2ee.testMessageLimits
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.OrchestratorConfig
@@ -24,18 +18,21 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.*
+import org.yapyap.orchestrator.store.*
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
 import org.yapyap.testfixtures.epochSeconds
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -1225,12 +1222,8 @@ private class RecordingRouter : Router {
 
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
-    override val localPublishState: StateFlow<TorPublishState> =
-        MutableStateFlow(TorPublishState.PUBLISHING)
-    override val localTransportHealth: StateFlow<TorHealth> =
-        MutableStateFlow(TorHealth.Ready)
-    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
-        MutableStateFlow(null)
+    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
+        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
@@ -1243,7 +1236,8 @@ private class RecordingRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+        emptyMap()
 
     override suspend fun sendMessage(
         target: AccountId,

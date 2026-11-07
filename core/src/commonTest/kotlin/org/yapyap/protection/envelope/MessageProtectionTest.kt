@@ -1,23 +1,21 @@
 package org.yapyap.protection.envelope
 
-import org.yapyap.persistence.key.*
-
-import org.yapyap.persistence.key.TestIdentityStack
-
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
+import org.yapyap.persistence.key.TestIdentityStack
 import org.yapyap.protection.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals

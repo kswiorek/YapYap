@@ -4,11 +4,11 @@ import kotlinx.coroutines.runBlocking
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcDataType
-import org.yapyap.transport.webrtc.types.WebRtcSignal
-import org.yapyap.transport.webrtc.types.WebRtcSignalKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.uuid.Uuid

@@ -68,9 +68,11 @@ kept open in the background, and sends only use connections that are already ope
   Setting `DisableNetwork` closes Tor's SOCKS listener and re-enabling reopens it on a new port; the backend
   re-reads the port (`GETINFO net/listeners/socks`) when a local SOCKS connect fails.
 - Status path to the GUI: `TorHealth` (incl. `NoNetwork` from the monitor), `TorPublishState` and the current
-  `TorRecoveryStep` go from the transport to the router, which lifts them into its own local link-status
-  vocabulary; the orchestrator maps that to `LocalTransportStatus`. Tor types stop at the router. Tor's stall
-  reason travels as `TransportProblem` detail, never as headline.
+  `TorRecoveryStep` go from the transport to the router, which folds them into one `Router.localLinkStatus`
+  (`LocalLinkStatus`, in `routing/router/LocalLinkStatus.kt`: precedence, recovery steps, and which bootstrap
+  `REASON` codes mean "relays unreachable"). The orchestrator maps that state for state to the public
+  `LocalTransportStatus`. Tor types stop at the router. Tor's stall reason travels as problem detail, never as
+  headline.
 
 ### Recovery
 

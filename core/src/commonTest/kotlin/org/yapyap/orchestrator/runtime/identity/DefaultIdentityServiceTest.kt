@@ -1,8 +1,5 @@
 package org.yapyap.orchestrator.runtime.identity
 
-import org.yapyap.persistence.key.*
-
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10,8 +7,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
@@ -21,10 +16,11 @@ import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.*
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -38,12 +34,8 @@ private class FakeRouter : Router {
     val onlineAccountsFlow = MutableStateFlow<Set<AccountId>>(emptySet())
     override val onlineAccounts: Flow<Set<AccountId>> = onlineAccountsFlow
 
-    override val localPublishState: StateFlow<TorPublishState> =
-        MutableStateFlow(TorPublishState.PUBLISHING)
-    override val localTransportHealth: StateFlow<TorHealth> =
-        MutableStateFlow(TorHealth.Ready)
-    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
-        MutableStateFlow(null)
+    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
+        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
@@ -58,8 +50,9 @@ private class FakeRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    val lastSeen = mutableMapOf<PeerId, Instant>()
-    override suspend fun deviceLastSeen(): Map<PeerId, Instant> = lastSeen.toMap()
+    val reach = mutableMapOf<AccountId, MutableMap<PeerId, DeviceReach>>()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<PeerId, DeviceReach>> =
+        accounts.associateWith { reach[it].orEmpty().toMap() }
     override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport =
         error("not used")
 
@@ -152,14 +145,9 @@ class DefaultIdentityServiceTest {
             provisional: Boolean = false,
             lastSeen: Instant? = null,
         ) {
-            repo.insertPeerDevice(
-                account,
-                DeviceType.DESKTOP,
-                dummyDevice(device),
-                TorEndpoint(onionAddress = "${device.id}.onion", port = 80),
-                provisional,
-            )
-            lastSeen?.let { router.lastSeen[device] = it }
+            val endpoint = TorEndpoint(onionAddress = "${device.id}.onion", port = 80)
+            repo.insertPeerDevice(account, DeviceType.DESKTOP, dummyDevice(device), endpoint, provisional)
+            router.reach.getOrPut(account) { mutableMapOf() }[device] = DeviceReach(endpoint, lastSeen)
         }
 
         private fun accountRecord(account: AccountId, displayName: String) = AccountIdentity(
@@ -207,7 +195,7 @@ class DefaultIdentityServiceTest {
                 devices = listOf(
                     DeviceView(
                         deviceId = memberDevice,
-                        torEndpoint = TorEndpoint("placeholder.onion", 80),
+                        torEndpoint = TorEndpoint("member-device.onion", 80),
                         deviceType = DeviceType.DESKTOP,
                         status = IdentityStatus.ACTIVE,
                         isLocal = false,

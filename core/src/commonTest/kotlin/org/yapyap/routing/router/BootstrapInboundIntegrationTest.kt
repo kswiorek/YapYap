@@ -6,7 +6,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
-import org.yapyap.crypto.identity.AccountIdentity
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protocol.AccountId
@@ -15,6 +14,7 @@ import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.Intro
+import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport

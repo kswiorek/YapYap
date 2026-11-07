@@ -8,9 +8,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -49,21 +46,11 @@ internal interface Router {
     val onlineAccounts: Flow<Set<AccountId>>
 
     /**
-     * Our own onion publish readiness, straight from the Tor transport.
-     * Device-local (no peer involved), so the orchestrator can safely lift it
-     * to the public transport-state flow.
+     * This device's own connectivity, folded from the transports' health (network, Tor bootstrap,
+     * onion publication, automatic recovery). Device-local; the orchestrator lifts it to the public
+     * transport status. Transport types stop here.
      */
-    val localPublishState: StateFlow<TorPublishState>
-
-    /**
-     * Our own Tor daemon health (bootstrap progress and stall reason, device
-     * offline, network liveness), straight from the Tor transport. Device-local
-     * like [localPublishState]; the orchestrator lifts it to the public status.
-     */
-    val localTransportHealth: StateFlow<TorHealth>
-
-    /** The Tor backend's current recovery step (null when healthy), straight from the transport. */
-    val localTransportRecovery: StateFlow<TorRecoveryStep?>
+    val localLinkStatus: StateFlow<LocalLinkStatus>
 
     suspend fun start()
     suspend fun stop()
@@ -87,10 +74,11 @@ internal interface Router {
     fun localTorEndpoint(): TorEndpoint
 
     /**
-     * When each device was last heard from, for display only (the roster's "last seen").
-     * Devices never heard from are absent. Routing decisions stay inside the router.
+     * How the router reaches each of [accounts]' devices, for display only (the roster's endpoint
+     * and "last seen" lines). Reported per account; banned and unknown devices are absent. Routing
+     * decisions stay inside the router.
      */
-    suspend fun deviceLastSeen(): Map<PeerId, Instant>
+    suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<PeerId, DeviceReach>>
 
     /**
      * Pushes [payload] to every device of [target]. Transport selection is owned by the

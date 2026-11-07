@@ -1,8 +1,10 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.crypto.keys.*
 
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
 
 /**
  * Builds a [DeviceIdentity] with a signed prekey, using real generated keys.

@@ -1,19 +1,19 @@
 package org.yapyap.crypto.e2ee.session
 
 import org.yapyap.crypto.e2ee.CryptoSessionException
-import org.yapyap.crypto.keys.EncryptionPublicKey
-import org.yapyap.crypto.keys.OneTimePreKeyId
-import org.yapyap.crypto.keys.SignedPreKeyId
 import org.yapyap.crypto.identity.LocalKeys
 import org.yapyap.crypto.identity.PeerKeys
-import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.crypto.store.CryptoSessionStore
-import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.OneTimePreKeyId
+import org.yapyap.protocol.identity.SignedPreKeyId
 import kotlin.time.Clock
 
 internal data class LoadedSession(

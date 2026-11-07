@@ -2,19 +2,20 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.TransportLimits
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.identity.LocalIdentity
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.link.PeerLinks
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.time.Clock
@@ -45,6 +46,14 @@ internal data class AccountPushReport(
     val devicesDeferred: Int,
     /** Permanent protection/size failures. */
     val devicesFailed: Int,
+)
+
+/** How the router reaches one device, for display only; see [Router.accountReach]. */
+internal data class DeviceReach(
+    /** The endpoint the router last proved for the device, else the one it declared; null when unknown. */
+    val torEndpoint: TorEndpoint?,
+    /** Null when the device was never heard from. */
+    val lastSeen: Instant?,
 )
 
 /**

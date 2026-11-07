@@ -18,9 +18,6 @@ import org.yapyap.routing.router.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.*
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -423,12 +420,8 @@ private class RecordingRouter : Router {
 
     override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
 
-    override val localPublishState: StateFlow<TorPublishState> =
-        MutableStateFlow(TorPublishState.PUBLISHING)
-    override val localTransportHealth: StateFlow<TorHealth> =
-        MutableStateFlow(TorHealth.Ready)
-    override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
-        MutableStateFlow(null)
+    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
+        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
 
     /** Where [startSync] goes: the test's local sync retry processor. */
@@ -445,7 +438,8 @@ private class RecordingRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun deviceLastSeen(): Map<org.yapyap.protocol.PeerId, kotlin.time.Instant> = emptyMap()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+        emptyMap()
 
     override suspend fun sendMessage(
         target: AccountId,

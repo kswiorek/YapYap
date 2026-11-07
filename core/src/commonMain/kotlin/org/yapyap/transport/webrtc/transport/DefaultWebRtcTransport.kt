@@ -9,6 +9,8 @@ import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.types.*

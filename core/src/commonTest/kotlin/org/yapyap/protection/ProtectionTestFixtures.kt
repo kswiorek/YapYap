@@ -1,21 +1,15 @@
 package org.yapyap.protection
 
-import org.yapyap.persistence.key.*
-
-import org.yapyap.routing.directory.DeviceRouteStore
-
-import org.yapyap.routing.directory.DeviceDirectory
-
-import org.yapyap.crypto.keys.*
-
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.e2ee.managerForPeer
 import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningKeyPair
+import org.yapyap.crypto.keys.SigningPrivateKey
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.envelope.FileProtection
@@ -23,9 +17,12 @@ import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.testfixtures.epochSeconds
-import org.yapyap.transport.webrtc.types.WebRtcSignal
-import org.yapyap.transport.webrtc.types.WebRtcSignalKind
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 

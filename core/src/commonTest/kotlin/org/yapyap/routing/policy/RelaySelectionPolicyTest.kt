@@ -3,9 +3,9 @@ package org.yapyap.routing.policy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.router.*
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.sync.testDeviceIdentity

@@ -1,15 +1,17 @@
 package org.yapyap.persistence.db
 
-import org.yapyap.crypto.keys.*
 
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
-import org.yapyap.crypto.identity.*
-import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.orchestrator.identity.DefaultIdentityStore
+import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.uuid.Uuid
 

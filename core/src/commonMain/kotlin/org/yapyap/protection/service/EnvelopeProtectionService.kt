@@ -3,7 +3,6 @@ package org.yapyap.protection.service
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.*
-import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.time.Instant
 
 internal interface EnvelopeProtectionService {

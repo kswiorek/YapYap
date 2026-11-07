@@ -7,10 +7,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import org.yapyap.crypto.e2ee.session.X3dhMode
-import org.yapyap.crypto.keys.EncryptionPublicKey
-import org.yapyap.crypto.keys.OneTimePreKeyId
-import org.yapyap.crypto.keys.SignedPreKeyId
-import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -18,6 +14,10 @@ import org.yapyap.persistence.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.OneTimePreKeyId
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 

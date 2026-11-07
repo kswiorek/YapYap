@@ -1,7 +1,7 @@
 package org.yapyap.crypto.store
 
 import org.yapyap.crypto.identity.LocalOneTimePreKey
-import org.yapyap.crypto.keys.OneTimePreKeyId
+import org.yapyap.protocol.identity.OneTimePreKeyId
 import kotlin.time.Instant
 
 /**

@@ -1,9 +1,7 @@
 package org.yapyap.protection.envelope
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
@@ -15,6 +13,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
 import org.yapyap.protocol.envelopes.Intro
+import org.yapyap.protocol.identity.*
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*
 import kotlin.uuid.Uuid

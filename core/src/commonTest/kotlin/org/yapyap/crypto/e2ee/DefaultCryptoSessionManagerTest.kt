@@ -1,7 +1,5 @@
 package org.yapyap.crypto.e2ee
 
-import org.yapyap.persistence.key.*
-
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.maintenance.maintainPeerSessions
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
@@ -9,11 +7,11 @@ import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
 import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.crypto.identity.PeerPreKeyBundle
-import org.yapyap.crypto.keys.OneTimePreKeyId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.key.FailingAllocateOpkRepository
 import org.yapyap.persistence.key.InMemoryOpkRepository
+import org.yapyap.protocol.identity.OneTimePreKeyId
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*

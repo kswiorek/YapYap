@@ -1,17 +1,16 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.persistence.key.*
-
-import org.yapyap.orchestrator.identity.*
-
-import org.yapyap.crypto.store.*
-
-import org.yapyap.crypto.keys.*
-
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
+import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.persistence.key.InMemoryIdentityStore
+import org.yapyap.persistence.key.InMemoryKeyStore
+import org.yapyap.persistence.key.InMemoryOpkRepository
+import org.yapyap.persistence.key.TestIdentityStack
 import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.*

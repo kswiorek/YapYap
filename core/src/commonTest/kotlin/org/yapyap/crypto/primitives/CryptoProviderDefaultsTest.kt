@@ -1,9 +1,13 @@
 package org.yapyap.crypto.primitives
 
-import org.yapyap.crypto.keys.*
-
 import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.SigningKeyPair
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

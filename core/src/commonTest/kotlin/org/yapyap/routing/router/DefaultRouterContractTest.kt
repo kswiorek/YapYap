@@ -1,14 +1,15 @@
 package org.yapyap.routing.router
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.yapyap.crypto.identity.DeviceIdentity
-import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport

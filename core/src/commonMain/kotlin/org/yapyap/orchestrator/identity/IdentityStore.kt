@@ -1,10 +1,10 @@
 package org.yapyap.orchestrator.identity
 
-import org.yapyap.crypto.identity.*
-import org.yapyap.orchestrator.identity.IdentityReader
-import org.yapyap.orchestrator.identity.IdentityWriter
-import org.yapyap.orchestrator.identity.ProvisionalIdentitySeeder
+import org.yapyap.crypto.identity.LocalIdentityStore
+import org.yapyap.crypto.identity.PeerKeyDirectory
 import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.directory.DeviceDirectory
 
 /**

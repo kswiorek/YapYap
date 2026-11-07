@@ -5,11 +5,16 @@ import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.algorithms.*
 import dev.whyoleg.cryptography.random.CryptographyRandom
 import org.kotlincrypto.error.SignatureException
-import org.yapyap.crypto.keys.*
+import org.yapyap.crypto.keys.EncryptionKeyPair
+import org.yapyap.crypto.keys.EncryptionPrivateKey
+import org.yapyap.crypto.keys.SigningKeyPair
+import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.random.Random
 
 /**

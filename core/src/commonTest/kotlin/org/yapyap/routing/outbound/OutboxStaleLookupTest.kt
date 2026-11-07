@@ -1,14 +1,15 @@
 package org.yapyap.routing.outbound
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.runBlocking
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest

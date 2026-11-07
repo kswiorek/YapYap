@@ -1,10 +1,10 @@
 package org.yapyap.protocol.envelopes
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.test.*
 
 class GlobalEventPayloadCodecTest {

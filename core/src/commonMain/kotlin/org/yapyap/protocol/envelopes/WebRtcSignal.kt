@@ -1,7 +1,8 @@
-package org.yapyap.transport.webrtc.types
+package org.yapyap.protocol.envelopes
 
 import org.yapyap.protocol.PeerId
 
+/** One WebRTC signaling message (offer, answer, ICE, …) between two devices, before protection. */
 internal data class WebRtcSignal(
     val kind: WebRtcSignalKind,
     val source: PeerId,

@@ -6,9 +6,9 @@ import org.yapyap.crypto.identity.LocalSignedPreKey
 import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionKeyPair
 import org.yapyap.crypto.keys.EncryptionPrivateKey
-import org.yapyap.crypto.keys.EncryptionPublicKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.protocol.identity.EncryptionPublicKey
 
 private const val SHARED_SECRET_SIZE = DefaultCryptoProvider.AEAD_KEY_SIZE_BYTES
 private val X3DH_KDF_INFO = "YapYapX3DH".encodeToByteArray()

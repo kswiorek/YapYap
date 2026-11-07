@@ -3,22 +3,17 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.yapyap.config.TransportLimits
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.identity.LocalIdentity
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.routing.store.PeerAvailabilityStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketDeduplicator
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.*
@@ -31,13 +26,12 @@ import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
+import org.yapyap.routing.store.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.transport.tor.TorSessionState
 import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
@@ -261,14 +255,17 @@ internal class DefaultRouter(
             .map { online -> online.mapNotNull { devices.getAccountIdForDevice(it) }.toSet() }
             .distinctUntilChanged()
 
-    override val localPublishState: StateFlow<TorPublishState>
-        get() = torTransport.publishState
-
-    override val localTransportHealth: StateFlow<TorHealth>
-        get() = torTransport.health
-
-    override val localTransportRecovery: StateFlow<TorRecoveryStep?>
-        get() = torTransport.recovery
+    override val localLinkStatus: StateFlow<LocalLinkStatus> =
+        combine(torTransport.health, torTransport.publishState, torTransport.recovery, ::localLinkStatus)
+            .stateIn(
+                scope,
+                SharingStarted.Eagerly,
+                localLinkStatus(
+                    torTransport.health.value,
+                    torTransport.publishState.value,
+                    torTransport.recovery.value
+                ),
+            )
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
@@ -439,10 +436,16 @@ internal class DefaultRouter(
 
     override fun isRunning(): Boolean = started
 
-    override suspend fun deviceLastSeen(): Map<PeerId, Instant> =
-        peerAvailabilityStore.availabilityForAll()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<PeerId, DeviceReach>> {
+        val lastSeen = peerAvailabilityStore.availabilityForAll()
             .filter { it.lastSeen != Instant.DISTANT_PAST }
             .associate { it.deviceId to it.lastSeen }
+        return accounts.associateWith { account ->
+            devices.getAllPeerDevicesForAccount(account).associateWith { device ->
+                DeviceReach(torEndpoint = routes.resolveTorEndpointForDevice(device), lastSeen = lastSeen[device])
+            }
+        }
+    }
 
     override fun localTorEndpoint(): TorEndpoint =
         checkNotNull(torEndpoint) { "Router not started: local Tor endpoint unknown" }

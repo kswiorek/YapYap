@@ -1,21 +1,24 @@
 package org.yapyap.crypto.identity
 
-import org.yapyap.persistence.key.*
-
-import org.yapyap.persistence.key.TestIdentityStack
-
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
+import org.yapyap.persistence.key.TestIdentityStack
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
-import kotlin.test.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 
 /**
  * Peer X3DH key verification: the resolver still verifies the signed-prekey signature

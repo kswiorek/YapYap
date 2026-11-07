@@ -1,106 +1,53 @@
 package org.yapyap.orchestrator
 
-import org.yapyap.transport.tor.backend.TorBootstrapProblem
-import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.backend.TorPublishState
-import org.yapyap.transport.tor.backend.TorRecoveryStep
+import org.yapyap.routing.router.LinkProblem
+import org.yapyap.routing.router.LinkProblemKind
+import org.yapyap.routing.router.LinkRecoveryStep
+import org.yapyap.routing.router.LocalLinkStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TransportStatusMappingTest {
 
-    private val noRoute = TorBootstrapProblem(
-        reason = "NOROUTE",
-        warning = "No route to host",
-        count = 3,
-        hostAddr = "95.216.23.120:9001",
-    )
-
     @Test
-    fun noNetwork_winsOverEverything() {
-        TorPublishState.entries.forEach { publish ->
-            assertEquals(LocalTransportStatus.NoNetwork, localTransportStatus(TorHealth.NoNetwork, publish))
-        }
+    fun plainStates_mapOneToOne() {
+        assertEquals(LocalTransportStatus.NoNetwork, LocalLinkStatus.NoNetwork.toTransportStatus())
+        assertEquals(LocalTransportStatus.Reconnecting, LocalLinkStatus.Reconnecting.toTransportStatus())
+        assertEquals(LocalTransportStatus.WarmingUp, LocalLinkStatus.WarmingUp.toTransportStatus())
+        assertEquals(LocalTransportStatus.Online, LocalLinkStatus.Online.toTransportStatus())
+        assertEquals(LocalTransportStatus.Degraded, LocalLinkStatus.Degraded.toTransportStatus())
     }
 
     @Test
-    fun beforeReady_publishStateIsIgnored() {
-        assertEquals(
-            LocalTransportStatus.Connecting(0, null),
-            localTransportStatus(TorHealth.Starting, TorPublishState.PUBLISHED),
-        )
-        assertEquals(
-            LocalTransportStatus.Connecting(45, null),
-            localTransportStatus(TorHealth.Bootstrapping(45, null), TorPublishState.PUBLISHED),
-        )
-        assertEquals(
-            LocalTransportStatus.Reconnecting,
-            localTransportStatus(TorHealth.NetworkDown, TorPublishState.PUBLISHED),
-        )
-    }
-
-    @Test
-    fun ready_followsPublishState() {
-        assertEquals(LocalTransportStatus.WarmingUp, localTransportStatus(TorHealth.Ready, TorPublishState.PUBLISHING))
-        assertEquals(LocalTransportStatus.Online, localTransportStatus(TorHealth.Ready, TorPublishState.PUBLISHED))
-        assertEquals(LocalTransportStatus.Degraded, localTransportStatus(TorHealth.Ready, TorPublishState.DEGRADED))
-    }
-
-    @Test
-    fun bootstrapProblem_becomesTransportProblem() {
+    fun connecting_keepsProgressAndProblem() {
         assertEquals(
             LocalTransportStatus.Connecting(
                 progress = 5,
-                problem = TransportProblem(
-                    kind = TransportProblemKind.RELAYS_UNREACHABLE,
-                    detail = "NOROUTE to 95.216.23.120:9001 (No route to host), 3 times",
+                problem = TransportProblem(TransportProblemKind.RELAYS_UNREACHABLE, "NOROUTE"),
+            ),
+            LocalLinkStatus.Connecting(5, LinkProblem(LinkProblemKind.RELAYS_UNREACHABLE, "NOROUTE"))
+                .toTransportStatus(),
+        )
+    }
+
+    @Test
+    fun recovering_mapsEveryStep() {
+        val expected = mapOf(
+            LinkRecoveryStep.RECONNECTING to RecoveryAction.RECONNECTING,
+            LinkRecoveryStep.RESTARTING to RecoveryAction.RESTARTING,
+            LinkRecoveryStep.REFRESHING_DIRECTORY to RecoveryAction.REFRESHING_DIRECTORY,
+            LinkRecoveryStep.RESETTING_ENTRY_RELAYS to RecoveryAction.RESETTING_ENTRY_RELAYS,
+        )
+        LinkRecoveryStep.entries.forEach { step ->
+            assertEquals(
+                LocalTransportStatus.Recovering(
+                    action = expected.getValue(step),
+                    progress = null,
+                    problem = TransportProblem(TransportProblemKind.OTHER, "IDENTITY"),
                 ),
-            ),
-            localTransportStatus(TorHealth.Bootstrapping(5, noRoute), TorPublishState.PUBLISHING),
-        )
-    }
-
-    @Test
-    fun unknownReason_isOther_andSparseFieldsAreOmitted() {
-        val identity = TorBootstrapProblem(reason = "IDENTITY", warning = null, count = 1, hostAddr = null)
-        assertEquals(
-            TransportProblem(TransportProblemKind.OTHER, "IDENTITY"),
-            identity.toTransportProblem(),
-        )
-    }
-
-    @Test
-    fun recovery_showsWhileStuck_withProgressAndProblem() {
-        assertEquals(
-            LocalTransportStatus.Recovering(
-                action = RecoveryAction.RESTARTING,
-                progress = 5,
-                problem = TransportProblem(
-                    kind = TransportProblemKind.RELAYS_UNREACHABLE,
-                    detail = "NOROUTE to 95.216.23.120:9001 (No route to host), 3 times",
-                ),
-            ),
-            localTransportStatus(
-                TorHealth.Bootstrapping(5, noRoute),
-                TorPublishState.PUBLISHING,
-                TorRecoveryStep.RESTART_DAEMON,
-            ),
-        )
-        assertEquals(
-            LocalTransportStatus.Recovering(RecoveryAction.RECONNECTING, progress = null, problem = null),
-            localTransportStatus(TorHealth.Ready, TorPublishState.DEGRADED, TorRecoveryStep.CYCLE_NETWORK),
-        )
-    }
-
-    @Test
-    fun recovery_neverHidesNoNetwork_orAFinishedRecovery() {
-        assertEquals(
-            LocalTransportStatus.NoNetwork,
-            localTransportStatus(TorHealth.NoNetwork, TorPublishState.PUBLISHING, TorRecoveryStep.RESTART_DAEMON),
-        )
-        assertEquals(
-            LocalTransportStatus.Online,
-            localTransportStatus(TorHealth.Ready, TorPublishState.PUBLISHED, TorRecoveryStep.RESTART_DAEMON),
-        )
+                LocalLinkStatus.Recovering(step, null, LinkProblem(LinkProblemKind.OTHER, "IDENTITY"))
+                    .toTransportStatus(),
+            )
+        }
     }
 }

@@ -5,9 +5,9 @@ import org.yapyap.protocol.AccountRole;
 import org.yapyap.protocol.IdentityStatus;
 import org.yapyap.protocol.DeviceType;
 import org.yapyap.protocol.PeerId;
-import org.yapyap.crypto.keys.SigningPublicKey;
-import org.yapyap.crypto.keys.EncryptionPublicKey;
-import org.yapyap.crypto.keys.SignedPreKeyId;
+import org.yapyap.protocol.identity.SigningPublicKey;
+import org.yapyap.protocol.identity.EncryptionPublicKey;
+import org.yapyap.protocol.identity.SignedPreKeyId;
 
 CREATE TABLE accounts (
     account_id TEXT AS AccountId NOT NULL PRIMARY KEY,

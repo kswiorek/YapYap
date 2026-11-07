@@ -1,22 +1,15 @@
 package org.yapyap.crypto.identity
 
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.keys.EncryptionPrivateKey
-import org.yapyap.crypto.keys.EncryptionPublicKey
-import org.yapyap.crypto.keys.KeySlot
-import org.yapyap.crypto.keys.SignedPreKeyId
-import org.yapyap.crypto.keys.SigningPrivateKey
-import org.yapyap.crypto.keys.SigningPublicKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.crypto.store.KeyStore
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.AccountRole
-import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
-import kotlin.time.Instant
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
 
 /** Read-only view of peers' public identity material, declared by crypto for the identity store to implement. */
 internal interface PeerKeyDirectory {

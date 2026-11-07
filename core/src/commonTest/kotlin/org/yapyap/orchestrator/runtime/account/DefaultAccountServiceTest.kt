@@ -1,20 +1,17 @@
 package org.yapyap.orchestrator.runtime.account
 
-import org.yapyap.persistence.key.*
-
-import org.yapyap.orchestrator.identity.IdentityReader
-
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.IdentityProvisioning
+import org.yapyap.crypto.identity.LocalSignedPreKey
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
+import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
@@ -22,6 +19,10 @@ import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.testfixtures.FakeIdentityResolver
 import kotlin.test.Test
 import kotlin.test.assertEquals

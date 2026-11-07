@@ -6,12 +6,12 @@ import org.yapyap.crypto.identity.LocalOneTimePreKey
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.keys.OPK_ID_PREFIX
-import org.yapyap.crypto.keys.OneTimePreKeyId
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.identity.OneTimePreKeyId
 import kotlin.time.Clock
 import kotlin.time.Instant
 

@@ -1,15 +1,16 @@
 package org.yapyap.persistence.key
 
-import org.yapyap.orchestrator.identity.*
-
-import org.yapyap.crypto.store.*
-
 import org.yapyap.crypto.identity.*
-import org.yapyap.crypto.keys.*
+import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.store.KeyStore
+import org.yapyap.crypto.store.OpkRepository
+import org.yapyap.orchestrator.identity.Account
+import org.yapyap.orchestrator.identity.AccountDevice
+import org.yapyap.orchestrator.identity.IdentityStore
 import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.*
-import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.protocol.identity.*
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -262,19 +263,15 @@ internal class InMemoryIdentityStore(
                 role = accountRoles[id] ?: AccountRole.MEMBER,
                 status = identityStatuses[id] ?: IdentityStatus.ACTIVE,
                 isLocal = localAccount?.accountId?.id == id,
-            )
-        }
-
-    override suspend fun getAllDevices(): List<Device> =
-        devices.keys.map { id ->
-            Device(
-                identity = devices.getValue(id),
-                torEndpoint = torForDevice[id] ?: TorEndpoint("placeholder.onion", 80),
-                accountId = AccountId(deviceToAccount.getValue(id)),
-                deviceType = deviceTypes[id] ?: defaultLocalDeviceType,
-                status = deviceStatuses[id] ?: IdentityStatus.ACTIVE,
-                isLocal = localDevice?.deviceId?.id == id,
-                provisional = provisionalDevices.contains(id),
+                devices = devices.keys.filter { deviceToAccount[it] == id }.map { deviceId ->
+                    AccountDevice(
+                        identity = devices.getValue(deviceId),
+                        deviceType = deviceTypes[deviceId] ?: defaultLocalDeviceType,
+                        status = deviceStatuses[deviceId] ?: IdentityStatus.ACTIVE,
+                        isLocal = localDevice?.deviceId?.id == deviceId,
+                        provisional = provisionalDevices.contains(deviceId),
+                    )
+                },
             )
         }
 

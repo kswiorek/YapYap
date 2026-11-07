@@ -1,6 +1,5 @@
 package org.yapyap.routing.router
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,20 +8,21 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.KmpTorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
-import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
@@ -162,8 +162,8 @@ class DefaultRouterLiveIntegrationTest {
             // the FakeClock the outbox never retries — wait until both onions
             // are actually dialable, as a real peer would be.
             withTimeout(5.minutes) {
-                aliceRouter.localPublishState.first { it == TorPublishState.PUBLISHED }
-                bobRouter.localPublishState.first { it == TorPublishState.PUBLISHED }
+                aliceRouter.localLinkStatus.first { it == LocalLinkStatus.Online }
+                bobRouter.localLinkStatus.first { it == LocalLinkStatus.Online }
             }
 
             aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)!!

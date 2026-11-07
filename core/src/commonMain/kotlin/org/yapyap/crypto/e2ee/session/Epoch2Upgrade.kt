@@ -5,14 +5,14 @@ import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
 import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.identity.LocalOneTimePreKey
-import org.yapyap.crypto.keys.OneTimePreKeyId
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.crypto.store.CryptoSessionStore
+import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.crypto.store.CryptoSessionStore
-import org.yapyap.crypto.store.OpkRepository
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.identity.OneTimePreKeyId
 import kotlin.time.Clock
 
 internal class Epoch2Upgrade(

@@ -1,7 +1,8 @@
 package org.yapyap.orchestrator.onboarding
 
+import org.yapyap.crypto.identity.IdentityProvisioning
+import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.identity.LocalKeys
-import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.BootstrapEndpoint
 import org.yapyap.orchestrator.SetupIntent
@@ -13,6 +14,8 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.router.Router
 
 /**

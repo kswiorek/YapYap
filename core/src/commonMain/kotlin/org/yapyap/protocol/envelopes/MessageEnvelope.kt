@@ -1,6 +1,5 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.protocol.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -370,10 +369,9 @@ internal sealed interface MessagePayload {
             return writer.toByteArray()
         }
 
-        /** Verify path. */
-        suspend fun deriveRoomId(crypto: CryptoProvider): RoomId =
-            deriveRoomId(
-                crypto = crypto,
+        /** Verify path: the bytes whose hash this node's [roomId] must be, if it is a room genesis. */
+        fun genesisDerivationBytes(): ByteArray =
+            derivationBytes(
                 genesisMessageId = messageId,
                 senderAccountId = senderAccountId,
                 authorDeviceId = authorDeviceId,
@@ -418,7 +416,8 @@ internal sealed interface MessagePayload {
                 "YapYapRoomIdV1".encodeToByteArray()
 
             /**
-             * Append path: pure input assembly, no instance needed.
+             * The canonical input of a self-certifying room id (hashed by the DAG's room-id
+             * derivation). Append path: pure input assembly, no instance needed.
              * Covers every genesis field that can differ while keeping the same
              * `genesisMessageId`, so an id-reuse forgery with different
              * content/author/timestamp derives a *different* room (ghost),
@@ -447,61 +446,6 @@ internal sealed interface MessagePayload {
                 writer.writeLong(createdAt.epochSeconds)
                 writer.writeByteArray(eventBytes)
                 return writer.toByteArray()
-            }
-
-            /** Append path: self-certifying id before construction. */
-            suspend fun deriveRoomId(
-                crypto: CryptoProvider,
-                genesisMessageId: Uuid,
-                senderAccountId: AccountId,
-                authorDeviceId: PeerId,
-                createdAt: Instant,
-                eventBytes: ByteArray,
-            ): RoomId = RoomId(
-                crypto.hashedUuid(
-                    derivationBytes(
-                        genesisMessageId = genesisMessageId,
-                        senderAccountId = senderAccountId,
-                        authorDeviceId = authorDeviceId,
-                        createdAt = createdAt,
-                        eventBytes = eventBytes,
-                    ),
-                ),
-            )
-
-            /**
-             * Sole genesis append path. Derives the self-certifying id
-             * internally — the caller never supplies a roomId, so
-             * derive-for-A-but-construct-with-B is unrepresentable.
-             * Returns the *unsigned* payload; signing follows via
-             * [withSignature] like every other payload type.
-             */
-            suspend fun createGenesis(
-                crypto: CryptoProvider,
-                genesisMessageId: Uuid,
-                senderAccountId: AccountId,
-                authorDeviceId: PeerId,
-                createdAt: Instant,
-                event: RoomEventPayload,
-            ): RoomEvent {
-                val eventBytes = event.encode()
-                val roomId = deriveRoomId(
-                    crypto = crypto,
-                    genesisMessageId = genesisMessageId,
-                    senderAccountId = senderAccountId,
-                    authorDeviceId = authorDeviceId,
-                    createdAt = createdAt,
-                    eventBytes = eventBytes,
-                )
-                return RoomEvent(
-                    messageId = genesisMessageId,
-                    roomId = roomId,
-                    senderAccountId = senderAccountId,
-                    authorDeviceId = authorDeviceId,
-                    prevIds = emptyList(),
-                    createdAt = createdAt,
-                    eventBytes = eventBytes,
-                )
             }
 
             fun decode(bytes: ByteArray): RoomEvent {

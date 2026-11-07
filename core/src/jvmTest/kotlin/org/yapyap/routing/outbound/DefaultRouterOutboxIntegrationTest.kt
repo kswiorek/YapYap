@@ -1,22 +1,23 @@
 package org.yapyap.routing.outbound
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.persistence.db.*
-import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.defaultRouterUnderTest
+import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport

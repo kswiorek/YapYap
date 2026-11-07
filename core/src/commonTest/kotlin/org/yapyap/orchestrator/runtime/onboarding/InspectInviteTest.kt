@@ -1,16 +1,15 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

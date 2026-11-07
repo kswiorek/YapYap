@@ -1,15 +1,17 @@
 package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.e2ee.session.*
+import org.yapyap.crypto.e2ee.session.DoubleRatchetSession
+import org.yapyap.crypto.e2ee.session.X3dhHandshake
+import org.yapyap.crypto.e2ee.session.X3dhMode
 import org.yapyap.crypto.identity.LocalOneTimePreKey
 import org.yapyap.crypto.identity.LocalSignedPreKey
 import org.yapyap.crypto.identity.PeerPreKeyBundle
-import org.yapyap.crypto.identity.SignedPreKey
 import org.yapyap.crypto.keys.EncryptionKeyPair
-import org.yapyap.crypto.keys.OneTimePreKeyId
-import org.yapyap.crypto.keys.SignedPreKeyId
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.protocol.identity.OneTimePreKeyId
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
 import kotlin.test.*
 
 class X3dhHandshakeTest {

@@ -10,8 +10,8 @@ import org.yapyap.protection.ProtectionException
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
-import org.yapyap.transport.webrtc.types.WebRtcSignal
 import kotlin.uuid.Uuid
 
 /**

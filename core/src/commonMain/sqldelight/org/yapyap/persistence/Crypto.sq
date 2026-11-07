@@ -5,8 +5,8 @@ import org.yapyap.crypto.e2ee.session.SessionStatus;
 import org.yapyap.crypto.e2ee.session.X3dhMode;
 import org.yapyap.protocol.PeerId;
 import org.yapyap.persistence.db.OpkStatus;
-import org.yapyap.crypto.keys.OneTimePreKeyId;
-import org.yapyap.crypto.keys.EncryptionPublicKey;
+import org.yapyap.protocol.identity.OneTimePreKeyId;
+import org.yapyap.protocol.identity.EncryptionPublicKey;
 
 CREATE TABLE crypto_sessions (
     session_id TEXT NOT NULL PRIMARY KEY,

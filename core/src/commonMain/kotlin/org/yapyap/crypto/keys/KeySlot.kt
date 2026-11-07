@@ -1,5 +1,8 @@
 package org.yapyap.crypto.keys
 
+import org.yapyap.protocol.identity.OneTimePreKeyId
+import org.yapyap.protocol.identity.SignedPreKeyId
+
 /**
  * A named place in the OS keyring. Every key the app holds outside the database has exactly one
  * slot; [keyringName] is the keyring account name and must never change for an existing slot

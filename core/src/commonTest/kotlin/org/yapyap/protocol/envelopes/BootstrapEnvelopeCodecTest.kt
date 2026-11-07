@@ -1,12 +1,11 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.*
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals

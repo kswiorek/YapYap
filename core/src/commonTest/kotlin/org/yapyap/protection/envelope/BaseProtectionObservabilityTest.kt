@@ -7,11 +7,7 @@ import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
-import org.yapyap.transport.webrtc.types.WebRtcSignal
-import org.yapyap.transport.webrtc.types.WebRtcSignalKind
+import org.yapyap.protocol.envelopes.*
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.uuid.Uuid

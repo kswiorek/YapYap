@@ -2,8 +2,8 @@
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.orchestrator.store.MessageCursor
+import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -139,7 +139,7 @@ class DefaultDagEngineTest {
         val crypto = DefaultCryptoProvider()
         val genesisId = Uuid.random()
         // createGenesis returns unsigned; the fake provider accepts any signature.
-        val genesis = MessagePayload.RoomEvent.createGenesis(
+        val genesis = RoomIds.createGenesis(
             crypto = crypto,
             genesisMessageId = genesisId,
             senderAccountId = remoteAccount,
@@ -626,7 +626,7 @@ class DefaultDagEngineTest {
             cryptoProvider = crypto,
             clock = clock,
         )
-        val genesis = MessagePayload.RoomEvent.createGenesis(
+        val genesis = RoomIds.createGenesis(
             crypto = crypto,
             genesisMessageId = Uuid.random(),
             senderAccountId = remoteAccount,
@@ -650,7 +650,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_genesisWithMismatchedRoomId_storesAsRejected() = runTest {
         val crypto = DefaultCryptoProvider()
-        val genesis = MessagePayload.RoomEvent.createGenesis(
+        val genesis = RoomIds.createGenesis(
             crypto = crypto,
             genesisMessageId = Uuid.random(),
             senderAccountId = remoteAccount,
@@ -674,7 +674,7 @@ class DefaultDagEngineTest {
     @Test
     fun ingest_roomCreatedWithNonEmptyPrevIds_storesAsRejected() = runTest {
         val crypto = DefaultCryptoProvider()
-        val genesis = MessagePayload.RoomEvent.createGenesis(
+        val genesis = RoomIds.createGenesis(
             crypto = crypto,
             genesisMessageId = Uuid.random(),
             senderAccountId = remoteAccount,

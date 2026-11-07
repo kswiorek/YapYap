@@ -107,11 +107,11 @@ class PublicApiSurfaceTest {
         "org.yapyap.persistence.db.FileTransferStatus",
         "org.yapyap.persistence.db.FileChunkStatus",
         "org.yapyap.persistence.db.OpkStatus",
-        "org.yapyap.crypto.keys.KeyBytes",
-        "org.yapyap.crypto.keys.SigningPublicKey",
-        "org.yapyap.crypto.keys.EncryptionPublicKey",
-        "org.yapyap.crypto.keys.SignedPreKeyId",
-        "org.yapyap.crypto.keys.OneTimePreKeyId",
+        "org.yapyap.protocol.identity.PublicKey",
+        "org.yapyap.protocol.identity.SigningPublicKey",
+        "org.yapyap.protocol.identity.EncryptionPublicKey",
+        "org.yapyap.protocol.identity.SignedPreKeyId",
+        "org.yapyap.protocol.identity.OneTimePreKeyId",
     )
 
     private val visibilityModifiers = setOf("public", "internal", "private", "protected")

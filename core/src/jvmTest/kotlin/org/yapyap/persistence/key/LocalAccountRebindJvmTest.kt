@@ -1,18 +1,16 @@
 package org.yapyap.persistence.key
 
-import org.yapyap.orchestrator.identity.*
-
-import org.yapyap.crypto.store.*
-
-import org.yapyap.crypto.keys.*
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.AccountIdentity
-import org.yapyap.crypto.identity.DeviceIdentity
+import org.yapyap.orchestrator.identity.DefaultIdentityStore
+import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.persistence.db.DatabaseConnection
 import org.yapyap.persistence.db.openMemoryDatabase
-import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.protocol.*
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.test.*
 
 /**
