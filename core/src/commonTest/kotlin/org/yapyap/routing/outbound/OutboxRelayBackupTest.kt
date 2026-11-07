@@ -97,7 +97,7 @@ class OutboxRelayBackupTest {
         runCurrent()
         assertEquals(1, h.tor.sends.size, "went straight over the link")
 
-        h.processor.onOutboundPacketDelivered(msg.packetId)
+        h.processor.onDisposition(msg.packetId)
         advanceTimeBy(31.seconds)
         runCurrent()
         assertEquals(emptyList(), h.backedUp)

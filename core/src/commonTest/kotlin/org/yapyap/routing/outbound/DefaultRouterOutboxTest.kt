@@ -71,8 +71,8 @@ class DefaultRouterOutboxTest {
         router.stop()
 
         assertFalse(outbox.contains(packetId))
-        assertEquals(1, outbox.markDeliveredCalls.size)
-        assertEquals(packetId, outbox.markDeliveredCalls.single())
+        assertEquals(1, outbox.removeCalls.size)
+        assertEquals(packetId, outbox.removeCalls.single())
     }
 
     @Test
@@ -98,7 +98,7 @@ class DefaultRouterOutboxTest {
         router.stop()
 
         assertFalse(outbox.contains(packetId))
-        assertEquals(1, outbox.markDeliveredCalls.size)
+        assertEquals(1, outbox.removeCalls.size)
     }
 
     @Test

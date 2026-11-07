@@ -61,6 +61,7 @@ class PublicApiSurfaceTest {
         "org.yapyap.orchestrator.runtime.message.Message",
         "org.yapyap.orchestrator.runtime.message.SendRefusal",
         "org.yapyap.orchestrator.runtime.message.FanoutReport",
+        "org.yapyap.orchestrator.runtime.message.MessageDelivery",
         "org.yapyap.orchestrator.runtime.room.RoomService",
         "org.yapyap.orchestrator.runtime.room.RoomDetails",
         "org.yapyap.orchestrator.runtime.room.RoomMemberView",

@@ -1,7 +1,6 @@
 package org.yapyap.routing.inbound
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.yapyap.crypto.CryptoException
@@ -38,8 +37,8 @@ internal class InboundEnvelopeProcessor(
     private val syncHandler: SyncHandler,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
     private val pingProvider: PingProvider,
-    /** Our bootstrap packets acknowledged by a not-yet-known device (see [handleUnknownSourceDisposition]). */
-    private val bootstrapDeliveries: MutableSharedFlow<Uuid> = MutableSharedFlow(extraBufferCapacity = 16),
+    /** A device declined one of our syncs the legacy way (SyncNack instead of a NACK). */
+    private val onSyncDeclined: suspend (syncId: Uuid, deviceId: PeerId) -> Unit,
 ) {
     /**
      * Where ACK/NACK sends run while the router is started; null otherwise (sends then
@@ -450,7 +449,8 @@ internal class InboundEnvelopeProcessor(
             else -> return false
         }
         if (!outboxProcessor.isPendingBootstrapTo(inbound.source, packetId)) return false
-        val remove = acked || nackActionFor((payload as SystemPayload.PacketNack).reason) == NackAction.REMOVE
+        val nackReason = (payload as? SystemPayload.PacketNack)?.reason
+        val remove = acked || nackActionFor(nackReason) == NackAction.REMOVE
         AppLog.info(
             component = LogComponent.ROUTER,
             event = if (acked) LogEvent.OUTBOX_ACK_RECEIVED else LogEvent.OUTBOX_NACK_RECEIVED,
@@ -462,8 +462,7 @@ internal class InboundEnvelopeProcessor(
                 "reason" to (payload as? SystemPayload.PacketNack)?.reason,
             ),
         )
-        if (remove) outboxProcessor.onOutboundPacketDelivered(packetId)
-        if (acked) bootstrapDeliveries.emit(packetId)
+        if (remove) outboxProcessor.onDisposition(packetId, nackReason)
         return true
     }
 
@@ -477,14 +476,14 @@ internal class InboundEnvelopeProcessor(
                         relayMessage = true,
                     )
 
-                is InboundSideEffect.RemoveFromOutbox ->
-                    outboxProcessor.onOutboundPacketDelivered(effect.packetId)
+                is InboundSideEffect.OutboxDisposition ->
+                    outboxProcessor.onDisposition(effect.packetId, effect.nackReason)
 
                 is InboundSideEffect.SyncRequested ->
-                    syncHandler.onSyncRequested(effect.sync, effect.peerId)
+                    syncHandler.reply(effect.sync, effect.peerId, effect.messages)
 
-                is InboundSideEffect.MarkPeerAttempted ->
-                    syncHandler.onMarkPeerAttempted(effect.syncId, effect.peerId)
+                is InboundSideEffect.SyncDeclined ->
+                    onSyncDeclined(effect.syncId, effect.peerId)
 
                 is InboundSideEffect.PeerHeartbeat -> pingProvider.handlePing(effect.peerId, effect.ping)
                 is InboundSideEffect.PeerOffline -> peerAvailabilityRegistry.markOffline(effect.peerId)

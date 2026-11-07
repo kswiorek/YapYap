@@ -20,6 +20,7 @@ import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.envelopes.Intro
+import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterConfig
 import kotlin.concurrent.Volatile
@@ -135,7 +136,8 @@ internal class DefaultOnboardingProvider(
         }
         if (deliveryJob?.isActive == true) return
         deliveryJob = owner.launch {
-            router.bootstrapDeliveries.collect { delivered ->
+            router.deliveries.collect { delivery ->
+                val delivered = (delivery.subject as? DeliverySubject.Bootstrap)?.packetId ?: return@collect
                 if (delivered != awaitedRequest) return@collect
                 awaitedRequest = null
                 val current = _state.value

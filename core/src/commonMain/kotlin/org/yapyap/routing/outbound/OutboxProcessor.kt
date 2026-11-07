@@ -1,24 +1,25 @@
 package org.yapyap.routing.outbound
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.packet.OutboxEntry
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.persistence.packet.PacketOutbox
 import org.yapyap.persistence.packet.RelayBackup
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.retry.RetryLoop
+import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.TransportException
@@ -50,6 +51,15 @@ internal class OutboxProcessor(
      * the cached miss must be dropped or its messages keep failing instantly.
      */
     private val notFoundPeers = MutableStateFlow<Set<PeerId>>(emptySet())
+
+    private val outcomeFlow = MutableSharedFlow<OutboxOutcome>(extraBufferCapacity = 64)
+
+    /**
+     * How each tagged entry left the outbox (ACK, terminal NACK, expiry). Every row leaves
+     * through [onDisposition] or the expiry prune in [processDue], so nothing ends unreported.
+     * Untagged entries have nobody waiting and are not reported.
+     */
+    val outcomes: SharedFlow<OutboxOutcome> = outcomeFlow.asSharedFlow()
 
     /**
      * Dispatches in progress (packet id → target). There is no processing round
@@ -94,15 +104,36 @@ internal class OutboxProcessor(
         retryLoop.notifyChanged()
     }
 
+    /** Whether an entry carrying [tag] is still queued. */
+    suspend fun hasQueued(tag: OutboxTag): Boolean = packetOutbox.hasTagged(tag)
+
     /** Whether [packetId] is a bootstrap packet in our outbox addressed to [target]. */
     suspend fun isPendingBootstrapTo(target: PeerId, packetId: Uuid): Boolean =
         packetOutbox.listAllForTarget(target).any {
             it.packetId == packetId && it.envelope.packetType == PacketType.BOOTSTRAP
         }
 
-    suspend fun onOutboundPacketDelivered(packetId: Uuid) {
-        packetOutbox.markDelivered(packetId)
+    /**
+     * The target answered [packetId]: an ACK when [nackReason] is null, otherwise a NACK the
+     * caller already judged terminal ([org.yapyap.routing.policy.nackActionFor]). Removes the
+     * entry and reports its outcome.
+     */
+    suspend fun onDisposition(packetId: Uuid, nackReason: PacketNackReason? = null) {
+        packetOutbox.remove(packetId)?.let { entry ->
+            report(entry) { tag, target ->
+                if (nackReason == null) OutboxOutcome.Acked(tag, target) else OutboxOutcome.Nacked(
+                    tag,
+                    target,
+                    nackReason
+                )
+            }
+        }
         wake()
+    }
+
+    private suspend fun report(entry: OutboxEntry, outcome: (OutboxTag, PeerId) -> OutboxOutcome) {
+        val tag = entry.tag ?: return
+        outcomeFlow.emit(outcome(tag, entry.envelope.target))
     }
 
     suspend fun enqueueAndWake(
@@ -111,6 +142,7 @@ internal class OutboxProcessor(
         relayMessage: Boolean = false,
         targetEndpoint: TorEndpoint? = null,
         relayBackup: RelayBackup = RelayBackup.NONE,
+        tag: OutboxTag? = null,
     ) {
         packetOutbox.enqueue(
             envelope,
@@ -118,6 +150,7 @@ internal class OutboxProcessor(
             relayMessage = relayMessage,
             targetEndpoint = targetEndpoint,
             relayBackup = relayBackup,
+            tag = tag,
         )
         wake()
     }
@@ -190,6 +223,7 @@ internal class OutboxProcessor(
         val now = ctx.clock.now()
         val config = ctx.routerConfig.value
         val pruned = packetOutbox.pruneExpired(now)
+        pruned.forEach { entry -> report(entry) { tag, target -> OutboxOutcome.Expired(tag, target) } }
         val dueEntries = packetOutbox.listDue(now)
         val started = inFlightLock.withLock {
             buildList {
@@ -204,7 +238,7 @@ internal class OutboxProcessor(
                 }
             }
         }
-        if (dueEntries.isNotEmpty() || pruned > 0) {
+        if (dueEntries.isNotEmpty() || pruned.isNotEmpty()) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = LogEvent.OUTBOX_PROCESSED,
@@ -212,7 +246,7 @@ internal class OutboxProcessor(
                 fields = mapOf(
                     "dueCount" to dueEntries.size,
                     "startedCount" to started.size,
-                    "prunedCount" to pruned,
+                    "prunedCount" to pruned.size,
                 ),
             )
         }
@@ -290,7 +324,8 @@ internal class OutboxProcessor(
      */
     private suspend fun park(entries: List<OutboxEntry>, now: Instant) {
         val until = now + ctx.routerConfig.value.noLinkRecheckDelay
-        entries.forEach { packetOutbox.deferRetry(it.packetId, until) }
+        // An entry expiring sooner is looked at when it expires, so its expiry is reported then.
+        entries.forEach { packetOutbox.deferRetry(it.packetId, minOf(until, it.envelope.expiresAt)) }
         entries.forEach { backUpToRelays(it.envelope, reason = "no link") }
         inFlightLock.withLock { entries.forEach { inFlight.remove(it.packetId) } }
         val peers = entries.map { it.envelope.target }.distinct()

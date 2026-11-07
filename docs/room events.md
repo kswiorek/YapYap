@@ -633,6 +633,23 @@ any room member) stay stale — same class as any partition residual, self-heals
 on first contact; multiple folded members may re-push simultaneously (dedup
 absorbs it, backoff bounds the drip).
 
+### As built (sync split) — deltas from the above
+
+The sync pieces above moved along the layer line (see [`guide.md`](guide.md) §4 and §6); the behavior is unchanged
+unless noted.
+
+- The serve gate (`DefaultSyncPayloadProvider`) and the frontier provider moved to `orchestrator/sync` and work per
+  requesting **account**; the router declares them as `SyncPayloadProvider` / `FrontierSnapshotProvider`.
+- Attempt state (`attempts`, `next_attempt_at`, attempted devices) moved from `pending_syncs` to the router's
+  `sync_attempts` / `sync_declined_devices`. A sync request now goes through the outbox and asks for a disposition;
+  a decline is a `DECLINED` NACK instead of `SyncNack` (still sent to, and accepted from, older builds). Only
+  devices with an open link are asked (the "online but unlinked" tier is gone); an unanswered attempt
+  (`syncAttemptTimeout`) is not a decline, it just lets the next candidate go first.
+- The re-open hook (`reopenAttemptedPeerForRoom`) became `Router.reopenSync(syncId, account)`, called by the sync
+  coordinator for the pinged room's syncs; the inertness gate is unchanged but clears the whole account's devices.
+- The ping-contradiction re-push (`RemovalRePusher`) moved into the sync coordinator. It re-delivers to the **account**
+  via `Router.sendMessage` (its converged devices dedup it), with the backoff per (account, room).
+
 ## 7. The unsolicited-messages check — dropped
 
 Recap (so it is not re-derived): the forwarder/solicitation check proposed accepting

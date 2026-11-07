@@ -6,10 +6,8 @@ import org.yapyap.persistence.Pending_syncs
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal data class PendingSyncRow(
@@ -17,26 +15,26 @@ internal data class PendingSyncRow(
     val roomId: RoomId,
     val targetMessageId: Uuid,
     val candidateAccounts: List<AccountId>,
-    val attemptedDevices: Set<PeerId>,
-    val attempts: Int
 )
 
+/**
+ * Orchestrator-owned: the messages we are missing and the accounts that may hold them.
+ * Asking for them (which device, when) is the router's ([SyncAttemptStore]).
+ */
 internal interface PendingSyncRepository {
 
     /**
      * Inserts a new pending sync for [targetMessageId] with its candidate accounts.
      * At most one row per (room, target) exists; re-inserts are ignored.
-     * [nextAttemptAt] controls when the retry processor will first try to send it.
      */
     suspend fun insertSync(
         syncId: Uuid,
         roomId: RoomId,
         targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
-        nextAttemptAt: Instant,
     )
 
-    /** Deletes a pending sync by its [syncId]. Cascades to candidate/attempted tables. */
+    /** Deletes a pending sync by its [syncId]. Cascades to its candidates. */
     suspend fun deleteSync(syncId: Uuid)
 
     /** Deletes pending syncs targeting [targetMessageId] (satisfied by an arrival). */
@@ -45,20 +43,19 @@ internal interface PendingSyncRepository {
     /**
      * Builds the wire request for [syncId]: the row's target plus the requester's
      * current chainable frontier as the responder's stop set (recomputed fresh on
-     * every attempt, never stored). Returns null when the target is already present
-     * (stale row — the caller should delete it).
+     * every attempt, never stored). Returns null when the row is gone or its target
+     * is already present (stale row — the caller should delete it).
      */
     suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest?
 
-    // ---- retained for SyncRetryProcessor ----
+    suspend fun candidateAccounts(syncId: Uuid): List<AccountId>
 
-    suspend fun earliestDueAt(): Instant?
-    suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow>
-    suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant)
-    suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId>
-    suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant)
-    suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant)
-    suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId)
+    /** Pending syncs [accountId] is a candidate for. */
+    suspend fun syncIdsWithCandidate(accountId: AccountId): List<Uuid>
+
+    suspend fun syncIdsInRoom(roomId: RoomId): List<Uuid>
+
+    suspend fun allSyncIds(): List<Uuid>
 
     /**
      * Appends [accountIds] to [syncId]'s candidates (insert-if-absent). The
@@ -76,15 +73,6 @@ internal interface PendingSyncRepository {
      */
     suspend fun appendCandidateAccountsForRoom(roomId: RoomId, accountIds: List<AccountId>)
 
-    /**
-     * Removes [deviceId] from [roomId]'s *inert* rows' attempted sets — rows with
-     * no eligible device left. A ping about the room from this device contradicts
-     * its own gate-NACK (docs/room events.md §6), so the NACK is treated as
-     * stale. Mid-round rotation is untouched: the gate only fires when no
-     * candidate device remains un-attempted.
-     */
-    suspend fun reopenAttemptedPeerForRoom(deviceId: PeerId, roomId: RoomId, localDeviceId: PeerId)
-
     // Finds the sync targeting [targetMessageId] in the given [roomId].
     suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow?
 }
@@ -101,14 +89,12 @@ internal class DefaultPendingSyncRepository(
         roomId: RoomId,
         targetMessageId: Uuid,
         candidateAccounts: List<AccountId>,
-        nextAttemptAt: Instant,
     ) {
         withContext(dbDispatcher) {
             queries.insertPendingSync(
                 sync_id = syncId,
                 room_id = roomId,
                 target_message_id = targetMessageId,
-                next_attempt_at = nextAttemptAt,
             )
             candidateAccounts.forEach { accountId ->
                 queries.insertPendingSyncCandidateAccount(sync_id = syncId, account_id = accountId)
@@ -144,44 +130,25 @@ internal class DefaultPendingSyncRepository(
             )
         }
 
-    override suspend fun earliestDueAt(): Instant? =
+    override suspend fun candidateAccounts(syncId: Uuid): List<AccountId> =
         withContext(dbDispatcher) {
-            queries.selectEarliestDueAt().executeAsOneOrNull()?.MIN
+            queries.selectCandidateAccountsForSync(syncId).executeAsList()
         }
 
-    override suspend fun findDue(now: Instant, limit: Int): List<PendingSyncRow> =
+    override suspend fun syncIdsWithCandidate(accountId: AccountId): List<Uuid> =
         withContext(dbDispatcher) {
-            queries.selectDueSyncs(now, limit.toLong()).executeAsList().map { it.toRow() }
+            queries.selectSyncIdsWithCandidate(accountId).executeAsList()
         }
 
-    override suspend fun recordAttempt(syncId: Uuid, nextAttemptAt: Instant) {
+    override suspend fun syncIdsInRoom(roomId: RoomId): List<Uuid> =
         withContext(dbDispatcher) {
-            queries.recordAttempt(next_attempt_at = nextAttemptAt, sync_id = syncId)
-        }
-    }
-
-    override suspend fun getAttemptedDevices(syncId: Uuid): Set<PeerId> =
-        withContext(dbDispatcher) {
-            queries.selectAttemptedPeersForSync(syncId).executeAsList().toSet()
+            queries.selectSyncIdsInRoom(roomId).executeAsList()
         }
 
-    override suspend fun accelerateForOnlinePeer(deviceId: PeerId, at: Instant) {
+    override suspend fun allSyncIds(): List<Uuid> =
         withContext(dbDispatcher) {
-            queries.accelerateForOnlinePeer(at, deviceId)
+            queries.selectAllSyncIds().executeAsList()
         }
-    }
-
-    override suspend fun updateAttemptAt(syncId: Uuid, nextAttemptAt: Instant) {
-        withContext(dbDispatcher) {
-            queries.updateNextAttemptAt(nextAttemptAt, syncId)
-        }
-    }
-
-    override suspend fun addAttemptedPeer(syncId: Uuid, deviceId: PeerId) {
-        withContext(dbDispatcher) {
-            queries.insertAttemptedPeer(syncId, deviceId)
-        }
-    }
 
     override suspend fun addCandidateAccounts(syncId: Uuid, accountIds: List<AccountId>) {
         withContext(dbDispatcher) {
@@ -199,31 +166,16 @@ internal class DefaultPendingSyncRepository(
         }
     }
 
-    override suspend fun reopenAttemptedPeerForRoom(deviceId: PeerId, roomId: RoomId, localDeviceId: PeerId) {
-        withContext(dbDispatcher) {
-            queries.reopenAttemptedPeerForRoom(
-                deviceId = deviceId,
-                roomId = roomId,
-                localDeviceId = localDeviceId,
-            )
-        }
-    }
-
     override suspend fun findSyncByTarget(roomId: RoomId, targetMessageId: Uuid): PendingSyncRow? =
         withContext(dbDispatcher) {
             queries.findSyncByTarget(roomId, targetMessageId).executeAsOneOrNull()?.toRow()
         }
 
-    private fun Pending_syncs.toRow(): PendingSyncRow {
-        val candidates = queries.selectCandidateAccountsForSync(sync_id).executeAsList()
-        val attempted = queries.selectAttemptedPeersForSync(sync_id).executeAsList().toSet()
-        return PendingSyncRow(
+    private fun Pending_syncs.toRow(): PendingSyncRow =
+        PendingSyncRow(
             syncId = sync_id,
             roomId = room_id,
             targetMessageId = target_message_id,
-            candidateAccounts = candidates,
-            attemptedDevices = attempted,
-            attempts = attempts.toInt(),
+            candidateAccounts = queries.selectCandidateAccountsForSync(sync_id).executeAsList(),
         )
-    }
 }

@@ -115,6 +115,16 @@ public sealed interface SendRefusal {
 }
 
 /**
+ * [accountId] is now known to hold [messageId], one of the local account's messages in
+ * [roomId] (see [MessagingService.deliveryUpdates]).
+ */
+public data class MessageDelivery(
+    val roomId: RoomId,
+    val messageId: Uuid,
+    val accountId: AccountId,
+)
+
+/**
  * Reachability snapshot at send time, per *member account* (devices collapsed;
  * the orchestrator never deals in peer ids).
  *

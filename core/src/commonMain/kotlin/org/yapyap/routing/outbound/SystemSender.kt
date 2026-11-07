@@ -11,12 +11,12 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.tor.TorLinkId
+import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 internal class SystemSender(
@@ -128,16 +128,10 @@ internal class SystemSender(
         )
     }
 
-    suspend fun sendSyncRequest(target: PeerId, request: SyncRequest) { //Possibly returns outcome
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
-        sendSystemEnvelope(request, transportFor(target), context)
-    }
-
+    /**
+     * Declines a sync request from an older build, which asks without requesting a
+     * disposition and waits for this instead of a NACK. Drop once no such builds remain.
+     */
     suspend fun sendSyncNack(target: PeerId, payload: SystemPayload.SyncNack) {
         val context = EnvelopeProtectContext(
             sourceDeviceId = ctx.localDeviceId,
@@ -215,8 +209,26 @@ internal class SystemSender(
     }
 
     /**
-     * The preferred open link to [target]; with none, Tor dials a stream on demand. System
-     * traffic is never parked waiting for a link (sync requests and replies are time-bound).
+     * Protects [payload] for [target] into a SYSTEM envelope that requests a disposition, for
+     * the outbox to deliver (and retry) like any other packet: system traffic whose answer
+     * someone waits on, such as a sync request. It expires after [lifetime].
+     */
+    suspend fun buildForOutbox(target: PeerId, payload: SystemPayload, lifetime: Duration): BinaryEnvelope =
+        buildSystemEnvelope(
+            payload,
+            EnvelopeProtectContext(
+                sourceDeviceId = ctx.localDeviceId,
+                targetDeviceId = target,
+                createdAt = ctx.clock.now(),
+                securityScheme = SignalSecurityScheme.SIGNED,
+            ),
+            dispositionRequested = true,
+            lifetime = lifetime,
+        )
+
+    /**
+     * The preferred open link to [target]; with none, Tor dials a stream on demand. Fire-and-
+     * forget system traffic is never parked waiting for a link.
      */
     private suspend fun transportFor(target: PeerId): RouterTransport =
         transportPolicy.resolve(target, ctx.peerLinks.linksOf(target), retries = 0).transport ?: RouterTransport.TOR
@@ -228,18 +240,27 @@ internal class SystemSender(
         endpointOverride: TorEndpoint? = null,
         torReplyLink: TorLinkId? = null,
     ) {
+        val envelope = buildSystemEnvelope(payload, context, dispositionRequested = false)
+        dispatcher.dispatch(envelope, transport, endpointOverride, torReplyLink = torReplyLink)
+    }
+
+    private suspend fun buildSystemEnvelope(
+        payload: SystemPayload,
+        context: EnvelopeProtectContext,
+        dispositionRequested: Boolean,
+        lifetime: Duration = ctx.routerConfig.value.ackLifetime,
+    ): BinaryEnvelope {
         val protected = ctx.envelopeProtectionService.protectSystem(payload, context)
         val now = ctx.clock.now()
-        val envelope = BinaryEnvelope(
+        return BinaryEnvelope(
             packetId = Uuid.random(),
             packetType = PacketType.SYSTEM,
-            dispositionRequested = false,
+            dispositionRequested = dispositionRequested,
             createdAt = now,
-            expiresAt = now + ctx.routerConfig.value.ackLifetime,
+            expiresAt = now + lifetime,
             source = ctx.localDeviceId,
             target = context.targetDeviceId,
             payload = protected.encode(),
         )
-        dispatcher.dispatch(envelope, transport, endpointOverride, torReplyLink = torReplyLink)
     }
 }

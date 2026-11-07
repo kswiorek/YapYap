@@ -240,6 +240,10 @@ internal class FakeRoomRepository(
         }
     }
 
+    override suspend fun roomsOfAccount(accountId: AccountId): List<RoomId> =
+        cells.filter { (key, cell) -> key.second == accountId && cell.status == RoomMemberStatus.ACTIVE }
+            .map { it.key.first }
+
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         roomsFound.add(roomId)
         roomCells.getOrPut(roomId) { RoomRecord(roomId, null, type, name) }
@@ -384,4 +388,29 @@ internal class FakeUnknownAuthorSignatureProvider : SignatureProvider {
         signedBytes: ByteArray,
         signature: ByteArray?,
     ): AuthorshipOutcome = AuthorshipOutcome.UNKNOWN_AUTHOR
+}
+
+/** In-memory [MessageDeliveryRepository]; the undelivered query reads [messages]. */
+internal class InMemoryMessageDeliveryRepository(
+    private val messages: MessageRepository,
+) : MessageDeliveryRepository {
+    private val delivered = mutableMapOf<Uuid, MutableSet<AccountId>>()
+
+    override suspend fun markDelivered(messageId: Uuid, accountId: AccountId, at: Instant): Boolean =
+        delivered.getOrPut(messageId) { mutableSetOf() }.add(accountId)
+
+    override suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = delivered[messageId].orEmpty().toSet()
+
+    override suspend fun undelivered(
+        roomId: RoomId,
+        authorAccountId: AccountId,
+        accountId: AccountId,
+        limit: Int,
+    ): List<Uuid> =
+        messages.findAllInRoom(roomId)
+            .map { it.payload }
+            .filter { it.senderAccountId == authorAccountId && accountId !in delivered[it.messageId].orEmpty() }
+            .sortedWith(compareByDescending<MessagePayload> { it.createdAt }.thenByDescending { it.messageId })
+            .take(limit)
+            .map { it.messageId }
 }

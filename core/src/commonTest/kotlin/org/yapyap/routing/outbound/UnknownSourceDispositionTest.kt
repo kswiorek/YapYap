@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityKeyPurpose
 import org.yapyap.crypto.identity.IdentityPublicKeyRecord
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
@@ -83,6 +84,7 @@ class UnknownSourceDispositionTest {
             ),
             nextRetryAt = epochSeconds(now + 3_000),
             targetEndpoint = sponsorTor,
+            tag = if (type == PacketType.BOOTSTRAP) OutboxTag(OutboxTag.Kind.BOOTSTRAP, packetId) else null,
         )
         return Setup(router, tor, outbox, mutableListOf()) to packetId
     }
@@ -120,7 +122,7 @@ class UnknownSourceDispositionTest {
     private suspend fun Setup.deliver(envelope: TorIncomingEnvelope) {
         router.start()
         val collector = kotlinx.coroutines.GlobalScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            router.bootstrapDeliveries.collect { delivered += it }
+            router.deliveries.collect { d -> (d.subject as? DeliverySubject.Bootstrap)?.let { delivered += it.packetId } }
         }
         tor.tryEmitIncoming(envelope)
         delay(400.milliseconds)
@@ -133,7 +135,7 @@ class UnknownSourceDispositionTest {
         val (s, packetId) = setup()
         s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.BOOTSTRAP)))
 
-        assertEquals(listOf(packetId), s.outbox.markDeliveredCalls, "the request stops being re-sent")
+        assertEquals(listOf(packetId), s.outbox.removeCalls, "the request stops being re-sent")
         assertEquals(listOf(packetId), s.delivered, "the newcomer side learns it was delivered")
         assertTrue(s.tor.sendsExcludingHeartbeat().isEmpty(), "nothing is ever sent back to an unknown device")
     }
@@ -146,7 +148,7 @@ class UnknownSourceDispositionTest {
                 SystemPayload.PacketNack(packetId, PacketType.BOOTSTRAP, PacketNackReason.DECLINED, reasonText = null),
             ),
         )
-        assertEquals(listOf(packetId), s.outbox.markDeliveredCalls)
+        assertEquals(listOf(packetId), s.outbox.removeCalls)
         assertEquals(emptyList(), s.delivered)
     }
 
@@ -154,7 +156,7 @@ class UnknownSourceDispositionTest {
     fun ackFromAnyoneElse_isDropped() = runBlocking {
         val (s, packetId) = setup()
         s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.BOOTSTRAP), from = stranger))
-        assertEquals(emptyList(), s.outbox.markDeliveredCalls)
+        assertEquals(emptyList(), s.outbox.removeCalls)
         assertEquals(emptyList(), s.delivered)
     }
 
@@ -162,21 +164,21 @@ class UnknownSourceDispositionTest {
     fun ackWhoseHeaderDisagreesWithTheEnvelope_isDropped() = runBlocking {
         val (s, packetId) = setup()
         s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.BOOTSTRAP), headerFrom = stranger))
-        assertEquals(emptyList(), s.outbox.markDeliveredCalls)
+        assertEquals(emptyList(), s.outbox.removeCalls)
     }
 
     @Test
     fun ackForANonBootstrapPacket_isDropped() = runBlocking {
         val (s, packetId) = setup(type = PacketType.MESSAGE)
         s.deliver(disposition(SystemPayload.PacketAck(packetId, PacketType.MESSAGE)))
-        assertEquals(emptyList(), s.outbox.markDeliveredCalls)
+        assertEquals(emptyList(), s.outbox.removeCalls)
     }
 
     @Test
     fun ackForAnUnknownPacketId_isDropped() = runBlocking {
         val (s, _) = setup()
         s.deliver(disposition(SystemPayload.PacketAck(Uuid.random(), PacketType.BOOTSTRAP)))
-        assertEquals(emptyList(), s.outbox.markDeliveredCalls)
+        assertEquals(emptyList(), s.outbox.removeCalls)
         assertEquals(emptyList(), s.delivered)
     }
 }

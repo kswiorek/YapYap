@@ -1,213 +1,284 @@
-## YapYap Backend Guide (handoff summary)
+# YapYap Backend Guide
 
-### Product and architecture goals
+This guide explains what YapYap is, how the core is layered, and the rules new code must follow. It describes
+the design, not the current state of any one class: when the code and this guide disagree, treat that as a bug
+in one of them and raise it, don't silently follow the code.
 
-- Kotlin-first backend/core, embedded as a library on user devices, runnable headless on relay servers.
-- Scale target: small trusted network (about 10-20 users), prioritize correctness, resilience, maintainability over
-  hyperscale optimization.
-- Main flows:
-  - offline text + small images via Tor store-and-forward,
-  - low-latency/direct text path when available,
-  - large files + AV via WebRTC P2P.
-- Optional always-on Raspberry Pi nodes act as relays/availability anchors.
-- GUI target for now: Kotlin Compose Multiplatform.
+Deeper references: [`transport.md`](transport.md) (Tor/WebRTC links), [`router.md`](router.md) (router
+internals), [`e2ee.md`](e2ee.md) (sessions and ratchets), [`global events.md`](global%20events.md) (accounts,
+devices, admin chain), [`room events.md`](room%20events.md) (rooms and membership), [`gui-api.md`](gui-api.md)
+(what the GUI may use).
 
-### Core decisions already agreed
+## 1. What YapYap is
 
-- Tor signaling and store-and-forward use a custom binary envelope (`BinaryEnvelope`), not JSON.
-- WebRTC signaling goes over Tor; media/data flows go over WebRTC.
-- Message delivery semantics target effectively-once (IDs + dedup + ACK strategy).
-- Cache/retention is config-driven; relays may evict with LRU when storage limits are hit.
-- Device/account identity is represented in persistent DB records (`accounts`, `devices`) with signing/encryption key
-  metadata.
-- Metadata minimization is desirable but not a strict v1 blocker.
-- Mobile push/background behavior is required eventually (implementation deferred).
+- A messenger for a small trusted network (about 10–20 users). Correctness, resilience and maintainability win
+  over scale.
+- No servers it depends on. Every device runs the Kotlin core as a library; the same core runs headless on
+  optional always-on nodes (e.g. a Raspberry Pi) that act as relays and availability anchors.
+- Traffic:
+    - text and small images over Tor, with store-and-forward through relays when the recipient is offline;
+    - a direct low-latency path over WebRTC when both sides are online;
+    - large files and audio/video over WebRTC peer-to-peer, signaled over Tor.
+- The GUI is Compose Multiplatform. The frontend is ordinary messenger UI; the backend is where the novel work
+  is, and it is what this guide is about.
 
-### Current protocol/model status
+## 2. The layer model
 
-- Core protocol models currently in `commonMain` include:
-  - `BinaryEnvelope` (`PacketId`, `PacketType`, route + payload wrapper),
-  - `WebRtcSignalEnvelope` (session/kind/source/target + security scheme + protected payload),
-  - `FileEnvelope` with typed payload codecs (`Offer/Chunk/Ack/Complete/Cancel`),
-  - `SignalSecurityScheme` (`PLAINTEXT_TEST_ONLY`, `SIGNED`, `ENCRYPTED_AND_SIGNED`).
-- Routing metadata visibility policy is explicit via `EnvelopeObservability` profiles (`binary-envelope-v1`,
-  `file-envelope-v1`, `webrtc-signal-envelope-v1`).
-- File transfer container was generalized:
-  - `FileEnvelope` (single envelope family for both small and large file control plane),
-  - kind-specific payload codecs (`Offer/Chunk/Ack/Complete/Cancel`),
-  - control payload includes transfer class and preferred transport.
+The core is layered like a small network stack, not like a three-tier app. Three layers carry traffic, top to
+bottom, and a few services sit beside them.
 
-### Transport layer implementation status
+```
+  GUI ──► Orchestrator   accounts, rooms, messages, history (DAG), folds, onboarding, sync
+              │  AccountId + payloads
+              ▼
+          Router         devices, envelopes, outbox, ACK/NACK, dedup, links, relays, pings
+              │  PeerId / TorEndpoint + BinaryEnvelope
+              ▼
+          Transports     Tor streams, WebRTC data channels: bytes in, bytes out
 
-- Sessions ("links"): Tor delivers over long-lived streams, not one connection per packet. Tor runs many
-  streams concurrently, but setting one up to an onion takes seconds, and to an offline peer it can hang for
-  minutes. So connections are kept open in the background, and sends only use connections that are already
-  open.
-    - Both session transports implement one contract (`SessionTransport<K>` in `transport/session`): per-remote
-      `sessionStates` where `CONNECTED` holds iff `hasSession`, plus idempotent, asynchronous
-      `openSession`/`closeSession`. WebRTC keys sessions by device id, Tor by onion endpoint.
-    - The router sees them per device through `PeerLinks` (`routing/link`). Transport choice (`OutboundPolicy`)
-      takes the most preferred open link (`RouterConfig.linkPreference`: WebRTC, then Tor). With no link, outbox
-      entries wait (deferred without counting an attempt) and relay deposits plus the pull path cover delivery;
-      system traffic has Tor dial a stream on demand. Any link coming up wakes the peer's outbox
-      entries.
-  - Relays (store-and-forward copies of a message, so delivery doesn't need sender and recipient online at
-    the same time) are used only when the direct path looks doubtful: no open link when the message is sent
-    or when it comes due, no ACK within `relayBackupAfter` of a send over a link, or a retry. Each outbox
-    entry records its backup state (`relay_backup`), so copies are made at most once, across restarts too.
-    While a link delivers, relays carry nothing.
-    - `LinkKeeper` keeps links open to a target set over any session transport, with per-peer exponential
-      backoff, capped concurrent opens, prompt reopen when a link drops, and a readiness gate. The router runs one
-      for Tor (all active peers, gated on `TorHealth.Ready`). WebRTC sessions stay on-demand (`ProactiveSessionOpener`).
-    - Pings go only to linked peers. A successful link open pings the peer, which syncs frontiers on connect. A
-      failed open counts as an unanswered probe for availability scoring.
-- Tor:
-    - Wire: a connection starts with a magic int. Every connection we dial to a peer is a stream (`TOR_STREAM_MAGIC`): a
-      hello naming the dialer's endpoint, then records (`ACCEPT`, `DATA`, `KEEPALIVE`;
-      unknown types are skipped). The self-reachability probe (`TOR_PROBE_MAGIC`) is a connection to our own onion
-      whose nonce our listener echoes back. One-shot frames (`TOR_TRANSPORT_FRAME_MAGIC`: one frame, then close)
-      are no longer sent but still accepted from older builds; receiving them can be dropped once no such builds
-      remain. Older builds can't accept streams, so to them mixed-version devices rely on relays and the pull path.
-    - A send with no session dials a stream on demand (bootstrap targets, system traffic to an unlinked peer).
-      Streams nobody asked to keep — dialed on demand, or inbound and not adopted — are transient: they close after
-      `transientLinkIdleTimeout` without envelopes. Unadopted inbound streams have their own cap
-      (`maxUnadoptedInbound`).
-    - A stream we dialed is a session once the far end's app sends `ACCEPT`. A stream someone else dialed only
-      carries replies (ACK/NACK go back on the stream the packet arrived on) until the router adopts it. It adopts
-      a stream once an authenticated ping from the claimed device arrives on it: pings are never relayed, so this
-      proves who dialed. When both sides dial each other, the side with the higher onion closes its own dialed
-      stream after adopting the other.
-    - Idle streams exchange keepalives, and a stream with nothing received for `sessionIdleTimeout` is closed:
-      Tor gives no timely signal when the far end disappears. A stream carrying our envelopes is held to the
-      much shorter `sessionResponseTimeout`: each burst of envelopes ends with an `ECHO` record the far end
-      answers at once, so a peer that vanished is noticed within seconds of sending to it.
-  - Tor backend + Tor transport abstraction implemented.
-  - Integration tests exist (including live loopback Tor test).
-  - `TorBackend.start()` returns once the daemon's SOCKS listener is up and the onion is added; it does not wait
-    for bootstrap. Bootstrap progress, Tor's own stall reason (`STATUS_CLIENT` `REASON`/`HOSTADDR`) and network
-    liveness are reported through `TorBackend.health` (`TorHealth`). Callers must not dial an onion (including
-    their own) before it is published: Tor caches a failed descriptor lookup and holds or refuses the stream for
-    minutes. kmp-tor returns the same runtime per data directory for the life of the process, so observers bound
-    to a backend instance are subscribed in `start()` and removed in `stop()`, never registered in the builder.
-  - Network changes (desktop: `JvmNetworkMonitor`, which polls interfaces and detects sleep from wall-clock gaps;
-    Android/iOS: none yet) reach Tor two ways. Online/offline goes through kmp-tor's `NetworkObserver`
-    (`TorNetworkObserver`, process-wide) as `DisableNetwork`. A switch or wake-up keeps the device online, so
-    `KmpTorBackend` cycles `DisableNetwork` itself, drops cached onion lookups and re-verifies publication.
-    Setting `DisableNetwork` closes Tor's SOCKS listener and re-enabling reopens it on a new port; the backend
-    re-reads the port (`GETINFO net/listeners/socks`) when a local SOCKS connect fails.
-  - Status path to the GUI: `TorHealth` (incl. `NoNetwork` from the monitor) + `TorPublishState` → `Router`
-    (`localTransportHealth`, `localPublishState`) → `Orchestrator.transportStatus` (`LocalTransportStatus`, mapped
-    in `TransportStatusMapping.kt`). Tor's stall reason travels as `TransportProblem` detail, never as headline.
-  - `TorSupervisor` (inside `KmpTorBackend`) recovers a Tor that is stuck while the network is fine: no bootstrap
-    progress for `bootstrapStallTimeout` (2 min; Tor can stall silently and also recovers from many stalls on its
-    own), or publication DEGRADED. It escalates one `TorRecoveryStep` per incident — cycle DisableNetwork, restart
-    the daemon, restart with a purged directory cache (`tor/cache/cached-*`), restart with reset guard state
-    (`tor/work/data/state`, at most once per `guardResetMinInterval`, recorded in `tor/guard_reset_at`) — and starts
-    over once Tor is up and published. Past the ladder it keeps restarting with a backed-off stall timeout. While
-    healthy it silently re-proves reachability every `reachabilityRecheckInterval`. No step touches the onion key.
-    The current step reaches the GUI as `LocalTransportStatus.Recovering`.
-  - Stale onion lookups: Tor remembers "descriptor not found" for minutes, and a directory relay that never
-    answers holds a stream for Tor's full two-minute SOCKS timeout. The backend tracks unanswered `HS_DESC`
-    fetches per onion (`DescriptorFetchTracker`) and ends a send attempt or self-probe stuck on one for
-    `descriptorFetchStallTimeout` (20 s). SOCKS code 4 surfaces as `TorException.OnionNotFound`. When a Tor link
-    open fails this way for a peer the availability registry says is online, the router asks
-    `TorTransport.refreshOnionLookups()` to drop the cached miss and retries after `onionRefreshRetryDelay`. NEWNYM
-    is global (it also discards warm circuits to every other peer), so refreshes requested from outside the
-    backend's own recovery are throttled (`onionLookupRefreshMinInterval`, 30 s).
-- WebRTC:
-  - `JvmWebRtcBackend` implemented with webrtc-java adapter for offer/answer/ICE/data channel basics.
-  - WebRTC signaling over Tor routed transport implemented (`TorRoutedWebRtcTransport`).
-  - Local two-peer WebRTC integration test implemented.
-  - Live Tor + WebRTC integration test implemented.
-  - AV contracts/types are implemented end-to-end at transport API level (session request/accept/reject/state/control
-    flow), with backend media-track handling still not complete.
-  - Session state contract: the shared `SessionTransport` one (`CONNECTED` iff the envelope data channel is
-    open); the backend is the single writer of state, so subscribers may treat replayed states as ground truth.
-    `ProactiveSessionOpener.awaitSession` is event-driven on this stream (with a slow re-open safety net for
-    silently lost signaling).
-- Test note: some live/native WebRTC tests can be flaky with thread attach warnings from webrtc-java.
+  Beside them:  protocol (wire types + codecs) · crypto (keys, E2EE) · protection (envelope sign/encrypt)
+                storage (SQLDelight, keyring) · config · logging
+  Built by:     the composition root (wiring)
+```
 
-### Crypto + identity + persistence status
+A three-layer split (presentation / business / data) would merge the router and the transports into "data" and
+lose the boundary that matters most here: who knows about devices and packets, and who doesn't.
 
-- Implemented:
-  - `KmpCryptoProvider` with Ed25519 detached signatures, X25519 keypair generation, ChaCha20-Poly1305 AEAD (with
-    AAD), and SHA-256 hashing.
-  - `DefaultIdentityKeyService` for local identity key generation/load and peer key resolution.
-  - `DefaultSignatureProvider` and `SignedWebRtcSignalProtection` for signed WebRTC signaling envelopes.
-  - 1-on-1 E2EE: X3DH handshake, Double Ratchet, `DefaultCryptoSessionManager`,
-    `SignedAndEncryptedMessageProtection` (see [`e2ee.md`](e2ee.md)).
-  - SQLDelight-backed `DefaultIdentityPublicKeyRepository` storing per-device signing/encryption key metadata.
-  - The account signing key exists only on the account's first device (genesis, new account, or recovery-key
-    import). A device added to an existing account never holds it: it starts on a key-less stand-in local
-    account row, and when the fold confirms the device under its real account, that account becomes the local
-    one (the stand-in row and its memberships are folded into it). Boot diagnosis accepts a device with neither
-    half of the account key as long as its device row belongs to the local account, and rebinds stores written
-    before this existed.
-  - SQLDelight-backed `DefaultCryptoSessionStore` for ratchet session persistence.
-  - JVM key stores:
-    - `DefaultMasterKeyProvider` over `DefaultKeyStore` (OS keyring-backed DB master key
-      retrieval/creation; the keyring service is `org.yapyap`, suffixed per `keyringNamespace`
-      when the factory sets one),
-    - `DefaultKeyStore` for local private key persistence (same keyring, well-known refs).
-  - The keyring lives outside the data directory, so deleting the directory (or a reinstall that does)
-    leaves the identity keys behind. A database created on this boot can't own any of them, so boot
-    diagnosis deletes them and goes to setup instead of asking for a reset. A reset deletes everything in
-    the data directory except the held `app.lock`, and names any entry it could not delete.
-  - Encrypted DB initialization and reopen path validated by `JvmEncryptedDriverFactoryIntegrationTest`
-    (opt-in via `-PintegrationTests=true`).
-- Not yet implemented / in progress:
-  - SPK rotation and handshake edge cases during key rollover.
-  - Epoch lifecycle management (`SUPERSEDED` sessions, handshake-until-acked).
-  - Simultaneous-init policy and remaining P0/P1 items documented in [`e2ee.md`](e2ee.md).
+### Orchestrator — "what is said, and to whom"
 
-### Delivery model & retry/NACK contract (Sprint 4)
+- Speaks **accounts, rooms and payloads**: `AccountId`, `RoomId`, `MessagePayload`, `BootstrapPayload`, global
+  and room events.
+- Owns the message history (the DAG), the global and room folds, onboarding and recovery, typing state, and **sync**
+  (working out what is missing, serving sync requests, retrying them).
+- Hands a payload to the router addressed to an account and gets back an account-level report.
+- May name a device as the *subject* of an identity fact (add/remove a device, re-verify messages from a device)
+  using `PeerId`, but **never addresses** one. The single exception is bootstrap: before an account exists, an
+  intro or recovery request is sent to a device id plus an out-of-band `TorEndpoint`.
+- Never sees `BinaryEnvelope`, packet ids, link or session state, transport types, or Tor types.
 
-Effectively-once delivery rests on the pull path, not the push path: every sent message is
-appended to the local DAG first, ping frontiers advertise DAG tips, and peers pull what they
-miss via sync requests. The outbox push (dispatch + ACK/NACK retry) is a latency
-optimization — a deferred or expired push is a latency problem, never a loss.
-A pinged frontier can name a room this device has never seen (e.g. a device just added to an
-account that is already in rooms): the room gets a provisional `UNKNOWN` row, as on ingest, so the
-sync row can be minted, and the room's own history fills it in.
+### Router — "get this payload there"
 
-Protection verdicts (`ProtectionDisposition` in `ProtectionException.kt`) are two-valued:
+- Speaks **devices and envelopes**: `PeerId`, `BinaryEnvelope`, packet ids.
+- Fans a payload out to every device of the target account, protects it (via protection), queues it in the
+  outbox, picks a link, retries, deposits relay copies, and handles ACK/NACK and dedup.
+- Keeps links alive, sends pings, tracks peer availability, and exposes presence to the orchestrator **per
+  account only** (`onlineAccounts`); which device carries an account stays inside the router.
+- Reads accounts and devices (account → devices, device → endpoint and keys) through read-only views. It never
+  writes identity facts other than the routing state it owns (see §4).
+- Treats payloads as opaque beyond their routing header. It never reads a `RoomId`, never looks at the DAG or
+  membership, and never decides what content to send. When it needs content it does not own (the frontiers it
+  advertises in a ping), it asks through an interface it declares itself, implemented by the orchestrator.
+- Lifts transport health into its own local link-status vocabulary; transport types stop at the router.
+
+### Transports — "move these bytes"
+
+- Speak **remotes and bytes**: a session key (`PeerId` for WebRTC, `TorEndpoint` for Tor) and `BinaryEnvelope`
+  frames.
+- Implement `SessionTransport<K>`: per-remote session states, idempotent open/close, send on an open session.
+- Know nothing about the database, accounts, identity, crypto sessions or retry policy. The only key a transport
+  holds is its own (the onion key, kept in Tor's state directory).
+- Details: [`transport.md`](transport.md).
+
+### Services beside the layers
+
+- **protocol** — wire types and codecs (`BinaryEnvelope`, `MessageEnvelope`, `SystemEnvelope`,
+  `BootstrapEnvelope`, `FileEnvelope`, `WebRtcSignalEnvelope`), ids (`AccountId`, `PeerId`, `RoomId`,
+  `TorEndpoint`), and the observability profiles (`EnvelopeObservability`) that say which routing metadata is
+  visible on the wire. It is the bottom of the graph: it depends on nothing else in the core. Codecs encode and
+  decode; signing, hashing and encryption happen elsewhere.
+- **crypto** — primitives (`CryptoProvider`), identity keys, signatures, and 1:1 E2EE (X3DH, Double Ratchet,
+  session manager). Owns its own stores, including the keyring-backed key store.
+- **protection** — turns a payload into protected envelope bytes and back (sign, encrypt, verify, decrypt) for
+  each envelope family. Used by the router; built on crypto.
+- **storage** — SQLDelight schema, database setup and migrations, and repository implementations. Storage is
+  infrastructure, not a layer: each repository belongs to the layer that owns its tables (§4).
+- **config** — each layer defines its own config type next to its code (`OrchestratorConfig`, `RouterConfig`,
+  `TorBackendConfig`, …). Loading, watching and distributing config is done by the composition root.
+- **logging** — `AppLog`, usable everywhere.
+
+## 3. Dependency rules
+
+A package may import only what its row allows (plus `logging` and the standard libraries).
+
+| Package      | May depend on                                                         |
+|--------------|-----------------------------------------------------------------------|
+| protocol     | —                                                                     |
+| transport    | protocol                                                              |
+| crypto       | protocol                                                              |
+| protection   | crypto, protocol                                                      |
+| routing      | transport, protection, protocol, read-only identity views from crypto |
+| orchestrator | routing (`Router` and its vocabulary types only), crypto, protocol    |
+| wiring       | everything                                                            |
+
+Consequences:
+
+- When a lower layer needs something from a higher one, it **declares an interface in its own package** and the
+  higher layer implements it. The composition root connects them. Lower layers never import upper-layer types.
+- Exceptions cross a layer boundary only as the receiving layer's own vocabulary (e.g. a crypto failure becomes a
+  protection verdict before the router sees it).
+- The rules are checked by an architecture test; a new dependency that breaks the table fails the build.
+
+## 4. Data ownership
+
+Every table has exactly **one owning layer**, and only that layer writes it. Other layers read through narrow
+read-only interfaces that the *reading* layer declares (e.g. the router's device directory: account → devices,
+device → endpoint and keys). A repository interface with both read and write methods is handed only to its
+owner.
+
+| Tables                                                                                 | Owner          | Writer within the owner                  |
+|----------------------------------------------------------------------------------------|----------------|------------------------------------------|
+| `accounts`, `devices` (chain identity, roles)                                          | orchestrator   | the global fold, and nothing else        |
+| `devices` routing state (current endpoint, availability)                               | routing        | the router                               |
+| `signed_prekeys`, `one_time_prekeys`, `crypto_sessions`, `crypto_session_skipped_keys` | crypto         | the session manager / key services       |
+| `messages`, `message_parents`, `causal_hold`                                           | orchestrator   | the DAG engine                           |
+| `message_deliveries`                                                                   | orchestrator   | the delivery tracker                     |
+| `rooms`, `room_members`                                                                | orchestrator   | the room fold (rooms are seeded at boot) |
+| `pending_syncs`, `pending_sync_candidate_accounts`                                     | orchestrator   | the sync coordinator                     |
+| `sync_attempts`, `sync_declined_devices`                                               | routing        | the sync retry processor                 |
+| `outbox`, `dedup`                                                                      | routing        | the router                               |
+| `file_transfers`, `file_chunk_tracker`, `spaces`                                       | not in use yet | —                                        |
+
+Rules:
+
+- The folds are the only writers of state derived from the event chains. Services that act on the user's behalf (add a
+  member, remove a device) **publish an event**; they never write the projected tables directly.
+- Adding a table means adding a row to this table in the same change.
+- Schema changes ship with a migration; the database is the only thing that has to survive a rewrite.
+
+## 5. The composition root
+
+The composition root (`wiring`) builds the core: it opens the data directory and database, creates the key
+store and config store, constructs every store, service, transport and the router, and hands the orchestrator
+the finished parts. Platform factories (JVM, Android, iOS) supply the platform pieces (database driver, Tor
+backend, WebRTC backend, network monitor).
+
+- The orchestrator does not construct transports, the router or repositories.
+- Boot diagnosis, first-run setup (genesis, join by invite, recovery) and reset live in `orchestrator/boot` and
+  `orchestrator/onboarding`, not in the orchestrator class itself.
+- Each component takes its dependencies through its constructor as interfaces; no service locators, no
+  `lateinit` wiring after construction.
+
+## 6. Delivery model
+
+Effectively-once delivery rests on the **pull path**, not the push path. Every sent message is appended to the
+local DAG first; pings advertise DAG tips (frontiers); peers pull what they miss with sync requests. The outbox
+push (dispatch + ACK/NACK retry) is a latency optimization — a deferred or expired push is a latency problem,
+never a loss.
+
+- Sync is split along the same line as everything else. The orchestrator owns **what** is missing, which
+  accounts may hold it, and what may be served to whom (`pending_syncs`, the serve gate). The router owns **asking**:
+  which candidate device, when, and carrying the request and reply. It reads the content through
+  `SyncPayloadProvider`, an interface it declares and the orchestrator implements, and the orchestrator hands
+  it each sync with `Router.startSync`. Only candidate devices with an open link are asked; with none, their
+  links are nudged and the sync is asked the moment one comes up. Each attempt is one sync request sent
+  through the outbox with a short lifetime (`syncAttemptTimeout`). A `DECLINED` NACK rules that device out for
+  the sync; expiry or any other NACK only moves it behind the other candidates, and the next one is asked at
+  once. An ACK leaves the backoff to schedule the next attempt. A sync ends only when its pending sync does.
+- The router owns pings as a mechanism (liveness, link adoption, availability). The frontiers inside a ping
+  come from the orchestrator (`FrontierSnapshotProvider`, per account), and received frontiers go back to it
+  per account; what they mean (new syncs, reopening declined ones, re-pushing a removal) is decided there.
+- A frontier can name a room this device has never seen (e.g. a device just added to an account that is already
+  in rooms): the room gets a provisional `UNKNOWN` row, as on ingest, so a sync row can be created, and the
+  room's own history fills it in.
+- Sync rows die when their target arrives in any state (`Inserted` or `BecameOrphan`): an arrived orphan's fetch
+  is satisfied and its missing parents get fresh rows. This keeps out-of-order delivery (normal for
+  store-and-forward) from leaking sync rows.
+- Repair that follows from content (e.g. re-delivering a removal node to a device whose ping shows it never saw
+  its removal) is decided by the orchestrator and sent through the router as an ordinary payload.
+
+### Outcomes and delivery state
+
+- Every outbox entry that someone waits on carries a tag saying what it is for (a message push, a bootstrap
+  packet, a sync attempt). However the entry leaves the outbox — ACK, terminal NACK, expiry — the outcome is
+  reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets a tag; it
+  does not add another callback path.
+- Upward, the router reports only push-path ACKs, per account (`Router.deliveries`). An ACK proves delivery;
+  its absence proves nothing, since relays and the pull path never ACK to the original sender.
+- What the user sees is the orchestrator's: the delivery tracker records an account as holding a message on
+  a push ACK, or when that account's ping frontier descends from the message (which covers relay and sync
+  delivery). There is no "failed" state while the pull path exists — only "not known delivered yet".
+
+### Protection verdicts
+
+`ProtectionDisposition` is two-valued:
 
 - `PERMANENT` — these bytes are dead (bad signature, replay, violation, corrupt).
-- `DEFER` — prerequisites missing (session/identity not ready). There is no "retryable"
-  protection verdict: retry policy is a transport concern owned by the outbox.
+- `DEFER` — prerequisites missing (session/identity not ready). There is no "retryable" protection verdict:
+  retry policy is owned by the outbox.
 
-Inbound/outbound disposition contract:
+### Inbound and outbound dispositions
 
-- `DEFER` is silent by design: no ACK, no NACK, dedup row cleared (`inboundResultForProtectionFailure`), so the sender's
-  resend is reprocessed fresh once
-  the prerequisite lands. A NACK here would either replay a stale verdict for later
-  duplicates or falsely ACK the packet via the duplicate-replay path.
-- `ACK` means processed — never sent before successful decrypt-and-handle.
-- The sender owns a message until it decrypts on the receiver: there is no inbound hold
-  queue; the sender's outbox retry is the only recovery path for undecryptable packets.
-- A received NACK's meaning is a pure function of its reason (`nackActionFor` in the
-  routing layer is the single enforcement point): terminal reasons (`PERMANENT_PROTECTION_FAILED`, `DECODE_FAILED`,
-  `UNSUPPORTED_TYPE`, `EXPIRED`,
-  `DECLINED`) delete the outbox row; `WRONG_TARGET` keeps it (endpoint reconciliation
-  self-heals; the fast-attempt budget self-limits cadence). An unrecognized reason byte
-  never deletes — never act destructively on confusion with a newer peer.
-- Outbound `DEFER` (session not ready at protect time) surfaces as a deferred device
-  count in `AccountPushReport` (router vocabulary only): the message stays in the
-  local DAG and delivery falls back to the pull path. The orchestrator maps it to a
-  pull-only member in `FanoutReport` — pending display state, never a failure.
-  Deliberately no separate staging table: epoch-1 encrypt self-bootstraps, so the
-  remaining defer windows are round-trip-scale races the pull path covers.
-- The outbox has no processing round: each due entry is claimed (attempt and next retry recorded
-  first) and sent on its own, so a slow send never delays what is queued behind it. In-flight sends are
-  capped (`outboxMaxInFlight`, `outboxMaxInFlightPerTarget`), and the retry timer ignores overdue
-  entries that can't start yet — finishing sends wake the loop instead. Sends never open a connection:
-  an entry whose peer has no open link waits for one (`noLinkRecheckDelay` is only a safety net).
-  Bootstrap packets with an explicit endpoint are the exception: Tor dials a stream for them on demand.
-- Unknown-device policy exception: an ACK/NACK from a device with no row is accepted only when it
-  refers to a BOOTSTRAP packet in our outbox addressed to exactly that device (a recovering device
-  can't verify its sponsor's signature yet; the unguessable packet id authenticates the reply). It is
-  never answered. An accepted ACK is reported on `Router.bootstrapDeliveries`, which moves recovery
-  onboarding from `REQUEST_SENT` to `REQUEST_DELIVERED`.
-- Sync rows die when their target arrives in any state (`Inserted` or `BecameOrphan`):
-  an arrived orphan's fetch is satisfied and its missing parents get fresh rows. This keeps
-  out-of-order delivery (normal for store-and-forward) from leaking sync rows.
+- `DEFER` is silent by design: no ACK, no NACK, dedup row cleared, so the sender's resend is processed fresh
+  once the prerequisite lands. A NACK here would either replay a stale verdict for later duplicates or falsely
+  ACK the packet through the duplicate-replay path.
+- `ACK` means processed — never sent before a successful decrypt-and-handle.
+- The sender owns a message until it decrypts on the receiver: there is no inbound hold queue; the sender's
+  outbox retry is the only recovery path for undecryptable packets.
+- A received NACK's meaning is a pure function of its reason, decided in one place in the router. Terminal
+  reasons (`PERMANENT_PROTECTION_FAILED`, `DECODE_FAILED`, `UNSUPPORTED_TYPE`, `EXPIRED`, `DECLINED`) delete
+  the outbox row; `WRONG_TARGET` keeps it (endpoint reconciliation self-heals). An unrecognized reason never
+  deletes — never act destructively on confusion with a newer peer.
+- Outbound `DEFER` (session not ready at protect time) surfaces as a deferred device count in the router's
+  account report. The message stays in the DAG and delivery falls back to the pull path; the orchestrator shows
+  that member as pending, never as failed. There is deliberately no staging table: epoch-1 encryption
+  self-bootstraps, so the remaining defer windows are round-trip-scale races the pull path covers.
+- The outbox has no processing round: each due entry is claimed (attempt and next retry recorded first) and sent
+  on its own, so a slow send never delays what is queued behind it. In-flight sends are capped globally and per
+  target. Sends never open a connection: an entry whose peer has no open link waits for one. Bootstrap packets
+  with an explicit endpoint are the exception: Tor dials a stream for them on demand.
+- Unknown devices: an ACK/NACK from a device with no row is accepted only when it refers to a bootstrap packet
+  in our outbox addressed to exactly that device (a recovering device can't verify its sponsor's signature yet;
+  the unguessable packet id authenticates the reply). It is never answered. Accepted bootstrap ACKs are
+  reported to the orchestrator so onboarding can show "request delivered".
+
+## 7. Identity and keys
+
+- Identity lives in the global chain: accounts and devices, each with signing and encryption keys. The global
+  fold projects it into `accounts`/`devices`.
+- The account signing key exists only on the account's first device (genesis, new account, or recovery-key
+  import). A device added to an existing account never holds it: it starts on a key-less stand-in local account,
+  and when the fold confirms the device under its real account, that account becomes the local one (the
+  stand-in and its memberships fold into it).
+- Device identity keys are immutable; there is no identity-key rotation.
+- Private keys and the database master key live in the OS keyring, outside the data directory. Deleting the data
+  directory therefore leaves keys behind; a freshly created database can't own any of them, so boot deletes
+  them and goes to setup. A reset deletes everything in the data directory except the held `app.lock`.
+- The database is encrypted with the keyring-held master key.
+- E2EE design, conscious trade-offs and the open backlog: [`e2ee.md`](e2ee.md).
+
+## 8. Feature status
+
+Working:
+
+- Tor transport with long-lived streams, self-recovery and reachability checks; WebRTC data channels with
+  signaling over Tor.
+- Router: outbox with retries, relays/store-and-forward, ACK/NACK, dedup, link keeping, pings, availability.
+- 1:1 E2EE (X3DH + Double Ratchet) for messages and WebRTC signaling.
+- Global chain (accounts, devices, admin roles), rooms with a membership fold, the message DAG and sync.
+- Onboarding by invite, adding devices, recovery.
+- Compose desktop GUI.
+
+Not done yet:
+
+- File transfer (envelope family exists; protection, pipeline and storage are not built).
+- Audio/video media (session contracts exist; media tracks do not).
+- Mobile: push and background behavior, network monitoring on Android/iOS.
+- Signed-prekey rotation and the remaining epoch lifecycle work (see [`e2ee.md`](e2ee.md)).
+- Metadata minimization beyond the current observability profiles (desirable, not a v1 blocker).
+
+## 9. Writing new code
+
+1. **Pick the layer by vocabulary.** If the code talks about rooms, members, messages or accounts, it is
+   orchestrator code. If it talks about devices, envelopes, retries or links, it is router code. If it only
+   moves bytes, it is transport code.
+2. **Check the dependency table.** If you need something from a higher layer, declare an interface in your own
+   package and let the higher layer implement it.
+3. **Check data ownership.** Write only tables your layer owns; read others through a read-only view. If
+   identity or room state must change, publish an event and let the fold write it.
+4. **Wire it in the composition root**, with constructor-injected interfaces.
+5. **Wire types go in `protocol`.** A new envelope or payload gets a codec with round-trip tests and an
+   observability profile if it adds routing metadata.
+6. **Respect the delivery contract** (§6): never ACK before handling, never NACK a `DEFER`, never delete on an
+   unknown reason.
+7. **Keep the docs honest.** A change that moves a rule in this guide updates the guide in the same change;
+   mechanism details go in the layer's own doc.

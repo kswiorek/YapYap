@@ -5,7 +5,6 @@ import kotlinx.coroutines.flow.*
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload.Ping
 import org.yapyap.routing.outbound.SystemSender
@@ -13,7 +12,6 @@ import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.sync.RemovalRePusher
 import kotlin.uuid.Uuid
 
 internal class PingProvider(
@@ -23,8 +21,6 @@ internal class PingProvider(
     private val frontierSnapshotProvider: FrontierSnapshotProvider,
     private val systemSender: SystemSender,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
-    private val pendingSyncs: PendingSyncRepository,
-    private val removalRePusher: RemovalRePusher,
 ) {
     private var pingLoopJob: Job? = null
 
@@ -99,28 +95,13 @@ internal class PingProvider(
      * duplicated ping cannot start an echo loop.
      *
      * The peer id never leaves the routing layer: `pingPayloadFlow` carries the
-     * sender's account (null when the device is unknown), and the two
-     * device-granular pending-sync ops run here against the repositories
-     * directly — re-opening this device on the pinged rooms' inert rows (its
-     * ping contradicts its own gate-NACK, docs/room events.md §6), and
-     * re-pushing a removal node when the ping advertises a room our fold says
-     * the sender was removed from (its projection still tracks the room, so it
-     * never saw the removal).
+     * sender's account (null when the device is unknown); what the frontiers mean
+     * (sync, reopening declined syncs, removal re-push) is decided upstream.
      */
     suspend fun handlePing(peerId: PeerId, ping: Ping) {
         val senderAccount = ctx.identityResolver.getAccountIdForDevice(peerId)
         pingPayloadFlow.emit(PingFrontiers(senderAccount, ping.roomFrontiers))
         peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
-        for ((roomId, _) in ping.roomFrontiers) {
-            pendingSyncs.reopenAttemptedPeerForRoom(
-                deviceId = peerId,
-                roomId = roomId,
-                localDeviceId = ctx.localDeviceId,
-            )
-            if (senderAccount != null) {
-                removalRePusher.rePushRemoval(peerId, roomId, senderAccount)
-            }
-        }
 
         if (!ping.isReply) {
             // A new probe from [peerId]: echo it back so they can correlate.
@@ -134,7 +115,9 @@ internal class PingProvider(
             pingId = echoPingId ?: Uuid.random(),
             isReply = echoPingId != null,
             selfReportedAvailability = peerAvailabilityRegistry.currentSelfScore(),
-            roomFrontiers = frontierSnapshotProvider.latestRoomFrontiers(peerId),
+            roomFrontiers = ctx.identityResolver.getAccountIdForDevice(peerId)
+                ?.let { frontierSnapshotProvider.latestRoomFrontiers(it) }
+                .orEmpty(),
         )
         systemSender.sendPing(peerId, ping)
         // Only an originating probe (not an echo) is a real liveness attempt we want tracked.

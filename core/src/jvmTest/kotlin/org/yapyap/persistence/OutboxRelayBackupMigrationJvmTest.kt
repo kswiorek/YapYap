@@ -18,6 +18,48 @@ import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
 
 /**
+ * Turns a store created at today's schema back into a version-3 store: undoes 3.sqm (outbox
+ * tags, the sync split, message deliveries) by recreating the version-3 shapes.
+ */
+internal fun revertToVersionThree(driver: app.cash.sqldelight.db.SqlDriver) {
+    listOf(
+        "DROP INDEX outbox_tag_idx",
+        "ALTER TABLE outbox DROP COLUMN tag_kind",
+        "ALTER TABLE outbox DROP COLUMN tag_id",
+        "DROP TABLE message_deliveries",
+        "DROP TABLE sync_declined_devices",
+        "DROP TABLE sync_attempts",
+        "DROP TABLE pending_sync_candidate_accounts",
+        "DROP TABLE pending_syncs",
+        """CREATE TABLE pending_syncs(
+            sync_id TEXT NOT NULL PRIMARY KEY,
+            room_id TEXT NOT NULL,
+            target_message_id TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at INTEGER NOT NULL,
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+            UNIQUE (room_id, target_message_id)
+        )""",
+        """CREATE TABLE pending_sync_candidate_accounts(
+            sync_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            PRIMARY KEY (sync_id, account_id),
+            FOREIGN KEY (sync_id) REFERENCES pending_syncs(sync_id) ON DELETE CASCADE
+        )""",
+        """CREATE TABLE pending_sync_attempted_peers(
+            sync_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            PRIMARY KEY (sync_id, device_id),
+            FOREIGN KEY (sync_id) REFERENCES pending_syncs(sync_id) ON DELETE CASCADE
+        )""",
+        "CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id)",
+        "CREATE INDEX pending_syncs_due_idx ON pending_syncs(next_attempt_at)",
+        "CREATE INDEX pending_sync_attempted_peers_device_idx ON pending_sync_attempted_peers(device_id)",
+        "PRAGMA user_version = 3",
+    ).forEach { driver.execute(null, it, 0) }
+}
+
+/**
  * Upgrade path for the outbox's `relay_backup` column (2.sqm): a store at schema version 2
  * (the outbox without the column, holding a queued row) opens at the current version, keeps
  * its row with no backup owed, and takes new rows with one.
@@ -47,6 +89,7 @@ class OutboxRelayBackupMigrationJvmTest {
         val queuedBefore = envelope()
         factory(path).createConnection().let { connection ->
             val driver = connection.driver
+            revertToVersionThree(driver)
             driver.execute(null, "ALTER TABLE outbox DROP COLUMN relay_backup", 0)
             driver.execute(null, "PRAGMA user_version = 2", 0)
             driver.execute(

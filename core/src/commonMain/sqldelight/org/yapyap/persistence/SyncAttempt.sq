@@ -1,0 +1,55 @@
+import kotlin.uuid.Uuid;
+import kotlin.time.Instant;
+import org.yapyap.protocol.PeerId;
+
+-- Router-owned: how a pending sync (Sync.sq, same sync_id) is being asked for. Each attempt
+-- is one sync request to one candidate device, sent through the outbox (tag SYNC). A device
+-- that declines (NACK) is not asked again until the sync is reopened for its account.
+-- Rows outlive their pending sync until the next attempt finds it gone.
+CREATE TABLE sync_attempts(
+    sync_id TEXT AS Uuid NOT NULL PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER AS Instant NOT NULL
+);
+
+CREATE TABLE sync_declined_devices(
+    sync_id TEXT AS Uuid NOT NULL,
+    device_id TEXT AS PeerId NOT NULL,
+    PRIMARY KEY (sync_id, device_id),
+    FOREIGN KEY (sync_id) REFERENCES sync_attempts(sync_id) ON DELETE CASCADE
+);
+
+insertSyncAttempt:
+INSERT OR IGNORE INTO sync_attempts (sync_id, attempts, next_attempt_at)
+VALUES (?, 0, ?);
+
+deleteSyncAttempt:
+DELETE FROM sync_attempts WHERE sync_id = ?;
+
+selectEarliestDueAt:
+SELECT MIN(next_attempt_at) FROM sync_attempts;
+
+selectDueSyncAttempts:
+SELECT * FROM sync_attempts WHERE next_attempt_at <= ? LIMIT ?;
+
+recordAttempt:
+UPDATE sync_attempts SET attempts = attempts + 1, next_attempt_at = ? WHERE sync_id = ?;
+
+updateNextAttemptAt:
+UPDATE sync_attempts SET next_attempt_at = ? WHERE sync_id = ?;
+
+-- Brings the given syncs forward to :now; never pushes one back.
+advanceToNow:
+UPDATE sync_attempts SET next_attempt_at = :now
+WHERE next_attempt_at > :now AND sync_id IN :syncIds;
+
+selectDeclinedDevices:
+SELECT device_id FROM sync_declined_devices WHERE sync_id = ?;
+
+insertDeclinedDevice:
+INSERT OR IGNORE INTO sync_declined_devices (sync_id, device_id) VALUES (?, ?);
+
+deleteDeclinedDevices:
+DELETE FROM sync_declined_devices WHERE sync_id = :syncId AND device_id IN :deviceIds;
+
+CREATE INDEX sync_attempts_due_idx ON sync_attempts(next_attempt_at);

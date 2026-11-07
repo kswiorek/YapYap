@@ -21,6 +21,16 @@ public interface MessagingService {
      */
     public val typingState: StateFlow<Map<RoomId, Set<AccountId>>>
 
+    /**
+     * Member accounts newly known to hold one of the local account's messages. Learned from
+     * push-path ACKs and from ping frontiers (which also cover relay and sync delivery), so
+     * it can lag behind the actual arrival; there is no "failed" — only "not known yet".
+     */
+    public val deliveryUpdates: Flow<MessageDelivery>
+
+    /** Member accounts known to hold [messageId] so far (the local account is never included). */
+    public suspend fun deliveredTo(messageId: Uuid): Set<AccountId>
+
     /** Outbound: append to local DAG (refused up front on policy violations),
      *  then fan out to room members. The message is durable once [SendMessageResult.Sent] returns. */
     public suspend fun sendMessage(roomId: RoomId, message: Message): SendMessageResult

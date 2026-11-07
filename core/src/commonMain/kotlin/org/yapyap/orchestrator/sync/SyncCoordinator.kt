@@ -18,7 +18,9 @@ internal interface SyncCoordinator {
      * unknown). For an unknown room it becomes the candidate (the pinger's
      * assertion that we are in the room — docs/room events.md §6); for a known
      * room it is appended to the re-triggered rows' candidates (insert-if-absent,
-     * so the sender is always a candidate — universal accumulation).
+     * so the sender is always a candidate — universal accumulation). A known sender also
+     * gets the room's declined syncs reopened for it, and the removal node re-pushed when
+     * our fold says it was removed from the room (docs/room events.md §6).
      */
     suspend fun requestFrontierSync(roomId: RoomId, tips: List<Uuid>, senderAccount: AccountId? = null)
 

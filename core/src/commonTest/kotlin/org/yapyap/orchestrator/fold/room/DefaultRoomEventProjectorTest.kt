@@ -30,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -75,6 +76,8 @@ private class RecordingRoomRepository : RoomRepository {
             ?.let { RoomMemberRecord(accountId, it.role, it.status, it.removalNodeId) }
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = error("not used")
+
+    override suspend fun roomsOfAccount(accountId: AccountId): List<RoomId> = error("not used")
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {
         rooms.getOrPut(roomId) { RoomCell(name, type, null) }
@@ -173,7 +176,9 @@ private class FakeRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
-    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
+    override val deliveries: Flow<Delivery> = emptyFlow()
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
 
     override suspend fun start() = Unit
     override suspend fun stop() = Unit

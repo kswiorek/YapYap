@@ -135,9 +135,14 @@ Owns outbox retry orchestration and the internal `OutboxRetryLoop`:
 - `processDue()` — prune expired, dispatch due entries in parallel, wake loop
 - `runIn(scope)` — start the retry loop job (called from `DefaultRouter.start()`)
 - `onWebRtcSessionConnected(peerId, sessionId)` — accelerate retries for peer
-- `onOutboundPacketDelivered(packetId)` — `markDelivered` + wake (applied by `InboundEnvelopeProcessor` on
-  `SystemInboundResult.RemoveFromOutbox`)
-- `enqueueAndWake(envelope, nextRetryAt)` — enqueue outbound send + wake loop (used by `OutboundMessenger`)
+- `onDisposition(packetId, nackReason)` — the single exit for answered entries (ACK, or a NACK already judged
+  terminal): removes the row and reports its outcome (applied by `InboundEnvelopeProcessor` on
+  `InboundSideEffect.OutboxDisposition`). Expiry is the other exit, in `processDue()`.
+- `outcomes` — how each tagged entry left (`OutboxOutcome`: acked / nacked / expired); `DefaultRouter` routes
+  them by `OutboxTag.Kind` (message and bootstrap ACKs to `Router.deliveries`, sync attempts to
+  `SyncRetryProcessor`)
+- `enqueueAndWake(envelope, nextRetryAt, tag = …)` — enqueue outbound send + wake loop (used by `OutboundMessenger`,
+  `BootstrapSender`, `SyncRetryProcessor`)
 - `recordSendAttempt(packetId, nextRetryAt, now)` — record dispatch attempt after immediate send
 - `wake()` — notify retry loop
 

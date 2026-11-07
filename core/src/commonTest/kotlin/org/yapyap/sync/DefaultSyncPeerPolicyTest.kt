@@ -1,11 +1,9 @@
 package org.yapyap.sync
 
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
-import org.yapyap.routing.router.PeerAvailabilityRegistry
-import org.yapyap.routing.router.RouterConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -16,61 +14,43 @@ class DefaultSyncPeerPolicyTest {
     private val peerA = PeerId("policy-peer-a")
     private val peerB = PeerId("policy-peer-b")
 
-    @Test
-    fun prefersWebRtcSessionOverOnlinePeer() = runTest {
+    private fun stack(torLinked: List<PeerId> = emptyList()): SyncRoutingStack {
         val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
+        torLinked.forEach { stack.ctx.peerLinks.bindTorEndpoint(it, TorEndpoint("${it.id}.onion", 80)) }
+        return stack
+    }
+
+    @Test
+    fun prefersWebRtcLinkOverTorLink() = runTest {
+        val stack = stack(torLinked = listOf(peerB))
         stack.webRtc.openSession(peerA)
         // Opening is not usability: the policy prefers a usable channel.
         stack.webRtc.simulateEnvelopeChannelOpen(peerA)
-        val registry = PeerAvailabilityRegistry(
-            stack.ctx.clock,
-            MutableStateFlow(RouterConfig()),
-            FakePeerAvailabilityStore()
-        )
-        registry.markReachable(peerB, stack.ctx.clock.now())
-        val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
 
-        assertEquals(peerA, policy.pickNextDevice(listOf(peerA, peerB), emptySet()))
+        assertEquals(peerA, DefaultSyncPeerPolicy(stack.ctx).pickNextDevice(listOf(peerB, peerA), emptySet()))
     }
 
     @Test
-    fun prefersOnlinePeerOverOfflinePeer() = runTest {
-        val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(
-            stack.ctx.clock,
-            MutableStateFlow(RouterConfig()),
-            FakePeerAvailabilityStore()
-        )
-        registry.markReachable(peerB, stack.ctx.clock.now())
-        val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
+    fun unlinkedDevicesAreNeverAsked() = runTest {
+        // A device that merely looks online would leave the request waiting for a link.
+        val stack = stack()
 
-        assertEquals(peerB, policy.pickNextDevice(listOf(peerA, peerB), emptySet()))
+        assertNull(DefaultSyncPeerPolicy(stack.ctx).pickNextDevice(listOf(peerA, peerB), emptySet()))
     }
 
     @Test
-    fun returnsNullWhenNoPeerOnlineOrSessioned() = runTest {
-        val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(
-            stack.ctx.clock,
-            MutableStateFlow(RouterConfig()),
-            FakePeerAvailabilityStore()
-        )
-        val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
+    fun skipsDeclinedDevices() = runTest {
+        val stack = stack(torLinked = listOf(peerA, peerB))
 
-        assertNull(policy.pickNextDevice(listOf(peerA, peerB), emptySet()))
+        assertNull(DefaultSyncPeerPolicy(stack.ctx).pickNextDevice(listOf(peerA, peerB), setOf(peerA, peerB)))
     }
 
     @Test
-    fun skipsAttemptedPeersEvenIfOnline() = runTest {
-        val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val registry = PeerAvailabilityRegistry(
-            stack.ctx.clock,
-            MutableStateFlow(RouterConfig()),
-            FakePeerAvailabilityStore()
-        )
-        registry.markReachable(peerB, stack.ctx.clock.now())
-        val policy = DefaultSyncPeerPolicy(stack.ctx, registry)
+    fun unansweredDevicesGoLast() = runTest {
+        val stack = stack(torLinked = listOf(peerA, peerB))
+        val policy = DefaultSyncPeerPolicy(stack.ctx)
 
-        assertNull(policy.pickNextDevice(listOf(peerA, peerB), setOf(peerB)))
+        assertEquals(peerB, policy.pickNextDevice(listOf(peerA, peerB), emptySet(), unanswered = setOf(peerA)))
+        assertEquals(peerA, policy.pickNextDevice(listOf(peerA), emptySet(), unanswered = setOf(peerA)))
     }
 }

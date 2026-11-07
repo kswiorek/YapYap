@@ -18,12 +18,14 @@ import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TypingIndicatorEvent
+import org.yapyap.routing.sync.SyncHandler
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
 
 internal class SystemInboundHandler(
     private val ctx: RoutingContext,
-    private val typingIndicatorFlow: MutableSharedFlow<TypingIndicatorEvent>
+    private val typingIndicatorFlow: MutableSharedFlow<TypingIndicatorEvent>,
+    private val syncHandler: SyncHandler,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val systemEnvelope = runCatching { SystemEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -77,7 +79,7 @@ internal class SystemInboundHandler(
                     ),
                 )
                 InboundHandleResult.Success(
-                    sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                    sideEffects = listOf(InboundSideEffect.OutboxDisposition(payload.packetId)),
                     sourceAuthenticated = true,
                 )
             }
@@ -96,7 +98,13 @@ internal class SystemInboundHandler(
                         ),
                     )
                     InboundHandleResult.Success(
-                        sideEffects = listOf(InboundSideEffect.RemoveFromOutbox(payload.packetId)),
+                        sideEffects = listOf(
+                            InboundSideEffect.OutboxDisposition(
+                                payload.packetId,
+                                // REMOVE is only ever decided for a recognized reason.
+                                checkNotNull(payload.reason),
+                            ),
+                        ),
                     )
                 }
 
@@ -127,12 +135,20 @@ internal class SystemInboundHandler(
                         "syncId" to payload.syncId,
                     )
                 )
-                InboundHandleResult.Success(
-                    sideEffects = listOf(InboundSideEffect.SyncRequested(systemEnvelope.source, payload)),
-                    sourceAuthenticated = true,
-                )
+                val messages = syncHandler.messagesFor(payload, systemEnvelope.source)
+                if (messages.isEmpty() && env.dispositionRequested) {
+                    // Declined (not served to this account, or nothing held): the NACK moves
+                    // the requester on to its next candidate.
+                    InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+                } else {
+                    InboundHandleResult.Success(
+                        sideEffects = listOf(InboundSideEffect.SyncRequested(systemEnvelope.source, payload, messages)),
+                        sourceAuthenticated = true,
+                    )
+                }
             }
 
+            // Sent only by older builds, which decline this way instead of with a NACK.
             is SystemPayload.SyncNack -> {
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -145,7 +161,7 @@ internal class SystemInboundHandler(
                     ),
                 )
                 InboundHandleResult.Success(
-                    sideEffects = listOf(InboundSideEffect.MarkPeerAttempted(systemEnvelope.source, payload.syncId)),
+                    sideEffects = listOf(InboundSideEffect.SyncDeclined(systemEnvelope.source, payload.syncId)),
                     sourceAuthenticated = true,
                 )
             }

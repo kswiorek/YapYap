@@ -3,25 +3,36 @@ package org.yapyap.routing.sync
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.outbound.OutboundMessenger
 import org.yapyap.routing.outbound.SystemSender
-import kotlin.uuid.Uuid
+import org.yapyap.routing.router.RoutingContext
 
-
+/**
+ * Responder side of sync. What may be served to whom is decided above the router
+ * ([SyncPayloadProvider.syncMessages], per requesting account); this resolves the requesting
+ * device to its account and carries the reply back to that device.
+ */
 internal class SyncHandler(
+    private val ctx: RoutingContext,
     private val outboundMessenger: OutboundMessenger,
     private val syncPayloadProvider: SyncPayloadProvider,
-    private val pendingSyncRepository: PendingSyncRepository,
-    private val systemSender: SystemSender
+    private val systemSender: SystemSender,
 ) {
-    // Membership is enforced inside SyncPayloadProvider (roomsOfPeer check):
-    // denial surfaces here as an empty list, hence the generic NACK below.
-    suspend fun onSyncRequested(payload: SyncRequest, sourceDevice: PeerId) {
-        val messages = syncPayloadProvider.getMessages(payload, sourceDevice)
+    /** What to send [sourceDevice] for [request]; empty when the request is declined. */
+    suspend fun messagesFor(request: SyncRequest, sourceDevice: PeerId): List<MessagePayload> {
+        val requester = ctx.identityResolver.getAccountIdForDevice(sourceDevice) ?: return emptyList()
+        return syncPayloadProvider.syncMessages(request, requester)
+    }
+
+    /**
+     * Sends [messages] back to [sourceDevice]. Empty means declined: requests that asked for a
+     * disposition were already NACKed; an older build that didn't ask gets its legacy SyncNack.
+     */
+    suspend fun reply(request: SyncRequest, sourceDevice: PeerId, messages: List<MessagePayload>) {
         if (messages.isEmpty()) {
             AppLog.info(
                 component = LogComponent.ROUTER,
@@ -29,19 +40,15 @@ internal class SyncHandler(
                 message = "No messages to sync for peer",
                 fields = mapOf("peerId" to sourceDevice),
             )
-            val syncNack = SystemPayload.SyncNack(
-                payload.syncId,
-                reason = "No messages to sync"
+            systemSender.sendSyncNack(
+                sourceDevice,
+                SystemPayload.SyncNack(request.syncId, reason = "No messages to sync")
             )
-            systemSender.sendSyncNack(sourceDevice, syncNack)
+            return
         }
         for (msg in messages) {
             // Forwarding in response to a sync request: direct only, no relay deposits needed.
             outboundMessenger.sendMessageToPeer(sourceDevice, msg, supplementRelays = false)
         }
-    }
-
-    suspend fun onMarkPeerAttempted(syncId: Uuid, peerId: PeerId) {
-        pendingSyncRepository.addAttemptedPeer(syncId, peerId)
     }
 }

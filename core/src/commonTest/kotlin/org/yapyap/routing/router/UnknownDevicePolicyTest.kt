@@ -133,7 +133,7 @@ class UnknownDevicePolicyTest {
             clock = FakeClock(epochSeconds(10_000L)),
             routerConfig = MutableStateFlow(RouterConfig()),
             transportLimits = MutableStateFlow(testTransportLimits()),
-            syncRepository = InMemoryPendingSyncRepository(),
+            syncAttemptStore = InMemorySyncAttemptStore(),
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
             peerAvailabilityStore = availabilityStore,

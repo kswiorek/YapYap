@@ -12,6 +12,7 @@ import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
 import org.yapyap.transport.tor.backend.TorRecoveryStep
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal interface Router {
@@ -114,7 +115,7 @@ internal interface Router {
      * @param targetEndpoint out-of-band endpoint override for targets with no local devices row.
      * @param sharedSecret sender's in-memory one-time secret, required for INTRO (used once,
      *   never persisted). Null for RECOVERY_REQUEST.
-     * @return the queued packet's id, as later reported by [bootstrapDeliveries].
+     * @return the queued packet's id, as later reported in [deliveries] ([DeliverySubject.Bootstrap]).
      */
     suspend fun sendBootstrap(
         payload: BootstrapPayload,
@@ -124,10 +125,29 @@ internal interface Router {
     ): Uuid
 
     /**
-     * Ids of bootstrap packets we sent that a device we don't know yet acknowledged
-     * (the recovery request's target, before its intro makes it known). Lets the
-     * newcomer side show "request delivered" instead of an unchanging wait.
+     * Starts asking candidate devices for pending sync [syncId] (idempotent), first at
+     * [firstAttemptAt]. What to ask for and which accounts may answer come from the
+     * [org.yapyap.routing.sync.SyncPayloadProvider]; the router asks until that reports the
+     * sync satisfied or gone.
      */
-    val bootstrapDeliveries: Flow<Uuid>
+    suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant)
+
+    /**
+     * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's
+     * room): if every candidate device has declined, that account's devices are asked again.
+     */
+    suspend fun reopenSync(syncId: Uuid, account: AccountId)
+
+    /**
+     * Push-path ACKs, resolved to the acknowledging account: a message pushed by [sendMessage]
+     * (or served in a sync reply) was processed by one of that account's devices, or a
+     * bootstrap packet from [sendBootstrap] reached its target (account null: the target may
+     * have no account here yet, as with a recovery request's target before its intro).
+     *
+     * Hot and best-effort: only an ACK is reported, and the absence of one proves nothing —
+     * messages also arrive through relays and the pull path, which never ACK to the sender.
+     * One event per acknowledging device, so an account may be reported more than once.
+     */
+    val deliveries: Flow<Delivery>
 
 }

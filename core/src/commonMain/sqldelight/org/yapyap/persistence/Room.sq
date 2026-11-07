@@ -77,6 +77,11 @@ JOIN room_members rm ON rm.room_id = r.room_id AND rm.status = 'ACTIVE'
 JOIN devices d ON d.account_id = rm.account_id
 WHERE d.device_id = :deviceId;
 
+selectRoomsOfAccount:
+SELECT rm.room_id
+FROM room_members rm
+WHERE rm.account_id = :accountId AND rm.status = 'ACTIVE';
+
 -- Chat rooms only (GLOBAL is the global projector's). Boot + GLOBAL-commit sweep.
 selectAllChatRoomIds:
 SELECT room_id FROM rooms WHERE room_id != :globalRoomId;

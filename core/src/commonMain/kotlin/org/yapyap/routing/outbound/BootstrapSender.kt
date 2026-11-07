@@ -1,5 +1,6 @@
 package org.yapyap.routing.outbound
 
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -54,7 +55,8 @@ internal class BootstrapSender(
             envelope,
             nextRetryAt = now,
             relayMessage = false,
-            targetEndpoint = targetEndpoint
+            targetEndpoint = targetEndpoint,
+            tag = OutboxTag(OutboxTag.Kind.BOOTSTRAP, envelope.packetId),
         )
         return envelope.packetId
     }

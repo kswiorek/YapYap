@@ -58,6 +58,11 @@ internal data class RouterConfig(
      */
     val noLinkRecheckDelay: Duration = 10.minutes,
     /**
+     * One sync request's lifetime: unanswered (no ACK or NACK) by then, the next candidate is
+     * asked. Over an open link a request is answered within seconds.
+     */
+    val syncAttemptTimeout: Duration = 90.seconds,
+    /**
      * A message sent over a link but not ACKed within this long gets its relay copies (the
      * link may only look open). Healthy links ACK in about a second, so this rarely fires
      * while the peer is really there.
@@ -88,24 +93,8 @@ internal data class RouterConfig(
      * an unacknowledged packet, and its duplicate is answered again.
      */
     val dispositionSendBudget: Duration = 30.seconds,
-    /** Max messages returned per sync response (responder-side page size). */
-    val syncMaxMessages: Int = 20,
-    /**
-     * Max requester frontier IDs honored per sync response (responder-side bound).
-     * Policy: truncate, never refuse (docs/room events.md §6) — the bound is a
-     * DoS guard against forged requests, not a paging mechanism (appends
-     * reference the whole frontier, so the covering antichain stays tiny).
-     * Truncation is merely wasteful, never incorrect: see SyncPayloadProvider.
-     */
-    val syncMaxKnownIds: Int = 64,
     /** Backoff when a pending sync has no candidate device that looks reachable. */
     val syncOfflineRetryDelay: Duration = 60.seconds,
-    /**
-     * Backoff between removal-node re-pushes to the same device
-     * (ping-contradiction recovery, docs/room events.md §6): the ping is the
-     * proof, the backoff is the rate governor.
-     */
-    val removalRePushBackoff: Duration = 1.hours,
 
     val pingInterval: Duration = 5.minutes,
     /**
@@ -166,6 +155,7 @@ internal data class RouterConfig(
         require(outboxMaxInFlightPerTarget > 0) { "outboxMaxInFlightPerTarget must be > 0" }
         require(linkPreference.isNotEmpty()) { "linkPreference must not be empty" }
         require(noLinkRecheckDelay > Duration.ZERO) { "noLinkRecheckDelay must be > 0" }
+        require(syncAttemptTimeout > Duration.ZERO) { "syncAttemptTimeout must be > 0" }
         require(torLinkRetryDelay > Duration.ZERO) { "torLinkRetryDelay must be > 0" }
         require(torLinkMaxRetryDelay >= torLinkRetryDelay) { "torLinkMaxRetryDelay must be >= torLinkRetryDelay" }
         require(torLinkMaxConcurrentOpens > 0) { "torLinkMaxConcurrentOpens must be > 0" }
@@ -177,10 +167,7 @@ internal data class RouterConfig(
         require(dispositionSendBudget > Duration.ZERO) { "dispositionSendBudget must be > 0" }
         require(sessionAwaitTimeout > Duration.ZERO) { "sessionAwaitTimeout must be > 0" }
         require(sessionAwaitReopenDelay > Duration.ZERO) { "sessionAwaitReopenDelay must be > 0" }
-        require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
-        require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
         require(syncOfflineRetryDelay > Duration.ZERO) { "syncOfflineRetryDelay must be > 0" }
-        require(removalRePushBackoff > Duration.ZERO) { "removalRePushBackoff must be > 0" }
         require(pingInterval > Duration.ZERO) { "pingInterval must be > 0" }
         require(sweepInterval > Duration.ZERO) { "sweepInterval must be > 0" }
         require(reliabilityHalfLife > Duration.ZERO) { "reliabilityHalfLife must be > 0" }

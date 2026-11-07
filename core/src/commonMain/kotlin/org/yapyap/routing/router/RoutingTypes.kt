@@ -4,15 +4,13 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.DeviceIdentityRecord
 import org.yapyap.crypto.identity.IdentityResolver
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.transport.tor.transport.TorTransport
@@ -93,9 +91,16 @@ internal data class BootstrapPacketEvent(
 
 internal sealed interface InboundSideEffect {
     data class EnqueueForRelay(val envelope: BinaryEnvelope) : InboundSideEffect
-    data class RemoveFromOutbox(val packetId: Uuid) : InboundSideEffect
-    data class SyncRequested(val peerId: PeerId, val sync: SyncRequest) : InboundSideEffect
-    data class MarkPeerAttempted(val peerId: PeerId, val syncId: Uuid) : InboundSideEffect
+
+    /** The target answered our outbox packet: ACK when [nackReason] is null, else a terminal NACK. */
+    data class OutboxDisposition(val packetId: Uuid, val nackReason: PacketNackReason? = null) : InboundSideEffect
+
+    /** A sync request we serve: [messages] go back to [peerId] (empty: declined). */
+    data class SyncRequested(val peerId: PeerId, val sync: SyncRequest, val messages: List<MessagePayload>) :
+        InboundSideEffect
+
+    /** [peerId] declined our sync [syncId] the legacy way (SyncNack). */
+    data class SyncDeclined(val peerId: PeerId, val syncId: Uuid) : InboundSideEffect
     data class PeerHeartbeat(val peerId: PeerId, val ping: SystemPayload.Ping) : InboundSideEffect
     data class PeerOffline(val peerId: PeerId) : InboundSideEffect
 }
@@ -120,6 +125,29 @@ internal sealed interface InboundHandleResult {
         val reason: PacketNackReason,
         override val sideEffects: List<InboundSideEffect> = emptyList(),
     ) : InboundHandleResult
+}
+
+/** A push-path ACK reported by [Router.deliveries]. */
+internal data class Delivery(val subject: DeliverySubject, val account: AccountId?)
+
+internal sealed interface DeliverySubject {
+    data class Message(val messageId: Uuid) : DeliverySubject
+    data class Bootstrap(val packetId: Uuid) : DeliverySubject
+}
+
+/** How a tagged outbox entry left the outbox ([org.yapyap.routing.outbound.OutboxProcessor.outcomes]). */
+internal sealed interface OutboxOutcome {
+    val tag: OutboxTag
+    val target: PeerId
+
+    data class Acked(override val tag: OutboxTag, override val target: PeerId) : OutboxOutcome
+    data class Nacked(
+        override val tag: OutboxTag,
+        override val target: PeerId,
+        val reason: PacketNackReason,
+    ) : OutboxOutcome
+
+    data class Expired(override val tag: OutboxTag, override val target: PeerId) : OutboxOutcome
 }
 
 internal sealed interface PeerSendOutcome {

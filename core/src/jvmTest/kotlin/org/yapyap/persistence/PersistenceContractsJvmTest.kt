@@ -9,6 +9,7 @@ import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.messaging.DefaultRoomRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.testfixtures.FakeClock
@@ -313,9 +314,42 @@ class PersistenceContractsJvmTest {
         assertEquals(1, due.size)
         assertEquals(packetId, due.single().packetId)
 
-        outbox.markDelivered(packetId)
+        assertEquals(packetId, outbox.remove(packetId)?.packetId)
+        assertNull(outbox.remove(packetId), "a removed row is reported once")
         assertTrue(outbox.listDue(epochSeconds(now + 100)).isEmpty())
         assertNull(outbox.earliestPendingRetryAt())
+    }
+
+    @Test
+    fun packetOutbox_tag_roundTripsThroughEveryExit() = runTest {
+        connection = openMemoryDatabase()
+        val db = connection!!.database
+        seedLocalAccountAndDevice(db, FixtureAccountId, FixtureDevicePeerId)
+
+        val outbox = DefaultPacketOutbox(db)
+        val now = 3_000L
+        val acked = Uuid.random()
+        val expiring = Uuid.random()
+        val ackedTag = OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random())
+        val expiringTag = OutboxTag(OutboxTag.Kind.SYNC, Uuid.random())
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(acked, FixtureDevicePeerId, now = now),
+            nextRetryAt = epochSeconds(now),
+            tag = ackedTag,
+        )
+        outbox.enqueue(
+            envelope = sampleOutboxEnvelope(expiring, FixtureDevicePeerId, now = now, expiresAt = now + 10),
+            nextRetryAt = epochSeconds(now),
+            tag = expiringTag,
+        )
+
+        assertTrue(outbox.hasTagged(ackedTag))
+        assertEquals(ackedTag, outbox.listDue(epochSeconds(now)).single { it.packetId == acked }.tag)
+        assertEquals(ackedTag, outbox.remove(acked)?.tag)
+        assertFalse(outbox.hasTagged(ackedTag))
+
+        assertEquals(listOf(expiringTag), outbox.pruneExpired(epochSeconds(now + 10)).map { it.tag })
+        assertFalse(outbox.hasTagged(expiringTag))
     }
 
     @Test
@@ -369,7 +403,7 @@ class PersistenceContractsJvmTest {
             nextRetryAt = epochSeconds(now),
         )
 
-        assertEquals(1, outbox.pruneExpired(epochSeconds(now)))
+        assertEquals(1, outbox.pruneExpired(epochSeconds(now)).size)
         assertEquals(validId, outbox.listDue(epochSeconds(now)).single().packetId)
     }
 

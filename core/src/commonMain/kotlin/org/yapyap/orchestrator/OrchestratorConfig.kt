@@ -14,11 +14,30 @@ internal data class OrchestratorConfig(
     val syncGracePeriod: Duration = 60.seconds,
     /** Roster re-read cadence for the identity service (silent lastSeen aging emits nothing). */
     val identityRefreshInterval: Duration = 60.seconds,
+    /** Max messages returned per sync response (responder-side page size). */
+    val syncMaxMessages: Int = 20,
+    /**
+     * Max requester frontier IDs honored per sync response (responder-side bound).
+     * Policy: truncate, never refuse (docs/room events.md §6) — the bound is a
+     * DoS guard against forged requests, not a paging mechanism (appends
+     * reference the whole frontier, so the covering antichain stays tiny).
+     * Truncation is merely wasteful, never incorrect: see DefaultSyncPayloadProvider.
+     */
+    val syncMaxKnownIds: Int = 64,
+    /**
+     * Backoff between removal-node re-pushes to the same account and room
+     * (ping-contradiction recovery, docs/room events.md §6): the ping is the
+     * proof, the backoff is the rate governor.
+     */
+    val removalRePushBackoff: Duration = 1.hours,
 ) {
     init {
         require(maintenanceInterval > Duration.ZERO) { "maintenanceIntervalSeconds must be > 0" }
         require(typingIndicatorInterval > Duration.ZERO) { "typingIndicatorInterval must be > 0" }
         require(syncGracePeriod >= Duration.ZERO) { "syncGracePeriodSeconds must be >= 0" }
         require(identityRefreshInterval > Duration.ZERO) { "identityRefreshInterval must be > 0" }
+        require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
+        require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
+        require(removalRePushBackoff > Duration.ZERO) { "removalRePushBackoff must be > 0" }
     }
 }

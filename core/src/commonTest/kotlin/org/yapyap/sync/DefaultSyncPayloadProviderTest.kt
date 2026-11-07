@@ -2,20 +2,18 @@ package org.yapyap.sync
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.yapyap.orchestrator.OrchestratorConfig
+import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.sync.DefaultSyncPayloadProvider
-import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -27,17 +25,12 @@ class DefaultSyncPayloadProviderTest {
     private val remoteDevice = PeerId("remote-device")
 
     private val messageRepo = FakeMessageRepository()
-    private val config = MutableStateFlow(RouterConfig())
+    private val config = MutableStateFlow(OrchestratorConfig())
     private val roomRepo = FakeRoomRepository(
         mapOf(roomId to listOf(remoteAccount)),
         mapOf(remoteAccount to listOf(remoteDevice)),
     )
-    private val identityResolver = FakeIdentityResolver(
-        localAccountId = AccountId("gate-local-account"),
-        localDeviceId = PeerId("gate-local-device"),
-        accountByDevice = mapOf(remoteDevice to remoteAccount),
-    )
-    private val provider = DefaultSyncPayloadProvider(messageRepo, config, roomRepo, identityResolver)
+    private val provider = DefaultSyncPayloadProvider(messageRepo, FakePendingSyncRepository(), config, roomRepo)
 
     private var tick = 0L
 
@@ -81,9 +74,9 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.getMessages(
+            provider.syncMessages(
                 syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)),
-                remoteDevice
+                remoteAccount
             )
 
         assertEquals(listOf(m1.messageId, m2.messageId), result.map { it.messageId })
@@ -97,9 +90,9 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.getMessages(
+            provider.syncMessages(
                 syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m1.messageId)),
-                remoteDevice
+                remoteAccount
             )
 
         assertEquals(listOf(m2.messageId), result.map { it.messageId })
@@ -113,7 +106,7 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2)
 
         val result =
-            provider.getMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()), remoteDevice)
+            provider.syncMessages(syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()), remoteAccount)
 
         assertEquals(listOf(m0.messageId, m1.messageId, m2.messageId), result.map { it.messageId })
     }
@@ -127,9 +120,9 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m1); seed(m2); seed(m3)
 
         val result =
-            provider.getMessages(
+            provider.syncMessages(
                 syncRequest(missingIds = listOf(m3.messageId), knownIds = listOf(m0.messageId)),
-                remoteDevice
+                remoteAccount
             )
 
         val ids = result.map { it.messageId }
@@ -141,7 +134,10 @@ class DefaultSyncPayloadProviderTest {
     @Test
     fun unknownTarget_returnsEmptyList() = runTest {
         val result =
-            provider.getMessages(syncRequest(missingIds = listOf(Uuid.random()), knownIds = emptyList()), remoteDevice)
+            provider.syncMessages(
+                syncRequest(missingIds = listOf(Uuid.random()), knownIds = emptyList()),
+                remoteAccount
+            )
 
         assertTrue(result.isEmpty())
     }
@@ -152,9 +148,9 @@ class DefaultSyncPayloadProviderTest {
         val foreign = textMsg(prevIds = emptyList()).copy(roomId = otherRoom)
         seed(foreign)
 
-        val result = provider.getMessages(
+        val result = provider.syncMessages(
             syncRequest(missingIds = listOf(foreign.messageId), knownIds = emptyList()),
-            remoteDevice
+            remoteAccount
         )
 
         assertTrue(result.isEmpty())
@@ -169,9 +165,9 @@ class DefaultSyncPayloadProviderTest {
         seed(m0); seed(m2)
 
         val result =
-            provider.getMessages(
+            provider.syncMessages(
                 syncRequest(missingIds = listOf(m2.messageId), knownIds = listOf(m0.messageId)),
-                remoteDevice
+                remoteAccount
             )
 
         assertEquals(listOf(m2.messageId), result.map { it.messageId })
@@ -187,13 +183,13 @@ class DefaultSyncPayloadProviderTest {
 
         val limitedProvider = DefaultSyncPayloadProvider(
             messageRepo,
-            MutableStateFlow(RouterConfig(syncMaxMessages = 2)),
+            FakePendingSyncRepository(),
+            MutableStateFlow(OrchestratorConfig(syncMaxMessages = 2)),
             roomRepo,
-            identityResolver,
         )
-        val result = limitedProvider.getMessages(
+        val result = limitedProvider.syncMessages(
             syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()),
-            remoteDevice
+            remoteAccount
         )
 
         assertEquals(2, result.size)
@@ -203,9 +199,9 @@ class DefaultSyncPayloadProviderTest {
     fun nonMember_returnsEmptyList() = runTest {
         val m0 = textMsg(prevIds = emptyList())
         seed(m0)
-        val outsider = PeerId("outsider-device")
+        val outsider = AccountId("outsider-account")
 
-        val result = provider.getMessages(
+        val result = provider.syncMessages(
             syncRequest(missingIds = listOf(m0.messageId), knownIds = emptyList()),
             outsider
         )
@@ -236,9 +232,9 @@ class DefaultSyncPayloadProviderTest {
             removal.messageId,
         )
 
-        val result = provider.getMessages(
+        val result = provider.syncMessages(
             syncRequest(missingIds = listOf(m2.messageId), knownIds = emptyList()),
-            remoteDevice,
+            remoteAccount,
         )
 
         // The removal event itself plus member-era history serve; post-removal content does not.
@@ -246,45 +242,6 @@ class DefaultSyncPayloadProviderTest {
             setOf(m0.messageId, m1.messageId, removal.messageId),
             result.map { it.messageId }.toSet(),
         )
-    }
-
-    @Test
-    fun removalNodeFor_returnsNodeForRemovedMember() = runTest {
-        val m0 = textMsg(prevIds = emptyList())
-        seed(m0)
-        val removal = removalMsg(prevIds = listOf(m0.messageId))
-        messageRepo.insert(
-            removal,
-            isOrphaned = false,
-            ancestryComplete = true,
-            verificationState = VerificationState.VERIFIED,
-        )
-        roomRepo.upsertMember(
-            roomId,
-            remoteAccount,
-            RoomMemberRole.MEMBER,
-            RoomMemberStatus.REMOVED,
-            removal.messageId,
-        )
-
-        assertEquals(removal.messageId, provider.removalNodeFor(roomId, remoteAccount)?.messageId)
-    }
-
-    @Test
-    fun removalNodeFor_nullWhenNothingToRePush() = runTest {
-        // ACTIVE row: nothing to re-push.
-        assertNull(provider.removalNodeFor(roomId, remoteAccount))
-        // Stranger (no row): nothing to re-push.
-        assertNull(provider.removalNodeFor(roomId, AccountId("stranger")))
-        // REMOVED row whose node was evicted: nothing to re-push.
-        roomRepo.upsertMember(
-            roomId,
-            remoteAccount,
-            RoomMemberRole.MEMBER,
-            RoomMemberStatus.REMOVED,
-            Uuid.random(),
-        )
-        assertNull(provider.removalNodeFor(roomId, remoteAccount))
     }
 
     private fun removalMsg(prevIds: List<Uuid>): MessagePayload.RoomEvent =

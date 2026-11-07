@@ -58,6 +58,9 @@ internal interface RoomRepository {
 
     /** Rooms [peerId]'s account belongs to (drives which rooms we exchange frontiers about). */
     suspend fun roomsOfPeer(peerId: PeerId): List<RoomId>
+
+    /** Rooms [accountId] is an ACTIVE member of. */
+    suspend fun roomsOfAccount(accountId: AccountId): List<RoomId>
     suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String)
 
     /**
@@ -141,6 +144,11 @@ internal class DefaultRoomRepository(
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> =
         withContext(dbDispatcher) {
             database.roomQueries.selectRoomsOfPeer(peerId).executeAsList()
+        }
+
+    override suspend fun roomsOfAccount(accountId: AccountId): List<RoomId> =
+        withContext(dbDispatcher) {
+            database.roomQueries.selectRoomsOfAccount(accountId).executeAsList()
         }
 
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) {

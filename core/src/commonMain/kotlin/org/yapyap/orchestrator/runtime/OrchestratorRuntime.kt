@@ -29,6 +29,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.config.ConfigStore
 import org.yapyap.persistence.key.IdentityKeyRepository
 import org.yapyap.persistence.messaging.DefaultCausalHoldRepository
+import org.yapyap.persistence.messaging.DefaultMessageDeliveryRepository
 import org.yapyap.persistence.messaging.DefaultMessageRepository
 import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.protocol.DeviceType
@@ -101,6 +102,7 @@ internal class DefaultOrchestratorRuntime(
             pipeline = pipeline,
             roomRepository = roomRepository,
             messageRepository = DefaultMessageRepository(database),
+            deliveryRepository = DefaultMessageDeliveryRepository(database),
             causalHoldRepository = DefaultCausalHoldRepository(database),
             identityResolver = identityResolver,
             messageLimits = messageLimits,

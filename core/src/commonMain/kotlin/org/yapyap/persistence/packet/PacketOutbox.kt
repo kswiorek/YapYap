@@ -19,6 +19,7 @@ internal interface PacketOutbox {
         relayMessage: Boolean = false,
         targetEndpoint: TorEndpoint? = null,
         relayBackup: RelayBackup = RelayBackup.NONE,
+        tag: OutboxTag? = null,
     )
 
     /**
@@ -28,7 +29,8 @@ internal interface PacketOutbox {
      */
     suspend fun claimRelayBackup(packetId: Uuid): Boolean
 
-    suspend fun markDelivered(packetId: Uuid)
+    /** Removes [packetId]'s row; returns it, or null when it was already gone. */
+    suspend fun remove(packetId: Uuid): OutboxEntry?
     suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant)
     suspend fun recordAttempt(packetId: Uuid, nextRetryAt: Instant, at: Instant)
 
@@ -37,7 +39,12 @@ internal interface PacketOutbox {
     suspend fun listAllForTarget(target: PeerId): List<OutboxEntry>
 
     suspend fun listDue(now: Instant): List<OutboxEntry>
-    suspend fun pruneExpired(now: Instant): Int
+
+    /** Removes every row expired at [now]; returns them. */
+    suspend fun pruneExpired(now: Instant): List<OutboxEntry>
+
+    /** Whether a row carrying [tag] is still queued. */
+    suspend fun hasTagged(tag: OutboxTag): Boolean
     suspend fun earliestPendingRetryAt(): Instant?
 
     /** Earliest retry time strictly after [after], ignoring entries already due. */
@@ -68,4 +75,28 @@ internal data class OutboxEntry(
     val attempts: Long,
     /** Out-of-band endpoint override, present exactly when the target has no devices row (bootstrap). */
     val targetEndpoint: TorEndpoint? = null,
+    val tag: OutboxTag? = null,
 )
+
+/**
+ * What an outbox packet is for, so its outcome (ACK, terminal NACK, expiry) reaches whoever
+ * waits on it. Untagged packets (ACKs, pings, relay copies, packets relayed for others) have
+ * nobody waiting.
+ */
+internal data class OutboxTag(val kind: Kind, val id: Uuid) {
+    enum class Kind(val code: Long) {
+        /** A direct push of a DAG message to one of its recipients; [id] is the message id. */
+        MESSAGE(0),
+
+        /** A bootstrap-family packet; [id] is the packet id [org.yapyap.routing.router.Router.sendBootstrap] returned. */
+        BOOTSTRAP(1),
+
+        /** One attempt of a sync request; [id] is the sync id. */
+        SYNC(2),
+        ;
+
+        companion object {
+            fun fromCode(code: Long): Kind? = entries.firstOrNull { it.code == code }
+        }
+    }
+}

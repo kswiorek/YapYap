@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.persistence.packet.RelayBackup
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
@@ -152,6 +153,7 @@ internal class OutboundMessenger(
             binaryEnvelope,
             nextRetryAt,
             relayBackup = if (supplementRelays) RelayBackup.PENDING else RelayBackup.NONE,
+            tag = OutboxTag(OutboxTag.Kind.MESSAGE, payload.messageId),
         )
         AppLog.debug(
             component = LogComponent.ROUTER,

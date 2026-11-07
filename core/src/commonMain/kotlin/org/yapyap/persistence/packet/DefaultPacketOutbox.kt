@@ -26,6 +26,7 @@ internal class DefaultPacketOutbox(
         relayMessage: Boolean,
         targetEndpoint: TorEndpoint?,
         relayBackup: RelayBackup,
+        tag: OutboxTag?,
     ) {
         withContext(dbDispatcher) {
             val envelopeBlob = envelope.encode()
@@ -42,6 +43,8 @@ internal class DefaultPacketOutbox(
                 envelope_blob = envelopeBlob,
                 blob_size = envelopeBlob.size.toLong(),
                 next_retry_at = nextRetryAt,
+                tag_kind = tag?.kind?.code,
+                tag_id = tag?.id,
             )
             AppLog.debug(
                 component = LogComponent.DATABASE,
@@ -56,22 +59,26 @@ internal class DefaultPacketOutbox(
                     "nextRetryAt" to nextRetryAt,
                     "expiresAt" to envelope.expiresAt,
                     "blobSize" to envelopeBlob.size,
+                    "tag" to tag,
                 ),
             )
         }
     }
 
-    override suspend fun markDelivered(packetId: Uuid) {
+    override suspend fun remove(packetId: Uuid): OutboxEntry? =
         withContext(dbDispatcher) {
-            queries.deleteByPacketId(packetId)
+            val row = database.transactionWithResult<Outbox?> {
+                queries.getByPacketId(packetId).executeAsOneOrNull()
+                    ?.also { queries.deleteByPacketId(packetId) }
+            } ?: return@withContext null
             AppLog.debug(
                 component = LogComponent.DATABASE,
                 event = LogEvent.OUTBOX_DELIVERED,
-                message = "Removed delivered packet from outbox",
+                message = "Removed packet from outbox",
                 fields = mapOf("packetId" to packetId),
             )
+            mapRowOrDrop(row)
         }
-    }
 
     override suspend fun setDueForTarget(target: PeerId, nextRetryAt: Instant) {
         withContext(dbDispatcher) {
@@ -129,9 +136,12 @@ internal class DefaultPacketOutbox(
             queries.getDue(now).executeAsList().mapNotNull { mapRowOrDrop(it) }
         }
 
-    override suspend fun pruneExpired(now: Instant): Int =
+    override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =
         withContext(dbDispatcher) {
-            val removed = queries.deleteExpired(now).value.toInt()
+            val expired = database.transactionWithResult {
+                queries.getExpired(now).executeAsList().also { queries.deleteExpired(now) }
+            }
+            val removed = expired.size
             if (removed > 0) {
                 AppLog.info(
                     component = LogComponent.DATABASE,
@@ -143,7 +153,12 @@ internal class DefaultPacketOutbox(
                     ),
                 )
             }
-            removed
+            expired.mapNotNull { mapRowOrDrop(it) }
+        }
+
+    override suspend fun hasTagged(tag: OutboxTag): Boolean =
+        withContext(dbDispatcher) {
+            queries.hasTagged(tag.kind.code, tag.id).executeAsOne()
         }
 
     override suspend fun earliestPendingRetryAt(): Instant? =
@@ -232,6 +247,8 @@ internal class DefaultPacketOutbox(
             targetEndpoint = row.target_onion_address?.let { address ->
                 row.target_onion_port?.let { port -> TorEndpoint(address, port.toInt()) }
             },
+            tag = row.tag_kind?.let { OutboxTag.Kind.fromCode(it) }
+                ?.let { kind -> row.tag_id?.let { OutboxTag(kind, it) } },
         )
     }
 }

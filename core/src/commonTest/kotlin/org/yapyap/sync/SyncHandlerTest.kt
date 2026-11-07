@@ -1,5 +1,6 @@
 package org.yapyap.sync
 
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.AccountId
@@ -7,11 +8,16 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.routing.inbound.handlers.SystemInboundHandler
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -21,6 +27,7 @@ class SyncHandlerTest {
     private val localDevice = PeerId("handler-local-device")
     private val remoteDevice = PeerId("handler-remote-device")
     private val remoteAccount = AccountId("handler-remote-account")
+    private val localAccount = AccountId("handler-local-account")
     private val roomId = RoomId(Uuid.random())
 
     private fun textMsg(): MessagePayload.Text =
@@ -43,27 +50,50 @@ class SyncHandlerTest {
             knownIds = emptyList(),
         )
 
+    private fun stack() = buildSyncRoutingStack(
+        localDevice = testDeviceIdentity(localDevice),
+        peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
+        torByPeer = mutableMapOf(remoteDevice to TorEndpoint("handler-remote.onion", 80)),
+    )
+
+    private fun handler(stack: SyncRoutingStack, provider: RecordingSyncPayloadProvider) =
+        SyncHandler(stack.ctx, stack.outboundMessenger, provider, stack.systemSender)
+
     @Test
-    fun onSyncRequested_withMessages_sendsEachToSourcePeer() = runTest {
-        val stack = buildSyncRoutingStack(
-            localDevice = testDeviceIdentity(localDevice),
-            peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-            torByPeer = mutableMapOf(remoteDevice to TorEndpoint("handler-remote.onion", 80)),
-        )
-        val payloadProvider = RecordingSyncPayloadProvider(messages = listOf(textMsg(), textMsg()))
-        val handler =
-            SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
+    fun messagesFor_asksForTheRequestingDevicesAccount() = runTest {
+        val stack = stack()
+        val provider = RecordingSyncPayloadProvider(messages = listOf(textMsg()))
+
+        val messages = handler(stack, provider).messagesFor(syncRequest(), sourceDevice = remoteDevice)
+
+        assertEquals(1, messages.size)
+        assertEquals(listOf(remoteAccount), provider.requesters)
+    }
+
+    @Test
+    fun messagesFor_unknownDevice_isDeclinedWithoutAsking() = runTest {
+        val stack = stack()
+        val provider = RecordingSyncPayloadProvider(messages = listOf(textMsg()))
+
+        val messages = handler(stack, provider).messagesFor(syncRequest(), sourceDevice = PeerId("stranger"))
+
+        assertTrue(messages.isEmpty())
+        assertTrue(provider.requests.isEmpty())
+    }
+
+    @Test
+    fun reply_withMessages_sendsEachToSourcePeer() = runTest {
+        val stack = stack()
+        val handler = handler(stack, RecordingSyncPayloadProvider())
 
         // Responses route through the outbox; the dispatch loop must run
         // (production always runs it via router.start()).
         val loopJob = stack.outboxProcessor.runIn(this)
         try {
-            handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
+            handler.reply(syncRequest(), remoteDevice, listOf(textMsg(), textMsg()))
 
             withTimeout(10.seconds) { stack.tor.awaitMessageSendCount(2) }
-            assertEquals(1, payloadProvider.requests.size)
             assertEquals(2, stack.outbox.enqueued.size)
-            assertEquals(2, stack.tor.sends.size)
             assertTrue(stack.outbox.enqueued.all { it.target == remoteDevice })
         } finally {
             loopJob.cancel()
@@ -71,37 +101,52 @@ class SyncHandlerTest {
     }
 
     @Test
-    fun onSyncRequested_withNoMessages_sendsOnlySyncNack() = runTest {
-        val stack = buildSyncRoutingStack(
-            localDevice = testDeviceIdentity(localDevice),
-            peersByAccount = mapOf(remoteAccount to listOf(remoteDevice)),
-            torByPeer = mutableMapOf(remoteDevice to TorEndpoint("handler-remote.onion", 80)),
-        )
-        val payloadProvider = RecordingSyncPayloadProvider(messages = emptyList())
-        val handler =
-            SyncHandler(stack.outboundMessenger, payloadProvider, FakePendingSyncRepository(), stack.systemSender)
+    fun reply_withNoMessages_sendsOnlyTheLegacySyncNack() = runTest {
+        val stack = stack()
 
-        handler.onSyncRequested(syncRequest(), sourceDevice = remoteDevice)
+        handler(stack, RecordingSyncPayloadProvider()).reply(syncRequest(), remoteDevice, emptyList())
 
         assertEquals(0, stack.outbox.enqueued.size)
         assertEquals(1, stack.tor.sends.size)
     }
 
     @Test
-    fun onMarkPeerAttempted_recordsPeerOnPendingSync() = runTest {
-        val stack = buildSyncRoutingStack(localDevice = testDeviceIdentity(localDevice))
-        val pendingRepo = FakePendingSyncRepository()
-        val syncId = Uuid.random()
-        pendingRepo.insertSync(
-            syncId = syncId, roomId = roomId,
-            targetMessageId = Uuid.random(),
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+    fun inboundRequest_askingForADisposition_isNackedDeclinedWhenNotServed() = runTest {
+        val local = stack()
+        val remote = buildSyncRoutingStack(
+            localDevice = testDeviceIdentity(remoteDevice),
+            peersByAccount = mapOf(localAccount to listOf(localDevice)),
         )
-        val handler =
-            SyncHandler(stack.outboundMessenger, RecordingSyncPayloadProvider(), pendingRepo, stack.systemSender)
+        val inbound = SystemInboundHandler(
+            local.ctx,
+            MutableSharedFlow(),
+            handler(local, RecordingSyncPayloadProvider(messages = emptyList())),
+        )
 
-        handler.onMarkPeerAttempted(syncId, peerId = remoteDevice)
+        val result = inbound.handle(remote.systemSender.buildForOutbox(localDevice, syncRequest(), 90.seconds))
 
-        assertEquals(setOf(remoteDevice), pendingRepo.getAttemptedDevices(syncId))
+        assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(result).reason)
+    }
+
+    @Test
+    fun inboundRequest_served_isAckedWithTheReplyAsSideEffect() = runTest {
+        val local = stack()
+        val remote = buildSyncRoutingStack(
+            localDevice = testDeviceIdentity(remoteDevice),
+            peersByAccount = mapOf(localAccount to listOf(localDevice)),
+        )
+        val served = listOf(textMsg())
+        val inbound = SystemInboundHandler(
+            local.ctx,
+            MutableSharedFlow(),
+            handler(local, RecordingSyncPayloadProvider(messages = served)),
+        )
+
+        val result = inbound.handle(remote.systemSender.buildForOutbox(localDevice, syncRequest(), 90.seconds))
+
+        val reply =
+            assertIs<InboundSideEffect.SyncRequested>(assertIs<InboundHandleResult.Success>(result).sideEffects.single())
+        assertEquals(remoteDevice, reply.peerId)
+        assertEquals(served, reply.messages)
     }
 }

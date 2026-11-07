@@ -13,10 +13,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.persistence.db.VerificationState
-import org.yapyap.persistence.messaging.CausalHoldRepository
-import org.yapyap.persistence.messaging.MessageCursor
-import org.yapyap.persistence.messaging.MessageRepository
-import org.yapyap.persistence.messaging.RoomRepository
+import org.yapyap.persistence.messaging.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
@@ -33,6 +30,7 @@ internal class DefaultMessagingService(
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
+    deliveryRepository: MessageDeliveryRepository,
     private val causalHoldRepository: CausalHoldRepository,
     private val identityResolver: IdentityResolver,
     private val messageLimits: StateFlow<MessageLimits>,
@@ -41,6 +39,12 @@ internal class DefaultMessagingService(
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
+
+    private val deliveryTracker = DeliveryTracker(router, messageRepository, deliveryRepository, identityResolver)
+    private var deliveryJobs: List<Job> = emptyList()
+    override val deliveryUpdates: Flow<MessageDelivery> = deliveryTracker.updates
+
+    override suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = deliveryTracker.deliveredTo(messageId)
 
     override val maxTextMessageBytes: Int get() = messageLimits.value.maxTextMessageBytes
 
@@ -80,6 +84,7 @@ internal class DefaultMessagingService(
     fun start(scope: CoroutineScope) {
         check(subscriptionJob == null) { "MessagingService already started" }
         serviceScope = scope
+        deliveryJobs = deliveryTracker.start(scope)
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
                 // A REJECTED message is never shown: skip both the window insert and any notification.
@@ -118,6 +123,8 @@ internal class DefaultMessagingService(
     }
 
     suspend fun stop() {
+        deliveryJobs.forEach { it.cancel() }
+        deliveryJobs = emptyList()
         subscriptionJob?.cancel()
         subscriptionJob?.join()  // wait for pipeline collector to finish
         verificationStateSubscriptionJob?.cancel()

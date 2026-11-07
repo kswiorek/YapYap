@@ -114,14 +114,23 @@ internal class DatabaseFactory(
                     expires_atAdapter = InstantEpochSecondsAdapter,
                     last_attempt_atAdapter = InstantEpochSecondsAdapter,
                     next_retry_atAdapter = InstantEpochSecondsAdapter,
+                    tag_idAdapter = UuidAdapter(),
                 ),
                 pending_syncsAdapter = Pending_syncs.Adapter(
                     sync_idAdapter = UuidAdapter(),
                     room_idAdapter = RoomIdAdapter(),
                     target_message_idAdapter = UuidAdapter(),
+                ),
+                message_deliveriesAdapter = Message_deliveries.Adapter(
+                    message_idAdapter = UuidAdapter(),
+                    account_idAdapter = AccountIdAdapter(),
+                    delivered_atAdapter = InstantEpochSecondsAdapter,
+                ),
+                sync_attemptsAdapter = Sync_attempts.Adapter(
+                    sync_idAdapter = UuidAdapter(),
                     next_attempt_atAdapter = InstantEpochSecondsAdapter,
                 ),
-                pending_sync_attempted_peersAdapter = Pending_sync_attempted_peers.Adapter(
+                sync_declined_devicesAdapter = Sync_declined_devices.Adapter(
                     sync_idAdapter = UuidAdapter(),
                     device_idAdapter = PeerIdAdapter(),
                 ),

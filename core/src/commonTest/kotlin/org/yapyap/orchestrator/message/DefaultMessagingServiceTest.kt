@@ -24,6 +24,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.*
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.backend.TorHealth
 import org.yapyap.transport.tor.backend.TorPublishState
@@ -96,6 +97,7 @@ class DefaultMessagingServiceTest {
         pipeline = pipeline,
         roomRepository = roomMembershipRepo,
         messageRepository = messageRepo,
+        deliveryRepository = InMemoryMessageDeliveryRepository(messageRepo),
         causalHoldRepository = causalHoldRepo,
         identityResolver = identityResolver,
         messageLimits = MutableStateFlow(messageLimits),
@@ -936,6 +938,11 @@ private class FakeRoomRepository(
 
     override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = members.keys.toList()
 
+    override suspend fun roomsOfAccount(accountId: AccountId): List<RoomId> =
+        members.filter { (room, accounts) ->
+            accountId in accounts && statuses[room to accountId] != RoomMemberStatus.REMOVED
+        }.keys.toList()
+
     override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = Unit
 
     override suspend fun upsertMember(
@@ -1204,7 +1211,9 @@ private class RecordingRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
-    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
+    override val deliveries: Flow<Delivery> = emptyFlow()
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
 
     val sentTargets = mutableListOf<AccountId>()
     override suspend fun start() {}

@@ -221,7 +221,9 @@ private class RecordingProjectorRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
-    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
+    override val deliveries: Flow<Delivery> = emptyFlow()
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
     override suspend fun start() = Unit
     override suspend fun stop() = Unit
     override fun isRunning(): Boolean = true

@@ -44,6 +44,7 @@ class PingFrontierUnknownRoomJvmTest {
             roomRepository = rooms,
             messageRepository = DefaultMessageRepository(db),
             pendingSyncRepository = syncs,
+            router = RecordingSyncRouter(),
             clock = FakeClock(epochSeconds(1_000L)),
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
         )

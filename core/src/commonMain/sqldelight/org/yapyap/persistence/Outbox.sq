@@ -21,7 +21,10 @@ CREATE TABLE outbox (
     retry_count INTEGER NOT NULL,
     expires_at INTEGER AS Instant NOT NULL,
     last_attempt_at INTEGER AS Instant NOT NULL,
-    next_retry_at INTEGER AS Instant NOT NULL
+    next_retry_at INTEGER AS Instant NOT NULL,
+    -- What the packet is for (OutboxTag): who hears about its outcome. NULL: nobody waits.
+    tag_kind INTEGER,
+    tag_id TEXT AS Uuid
 );
 
 insertOutbox:
@@ -37,8 +40,10 @@ INSERT INTO outbox(
     retry_count,
     expires_at,
     last_attempt_at,
-    next_retry_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    next_retry_at,
+    tag_kind,
+    tag_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteByPacketId:
 DELETE FROM outbox WHERE packet_id = ?;
@@ -77,6 +82,16 @@ getDue:
 SELECT * FROM outbox
 WHERE next_retry_at <= ?;
 
+getByPacketId:
+SELECT * FROM outbox WHERE packet_id = ?;
+
+getExpired:
+SELECT * FROM outbox
+WHERE expires_at <= ?;
+
+hasTagged:
+SELECT EXISTS(SELECT 1 FROM outbox WHERE tag_kind = :kind AND tag_id = :id);
+
 deleteExpired:
 DELETE FROM outbox
 WHERE expires_at <= ?;
@@ -109,3 +124,4 @@ LIMIT 1;
 CREATE INDEX outbox_message_idx ON outbox(packet_id);
 CREATE INDEX outbox_target_device_idx ON outbox(target_device_id);
 CREATE INDEX outbox_relay_lru_idx ON outbox(is_relay, expires_at);
+CREATE INDEX outbox_tag_idx ON outbox(tag_kind, tag_id);

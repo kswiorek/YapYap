@@ -34,7 +34,9 @@ import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
+import org.yapyap.orchestrator.sync.DefaultFrontierSnapshotProvider
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.availability.DefaultPeerAvailabilityStore
 import org.yapyap.persistence.config.ConfigStore
@@ -49,6 +51,7 @@ import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.packet.DefaultPacketDeduplicator
 import org.yapyap.persistence.packet.DefaultPacketOutbox
 import org.yapyap.persistence.sync.DefaultPendingSyncRepository
+import org.yapyap.persistence.sync.DefaultSyncAttemptStore
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.AccountRole
@@ -59,9 +62,7 @@ import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
-import org.yapyap.routing.ping.DefaultFrontierSnapshotProvider
 import org.yapyap.routing.router.DefaultRouter
-import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.tor.transport.DefaultTorTransport
@@ -490,10 +491,10 @@ internal class DefaultOrchestrator(
         )
 
         val syncPayloadProvider = DefaultSyncPayloadProvider(
-            messageRepo,
-            configStore.routerConfig,
-            roomRepository,
-            identityResolver,
+            messageRepository = messageRepo,
+            pendingSyncRepository = syncRepo,
+            orchestratorConfig = configStore.orchestratorConfig,
+            roomRepository = roomRepository,
         )
 
         val frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepo, localDeviceId)
@@ -517,7 +518,7 @@ internal class DefaultOrchestrator(
             packetOutbox = packetOutbox,
             envelopeProtectionService = envelopeProtectionService,
             syncPayloadProvider = syncPayloadProvider,
-            syncRepository = syncRepo,
+            syncAttemptStore = DefaultSyncAttemptStore(database),
             routerConfig = configStore.routerConfig,
             transportLimits = configStore.transportLimits,
             frontierSnapshotProvider = frontierSnapshotProvider,
@@ -549,6 +550,7 @@ internal class DefaultOrchestrator(
             roomRepository = roomRepository,
             messageRepository = messageRepo,
             pendingSyncRepository = syncRepo,
+            router = router,
             orchestratorConfig = configStore.orchestratorConfig,
         )
         syncCoordinator.start(orchestratorScope)

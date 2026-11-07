@@ -42,7 +42,9 @@ private class FakeRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
-    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
+    override val deliveries: Flow<Delivery> = emptyFlow()
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()

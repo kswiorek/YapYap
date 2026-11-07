@@ -7,6 +7,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
@@ -14,7 +15,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.*
 import org.yapyap.routing.router.*
-import org.yapyap.routing.sync.DefaultSyncPayloadProvider
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.*
@@ -27,6 +27,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -77,6 +78,7 @@ class SyncIntegrationTest {
         roomRepository = localRoomRepo,
         messageRepository = localMessageRepo,
         pendingSyncRepository = pendingRepo,
+        router = router,
         clock = localTime,
         orchestratorConfig = MutableStateFlow(OrchestratorConfig(syncGracePeriod = Duration.ZERO)),
     )
@@ -168,21 +170,25 @@ class SyncIntegrationTest {
             )
             val retryProcessor = SyncRetryProcessor(
                 ctx = localStack.ctx,
-                pendingSyncs = pendingRepo,
-                systemSender = localStack.systemSender,
-                peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
-                peerAvailabilityRegistry = PeerAvailabilityRegistry(
-                    localStack.ctx.clock,
-                    MutableStateFlow(RouterConfig()),
-                    FakePeerAvailabilityStore()
+                attempts = InMemorySyncAttemptStore(),
+                syncs = DefaultSyncPayloadProvider(
+                    localMessageRepo,
+                    pendingRepo,
+                    MutableStateFlow(OrchestratorConfig()),
+                    localRoomRepo,
                 ),
+                systemSender = localStack.systemSender,
+                outboxProcessor = localStack.outboxProcessor,
+                peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 maxIdlePoll = MutableStateFlow(1.seconds),
             )
             val remoteHandler = SyncHandler(
+                ctx = remoteStack.ctx,
                 outboundMessenger = remoteStack.outboundMessenger,
                 syncPayloadProvider = DefaultSyncPayloadProvider(
                     remoteMessageRepo,
-                    MutableStateFlow(RouterConfig()),
+                    FakePendingSyncRepository(),
+                    MutableStateFlow(OrchestratorConfig()),
                     FakeRoomRepository(
                         mapOf(roomId to listOf(localAccount, remoteAccount)),
                         mapOf(
@@ -190,15 +196,16 @@ class SyncIntegrationTest {
                             remoteAccount to listOf(remoteDevice),
                         ),
                     ),
-                    remoteStack.identity,
                 ),
-                pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
+            router.onStartSync = { syncId, at -> retryProcessor.start(syncId, at) }
 
             pipeline.start(scope)
             coordinator.start(scope)
             retryProcessor.runIn(scope)
+            // Sync requests go out through the local outbox.
+            localStack.outboxProcessor.runIn(scope)
             // The remote responder routes through the outbox; its dispatch loop must run
             // (production always runs it via router.start()).
             remoteStack.outboxProcessor.runIn(scope)
@@ -224,7 +231,7 @@ class SyncIntegrationTest {
             // Remote handles the request and sends the missing message back.
             // Only m1 is returned: the responder serves the target plus its ancestry,
             // and the orphan m2 is already present locally (it triggered the sync).
-            remoteHandler.onSyncRequested(syncRequest, sourceDevice = localDevice)
+            remoteHandler.reply(syncRequest, localDevice, remoteHandler.messagesFor(syncRequest, localDevice))
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(1) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
@@ -285,21 +292,25 @@ class SyncIntegrationTest {
             )
             val retryProcessor = SyncRetryProcessor(
                 ctx = localStack.ctx,
-                pendingSyncs = pendingRepo,
-                systemSender = localStack.systemSender,
-                peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
-                peerAvailabilityRegistry = PeerAvailabilityRegistry(
-                    localStack.ctx.clock,
-                    MutableStateFlow(RouterConfig()),
-                    FakePeerAvailabilityStore()
+                attempts = InMemorySyncAttemptStore(),
+                syncs = DefaultSyncPayloadProvider(
+                    localMessageRepo,
+                    pendingRepo,
+                    MutableStateFlow(OrchestratorConfig()),
+                    localRoomRepo,
                 ),
+                systemSender = localStack.systemSender,
+                outboxProcessor = localStack.outboxProcessor,
+                peerPolicy = FixedSyncPeerPolicy(nextDevice = remoteDevice),
                 maxIdlePoll = MutableStateFlow(1.seconds),
             )
             val remoteHandler = SyncHandler(
+                ctx = remoteStack.ctx,
                 outboundMessenger = remoteStack.outboundMessenger,
                 syncPayloadProvider = DefaultSyncPayloadProvider(
                     remoteMessageRepo,
-                    MutableStateFlow(RouterConfig()),
+                    FakePendingSyncRepository(),
+                    MutableStateFlow(OrchestratorConfig()),
                     FakeRoomRepository(
                         mapOf(roomId to listOf(localAccount, remoteAccount)),
                         mapOf(
@@ -307,15 +318,16 @@ class SyncIntegrationTest {
                             remoteAccount to listOf(remoteDevice),
                         ),
                     ),
-                    remoteStack.identity,
                 ),
-                pendingSyncRepository = FakePendingSyncRepository(),
                 systemSender = remoteStack.systemSender,
             )
+            router.onStartSync = { syncId, at -> retryProcessor.start(syncId, at) }
 
             pipeline.start(scope)
             coordinator.start(scope)
             retryProcessor.runIn(scope)
+            // Sync requests go out through the local outbox.
+            localStack.outboxProcessor.runIn(scope)
             // The remote responder routes through the outbox; its dispatch loop must run
             // (production always runs it via router.start()).
             remoteStack.outboxProcessor.runIn(scope)
@@ -334,7 +346,7 @@ class SyncIntegrationTest {
             assertEquals(listOf(m4.messageId), syncRequest.missingIds)
             assertEquals(listOf(m1.messageId), syncRequest.knownIds)
 
-            remoteHandler.onSyncRequested(syncRequest, sourceDevice = localDevice)
+            remoteHandler.reply(syncRequest, localDevice, remoteHandler.messagesFor(syncRequest, localDevice))
             withTimeout(10.seconds) { remoteStack.tor.awaitSendCount(3) }
 
             val returned = remoteStack.tor.sends.map { (_, bin) ->
@@ -415,7 +427,12 @@ private class RecordingRouter : Router {
         MutableStateFlow(TorHealth.Ready)
     override val localTransportRecovery: StateFlow<TorRecoveryStep?> =
         MutableStateFlow(null)
-    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow()
+    override val deliveries: Flow<Delivery> = emptyFlow()
+
+    /** Where [startSync] goes: the test's local sync retry processor. */
+    var onStartSync: suspend (Uuid, Instant) -> Unit = { _, _ -> }
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = onStartSync(syncId, firstAttemptAt)
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
 
     val sent = mutableListOf<MessagePayload>()
 

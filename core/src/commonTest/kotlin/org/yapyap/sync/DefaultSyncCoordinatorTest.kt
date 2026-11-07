@@ -29,6 +29,7 @@ class DefaultSyncCoordinatorTest {
     private lateinit var messageRepo: FakeMessageRepository
     private lateinit var pendingRepo: FakePendingSyncRepository
     private lateinit var clock: FakeClock
+    private lateinit var router: RecordingSyncRouter
 
     private fun buildCoordinator(
         roomMembers: List<AccountId> = listOf(localAccount, remoteAccount),
@@ -37,11 +38,13 @@ class DefaultSyncCoordinatorTest {
         messageRepo = FakeMessageRepository()
         pendingRepo = FakePendingSyncRepository()
         clock = FakeClock(epochSeconds(1_000L))
+        router = RecordingSyncRouter()
         return DefaultSyncCoordinator(
             pipeline = pipeline,
             roomRepository = roomRepo,
             messageRepository = messageRepo,
             pendingSyncRepository = pendingRepo,
+            router = router,
             clock = clock,
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
         )
@@ -80,8 +83,9 @@ class DefaultSyncCoordinatorTest {
         assertEquals(setOf(tip1, tip2), rows.map { it.targetMessageId }.toSet())
         for (sync in rows) {
             assertEquals(listOf(localAccount, remoteAccount), sync.candidateAccounts)
-            assertEquals(epochSeconds(1_000L + 60L), pendingRepo.nextAttemptAtOf(sync.syncId))
         }
+        // The router is asked to chase each, after the grace period.
+        assertEquals(rows.map { it.syncId to epochSeconds(1_000L + 60L) }.toSet(), router.started.toSet())
     }
 
     @Test
@@ -125,7 +129,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             targetMessageId = tip,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = listOf(remoteAccount),
         )
 
         coordinator.requestFrontierSync(roomId, listOf(tip))
@@ -229,7 +233,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             targetMessageId = missing,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = listOf(remoteAccount),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -259,12 +263,12 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             targetMessageId = target.messageId,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = listOf(remoteAccount),
         )
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             targetMessageId = other.messageId,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = listOf(remoteAccount),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -402,7 +406,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = roomId,
             targetMessageId = missing,
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = listOf(remoteAccount),
         )
         coordinator.start(this)
         testScheduler.advanceUntilIdle()
@@ -452,7 +456,7 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = unknownRoom,
             targetMessageId = Uuid.random(),
-            candidateAccounts = listOf(remoteAccount), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = listOf(remoteAccount),
         )
 
         coordinator.refreshCandidatesFor(unknownRoom)
@@ -468,12 +472,101 @@ class DefaultSyncCoordinatorTest {
         pendingRepo.insertSync(
             syncId = Uuid.random(), roomId = RoomId.GLOBAL,
             targetMessageId = Uuid.random(),
-            candidateAccounts = emptyList(), nextAttemptAt = epochSeconds(1_000L),
+            candidateAccounts = emptyList(),
         )
         roomRepo.upsertMember(RoomId.GLOBAL, remoteAccount, RoomMemberRole.MEMBER)
 
         coordinator.refreshCandidatesFor(RoomId.GLOBAL)
 
         assertEquals(listOf(remoteAccount), pendingRepo.all().single().candidateAccounts)
+    }
+
+    // ------------------------------------------------------------------
+    // Ping-driven follow-ups
+    // ------------------------------------------------------------------
+
+    @Test
+    fun requestFrontierSync_fromKnownSender_reopensOnlyThatRoomsSyncs() = runTest {
+        val coordinator = buildCoordinator()
+        val otherRoom = RoomId(Uuid.random())
+        val inRoom = Uuid.random()
+        pendingRepo.insertSync(
+            inRoom,
+            roomId,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = listOf(remoteAccount)
+        )
+        pendingRepo.insertSync(
+            Uuid.random(),
+            otherRoom,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = listOf(remoteAccount)
+        )
+
+        // The ping is the sender's assertion that its projection has us in the room,
+        // contradicting any earlier decline; whether that reopens anything is the router's call.
+        coordinator.requestFrontierSync(roomId, emptyList(), remoteAccount)
+
+        assertEquals(listOf(inRoom to remoteAccount), router.reopened)
+    }
+
+    @Test
+    fun requestFrontierSync_fromUnknownSender_reopensNothing() = runTest {
+        val coordinator = buildCoordinator()
+        pendingRepo.insertSync(
+            Uuid.random(),
+            roomId,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = listOf(remoteAccount)
+        )
+
+        coordinator.requestFrontierSync(roomId, emptyList(), senderAccount = null)
+
+        assertTrue(router.reopened.isEmpty())
+    }
+
+    @Test
+    fun requestFrontierSync_fromRemovedSender_rePushesTheRemovalNode_rateLimited() = runTest {
+        val coordinator = buildCoordinator()
+        val removal = textMsg(roomId, prevIds = emptyList(), sender = localAccount)
+        messageRepo.insert(
+            removal,
+            isOrphaned = false,
+            ancestryComplete = true,
+            verificationState = VerificationState.VERIFIED
+        )
+        roomRepo.upsertMember(roomId, remoteAccount, RoomMemberRole.MEMBER, RoomMemberStatus.REMOVED, removal.messageId)
+
+        coordinator.requestFrontierSync(roomId, emptyList(), remoteAccount)
+        coordinator.requestFrontierSync(roomId, emptyList(), remoteAccount)
+
+        assertEquals(listOf(remoteAccount to (removal as MessagePayload)), router.sent, "once per backoff window")
+    }
+
+    @Test
+    fun requestFrontierSync_fromActiveSender_rePushesNothing() = runTest {
+        val coordinator = buildCoordinator()
+
+        coordinator.requestFrontierSync(roomId, emptyList(), remoteAccount)
+
+        assertTrue(router.sent.isEmpty())
+    }
+
+    @Test
+    fun start_handsEveryExistingSyncToTheRouter() = runTest {
+        val coordinator = buildCoordinator()
+        val existing = Uuid.random()
+        pendingRepo.insertSync(
+            existing,
+            roomId,
+            targetMessageId = Uuid.random(),
+            candidateAccounts = listOf(remoteAccount)
+        )
+
+        coordinator.start(this)
+        testScheduler.advanceUntilIdle()
+        coordinator.stop()
+
+        assertEquals(listOf(existing), router.started.map { it.first })
     }
 }

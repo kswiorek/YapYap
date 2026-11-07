@@ -9,9 +9,10 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.persistence.availability.PeerAvailabilityStore
+import org.yapyap.persistence.packet.OutboxTag
 import org.yapyap.persistence.packet.PacketDeduplicator
 import org.yapyap.persistence.packet.PacketOutbox
-import org.yapyap.persistence.sync.PendingSyncRepository
+import org.yapyap.persistence.sync.SyncAttemptStore
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
@@ -28,7 +29,6 @@ import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.sync.RemovalRePusher
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -41,6 +41,7 @@ import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal class DefaultRouter(
@@ -49,7 +50,7 @@ internal class DefaultRouter(
     val identityResolver: IdentityResolver,
     val packetDeduplicator: PacketDeduplicator,
     val packetOutbox: PacketOutbox,
-    val syncRepository: PendingSyncRepository,
+    val syncAttemptStore: SyncAttemptStore,
     val envelopeProtectionService: EnvelopeProtectionService,
     val clock: Clock = Clock.System,
     val routerConfig: StateFlow<RouterConfig>,
@@ -145,27 +146,20 @@ internal class DefaultRouter(
         frontierSnapshotProvider = frontierSnapshotProvider,
         systemSender = systemSender,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
-        pendingSyncs = syncRepository,
-        removalRePusher = RemovalRePusher(
-            syncPayloadProvider = syncPayloadProvider,
-            outboundMessenger = outboundMessenger,
-            routerConfig = routerConfig,
-            clock = clock,
-        ),
     )
 
     private val syncHandler = SyncHandler(
-        outboundMessenger,
-        syncPayloadProvider,
-        syncRepository,
-        systemSender
+        ctx = routingContext,
+        outboundMessenger = outboundMessenger,
+        syncPayloadProvider = syncPayloadProvider,
+        systemSender = systemSender,
     )
     private val typingIndicatorDispatcher = TypingIndicatorDispatcher(
         ctx = routingContext,
         systemSender = systemSender,
         sessionOpener = proactiveSessionOpener,
     )
-    private val bootstrapDeliveryFlow = MutableSharedFlow<Uuid>(extraBufferCapacity = 16)
+    private val deliveryFlow = MutableSharedFlow<Delivery>(extraBufferCapacity = 64)
 
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
@@ -174,7 +168,7 @@ internal class DefaultRouter(
             PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
             PacketType.FILE to FileInboundHandler(),
-            PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow),
+            PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
             PacketType.BOOTSTRAP to BootstrapInboundHandler(
                 routingContext,
                 bootstrapPacketFlow,
@@ -184,10 +178,10 @@ internal class DefaultRouter(
         syncHandler = syncHandler,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         pingProvider = pingProvider,
-        bootstrapDeliveries = bootstrapDeliveryFlow,
+        onSyncDeclined = { syncId, deviceId -> syncProcessor.onDeclined(syncId, deviceId) },
     )
 
-    private val peerPolicy = DefaultSyncPeerPolicy(routingContext, peerAvailabilityRegistry)
+    private val peerPolicy = DefaultSyncPeerPolicy(routingContext)
 
     /**
      * Keeps a Tor link open to every active peer, so sends, pings and replies ride an open
@@ -221,11 +215,13 @@ internal class DefaultRouter(
 
     private val syncProcessor = SyncRetryProcessor(
         ctx = routingContext,
-        pendingSyncs = syncRepository,
+        attempts = syncAttemptStore,
+        syncs = syncPayloadProvider,
         systemSender = systemSender,
+        outboxProcessor = outboxProcessor,
         peerPolicy = peerPolicy,
-        peerAvailabilityRegistry = peerAvailabilityRegistry,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
+        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
     )
 
     private var started = false
@@ -239,6 +235,7 @@ internal class DefaultRouter(
     private var linkUpJob: Job? = null
     private var torLinkKeeperJob: Job? = null
     private var outboxRetryJob: Job? = null
+    private var outboxOutcomeJob: Job? = null
     private var syncRetryJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
@@ -336,6 +333,20 @@ internal class DefaultRouter(
             }
         }
 
+        // Before the outbox runs: outcomes are not replayed.
+        outboxOutcomeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            outboxProcessor.outcomes.collect { outcome ->
+                runCatching { onOutboxOutcome(outcome) }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    AppLog.error(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.OUTBOX_PROCESS_FAILED,
+                        message = "Failed to handle outbox outcome",
+                        fields = mapOf("tag" to outcome.tag, "error" to e.toString()),
+                    )
+                }
+            }
+        }
         outboxRetryJob = outboxProcessor.runIn(scope)
 
         syncRetryJob = syncProcessor.runIn(scope)
@@ -397,6 +408,7 @@ internal class DefaultRouter(
             linkUpJob,
             torLinkKeeperJob,
             outboxRetryJob,
+            outboxOutcomeJob,
             syncRetryJob,
         ).forEach { it.cancelAndJoin() }
 
@@ -406,6 +418,7 @@ internal class DefaultRouter(
         linkUpJob = null
         torLinkKeeperJob = null
         outboxRetryJob = null
+        outboxOutcomeJob = null
         syncRetryJob = null
         scope.cancel()
 
@@ -456,7 +469,34 @@ internal class DefaultRouter(
         return bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
     }
 
-    override val bootstrapDeliveries: Flow<Uuid> = bootstrapDeliveryFlow.asSharedFlow()
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
+        syncProcessor.start(syncId, firstAttemptAt)
+    }
+
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
+        syncProcessor.reopen(syncId, account)
+    }
+
+    override val deliveries: Flow<Delivery> = deliveryFlow.asSharedFlow()
+
+    /** Routes each tagged outbox outcome to whoever waits on that tag. */
+    private suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
+        val id = outcome.tag.id
+        when (outcome.tag.kind) {
+            OutboxTag.Kind.MESSAGE -> if (outcome is OutboxOutcome.Acked) {
+                // A device we can't place in an account can't be shown as anyone's delivery.
+                val account = identityResolver.getAccountIdForDevice(outcome.target) ?: return
+                deliveryFlow.emit(Delivery(DeliverySubject.Message(id), account))
+            }
+
+            OutboxTag.Kind.BOOTSTRAP -> if (outcome is OutboxOutcome.Acked) {
+                val account = identityResolver.getAccountIdForDevice(outcome.target)
+                deliveryFlow.emit(Delivery(DeliverySubject.Bootstrap(id), account))
+            }
+
+            OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
+        }
+    }
 }
 
 private fun RouterConfig.torLinkKeeperConfig() = LinkKeeperConfig(

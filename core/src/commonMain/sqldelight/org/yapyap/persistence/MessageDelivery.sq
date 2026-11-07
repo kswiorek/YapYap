@@ -1,0 +1,33 @@
+import kotlin.time.Instant;
+import kotlin.uuid.Uuid;
+import org.yapyap.protocol.AccountId;
+
+-- Orchestrator-owned: which accounts are known to hold a message. Written on push-path ACKs
+-- and on ping frontiers that descend from the message; a missing row means "not known yet",
+-- never "failed".
+CREATE TABLE message_deliveries(
+    message_id TEXT AS Uuid NOT NULL,
+    account_id TEXT AS AccountId NOT NULL,
+    delivered_at INTEGER AS Instant NOT NULL,
+    PRIMARY KEY (message_id, account_id),
+    FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
+);
+
+insertDelivery:
+INSERT OR IGNORE INTO message_deliveries (message_id, account_id, delivered_at)
+VALUES (?, ?, ?);
+
+selectDeliveredAccounts:
+SELECT account_id FROM message_deliveries WHERE message_id = ?;
+
+-- Messages by :authorAccountId in :roomId not yet known to be held by :accountId, newest first.
+selectUndelivered:
+SELECT m.message_id FROM messages m
+WHERE m.room_id = :roomId
+  AND m.sender_account_id = :authorAccountId
+  AND NOT EXISTS (
+    SELECT 1 FROM message_deliveries d
+    WHERE d.message_id = m.message_id AND d.account_id = :accountId
+  )
+ORDER BY m.created_at_epoch_seconds DESC, m.message_id DESC
+LIMIT :limit;

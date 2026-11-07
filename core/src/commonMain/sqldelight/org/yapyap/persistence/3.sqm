@@ -1,0 +1,68 @@
+-- Outbox tags (see Outbox.sq): what each packet is for; existing rows: none.
+ALTER TABLE outbox ADD COLUMN tag_kind INTEGER;
+ALTER TABLE outbox ADD COLUMN tag_id TEXT;
+CREATE INDEX outbox_tag_idx ON outbox(tag_kind, tag_id);
+
+-- Sync split: the router's attempt state (attempts, retry time, declined devices) moves out
+-- of pending_syncs into sync_attempts; pending_syncs keeps what is missing and who may hold it.
+CREATE TABLE sync_attempts(
+    sync_id TEXT NOT NULL PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL
+);
+INSERT INTO sync_attempts (sync_id, attempts, next_attempt_at)
+SELECT sync_id, attempts, next_attempt_at FROM pending_syncs;
+CREATE INDEX sync_attempts_due_idx ON sync_attempts(next_attempt_at);
+
+CREATE TABLE sync_declined_devices(
+    sync_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    PRIMARY KEY (sync_id, device_id),
+    FOREIGN KEY (sync_id) REFERENCES sync_attempts(sync_id) ON DELETE CASCADE
+);
+INSERT INTO sync_declined_devices (sync_id, device_id)
+SELECT sync_id, device_id FROM pending_sync_attempted_peers;
+DROP TABLE pending_sync_attempted_peers;
+
+-- Rebuild pending_syncs without the moved columns; its candidates are set aside first,
+-- since dropping the table would cascade to them.
+CREATE TABLE pending_sync_candidates_moved(
+    sync_id TEXT NOT NULL,
+    account_id TEXT NOT NULL
+);
+INSERT INTO pending_sync_candidates_moved (sync_id, account_id)
+SELECT sync_id, account_id FROM pending_sync_candidate_accounts;
+DROP TABLE pending_sync_candidate_accounts;
+
+CREATE TABLE pending_syncs_rebuilt(
+    sync_id TEXT NOT NULL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    target_message_id TEXT NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id),
+    UNIQUE (room_id, target_message_id)
+);
+INSERT INTO pending_syncs_rebuilt (sync_id, room_id, target_message_id)
+SELECT sync_id, room_id, target_message_id FROM pending_syncs;
+DROP TABLE pending_syncs;
+ALTER TABLE pending_syncs_rebuilt RENAME TO pending_syncs;
+CREATE INDEX pending_syncs_room_idx ON pending_syncs(room_id);
+
+CREATE TABLE pending_sync_candidate_accounts(
+    sync_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    PRIMARY KEY (sync_id, account_id),
+    FOREIGN KEY (sync_id) REFERENCES pending_syncs(sync_id) ON DELETE CASCADE
+);
+INSERT INTO pending_sync_candidate_accounts (sync_id, account_id)
+SELECT sync_id, account_id FROM pending_sync_candidates_moved;
+DROP TABLE pending_sync_candidates_moved;
+CREATE INDEX pending_sync_candidate_accounts_account_idx ON pending_sync_candidate_accounts(account_id);
+
+-- Message delivery state (MessageDelivery.sq).
+CREATE TABLE message_deliveries(
+    message_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    delivered_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, account_id),
+    FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
+);

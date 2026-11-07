@@ -17,9 +17,12 @@ import org.yapyap.persistence.messaging.RoomRepository
 import org.yapyap.persistence.sync.PendingSyncRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
+import org.yapyap.routing.router.Router
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -40,9 +43,13 @@ internal class DefaultSyncCoordinator(
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
     private val pendingSyncRepository: PendingSyncRepository,
+    private val router: Router,
     private val clock: Clock = Clock.System,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>
 ) : SyncCoordinator {
+
+    /** Last removal re-push per (account, room); see [rePushRemoval]. */
+    private val lastRemovalPushAt = HashMap<Pair<AccountId, RoomId>, Instant>()
 
     @Volatile
     private var serviceScope: CoroutineScope? = null
@@ -52,6 +59,12 @@ internal class DefaultSyncCoordinator(
     override fun start(scope: CoroutineScope) {
         check(subscriptionJob == null) { "SyncCoordinator already started" }
         serviceScope = scope
+        // The router asks for every pending sync; hand it the ones from before this run
+        // (idempotent: a sync it already tracks keeps its attempt state).
+        scope.launch {
+            val now = clock.now()
+            pendingSyncRepository.allSyncIds().forEach { router.startSync(it, now) }
+        }
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
                 when (result) {
@@ -82,6 +95,46 @@ internal class DefaultSyncCoordinator(
                 // or quarantined (complete holds but non-VERIFIED ancestry; nothing to do).
             }
         }
+        if (senderAccount == null) return
+        // A ping about the room is the sender's assertion that its projection has us in the
+        // room, contradicting any earlier decline (docs/room events.md §6): it may be asked again.
+        pendingSyncRepository.syncIdsInRoom(roomId).forEach { router.reopenSync(it, senderAccount) }
+        rePushRemoval(roomId, senderAccount)
+    }
+
+    /**
+     * Ping-contradiction recovery (docs/room events.md §6): a ping advertising a room our
+     * fold says the sender's account was removed from proves that device never saw its
+     * removal — re-deliver the removal node so its orphan machinery mints sync rows and the
+     * bounded serve gate fills the gap. Rate-governed per (account, room); self-extinguishing,
+     * since a converged device stops advertising the room (shared-room ping filter).
+     */
+    private suspend fun rePushRemoval(roomId: RoomId, account: AccountId) {
+        val row = roomRepository.memberRowOf(roomId, account) ?: return
+        if (row.status != RoomMemberStatus.REMOVED) return
+        val node = row.removalNodeId?.let { messageRepository.findById(it) }?.payload ?: return
+        val now = clock.now()
+        val key = account to roomId
+        val backoff = orchestratorConfig.value.removalRePushBackoff
+        val sendNow = syncMutex.withLock {
+            val last = lastRemovalPushAt[key]
+            if (last != null && now - last < backoff) {
+                false
+            } else {
+                lastRemovalPushAt[key] = now
+                true
+            }
+        }
+        if (!sendNow) return
+        // Store-and-forward carries this past the target's offline window (relay
+        // deposits); beyond relay retention the next ping re-triggers.
+        router.sendMessage(account, node)
+        AppLog.debug(
+            component = LogComponent.ORCHESTRATOR,
+            event = LogEvent.PING_HANDLED,
+            message = "Re-pushed removal node to stale account",
+            fields = mapOf("accountId" to account, "roomId" to roomId, "removalNode" to node.messageId),
+        )
     }
 
     /**
@@ -199,12 +252,13 @@ internal class DefaultSyncCoordinator(
         // Known room with no candidates (all members removed): still mint the
         // row as a placeholder — the membership refresh revives it if
         // candidacy returns, and nothing else would ever chase this gap.
+        val syncId = Uuid.random()
         pendingSyncRepository.insertSync(
-            syncId = Uuid.random(),
+            syncId = syncId,
             roomId = roomId,
             targetMessageId = targetMessageId,
             candidateAccounts = candidates,
-            nextAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod,
         )
+        router.startSync(syncId, firstAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod)
     }
 }

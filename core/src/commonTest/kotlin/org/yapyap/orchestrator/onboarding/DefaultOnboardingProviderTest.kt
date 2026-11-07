@@ -32,12 +32,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 private class FakeOnboardingRouter(
     override val bootstrapPackets: Flow<BootstrapPacketEvent>,
-    override val bootstrapDeliveries: Flow<Uuid> = emptyFlow(),
+    override val deliveries: Flow<Delivery> = emptyFlow(),
 ) : Router {
+    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
+    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
     override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
@@ -113,7 +116,7 @@ class DefaultOnboardingProviderTest {
         routerConfig: RouterConfig = RouterConfig(),
         identityKeyRepository: IdentityKeyRepository = InMemoryIdentityKeyRepository(),
         roomRepository: RoomRepository = FakeRoomRepository(),
-        deliveries: MutableSharedFlow<Uuid> = MutableSharedFlow(extraBufferCapacity = 16),
+        deliveries: MutableSharedFlow<Delivery> = MutableSharedFlow(extraBufferCapacity = 16),
     ): DefaultOnboardingProvider =
         DefaultOnboardingProvider(
             router = FakeOnboardingRouter(packets, deliveries),
@@ -207,7 +210,7 @@ class DefaultOnboardingProviderTest {
     fun recoveryRequest_sentThenDelivered_onlyForItsOwnPacket() = runTest {
         val clock = FakeClock(start)
         val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        val deliveries = MutableSharedFlow<Uuid>(extraBufferCapacity = 16)
+        val deliveries = MutableSharedFlow<Delivery>(extraBufferCapacity = 16)
         val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
@@ -217,11 +220,11 @@ class DefaultOnboardingProviderTest {
         runCurrent()
         assertEquals(OnboardingState.REQUEST_SENT, provider.state.value)
 
-        deliveries.emit(Uuid.random())
+        deliveries.emit(Delivery(DeliverySubject.Bootstrap(Uuid.random()), account = null))
         runCurrent()
         assertEquals(OnboardingState.REQUEST_SENT, provider.state.value, "someone else's packet changes nothing")
 
-        deliveries.emit(request)
+        deliveries.emit(Delivery(DeliverySubject.Bootstrap(request), account = null))
         runCurrent()
         assertEquals(OnboardingState.REQUEST_DELIVERED, provider.state.value)
         provider.stop()
@@ -249,7 +252,7 @@ class DefaultOnboardingProviderTest {
     fun cancel_afterDelivery_ignoresALateDelivery() = runTest {
         val clock = FakeClock(start)
         val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        val deliveries = MutableSharedFlow<Uuid>(extraBufferCapacity = 16)
+        val deliveries = MutableSharedFlow<Delivery>(extraBufferCapacity = 16)
         val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
@@ -258,7 +261,7 @@ class DefaultOnboardingProviderTest {
         runCurrent()
 
         provider.cancelOnboarding()
-        deliveries.emit(request)
+        deliveries.emit(Delivery(DeliverySubject.Bootstrap(request), account = null))
         runCurrent()
         assertEquals(OnboardingState.IDLE, provider.state.value)
         provider.stop()
