@@ -1,16 +1,24 @@
-package org.yapyap.persistence.key
+package org.yapyap.crypto.store
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.crypto.store.DefaultOpkRepository
-import org.yapyap.crypto.store.OpkStatus
+import org.yapyap.persistence.DatabaseConnection
+import org.yapyap.persistence.FixtureAccountId
+import org.yapyap.persistence.FixtureDevicePeerId
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.*
+import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.persistence.seedLocalAccountAndDevice
 import org.yapyap.protocol.identity.OneTimePreKeyId
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.InMemoryKeyStore
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.time.Clock
 
 class DefaultOneTimePreKeyStoreJvmTest {

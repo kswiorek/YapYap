@@ -2,7 +2,6 @@ package org.yapyap.wiring
 
 import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultLocalIdentity
 import org.yapyap.crypto.identity.DefaultLocalKeys
@@ -19,8 +18,8 @@ import org.yapyap.orchestrator.boot.Node
 import org.yapyap.orchestrator.boot.Vault
 import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.orchestrator.onboarding.LocalSetupPreparer
+import org.yapyap.persistence.DatabaseFactory
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.DatabaseFactory
 import kotlin.time.Clock
 
 /**
@@ -40,27 +39,27 @@ internal class VaultGraph private constructor(
     override val storeIsNew: Boolean,
 ) : Vault {
 
-    val identityKeyRepository = DefaultIdentityStore(database, bootConfig.localDeviceType)
+    val identityStore = DefaultIdentityStore(database, bootConfig.localDeviceType)
 
     val localIdentity = DefaultLocalIdentity(
         cryptoProvider = cryptoProvider,
-        store = identityKeyRepository,
+        store = identityStore,
         privateKeyStore = keyStore,
     )
 
     val localKeys = DefaultLocalKeys(
         localIdentity = localIdentity,
-        directory = identityKeyRepository,
+        directory = identityStore,
         privateKeyStore = keyStore,
     )
 
-    val peerKeys = DefaultPeerKeys(cryptoProvider, identityKeyRepository)
+    val peerKeys = DefaultPeerKeys(cryptoProvider, identityStore)
 
     val bootstrapSessionStore = BootstrapSessionStore(keyStore)
 
     val identityProvisioning = DefaultIdentityProvisioning(
         cryptoProvider,
-        identityKeyRepository,
+        identityStore,
         keyStore,
         localIdentity,
         localKeys,
@@ -70,8 +69,8 @@ internal class VaultGraph private constructor(
     // Owns the Healthy/SetupRequired/ResetRequired decision.
     override val bootDiagnoser =
         BootDiagnoser(
-            identityKeyRepository,
-            identityKeyRepository,
+            identityStore,
+            identityStore,
             keyStore,
             cryptoProvider,
             bootstrapSessionStore,
@@ -88,9 +87,9 @@ internal class VaultGraph private constructor(
      * database while it is still open, for the wipe.
      */
     suspend fun prekeySlots(): List<KeySlot> {
-        val localDeviceId = identityKeyRepository.getLocalDeviceIdentity()?.deviceId ?: return emptyList()
+        val localDeviceId = identityStore.getLocalDeviceIdentity()?.deviceId ?: return emptyList()
         val opks = DefaultOpkRepository(database, keyStore, cryptoProvider, localDeviceId)
-        return identityKeyRepository.getSignedPreKeyIds(localDeviceId).map { KeySlot.SignedPreKeyPrivate(it) } +
+        return identityStore.getSignedPreKeyIds(localDeviceId).map { KeySlot.SignedPreKeyPrivate(it) } +
                 opks.opkIds().map { KeySlot.OneTimePreKeyPrivate(it) }
     }
 
@@ -107,10 +106,7 @@ internal class VaultGraph private constructor(
         ): VaultGraph {
             // Loads userSettings.toml + the state.toml cache, then derives every layer's config.
             val configStore = ConfigStore(layout.userSettingsFile, layout.stateFile)
-            val watcher = platform.configFileWatcher(layout.userSettingsFile)
-            scope.launch {
-                watcher.changes().collect { configStore.onUserSettingsFileChanged() }
-            }
+            configStore.start(platform.configFileWatcher(layout.userSettingsFile), scope)
 
             // TODO: [Sprint 7] fetch NetworkPolicy from clearnet API and call
             //   configStore.applyNetwork(fetched) before backends read the derived config.

@@ -1,17 +1,29 @@
-package org.yapyap.persistence.key
+package org.yapyap.orchestrator.identity
 
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.orchestrator.store.DefaultRoomRepository
-import org.yapyap.persistence.db.DatabaseConnection
-import org.yapyap.persistence.db.openMemoryDatabase
-import org.yapyap.protocol.*
+import org.yapyap.persistence.DatabaseConnection
+import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import kotlin.test.*
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * A device added to an existing account starts on a key-less stand-in local account; the

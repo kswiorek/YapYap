@@ -4,9 +4,6 @@ package org.yapyap.crypto.identity
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.persistence.key.InMemoryKeyStore
-import org.yapyap.persistence.key.TestIdentityStack
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
@@ -15,6 +12,9 @@ import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.SignedPreKey
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.testfixtures.InMemoryIdentityStore
+import org.yapyap.testfixtures.InMemoryKeyStore
+import org.yapyap.testfixtures.TestIdentityStack
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

@@ -12,7 +12,6 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
-import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.link.PeerLinks
@@ -178,6 +177,7 @@ internal sealed interface PeerSendOutcome {
 
 internal class RoutingContext(
     val localIdentity: LocalIdentity,
+    val localDeviceId: PeerId,
     val devices: DeviceDirectory,
     val routes: DeviceRouteStore,
     val packetDeduplicator: PacketDeduplicator,
@@ -188,11 +188,6 @@ internal class RoutingContext(
     val routerConfig: StateFlow<RouterConfig>,
     val transportLimits: StateFlow<TransportLimits>,
 ) {
-    lateinit var localDeviceIdentity: DeviceIdentity
-
     /** Live links to peers across both transports; see [PeerLinks]. */
     val peerLinks: PeerLinks by lazy { PeerLinks(routes, webRtcTransport, torTransport) }
-
-    val localDeviceId: PeerId
-        get() = localDeviceIdentity.deviceId
 }

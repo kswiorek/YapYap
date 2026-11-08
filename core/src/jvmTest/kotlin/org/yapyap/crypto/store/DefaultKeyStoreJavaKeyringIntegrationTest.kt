@@ -1,9 +1,8 @@
-package org.yapyap.persistence.key
+package org.yapyap.crypto.store
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.crypto.keys.KeySlot
-import org.yapyap.crypto.store.DefaultKeyStore
 import org.yapyap.protocol.identity.SignedPreKeyId
 import java.util.*
 import kotlin.test.AfterTest

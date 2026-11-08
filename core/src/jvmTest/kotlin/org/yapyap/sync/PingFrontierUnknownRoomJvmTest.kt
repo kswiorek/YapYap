@@ -4,18 +4,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
-import org.yapyap.persistence.db.DatabaseConnection
-import org.yapyap.persistence.db.openMemoryDatabase
 import org.yapyap.orchestrator.store.DefaultMessageRepository
-import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
+import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
+import org.yapyap.persistence.DatabaseConnection
+import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.uuid.Uuid
 
 /**

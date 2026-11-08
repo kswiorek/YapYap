@@ -1,14 +1,23 @@
 package org.yapyap.routing.outbound
 
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
+import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -59,6 +68,7 @@ class ProactiveSessionOpenerTest {
         )
         val ctx = RoutingContext(
             localIdentity = FakeIdentityResolverForRouter(localDevice = localDevice),
+            localDeviceId = localDevice.deviceId,
             devices = FakeIdentityResolverForRouter(localDevice = localDevice),
             routes = FakeIdentityResolverForRouter(localDevice = localDevice),
             packetDeduplicator = InMemoryPacketDeduplicator(),
@@ -69,7 +79,6 @@ class ProactiveSessionOpenerTest {
             routerConfig = configFlow,
             transportLimits = MutableStateFlow(testTransportLimits()),
         )
-        ctx.localDeviceIdentity = localDevice
         val registry = PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore())
         return Stack(clock, transport, fake, ProactiveSessionOpener(ctx, registry))
     }

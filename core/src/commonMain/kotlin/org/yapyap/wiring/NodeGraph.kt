@@ -87,7 +87,7 @@ internal class NodeGraph(
     private val peerKeys = vault.peerKeys
 
     // The whole identity store stays here; each component gets the narrow view it needs.
-    private val identityStore = vault.identityKeyRepository
+    private val identityStore = vault.identityStore
     private val clock = Clock.System
 
     // Transports
@@ -145,6 +145,7 @@ internal class NodeGraph(
         torTransport = torTransport,
         webRtcTransport = webRtcTransport,
         localIdentity = localIdentity,
+        localDeviceId = localDeviceId,
         devices = identityStore,
         routes = deviceRoutes,
         packetDeduplicator = packetDeduplicator,

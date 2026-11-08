@@ -22,7 +22,6 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.store.Room
 import org.yapyap.orchestrator.store.RoomMember
 import org.yapyap.orchestrator.store.RoomRepository
-import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
@@ -48,6 +47,7 @@ import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.InMemoryIdentityStore
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals

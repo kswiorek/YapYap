@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.io.files.Path
 import org.yapyap.config.ConfigFileWatcher
 import org.yapyap.crypto.store.KeyringSessionFactory
+import org.yapyap.crypto.store.MapBackedKeyringSessionFactory
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.boot.BootConfig
-import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.persistence.key.MapBackedKeyringSessionFactory
+import org.yapyap.persistence.DriverFactory
 import org.yapyap.protocol.DeviceType
 import org.yapyap.transport.tor.RecordingTorBackend
 import org.yapyap.transport.tor.backend.TorBackend

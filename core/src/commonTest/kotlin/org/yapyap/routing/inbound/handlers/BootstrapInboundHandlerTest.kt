@@ -17,13 +17,28 @@ import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.Intro
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.BootstrapPacketEvent
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -64,6 +79,7 @@ class BootstrapInboundHandlerTest {
         val local = localDeviceRecord()
         val ctx = RoutingContext(
             localIdentity = FakeIdentityResolverForRouter(localDevice = local),
+            localDeviceId = local.deviceId,
             devices = FakeIdentityResolverForRouter(localDevice = local),
             routes = FakeIdentityResolverForRouter(localDevice = local),
             packetDeduplicator = InMemoryPacketDeduplicator(),
@@ -74,7 +90,6 @@ class BootstrapInboundHandlerTest {
             routerConfig = MutableStateFlow(RouterConfig()),
             transportLimits = MutableStateFlow(testTransportLimits()),
         )
-        ctx.localDeviceIdentity = local
         return ctx
     }
 

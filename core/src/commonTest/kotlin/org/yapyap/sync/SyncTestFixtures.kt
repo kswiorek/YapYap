@@ -29,7 +29,14 @@ import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
+import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.NoopRouter
@@ -214,6 +221,7 @@ internal fun buildSyncRoutingStack(
     val identity = FakeIdentityResolverForRouter(localDevice, peersByAccount, torByPeer)
     val ctx = RoutingContext(
         localIdentity = identity,
+        localDeviceId = localDevice.deviceId,
         devices = identity,
         routes = identity,
         packetDeduplicator = InMemoryPacketDeduplicator(),
@@ -224,7 +232,6 @@ internal fun buildSyncRoutingStack(
         routerConfig = MutableStateFlow(RouterConfig()),
         transportLimits = MutableStateFlow(testTransportLimits()),
     )
-    ctx.localDeviceIdentity = localDevice
 
     val dispatcher = EnvelopeDispatcher(ctx)
     val policy = LinkPreferencePolicy(MutableStateFlow(RouterConfig()))

@@ -1,8 +1,10 @@
 package org.yapyap.wiring
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.Buffer
@@ -13,6 +15,7 @@ import kotlinx.io.writeString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import net.peanuuutz.tomlkt.Toml
+import org.yapyap.config.ConfigFileWatcher
 import org.yapyap.config.ConfigValue
 import org.yapyap.config.Setting
 import org.yapyap.config.UpdateResult
@@ -117,6 +120,13 @@ internal class ConfigStore(
             FIELDS.any { it.id == id && it.source == FieldSource.NETWORK }
         }
         rederiveAndCommit()                                  // does NOT touch userSettings.toml
+    }
+
+    /** Reloads user overrides whenever [watcher] reports an edit to `userSettings.toml`. */
+    fun start(watcher: ConfigFileWatcher, scope: CoroutineScope) {
+        scope.launch {
+            watcher.changes().collect { onUserSettingsFileChanged() }
+        }
     }
 
     suspend fun onUserSettingsFileChanged() = writeMutex.withLock {

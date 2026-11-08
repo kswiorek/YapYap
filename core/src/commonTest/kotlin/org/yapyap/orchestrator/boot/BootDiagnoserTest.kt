@@ -5,8 +5,6 @@ import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapSessionStore
 import org.yapyap.orchestrator.ResetReason
-import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
@@ -18,6 +16,8 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKey
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.InMemoryIdentityStore
+import org.yapyap.testfixtures.InMemoryKeyStore
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals

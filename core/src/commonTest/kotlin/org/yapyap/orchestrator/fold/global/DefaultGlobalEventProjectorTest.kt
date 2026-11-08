@@ -24,9 +24,6 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.identity.IdentityReader
-import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.persistence.key.InMemoryKeyStore
-import org.yapyap.persistence.key.TestIdentityStack
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.IdentityStatus
@@ -57,6 +54,9 @@ import org.yapyap.testfixtures.FakeCausalHoldRepository
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
+import org.yapyap.testfixtures.InMemoryIdentityStore
+import org.yapyap.testfixtures.InMemoryKeyStore
+import org.yapyap.testfixtures.TestIdentityStack
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.random.Random
 import kotlin.test.Test

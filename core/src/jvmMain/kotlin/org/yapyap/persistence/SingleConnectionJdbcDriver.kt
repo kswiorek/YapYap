@@ -18,7 +18,7 @@ import java.util.*
  *
  * This mirrors upstream's own `StaticConnectionManager` (single shared connection,
  * used for memory DBs), extended to file DBs. Soundness rests on the same
- * discipline [org.yapyap.persistence.db.databaseDispatcher] already documents:
+ * discipline [org.yapyap.persistence.databaseDispatcher] already documents:
  * every repository funnels through that single thread, schema init runs strictly
  * before any use, and close happens strictly after the last use — so the shared
  * connection is never touched concurrently (and sqlite-jdbc additionally

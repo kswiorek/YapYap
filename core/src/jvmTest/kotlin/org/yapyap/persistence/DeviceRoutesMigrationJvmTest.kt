@@ -1,9 +1,6 @@
 package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.persistence.db.DatabaseFactory
-import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.persistence.db.readPragmaUserVersion
 import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId

@@ -15,7 +15,6 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventOutcome
 import org.yapyap.orchestrator.runtime.globalevent.GlobalEventRefusal
-import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
@@ -30,6 +29,7 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.testfixtures.FakeIdentityResolver
+import org.yapyap.testfixtures.InMemoryIdentityStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

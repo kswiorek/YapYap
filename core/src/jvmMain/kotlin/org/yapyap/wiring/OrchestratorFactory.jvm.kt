@@ -11,8 +11,8 @@ import org.yapyap.logging.JvmAppLogger
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
 import org.yapyap.orchestrator.boot.BootConfig
+import org.yapyap.persistence.DriverFactory
 import org.yapyap.persistence.JvmEncryptedDriverFactory
-import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.protocol.DeviceType
 import org.yapyap.transport.network.JvmNetworkMonitor
 import org.yapyap.transport.tor.backend.KmpTorBackend

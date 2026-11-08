@@ -4,16 +4,27 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.CryptoException
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.persistence.key.InMemoryKeyStore
-import org.yapyap.persistence.key.InMemoryOpkRepository
-import org.yapyap.persistence.key.TestIdentityStack
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.InMemoryIdentityStore
+import org.yapyap.testfixtures.InMemoryKeyStore
+import org.yapyap.testfixtures.InMemoryOpkRepository
+import org.yapyap.testfixtures.TestIdentityStack
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class DefaultIdentityOrchestrationTest {
 

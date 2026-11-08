@@ -3,7 +3,7 @@ package org.yapyap.routing.store
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.directory.DeviceDirectory

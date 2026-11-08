@@ -14,7 +14,6 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
@@ -37,6 +36,7 @@ import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.TypingIndicatorEvent
+import org.yapyap.testfixtures.InMemoryIdentityStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

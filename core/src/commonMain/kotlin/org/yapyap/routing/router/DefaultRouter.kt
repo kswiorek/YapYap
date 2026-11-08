@@ -30,7 +30,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
@@ -78,6 +77,7 @@ internal class DefaultRouter(
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
     val localIdentity: LocalIdentity,
+    val localDeviceId: PeerId,
     val devices: DeviceDirectory,
     val routes: DeviceRouteStore,
     val packetDeduplicator: PacketDeduplicator,
@@ -103,6 +103,7 @@ internal class DefaultRouter(
 
     private val routingContext = RoutingContext(
         localIdentity = localIdentity,
+        localDeviceId = localDeviceId,
         devices = devices,
         routes = routes,
         packetDeduplicator = packetDeduplicator,
@@ -260,7 +261,6 @@ internal class DefaultRouter(
 
     private var started = false
     private var torEndpoint: TorEndpoint? = null
-    private var localDeviceIdentity: DeviceIdentity? = null
 
     private var torIncomingJob: Job? = null
     private var webRtcIncomingEnvelopeJob: Job? = null
@@ -303,12 +303,9 @@ internal class DefaultRouter(
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
-        localDeviceIdentity = localIdentity.getLocalDeviceIdentity()
-        routingContext.localDeviceIdentity = localDeviceIdentity!!
-
         try {
             torEndpoint = torTransport.start()
-            webRtcTransport.start(localDeviceIdentity!!.deviceId)
+            webRtcTransport.start(localDeviceId)
         } catch (e: Exception) {
             webRtcTransport.stop()
             torTransport.stop()
@@ -316,7 +313,7 @@ internal class DefaultRouter(
         }
         checkNotNull(torEndpoint) { "Tor endpoint must be initialized after starting transport" }
         routes.upsertPeerTorEndpoint(
-            deviceId = localDeviceIdentity!!.deviceId,
+            deviceId = localDeviceId,
             torEndpoint = torEndpoint!!,
         )
 
@@ -390,7 +387,7 @@ internal class DefaultRouter(
 
         pingProvider.runIn(scope)
 
-        peerAvailabilityRegistry.start(scope, localDeviceIdentity!!.deviceId)
+        peerAvailabilityRegistry.start(scope, localDeviceId)
 
         torLinkKeeperJob = torLinkKeeper.runIn(scope)
 

@@ -16,8 +16,6 @@ import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.identity.IdentityStore
 import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.PeerId
@@ -37,6 +35,8 @@ import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.InMemoryIdentityStore
+import org.yapyap.testfixtures.InMemoryKeyStore
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals

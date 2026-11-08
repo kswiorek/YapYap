@@ -1,4 +1,4 @@
-package org.yapyap.persistence.db
+package org.yapyap.persistence
 
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver

@@ -1,14 +1,11 @@
 package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.persistence.db.DatabaseFactory
-import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.persistence.db.readPragmaUserVersion
 import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
-import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
+import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.testfixtures.epochSeconds
 import java.nio.file.Files
 import kotlin.test.Test

@@ -1,4 +1,4 @@
-package org.yapyap.persistence.db
+package org.yapyap.persistence
 
 import app.cash.sqldelight.ColumnAdapter
 import app.cash.sqldelight.EnumColumnAdapter
@@ -9,7 +9,6 @@ import kotlinx.coroutines.IO
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId

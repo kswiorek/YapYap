@@ -1,4 +1,4 @@
-package org.yapyap.persistence.db
+package org.yapyap.persistence
 
 //TODO: [Sprint 5] move these to the file-transfer store that owns their tables and delete this file
 public enum class FileTransferStatus {

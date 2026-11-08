@@ -6,7 +6,12 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
+import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.sync.testDeviceIdentity
 import org.yapyap.testfixtures.FakeClock
@@ -159,6 +164,7 @@ class RelaySelectionPolicyTest {
         val clock = FakeClock(epochSeconds(1_000L))
         return RoutingContext(
             localIdentity = FakeIdentityResolverForRouter(localDevice, peersByAccount),
+            localDeviceId = localDevice.deviceId,
             devices = FakeIdentityResolverForRouter(localDevice, peersByAccount),
             routes = FakeIdentityResolverForRouter(localDevice, peersByAccount),
             packetDeduplicator = InMemoryPacketDeduplicator(),
@@ -168,7 +174,7 @@ class RelaySelectionPolicyTest {
             clock = clock,
             routerConfig = MutableStateFlow(RouterConfig()),
             transportLimits = MutableStateFlow(testTransportLimits()),
-        ).apply { localDeviceIdentity = localDevice }
+        )
     }
 
     /** Boosts measured scores with one sweep, then sets reported so effective == [scores]. */

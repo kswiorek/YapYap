@@ -8,17 +8,24 @@ import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.*
+import org.yapyap.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
+import org.yapyap.crypto.e2ee.TestPeerIdentity
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.e2ee.testCryptoLimits
+import org.yapyap.crypto.e2ee.testTransportLimits
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerKeys
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
@@ -27,8 +34,27 @@ import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
+import org.yapyap.protocol.envelopes.FileChunk
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.OpenedFileEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
@@ -38,10 +64,17 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.OutboxEntry
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.SyncAttempt
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.transport.TorTransport
@@ -350,6 +383,8 @@ internal class FakeIdentityResolverForRouter(
     private val deviceStatuses: Map<PeerId, IdentityStatus> = emptyMap(),
     private val localAccount: AccountId = AccountId("local-account"),
 ) : LocalIdentity, LocalKeys, PeerKeys, DeviceDirectory, DeviceRouteStore {
+
+    val localDeviceId: PeerId get() = localDevice.deviceId
 
     override suspend fun getLocalDeviceIdentity(): DeviceIdentity = localDevice
 
@@ -740,6 +775,7 @@ internal fun e2eeRouterUnderTest(
         torTransport = tor,
         webRtcTransport = webRtc,
         localIdentity = stack.identity,
+        localDeviceId = stack.peer.device.deviceId,
         devices = stack.identity,
         routes = stack.identity,
         packetDeduplicator = dedup,
@@ -768,6 +804,7 @@ internal fun outboxProcessorUnderTest(
     val ctx =
         RoutingContext(
             localIdentity = identity,
+            localDeviceId = identity.localDeviceId,
             devices = identity,
             routes = identity,
             packetDeduplicator = InMemoryPacketDeduplicator(),
@@ -805,6 +842,7 @@ internal fun defaultRouterUnderTest(
         torTransport = tor,
         webRtcTransport = webRtc,
         localIdentity = identity,
+        localDeviceId = identity.localDeviceId,
         devices = identity,
         routes = identity,
         packetDeduplicator = dedup,

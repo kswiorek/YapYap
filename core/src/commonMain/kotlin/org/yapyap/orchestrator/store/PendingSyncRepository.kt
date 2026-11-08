@@ -4,7 +4,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.persistence.Pending_syncs
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload

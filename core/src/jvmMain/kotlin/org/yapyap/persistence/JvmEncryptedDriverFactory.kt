@@ -5,7 +5,6 @@ import kotlinx.io.files.Path
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.db.DriverFactory
 
 internal class JvmEncryptedDriverFactory(
     private val databaseFile: Path,

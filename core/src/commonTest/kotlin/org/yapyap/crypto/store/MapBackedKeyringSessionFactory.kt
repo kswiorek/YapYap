@@ -1,8 +1,4 @@
-package org.yapyap.persistence.key
-
-import org.yapyap.orchestrator.identity.*
-
-import org.yapyap.crypto.store.*
+package org.yapyap.crypto.store
 
 /**
  * In-memory keyring backing — avoids OS keyring during CI / headless runs.

@@ -1,9 +1,8 @@
-package org.yapyap.persistence.db
+package org.yapyap.persistence
 
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
-import org.yapyap.persistence.JvmEncryptedDriverFactory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertTrue

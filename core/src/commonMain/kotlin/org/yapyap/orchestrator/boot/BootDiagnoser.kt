@@ -11,7 +11,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.ResetReason
 import org.yapyap.orchestrator.identity.IdentityReader
-import org.yapyap.persistence.db.DatabaseConnection
+import org.yapyap.persistence.DatabaseConnection
 import org.yapyap.protocol.IdentityStatus
 import kotlin.time.Clock
 

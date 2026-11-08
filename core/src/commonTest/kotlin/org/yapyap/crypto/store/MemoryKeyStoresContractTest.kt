@@ -1,9 +1,14 @@
-package org.yapyap.persistence.key
+package org.yapyap.crypto.store
 
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.protocol.identity.SignedPreKeyId
-import kotlin.test.*
+import org.yapyap.testfixtures.InMemoryKeyStore
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 
 class MemoryKeyStoresContractTest {
 

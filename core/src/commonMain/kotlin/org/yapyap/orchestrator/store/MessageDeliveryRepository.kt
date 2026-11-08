@@ -3,7 +3,7 @@ package org.yapyap.orchestrator.store
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.databaseDispatcher
+import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import kotlin.time.Instant

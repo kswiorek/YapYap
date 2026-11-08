@@ -1,4 +1,4 @@
-package org.yapyap.persistence.key
+package org.yapyap.testfixtures
 
 import org.yapyap.crypto.identity.DefaultLocalIdentity
 import org.yapyap.crypto.identity.DefaultLocalKeys

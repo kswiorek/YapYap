@@ -2,13 +2,18 @@ package org.yapyap.persistence
 
 import app.cash.sqldelight.Query
 import app.cash.sqldelight.db.SqlDriver
-import org.yapyap.persistence.db.DatabaseFactory
-import org.yapyap.persistence.db.DriverFactory
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.IdentityStatus
 import java.nio.file.Files
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * The persistent-connection driver: one physical connection per driver, transactions
