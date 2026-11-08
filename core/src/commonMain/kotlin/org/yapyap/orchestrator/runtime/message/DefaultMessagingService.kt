@@ -1,12 +1,9 @@
 package org.yapyap.orchestrator.runtime.message
 
-import org.yapyap.orchestrator.store.*
-
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -14,7 +11,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.persistence.db.VerificationState
+import org.yapyap.orchestrator.store.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
@@ -34,7 +31,7 @@ internal class DefaultMessagingService(
     deliveryRepository: MessageDeliveryRepository,
     private val causalHoldRepository: CausalHoldRepository,
     private val localIdentity: LocalIdentity,
-    private val messageLimits: StateFlow<MessageLimits>,
+    private val maxTextBytes: StateFlow<Int>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
 ) : MessagingService {
 
@@ -47,7 +44,7 @@ internal class DefaultMessagingService(
 
     override suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = deliveryTracker.deliveredTo(messageId)
 
-    override val maxTextMessageBytes: Int get() = messageLimits.value.maxTextMessageBytes
+    override val maxTextMessageBytes: Int get() = maxTextBytes.value
 
     /**
      * Map of open windows per room. Guarded by [windowsMapMutex].

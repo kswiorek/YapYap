@@ -1,7 +1,6 @@
 package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId

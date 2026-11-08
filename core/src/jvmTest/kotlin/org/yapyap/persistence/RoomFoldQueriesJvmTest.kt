@@ -1,11 +1,12 @@
 package org.yapyap.persistence
 
 import kotlinx.coroutines.test.runTest
-import org.yapyap.persistence.db.*
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.persistence.db.*
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.epochSeconds

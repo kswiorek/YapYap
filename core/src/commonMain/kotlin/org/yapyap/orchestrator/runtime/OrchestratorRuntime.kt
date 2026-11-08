@@ -2,7 +2,6 @@ package org.yapyap.orchestrator.runtime
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.config.MessageLimits
 import org.yapyap.crypto.identity.IdentityProvisioning
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -10,6 +9,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
+import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.account.AccountService
@@ -27,7 +27,6 @@ import org.yapyap.orchestrator.runtime.onboarding.DefaultOnboardingService
 import org.yapyap.orchestrator.runtime.onboarding.OnboardingService
 import org.yapyap.orchestrator.runtime.room.DefaultRoomService
 import org.yapyap.orchestrator.runtime.room.RoomService
-import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.orchestrator.store.CausalHoldRepository
 import org.yapyap.orchestrator.store.MessageDeliveryRepository
 import org.yapyap.orchestrator.store.MessageRepository
@@ -64,7 +63,7 @@ internal class DefaultOrchestratorRuntime(
     deliveryRepository: MessageDeliveryRepository,
     causalHoldRepository: CausalHoldRepository,
     localIdentity: LocalIdentity,
-    messageLimits: StateFlow<MessageLimits>,
+    maxTextMessageBytes: StateFlow<Int>,
     orchestratorConfig: StateFlow<OrchestratorConfig>,
     userSettings: UserSettings,
     onboardingProvider: OnboardingProvider,
@@ -86,7 +85,7 @@ internal class DefaultOrchestratorRuntime(
         deliveryRepository = deliveryRepository,
         causalHoldRepository = causalHoldRepository,
         localIdentity = localIdentity,
-        messageLimits = messageLimits,
+        maxTextBytes = maxTextMessageBytes,
         orchestratorConfig = orchestratorConfig,
     )
 
@@ -138,7 +137,6 @@ internal class DefaultOrchestratorRuntime(
 
     fun start(scope: CoroutineScope) {
         messaging.start(scope)
-        config.start(scope)
         rooms.start(scope)
         admin.start(scope)
         identity.start(scope)

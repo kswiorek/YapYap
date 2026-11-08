@@ -8,7 +8,7 @@ import org.yapyap.crypto.e2ee.policy.OpkOfferBinding
 import org.yapyap.crypto.e2ee.session.*
 import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.persistence.db.OpkStatus
+import org.yapyap.crypto.store.OpkStatus
 import org.yapyap.persistence.key.FailingAllocateOpkRepository
 import org.yapyap.persistence.key.InMemoryOpkRepository
 import org.yapyap.protocol.identity.OneTimePreKeyId

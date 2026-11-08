@@ -29,7 +29,7 @@ internal interface SignatureProvider {
 
     /**
      * Three-valued authorship classification used by the DAG engine to assign a message its
-     * [org.yapyap.persistence.db.VerificationState].
+     * verification state.
      *
      * Default implementation collapses to the [Boolean] form and cannot distinguish `UNKNOWN_AUTHOR`
      * from `INVALID`; concrete providers that resolve keys from live state should override it.

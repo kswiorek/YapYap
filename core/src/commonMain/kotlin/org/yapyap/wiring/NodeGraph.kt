@@ -5,15 +5,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
-import org.yapyap.config.BootConfig
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
 import org.yapyap.crypto.signature.DefaultSignatureProvider
+import org.yapyap.crypto.store.DefaultCryptoSessionStore
+import org.yapyap.crypto.store.DefaultOpkRepository
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.*
+import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.orchestrator.boot.Node
 import org.yapyap.orchestrator.boot.ResetRequest
 import org.yapyap.orchestrator.dag.DefaultDagEngine
@@ -26,25 +28,19 @@ import org.yapyap.orchestrator.onboarding.LocalSetup
 import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
+import org.yapyap.orchestrator.store.*
 import org.yapyap.orchestrator.sync.DefaultFrontierSnapshotProvider
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
-import org.yapyap.routing.store.DefaultDeviceRouteStore
-import org.yapyap.crypto.store.DefaultCryptoSessionStore
-import org.yapyap.crypto.store.DefaultOpkRepository
-import org.yapyap.orchestrator.store.DefaultCausalHoldRepository
-import org.yapyap.orchestrator.store.DefaultMessageDeliveryRepository
-import org.yapyap.orchestrator.store.DefaultMessageRepository
-import org.yapyap.orchestrator.store.DefaultRoomRepository
-import org.yapyap.routing.store.DefaultPacketDeduplicator
-import org.yapyap.routing.store.DefaultPacketOutbox
-import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
-import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
+import org.yapyap.routing.store.DefaultDeviceRouteStore
+import org.yapyap.routing.store.DefaultPacketDeduplicator
+import org.yapyap.routing.store.DefaultPacketOutbox
+import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import kotlin.time.Clock
@@ -251,7 +247,7 @@ internal class NodeGraph(
             deliveryRepository = deliveryRepository,
             causalHoldRepository = causalHoldRepository,
             localIdentity = localIdentity,
-            messageLimits = config.messageLimits,
+            maxTextMessageBytes = config.maxTextMessageBytes,
             orchestratorConfig = config.orchestratorConfig,
             userSettings = config,
             onboardingProvider = onboardingProvider,

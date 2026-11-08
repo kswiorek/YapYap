@@ -1,11 +1,12 @@
-package org.yapyap.config
+package org.yapyap.wiring
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import net.peanuuutz.tomlkt.Toml
-import org.yapyap.wiring.ConfigStore
+import org.yapyap.config.ConfigValue
+import org.yapyap.config.UpdateResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

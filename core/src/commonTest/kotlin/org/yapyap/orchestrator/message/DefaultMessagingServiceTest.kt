@@ -4,10 +4,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
-import org.yapyap.config.MessageLimits
-import org.yapyap.crypto.e2ee.testCryptoLimits
 import org.yapyap.crypto.e2ee.testMessageLimits
-import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
@@ -16,10 +13,10 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.*
 import org.yapyap.orchestrator.store.*
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -94,7 +91,7 @@ class DefaultMessagingServiceTest {
     private fun newService(
         scope: TestScope,
         pipeline: DefaultInboundMessagePipeline = DefaultInboundMessagePipeline(router, dagEngine),
-        messageLimits: MessageLimits = testMessageLimits(),
+        maxTextMessageBytes: Int = testMessageLimits().maxTextMessageBytes,
     ): DefaultMessagingService = DefaultMessagingService(
         dagEngine = dagEngine,
         router = router,
@@ -104,7 +101,7 @@ class DefaultMessagingServiceTest {
         deliveryRepository = InMemoryMessageDeliveryRepository(messageRepo),
         causalHoldRepository = causalHoldRepo,
         localIdentity = identityResolver,
-        messageLimits = MutableStateFlow(messageLimits),
+        maxTextBytes = MutableStateFlow(maxTextMessageBytes),
         orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
     )
 
@@ -178,11 +175,7 @@ class DefaultMessagingServiceTest {
         val service = newService(
             this,
             pipeline,
-            messageLimits = MessageLimits(
-                transport = testTransportLimits(),
-                crypto = testCryptoLimits(),
-                maxTextMessageBytes = 8,
-            ),
+            maxTextMessageBytes = 8,
         )
         startStack(this, pipeline, service)
 

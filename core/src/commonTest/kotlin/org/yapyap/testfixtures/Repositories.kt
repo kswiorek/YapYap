@@ -5,8 +5,8 @@ import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.store.*
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.identity.AccountIdentity

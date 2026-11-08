@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.FakeClock

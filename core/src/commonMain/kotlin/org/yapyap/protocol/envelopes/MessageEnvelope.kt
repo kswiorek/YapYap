@@ -71,6 +71,13 @@ internal data class MessageEnvelope(
          */
         const val ENCODED_OVERHEAD_BYTES: Int = 263
 
+        /**
+         * The largest protected payload a message envelope can carry inside a [BinaryEnvelope]
+         * of [binaryEnvelopeBytes]: both envelopes' worst-case framing subtracted.
+         */
+        fun maxPayloadBytes(binaryEnvelopeBytes: Int): Int =
+            binaryEnvelopeBytes - BinaryEnvelope.ENCODED_HEADER_BYTES - ENCODED_OVERHEAD_BYTES
+
         fun decode(bytes: ByteArray): MessageEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)

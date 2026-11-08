@@ -8,8 +8,9 @@ import kotlin.test.assertTrue
  * The layer rules from `docs/guide.md`, checked on core's main sources:
  *
  * 1. **Dependencies** — a layer imports only the layers its row allows (§3). `logging`,
- *    `config` (shared settings and limit types) and `persistence` (database infrastructure and
- *    generated queries) are usable everywhere; `wiring` may import anything.
+ *    `config` (layer-free settings types) and `persistence` (database infrastructure and
+ *    generated queries) are usable everywhere, so they themselves import only `protocol` and
+ *    `logging`; `wiring` may import anything.
  * 2. **Data ownership** — each generated `*Queries` class is used only by the package that owns
  *    its tables (§4), so a table cannot quietly gain a second writer.
  *
@@ -19,7 +20,8 @@ import kotlin.test.assertTrue
  */
 class ArchitectureTest {
 
-    private val layers = listOf("protocol", "transport", "crypto", "protection", "routing", "orchestrator")
+    private val layers =
+        listOf("protocol", "transport", "crypto", "protection", "routing", "orchestrator", "config", "persistence")
 
     /** Top-level package → packages (or package prefixes) it may import. */
     private val allowed: Map<String, List<String>> = mapOf(
@@ -39,9 +41,15 @@ class ArchitectureTest {
             "crypto",
             "protocol",
         ),
+        // Importable from every layer, so they must not import any layer back.
+        "config" to listOf("protocol"),
+        "persistence" to listOf("protocol"),
     )
 
     private val everywhere = listOf("logging", "config", "persistence")
+
+    /** Packages every layer may import; the shared packages themselves get only logging. */
+    private fun freeFor(layer: String): List<String> = if (layer in everywhere) listOf("logging") else everywhere
 
     /** Generated queries class → the only package prefix allowed to use it. */
     private val queryOwners: Map<String, String> = mapOf(
@@ -88,7 +96,7 @@ class ArchitectureTest {
             for (import in Regex("""^import\s+org\.yapyap\.([\w.*]+)""", RegexOption.MULTILINE).findAll(text)) {
                 val name = import.groupValues[1]
                 val target = name.substringBefore('.')
-                if (target == layer || everywhere.any { matches(name, it) }) continue
+                if (target == layer || freeFor(layer).any { matches(name, it) }) continue
                 // An import "org.yapyap.orchestrator" from "orchestrator.x" is in-layer; anything else is checked.
                 if (allowed.getValue(layer).any { matches(name, it) || matches(name.removeSuffix(".*"), it) }) continue
                 val key = "${relative(file)} -> $name"

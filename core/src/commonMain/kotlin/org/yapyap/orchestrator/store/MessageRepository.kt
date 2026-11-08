@@ -5,8 +5,8 @@ import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.persistence.YapYapDatabase
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.db.databaseDispatcher
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId

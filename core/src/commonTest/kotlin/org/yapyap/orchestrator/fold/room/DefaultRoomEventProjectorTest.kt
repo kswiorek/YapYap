@@ -12,7 +12,6 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.store.Room
 import org.yapyap.orchestrator.store.RoomMember
 import org.yapyap.orchestrator.store.RoomRepository
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.*

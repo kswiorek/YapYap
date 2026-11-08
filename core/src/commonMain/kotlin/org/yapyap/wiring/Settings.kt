@@ -1,4 +1,4 @@
-package org.yapyap.config
+package org.yapyap.wiring
 
 // ---------------------------------------------------------------------------
 // The fields. This is the single place a setting is defined.

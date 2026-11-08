@@ -6,7 +6,6 @@ import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import org.yapyap.crypto.e2ee.session.X3dhMode
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -77,7 +76,7 @@ internal class DatabaseFactory(
                 ),
                 crypto_sessionsAdapter = Crypto_sessions.Adapter(
                     roleAdapter = EnumColumnAdapter(),
-                    x3dh_modeAdapter = EnumColumnAdapter<X3dhMode>(),
+                    x3dh_modeAdapter = EnumColumnAdapter(),
                     statusAdapter = EnumColumnAdapter(),
                     peer_device_idAdapter = PeerIdAdapter(),
                     created_at_epoch_secondsAdapter = InstantEpochSecondsAdapter,

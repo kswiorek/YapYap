@@ -4,7 +4,7 @@ import org.yapyap.crypto.e2ee.session.SessionRole;
 import org.yapyap.crypto.e2ee.session.SessionStatus;
 import org.yapyap.crypto.e2ee.session.X3dhMode;
 import org.yapyap.protocol.PeerId;
-import org.yapyap.persistence.db.OpkStatus;
+import org.yapyap.crypto.store.OpkStatus;
 import org.yapyap.protocol.identity.OneTimePreKeyId;
 import org.yapyap.protocol.identity.EncryptionPublicKey;
 

@@ -3,8 +3,8 @@ package org.yapyap.sync
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload

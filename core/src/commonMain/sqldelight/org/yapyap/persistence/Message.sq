@@ -4,7 +4,7 @@ import kotlin.uuid.Uuid;
 import org.yapyap.protocol.AccountId;
 import org.yapyap.protocol.RoomId;
 import org.yapyap.protocol.MessagePayloadType;
-import org.yapyap.persistence.db.VerificationState;
+import org.yapyap.orchestrator.dag.VerificationState;
 import org.yapyap.protocol.PeerId;
 
 CREATE TABLE messages (

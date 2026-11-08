@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.DefaultOpkRepository
+import org.yapyap.crypto.store.OpkStatus
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.*
 import org.yapyap.protocol.identity.OneTimePreKeyId

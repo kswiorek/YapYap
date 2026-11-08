@@ -6,9 +6,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.runtime.message.DeliveryTracker
 import org.yapyap.orchestrator.runtime.message.MessageDelivery
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId

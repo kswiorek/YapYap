@@ -7,8 +7,11 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import kotlinx.io.writeString
-import org.yapyap.config.*
-import org.yapyap.wiring.ConfigStore
+import org.yapyap.config.ConfigValue
+import org.yapyap.config.NumberSetting
+import org.yapyap.config.PeriodSetting
+import org.yapyap.config.UpdateResult
+import org.yapyap.wiring.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -83,7 +86,6 @@ class ConfigServiceTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
             val service = DefaultConfigService(store)
-            service.start(scope)
 
             val byId = service.settings.value.associateBy { it.id }
             assertEquals(FIELDS.size, byId.size)
@@ -104,7 +106,6 @@ class ConfigServiceTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
             val service = DefaultConfigService(store)
-            service.start(scope)
 
             val field = userNumberField()
             val newValue = defaultNumber(field) + 1
@@ -123,7 +124,6 @@ class ConfigServiceTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
             val service = DefaultConfigService(store)
-            service.start(scope)
 
             val field = userNumberField()
             val defaultValue = defaultNumber(field)
@@ -147,7 +147,6 @@ class ConfigServiceTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
             val service = DefaultConfigService(store)
-            service.start(scope)
 
             assertTrue(service.update(nonEditableField().id, ConfigValue.Number(1L)) is UpdateResult.Failure)
 
@@ -171,7 +170,6 @@ class ConfigServiceTest {
         try {
             val store = ConfigStore(Path(dir, "userSettings.toml"), Path(dir, "state.toml"))
             val service = DefaultConfigService(store)
-            service.start(scope)
 
             val networkField = networkPeriodField()
             val userField = userNumberField()
@@ -201,7 +199,6 @@ class ConfigServiceTest {
             val userFile = Path(dir, "userSettings.toml")
             val store = ConfigStore(userFile, Path(dir, "state.toml"))
             val service = DefaultConfigService(store)
-            service.start(scope)
 
             val field = userNumberField()
             val newValue = defaultNumber(field) + 1

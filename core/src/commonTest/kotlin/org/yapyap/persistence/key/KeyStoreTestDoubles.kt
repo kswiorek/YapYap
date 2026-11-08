@@ -5,10 +5,10 @@ import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.store.KeyStore
 import org.yapyap.crypto.store.OpkRepository
+import org.yapyap.crypto.store.OpkStatus
 import org.yapyap.orchestrator.identity.Account
 import org.yapyap.orchestrator.identity.AccountDevice
 import org.yapyap.orchestrator.identity.IdentityStore
-import org.yapyap.persistence.db.OpkStatus
 import org.yapyap.protocol.*
 import org.yapyap.protocol.identity.*
 import kotlin.time.Clock

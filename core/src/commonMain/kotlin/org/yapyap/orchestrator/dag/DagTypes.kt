@@ -1,6 +1,5 @@
 package org.yapyap.orchestrator.dag
 
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -8,6 +7,17 @@ import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.uuid.Uuid
+
+/**
+ * A stored message's authorship verdict, assigned by the DAG engine from crypto's
+ * [org.yapyap.crypto.signature.AuthorshipOutcome]. PENDING (author not known yet) is
+ * re-verified when the author's device becomes known.
+ */
+public enum class VerificationState {
+    VERIFIED,
+    PENDING,
+    REJECTED,
+}
 
 internal sealed interface MessageDraft {
     data class Text(val text: String) : MessageDraft

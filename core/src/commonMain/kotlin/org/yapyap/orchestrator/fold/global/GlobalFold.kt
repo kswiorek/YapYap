@@ -1,6 +1,6 @@
 package org.yapyap.orchestrator.fold.global
 
-import org.yapyap.persistence.db.VerificationState
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.IdentityStatus

@@ -1,25 +1,26 @@
 package org.yapyap.wiring
 
-import org.yapyap.orchestrator.identity.*
-
-import org.yapyap.crypto.store.*
-
 import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import org.yapyap.config.BootConfig
 import org.yapyap.crypto.identity.DefaultIdentityProvisioning
 import org.yapyap.crypto.identity.DefaultLocalIdentity
 import org.yapyap.crypto.identity.DefaultLocalKeys
 import org.yapyap.crypto.identity.DefaultPeerKeys
+import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.crypto.store.BootstrapSessionStore
+import org.yapyap.crypto.store.DefaultKeyStore
+import org.yapyap.crypto.store.DefaultMasterKeyProvider
+import org.yapyap.crypto.store.DefaultOpkRepository
+import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.orchestrator.boot.BootDiagnoser
 import org.yapyap.orchestrator.boot.Node
 import org.yapyap.orchestrator.boot.Vault
+import org.yapyap.orchestrator.identity.DefaultIdentityStore
 import org.yapyap.orchestrator.onboarding.LocalSetupPreparer
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.DatabaseFactory
-import org.yapyap.crypto.keys.KeySlot
 import kotlin.time.Clock
 
 /**

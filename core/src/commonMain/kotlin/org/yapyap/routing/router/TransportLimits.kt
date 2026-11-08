@@ -1,5 +1,6 @@
-package org.yapyap.config
+package org.yapyap.routing.router
 
+/** Largest [org.yapyap.protocol.envelopes.BinaryEnvelope] each transport carries; built by the composition root from the backend configs. */
 internal data class TransportLimits(
     val torMaxPayloadBytes: Int,
     val webRtcMaxPayloadBytes: Int,
@@ -12,11 +13,4 @@ internal data class TransportLimits(
      *  Unchunked file envelopes use this. Crypto DoS guard uses this. */
     val maxTransportableBytes: Int
         get() = maxOf(torMaxPayloadBytes, webRtcMaxPayloadBytes)
-
-    companion object {
-        fun from(config: RuntimeConfig) = TransportLimits(
-            torMaxPayloadBytes = config.tor.maxPayloadBytes,
-            webRtcMaxPayloadBytes = config.webRtc.maxPayloadBytes,
-        )
-    }
 }

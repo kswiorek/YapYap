@@ -13,7 +13,9 @@ import kotlinx.io.writeString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import net.peanuuutz.tomlkt.Toml
-import org.yapyap.config.*
+import org.yapyap.config.ConfigValue
+import org.yapyap.config.Setting
+import org.yapyap.config.UpdateResult
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.crypto.e2ee.session.CryptoLimits
 import org.yapyap.logging.AppLog
@@ -22,6 +24,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.runtime.config.UserSettings
 import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.TransportLimits
 import org.yapyap.transport.tor.backend.TorBackendConfig
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 
@@ -44,8 +47,8 @@ internal class ConfigStore(
     private val _orchestrator = MutableStateFlow(RuntimeConfig().orchestrator)
     val orchestratorConfig: StateFlow<OrchestratorConfig> = _orchestrator.asStateFlow()
 
-    private val _messageLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()))
-    val messageLimits: StateFlow<MessageLimits> = _messageLimits.asStateFlow()
+    private val _maxTextMessageBytes = MutableStateFlow(MessageLimits.from(RuntimeConfig()).maxTextMessageBytes)
+    val maxTextMessageBytes: StateFlow<Int> = _maxTextMessageBytes.asStateFlow()
 
     private val _cryptoLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()).crypto)
     val cryptoLimits: StateFlow<CryptoLimits> = _cryptoLimits.asStateFlow()
@@ -57,7 +60,10 @@ internal class ConfigStore(
     private val _networkOverrides = MutableStateFlow<Overrides>(emptyMap())
 
     private val _overrides = MutableStateFlow<Overrides>(emptyMap())
-    override val overrides: StateFlow<Overrides> = _overrides.asStateFlow()
+    val overrides: StateFlow<Overrides> = _overrides.asStateFlow()
+
+    private val _settings = MutableStateFlow(buildSettings(emptyMap()))
+    override val settings: StateFlow<List<Setting>> = _settings.asStateFlow()
 
     private val writeMutex = Mutex()
     private val toml = Toml { ignoreUnknownKeys = true }
@@ -128,13 +134,14 @@ internal class ConfigStore(
 
     private fun commit(effective: RuntimeConfig) {
         _overrides.value = _userOverrides.value + _networkOverrides.value
+        _settings.value = buildSettings(_overrides.value)
         _tor.value = effective.tor
         _webRtc.value = effective.webRtc
         _router.value = effective.router
         _crypto.value = effective.crypto
         _orchestrator.value = effective.orchestrator
         val limits = MessageLimits.from(effective)
-        _messageLimits.value = limits
+        _maxTextMessageBytes.value = limits.maxTextMessageBytes
         _cryptoLimits.value = limits.crypto
         _transportLimits.value = limits.transport
     }

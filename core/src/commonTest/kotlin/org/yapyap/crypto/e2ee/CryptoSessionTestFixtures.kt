@@ -1,8 +1,6 @@
 package org.yapyap.crypto.e2ee
 
 import kotlinx.coroutines.flow.MutableStateFlow
-import org.yapyap.config.MessageLimits
-import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
@@ -26,8 +24,10 @@ import org.yapyap.protocol.identity.SignedPreKey
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.router.TransportLimits
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.wiring.MessageLimits
 
 internal data class TestPeerIdentity(
     val device: DeviceIdentity,

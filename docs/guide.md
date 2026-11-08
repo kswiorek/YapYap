@@ -58,6 +58,8 @@ lose the boundary that matters most here: who knows about devices and packets, a
   *subject* of an identity fact (add/remove a device, re-verify messages from a device) using `PeerId`, but **never
   addresses** one. The single exception is bootstrap: before an account exists, an
   intro or recovery request is sent to a device id plus an out-of-band `TorEndpoint`.
+- Fans out per room; the router fans out per account. Whoever authors a room or global event reads the room's
+  members after the fold commits, so a just-added member is included and a removed one is not.
 - Never sees `BinaryEnvelope`, packet ids, link or session state, transport types, or Tor types.
 
 ### Router — "get this payload there"
@@ -103,10 +105,18 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - **persistence** — the database only: SQLDelight schema (`.sq`), migrations (`.sqm`), driver and column
   adapters, and the generated queries. It is infrastructure, not a layer. Stores — interface and SQL
   implementation — live with the layer that owns their tables: `crypto/store`, `routing/store`,
-  `orchestrator/store`, `orchestrator/identity` (§4).
+  `orchestrator/store`, `orchestrator/identity` (§4). So do the types a column maps to (`OpkStatus` in
+  `crypto/store`, `VerificationState` in `orchestrator/dag`); the schema may name them, hand-written
+  persistence code does not.
 - **config** — each layer defines its own config type next to its code (`OrchestratorConfig`, `RouterConfig`,
-  `TorBackendConfig`, …); shared settings and limit types (`TransportLimits`, `MessageLimits`, the GUI's
-  setting types) live in `config`. Loading, watching and distributing config is done by the composition root.
+  `TorBackendConfig`, …). `config` itself holds only layer-free types: the GUI's setting model (`Setting`,
+  `ConfigValue`, `UpdateResult`) and the config-file watcher. The aggregate of all layer configs (`RuntimeConfig`), the
+  settings registry that maps file keys onto it, and loading, watching and distributing
+  config live in the composition root.
+- **Size limits** — each layer states only its own framing overhead (`MessageEnvelope.maxPayloadBytes`,
+  `CryptoLimits.forSessionWireFrameBudget`); the composition root chains them from the transport limits
+  (`wiring/MessageLimits`) and hands each consumer its piece: the router `TransportLimits`, crypto
+  `CryptoLimits`, the orchestrator the max text size.
 - **logging** — `AppLog`, usable everywhere.
 
 ## 3. Dependency rules
@@ -122,7 +132,12 @@ libraries).
 | protection   | crypto, protocol                                                                |
 | routing      | transport, protection, protocol, crypto's identity views (`crypto.identity`)    |
 | orchestrator | routing (`Router`, its vocabulary, and the ports it declares), crypto, protocol |
+| config       | protocol                                                                        |
+| persistence  | protocol                                                                        |
 | wiring       | everything                                                                      |
+
+`config` and `persistence` are importable from every layer, so they never import a layer back (only
+`protocol` and `logging`); otherwise they would be a back door around the table.
 
 Consequences:
 

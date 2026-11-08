@@ -1,12 +1,13 @@
 package org.yapyap.crypto.e2ee.session
 
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
+
 /**
  * Capacity limits for crypto session wire frames.
  *
- * Derived from transport limits at boot by [org.yapyap.config.MessageLimits] and passed
- * into the crypto layer as a plain data holder. The crypto layer consumes these limits but
- * does not own their derivation — that requires knowledge of protocol envelope overheads
- * outside this layer.
+ * Built by [forSessionWireFrameBudget] from the largest session wire frame the transports can
+ * carry. The composition root works out that budget (transport limits minus protocol envelope
+ * framing); the crypto overheads below it are known only here.
  *
  * These replace the capacity-related constants that previously lived on [CryptoWireLimits].
  * [CryptoWireLimits] retains only protocol-invariant constraints (key sizes, string ID caps,
@@ -24,4 +25,27 @@ internal data class CryptoLimits(
     val maxInnerPlaintextBytes: Int,
     val maxRatchetBodyBytes: Int,
     val maxInnerControlBytes: Int = 4 * 1024,
-)
+) {
+    companion object {
+        /**
+         * Limits for session wire frames of at most [maxSessionWireFrameBytes], by subtracting
+         * each crypto layer's own framing: the wire-frame and ratchet headers, then the AEAD tag
+         * and inner-plaintext framing.
+         */
+        fun forSessionWireFrameBudget(maxSessionWireFrameBytes: Int): CryptoLimits {
+            val maxRatchetBody = (maxSessionWireFrameBytes
+                    - SessionWireFrame.MAX_HEADER_BYTES
+                    - RatchetCiphertext.HEADER_BYTES)
+
+            val maxInnerPlaintext = (maxRatchetBody
+                    - DefaultCryptoProvider.AEAD_OVERHEAD_BYTES
+                    - RatchetInnerPlaintext.ENCODED_OVERHEAD)
+
+            return CryptoLimits(
+                maxSessionWireFrameBytes = maxSessionWireFrameBytes,
+                maxInnerPlaintextBytes = maxInnerPlaintext,
+                maxRatchetBodyBytes = maxRatchetBody,
+            )
+        }
+    }
+}

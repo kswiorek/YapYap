@@ -2,7 +2,6 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import org.yapyap.config.TransportLimits
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent

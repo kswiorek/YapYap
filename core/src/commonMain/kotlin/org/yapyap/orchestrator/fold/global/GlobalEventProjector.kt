@@ -429,7 +429,9 @@ internal class DefaultGlobalEventProjector(
             for (id in order) {
                 if (id !in reachable) continue
                 if (byId.getValue(id).ancestryComplete) continue
-                if (ancestors.getValue(id).all { current.verdicts[it] == org.yapyap.persistence.db.VerificationState.VERIFIED }) {
+                if (ancestors.getValue(id)
+                        .all { current.verdicts[it] == org.yapyap.orchestrator.dag.VerificationState.VERIFIED }
+                ) {
                     messageRepository.updateAncestryComplete(id, complete = true)
                 }
             }

@@ -3,13 +3,13 @@ package org.yapyap.wiring
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
-import org.yapyap.config.BootConfig
+import org.yapyap.crypto.store.DefaultKeyStore
 import org.yapyap.logging.AppLog
 import org.yapyap.orchestrator.DefaultOrchestrator
+import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.orchestrator.boot.LocalStoreReset
 import org.yapyap.orchestrator.boot.NodeAssembler
 import org.yapyap.orchestrator.boot.Vault
-import org.yapyap.crypto.store.DefaultKeyStore
 
 /** The composition root: builds a node's [VaultGraph] and, through it, its [NodeGraph]. */
 internal class DefaultNodeAssembler(

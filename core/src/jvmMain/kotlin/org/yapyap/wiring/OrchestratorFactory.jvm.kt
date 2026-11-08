@@ -2,18 +2,18 @@ package org.yapyap.wiring
 
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.io.files.Path
-import org.yapyap.config.BootConfig
 import org.yapyap.config.ConfigFileWatcher
 import org.yapyap.config.JvmConfigFileWatcher
 import org.yapyap.crypto.JavaKeyringSessionFactory
+import org.yapyap.crypto.store.KeyringSessionFactory
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.JvmAppLogger
 import org.yapyap.orchestrator.LoopbackTransport
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
+import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.persistence.JvmEncryptedDriverFactory
 import org.yapyap.persistence.db.DriverFactory
-import org.yapyap.crypto.store.KeyringSessionFactory
 import org.yapyap.protocol.DeviceType
 import org.yapyap.transport.network.JvmNetworkMonitor
 import org.yapyap.transport.tor.backend.KmpTorBackend

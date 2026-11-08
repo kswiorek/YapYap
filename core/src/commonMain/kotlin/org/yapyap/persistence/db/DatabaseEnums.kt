@@ -1,11 +1,6 @@
 package org.yapyap.persistence.db
 
-public enum class VerificationState {
-    VERIFIED,
-    PENDING,
-    REJECTED,
-}
-
+//TODO: [Sprint 5] move these to the file-transfer store that owns their tables and delete this file
 public enum class FileTransferStatus {
     IN_FLIGHT,
     PAUSED,
@@ -17,10 +12,4 @@ public enum class FileChunkStatus {
     MISSING,
     REQUESTED,
     WRITTEN,
-}
-
-public enum class OpkStatus {
-    ALLOCATED,
-    OFFERED,
-    CONSUMED,
 }

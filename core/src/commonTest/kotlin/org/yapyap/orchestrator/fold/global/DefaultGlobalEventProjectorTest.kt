@@ -18,8 +18,8 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.identity.IdentityReader
-import org.yapyap.persistence.db.VerificationState
 import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.key.TestIdentityStack
