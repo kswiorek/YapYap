@@ -1,6 +1,6 @@
 package org.yapyap.gui.session
 
-import org.yapyap.orchestrator.LoopbackTransport
+import org.yapyap.wiring.LoopbackTransport
 
 /**
  * Desktop CLI for two-instance local dev. All flags are optional; unset means

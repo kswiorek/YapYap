@@ -14,7 +14,8 @@ import kotlin.test.assertTrue
  *
  * Allowed imports:
  * - `org.yapyap.orchestrator.runtime.*` (the whole subtree is GUI API by design),
- * - the orchestrator entry points, `OnboardingState` and `ResetReason` (exact list below),
+ * - the entry points: `OrchestratorFactory` and `LoopbackTransport` in `wiring`, and types
+ *   in the `org.yapyap.orchestrator` root package (exact list below; never its sub-packages),
  * - the shared vocabulary types (exact list below),
  * - `:composeApp`'s own code (`org.yapyap.*` outside the core packages above).
  */
@@ -23,6 +24,7 @@ class GuiApiBoundaryTest {
     private val allowedExactImports: Set<String> = setOf(
         "org.yapyap.orchestrator.Orchestrator",
         "org.yapyap.wiring.OrchestratorFactory",
+        "org.yapyap.wiring.LoopbackTransport",
         "org.yapyap.orchestrator.OrchestratorState",
         "org.yapyap.orchestrator.LocalTransportStatus",
         "org.yapyap.orchestrator.TransportProblem",
@@ -34,9 +36,8 @@ class GuiApiBoundaryTest {
         "org.yapyap.orchestrator.SetupIntent",
         "org.yapyap.orchestrator.SetupResult",
         "org.yapyap.orchestrator.BootstrapEndpoint",
-        "org.yapyap.orchestrator.LoopbackTransport",
-        "org.yapyap.orchestrator.onboarding.OnboardingState",
-        "org.yapyap.orchestrator.boot.ResetReason",
+        "org.yapyap.orchestrator.OnboardingState",
+        "org.yapyap.orchestrator.ResetReason",
         "org.yapyap.protocol.PeerId",
         "org.yapyap.protocol.RoomId",
         "org.yapyap.protocol.TorEndpoint",

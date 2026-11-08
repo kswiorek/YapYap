@@ -1,6 +1,5 @@
 package org.yapyap.orchestrator.onboarding
 
-import org.yapyap.orchestrator.identity.ProvisionalIdentitySeeder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -8,14 +7,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.yapyap.crypto.store.BootstrapSessionStore
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.OnboardingState
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.orchestrator.sync.SyncCoordinator
-import org.yapyap.crypto.store.BootstrapSessionStore
 import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.identity.ProvisionalIdentitySeeder
+import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro

@@ -1,7 +1,6 @@
 package org.yapyap.wiring
 
 import kotlinx.io.files.Path
-import org.yapyap.orchestrator.LoopbackTransport
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
 

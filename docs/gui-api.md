@@ -106,14 +106,22 @@ leak its dependencies).
 
 ### Vocabulary types (importable)
 
-Orchestrator entry points and companions: `Orchestrator`, `OrchestratorFactory`,
-`OrchestratorState`, `BootProgress`, `BootPhase`, `NodeMode`, `LoopbackTransport`, `SetupIntent`, `SetupResult`,
-`BootstrapEndpoint`, `OnboardingState`, `ResetReason`, the `runtime.*` service
+Entry points: `OrchestratorFactory` and its dev option `LoopbackTransport` (both in `org.yapyap.wiring`, which
+picks the backends), and from the `org.yapyap.orchestrator` root package `Orchestrator`, `OrchestratorState`,
+`BootProgress`, `BootPhase`, `NodeMode`, `SetupIntent`, `SetupResult`, `BootstrapEndpoint`, `OnboardingState`,
+`ResetReason` and the transport-status types. Then the `runtime.*` service
 interfaces, and the shared identifiers/enums: `PeerId`, `RoomId`, `TorEndpoint`,
 `AccountId`, `DeviceType`, `RoomType`, `RoomMemberRole`, `RoomMemberStatus`,
 `AccountRole`, `IdentityStatus`, plus the settings types (`Setting`, `ConfigValue`,
 `UpdateResult`, `Number/Text/Toggle/PeriodSetting`). This list mirrors the
 `GuiApiBoundaryTest` allow-list exactly — importing anything else fails the build.
+
+The GUI reuses these core types; it does not mirror them in a GUI package. Shared identifiers and chain enums
+mean the same to both sides, and a new enum value should break the GUI's `when`. Add a separate API type only
+when the two sides really differ (the GUI needs a value the core doesn't have, or must not see one the core
+has). The GUI never imports from orchestrator sub-packages: a type the GUI needs lives in the root package or
+under `runtime`. Nothing in the list names a transport except the dev-only `LoopbackTransport`, which the
+composition root consumes.
 
 Notes:
 

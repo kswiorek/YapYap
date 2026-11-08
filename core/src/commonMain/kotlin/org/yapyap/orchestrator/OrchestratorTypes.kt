@@ -1,6 +1,5 @@
 package org.yapyap.orchestrator
 
-import org.yapyap.orchestrator.boot.ResetReason
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 
@@ -78,30 +77,6 @@ public data class SetupResult(
     /** Non-null for the account-founding paths (Genesis, NewAccountFirstDevice) — the account signing key as a pasteable code. */
     val recoveryKey: String?,
 )
-
-/**
- * Selects loopback stand-ins for the real network backends.
- *
- * Test/dev only: a loopback transport keeps the full encode/decode, routing, and E2EE
- * path intact but provides no anonymity and no transport-layer authenticity. Anything
- * above the transport (signatures, E2EE) still verifies exactly as in production.
- *
- * The GUI may pass this to [OrchestratorFactory] for local testing; production defaults
- * to [NONE].
- */
-public enum class LoopbackTransport {
-    /** Real backends (Tor + WebRTC). */
-    NONE,
-
-    /** Loopback Tor backend (localhost TCP); real WebRTC backend. */
-    TOR,
-
-    /** Real Tor backend; loopback WebRTC — not yet implemented. */
-    WEBRTC,
-
-    /** Loopback for both transports — WebRTC side not yet implemented. */
-    ALL,
-}
 
 /**
  * Local transport status: whether this device can talk to the network, and
@@ -185,4 +160,45 @@ public enum class TransportProblemKind {
 
     /** Anything else Tor reported. */
     OTHER,
+}
+
+/** Why boot stopped and the GUI must offer a reset. */
+public enum class ResetReason {
+    INCONSISTENT_STORAGE,
+    SELF_BANNED,
+    ONBOARDING_EXPIRED,
+}
+
+/** Onboarding lifecycle state, surfaced to the GUI. */
+public enum class OnboardingState {
+    /** No onboarding in progress (or already complete — the one-time secret is burned). */
+    IDLE,
+
+    /** This node is onboarding as a newcomer and waiting for the sponsor's intro. */
+    AWAITING_INTRO,
+
+    /**
+     * Recovery path only: our recovery request is queued to the device we asked and
+     * not yet confirmed. (On the invite path the sponsor contacts us instead, so
+     * there is no request — that path stays in [AWAITING_INTRO].)
+     */
+    REQUEST_SENT,
+
+    /** Recovery path only: the device we asked confirmed our request; waiting for its intro. */
+    REQUEST_DELIVERED,
+
+    /** The bootstrap intro was received and the global room is syncing. */
+    SYNCING,
+
+    /** The first fold containing the local device's own Add event landed; the secret is burned. */
+    COMPLETE,
+
+    /**
+     * Deadline passed before completion; secret burned. Terminal: no in-place retry exists
+     * (setup requires SetupRequired state; the sponsor already published our AddDevice, so
+     * same-key retry would be an invalid duplicate; the burned secret can never open the
+     * intro). Lands in `OrchestratorState.ResetRequired(ONBOARDING_EXPIRED)` — recovery is
+     * `resetApp()` plus a fresh setup.
+     */
+    TIMED_OUT,
 }

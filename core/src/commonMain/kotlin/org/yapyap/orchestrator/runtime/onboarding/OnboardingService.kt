@@ -1,8 +1,8 @@
 package org.yapyap.orchestrator.runtime.onboarding
 
 import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.orchestrator.OnboardingState
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
-import org.yapyap.orchestrator.onboarding.OnboardingState
 
 /**
  * GUI-facing onboarding service (mirrors [org.yapyap.orchestrator.runtime.message.MessagingService]),

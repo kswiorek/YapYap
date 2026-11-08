@@ -8,7 +8,6 @@ import org.yapyap.crypto.JavaKeyringSessionFactory
 import org.yapyap.crypto.store.KeyringSessionFactory
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.JvmAppLogger
-import org.yapyap.orchestrator.LoopbackTransport
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
 import org.yapyap.orchestrator.boot.BootConfig

@@ -1,10 +1,12 @@
 package org.yapyap.orchestrator
 
-import kotlinx.coroutines.flow.*
-import org.yapyap.orchestrator.boot.ResetReason
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.merge
 import org.yapyap.orchestrator.boot.ResetRequest
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
-import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.identity.IdentityReader
 
 /**

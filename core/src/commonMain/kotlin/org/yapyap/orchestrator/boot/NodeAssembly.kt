@@ -5,9 +5,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.orchestrator.BootProgress
 import org.yapyap.orchestrator.LocalTransportStatus
+import org.yapyap.orchestrator.OnboardingState
+import org.yapyap.orchestrator.ResetReason
 import org.yapyap.orchestrator.onboarding.LocalSetup
 import org.yapyap.orchestrator.onboarding.LocalSetupPreparer
-import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 
 /**

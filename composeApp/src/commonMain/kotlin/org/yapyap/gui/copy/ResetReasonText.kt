@@ -2,8 +2,17 @@ package org.yapyap.gui.copy
 
 import androidx.compose.runtime.Composable
 import org.jetbrains.compose.resources.stringResource
-import org.yapyap.orchestrator.boot.ResetReason
-import yapyap.composeapp.generated.resources.* // Res + generated string accessors
+import org.yapyap.orchestrator.ResetReason
+import yapyap.composeapp.generated.resources.Res
+import yapyap.composeapp.generated.resources.reset_expired_body
+import yapyap.composeapp.generated.resources.reset_expired_next
+import yapyap.composeapp.generated.resources.reset_expired_title
+import yapyap.composeapp.generated.resources.reset_inconsistent_body
+import yapyap.composeapp.generated.resources.reset_inconsistent_next
+import yapyap.composeapp.generated.resources.reset_inconsistent_title
+import yapyap.composeapp.generated.resources.reset_removed_body
+import yapyap.composeapp.generated.resources.reset_removed_next
+import yapyap.composeapp.generated.resources.reset_removed_title
 
 /**
  * ResetReason → user-facing copy. The backend returns typed values, never copy;

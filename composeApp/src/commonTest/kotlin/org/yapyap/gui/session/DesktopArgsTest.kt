@@ -1,6 +1,6 @@
 package org.yapyap.gui.session
 
-import org.yapyap.orchestrator.LoopbackTransport
+import org.yapyap.wiring.LoopbackTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

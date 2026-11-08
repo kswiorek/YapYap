@@ -1,19 +1,39 @@
 package org.yapyap.gui.screens.reset
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.jetbrains.compose.resources.stringResource
-import org.yapyap.gui.components.*
+import org.yapyap.gui.components.CenterColumn
+import org.yapyap.gui.components.YapButton
+import org.yapyap.gui.components.YapButtonVariant
+import org.yapyap.gui.components.YapTextField
+import org.yapyap.gui.components.onEnterConfirm
 import org.yapyap.gui.copy.ResetReasonText
 import org.yapyap.gui.session.YapSession
 import org.yapyap.gui.theme.yapColors
 import org.yapyap.gui.theme.yapType
-import org.yapyap.orchestrator.boot.ResetReason
-import yapyap.composeapp.generated.resources.*
+import org.yapyap.orchestrator.ResetReason
+import yapyap.composeapp.generated.resources.Res
+import yapyap.composeapp.generated.resources.failure_reset
+import yapyap.composeapp.generated.resources.failure_retry
+import yapyap.composeapp.generated.resources.failure_title
+import yapyap.composeapp.generated.resources.failure_toggle_hide
+import yapyap.composeapp.generated.resources.failure_toggle_show
+import yapyap.composeapp.generated.resources.reset_button
+import yapyap.composeapp.generated.resources.reset_details
+import yapyap.composeapp.generated.resources.reset_type_to_confirm
 
 @Composable
 fun ResetScreen(session: YapSession, reason: ResetReason, details: String) {

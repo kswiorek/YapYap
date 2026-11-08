@@ -2,41 +2,8 @@ package org.yapyap.orchestrator.onboarding
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.orchestrator.OnboardingState
 import kotlin.uuid.Uuid
-
-/** Onboarding lifecycle state, surfaced to the GUI. */
-public enum class OnboardingState {
-    /** No onboarding in progress (or already complete — the one-time secret is burned). */
-    IDLE,
-
-    /** This node is onboarding as a newcomer and waiting for the sponsor's intro. */
-    AWAITING_INTRO,
-
-    /**
-     * Recovery path only: our recovery request is queued to the device we asked and
-     * not yet confirmed. (On the invite path the sponsor contacts us instead, so
-     * there is no request — that path stays in [AWAITING_INTRO].)
-     */
-    REQUEST_SENT,
-
-    /** Recovery path only: the device we asked confirmed our request; waiting for its intro. */
-    REQUEST_DELIVERED,
-
-    /** The bootstrap intro was received and the global room is syncing. */
-    SYNCING,
-
-    /** The first fold containing the local device's own Add event landed; the secret is burned. */
-    COMPLETE,
-
-    /**
-     * Deadline passed before completion; secret burned. Terminal: no in-place retry exists
-     * (setup requires SetupRequired state; the sponsor already published our AddDevice, so
-     * same-key retry would be an invalid duplicate; the burned secret can never open the
-     * intro). Lands in `OrchestratorState.ResetRequired(ONBOARDING_EXPIRED)` — recovery is
-     * `resetApp()` plus a fresh setup.
-     */
-    TIMED_OUT,
-}
 
 /**
  * Newcomer onboarding on every node (headless relays onboard as newcomers too). Sole writer

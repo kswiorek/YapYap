@@ -3,11 +3,11 @@ package org.yapyap.orchestrator.runtime.onboarding
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.orchestrator.OnboardingState
 import org.yapyap.orchestrator.dag.DagException
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.orchestrator.onboarding.OnboardingProvider
-import org.yapyap.orchestrator.onboarding.OnboardingState
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.RoomId
