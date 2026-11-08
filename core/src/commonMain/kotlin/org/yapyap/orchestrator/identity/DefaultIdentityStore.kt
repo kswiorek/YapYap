@@ -10,8 +10,17 @@ import org.yapyap.persistence.Devices
 import org.yapyap.persistence.Signed_prekeys
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.db.databaseDispatcher
-import org.yapyap.protocol.*
-import org.yapyap.protocol.identity.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.time.Instant
 
 internal class DefaultIdentityStore(
@@ -553,6 +562,7 @@ internal class DefaultIdentityStore(
                     .groupBy({ it.account_id }) {
                         AccountDevice(
                             identity = it.toIdentity(),
+                            declaredEndpoint = TorEndpoint(it.onion_address, it.onion_port.toInt()),
                             deviceType = it.device_type,
                             status = it.status,
                             isLocal = it.is_local_device,

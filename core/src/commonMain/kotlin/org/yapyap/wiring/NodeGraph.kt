@@ -224,7 +224,7 @@ internal class NodeGraph(
         provisionalSeeder = identityStore,
         projector = globalEventProjector,
         clock = clock,
-        routerConfig = config.routerConfig,
+        config = config.orchestratorConfig,
     )
     private val recoveryResponder = DefaultRecoveryResponder(
         router = router,

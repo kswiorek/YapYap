@@ -1,11 +1,24 @@
 package org.yapyap.orchestrator.message
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.*
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testMessageLimits
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerKeys
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -15,9 +28,29 @@ import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
-import org.yapyap.orchestrator.runtime.message.*
-import org.yapyap.orchestrator.store.*
-import org.yapyap.protocol.*
+import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
+import org.yapyap.orchestrator.runtime.message.FanoutReport
+import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
+import org.yapyap.orchestrator.runtime.message.Message
+import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
+import org.yapyap.orchestrator.runtime.message.SendMessageResult
+import org.yapyap.orchestrator.runtime.message.SendRefusal
+import org.yapyap.orchestrator.store.CausalHoldRepository
+import org.yapyap.orchestrator.store.Gap
+import org.yapyap.orchestrator.store.MessageCursor
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.Room
+import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
@@ -26,11 +59,23 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.BootstrapPacketEvent
+import org.yapyap.routing.router.Delivery
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -1229,7 +1274,7 @@ private class RecordingRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
         emptyMap()
 
     override suspend fun sendMessage(

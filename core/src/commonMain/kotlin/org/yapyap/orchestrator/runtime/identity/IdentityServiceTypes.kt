@@ -1,6 +1,11 @@
 package org.yapyap.orchestrator.runtime.identity
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import kotlin.time.Instant
 
 /** GUI-facing snapshot of one known account and its devices. */
@@ -19,7 +24,7 @@ public data class AccountView(
 /** GUI-facing snapshot of one known device. */
 public data class DeviceView(
     val deviceId: PeerId,
-    /** Where the device is reached; null when unknown (e.g. a banned device). */
+    /** Where the device says it is reached (this device: where Tor published it); null for a banned device. */
     val torEndpoint: TorEndpoint?,
     val deviceType: DeviceType,
     /** Chain-derived device state (ACTIVE / BANNED). */
@@ -27,7 +32,6 @@ public data class DeviceView(
     val isLocal: Boolean,
     /** True until the global fold carries the device's Add event. */
     val provisional: Boolean,
-    val lastSeen: Instant?,
 )
 
 /** Account-level presence, aggregated from the account's devices. The GUI sorts

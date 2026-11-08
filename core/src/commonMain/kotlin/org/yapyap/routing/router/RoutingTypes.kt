@@ -6,8 +6,11 @@ import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.routing.directory.DeviceDirectory
@@ -47,11 +50,9 @@ internal data class AccountPushReport(
     val devicesFailed: Int,
 )
 
-/** How the router reaches one device, for display only; see [Router.accountReach]. */
-internal data class DeviceReach(
-    /** The endpoint the router last proved for the device, else the one it declared; null when unknown. */
-    val torEndpoint: TorEndpoint?,
-    /** Null when the device was never heard from. */
+/** What the router knows about reaching one account, for display only; see [Router.accountReach]. */
+internal data class AccountReach(
+    /** When any of the account's devices was last heard from; null when none ever was. */
     val lastSeen: Instant?,
 )
 

@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.store.BootstrapSessionStore
 import org.yapyap.orchestrator.OnboardingState
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.identity.IdentityStore
@@ -34,7 +35,6 @@ import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -66,7 +66,7 @@ private class FakeOnboardingRouter(
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
         emptyMap()
     override suspend fun sendMessage(
         target: AccountId,
@@ -126,7 +126,7 @@ class DefaultOnboardingProviderTest {
         clock: FakeClock,
         sessionStore: BootstrapSessionStore,
         packets: MutableSharedFlow<BootstrapPacketEvent> = MutableSharedFlow(extraBufferCapacity = 64),
-        routerConfig: RouterConfig = RouterConfig(),
+        config: OrchestratorConfig = OrchestratorConfig(),
         identityKeyRepository: IdentityStore = InMemoryIdentityStore(),
         deliveries: MutableSharedFlow<Delivery> = MutableSharedFlow(extraBufferCapacity = 16),
     ): DefaultOnboardingProvider =
@@ -138,7 +138,7 @@ class DefaultOnboardingProviderTest {
             provisionalSeeder = identityKeyRepository,
             projector = NoopGlobalEventProjector(),
             clock = clock,
-            routerConfig = MutableStateFlow(routerConfig),
+            config = MutableStateFlow(config),
         )
 
     @Test
@@ -246,15 +246,15 @@ class DefaultOnboardingProviderTest {
     fun requestStates_stillTimeOut() = runTest {
         val clock = FakeClock(start)
         val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        val config = RouterConfig()
-        val provider = providerUnderTest(clock, sessionStore, routerConfig = config)
+        val config = OrchestratorConfig()
+        val provider = providerUnderTest(clock, sessionStore, config = config)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
         provider.awaitRequestDelivery(Uuid.random())
         runCurrent()
 
-        clock.advanceBy(config.bootstrapSessionLifetime + 1.minutes)
-        advanceTimeBy((config.bootstrapSessionLifetime + 1.minutes).inWholeMilliseconds)
+        clock.advanceBy(config.onboardingSessionLifetime + 1.minutes)
+        advanceTimeBy((config.onboardingSessionLifetime + 1.minutes).inWholeMilliseconds)
         runCurrent()
         assertEquals(OnboardingState.TIMED_OUT, provider.state.value)
         provider.stop()

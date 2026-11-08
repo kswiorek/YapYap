@@ -1,13 +1,33 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -15,17 +35,32 @@ import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
-import org.yapyap.routing.inbound.handlers.*
+import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
+import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.inbound.handlers.MessageInboundHandler
+import org.yapyap.routing.inbound.handlers.SignalInboundHandler
+import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.LinkKeeperConfig
-import org.yapyap.routing.outbound.*
+import org.yapyap.routing.outbound.BootstrapSender
+import org.yapyap.routing.outbound.OutboundMessenger
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.ProactiveSessionOpener
+import org.yapyap.routing.outbound.RelayDepositor
+import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.outbound.TypingIndicatorDispatcher
+import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.PeerAvailabilityStore
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -435,14 +470,13 @@ internal class DefaultRouter(
 
     override fun isRunning(): Boolean = started
 
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<PeerId, DeviceReach>> {
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach> {
         val lastSeen = peerAvailabilityStore.availabilityForAll()
             .filter { it.lastSeen != Instant.DISTANT_PAST }
             .associate { it.deviceId to it.lastSeen }
         return accounts.associateWith { account ->
-            devices.getAllPeerDevicesForAccount(account).associateWith { device ->
-                DeviceReach(torEndpoint = routes.resolveTorEndpointForDevice(device), lastSeen = lastSeen[device])
-            }
+            AccountReach(lastSeen = devices.getAllPeerDevicesForAccount(account).mapNotNull { lastSeen[it] }
+                .maxOrNull())
         }
     }
 

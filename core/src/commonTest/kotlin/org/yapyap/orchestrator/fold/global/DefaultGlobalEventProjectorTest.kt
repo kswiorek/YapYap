@@ -10,7 +10,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerKeys
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -23,16 +27,45 @@ import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.persistence.key.InMemoryIdentityStore
 import org.yapyap.persistence.key.InMemoryKeyStore
 import org.yapyap.persistence.key.TestIdentityStack
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
-import org.yapyap.protocol.identity.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.GlobalEventPayload
+import org.yapyap.protocol.envelopes.Invite
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.BootstrapPacketEvent
+import org.yapyap.routing.router.Delivery
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.sync.FakeInboundMessagePipeline
-import org.yapyap.testfixtures.*
+import org.yapyap.testfixtures.FakeCausalHoldRepository
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.FakeRoomRepository
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.random.Random
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContains
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -242,7 +275,7 @@ private class RecordingProjectorRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
         emptyMap()
     override suspend fun sendMessage(
         target: AccountId,

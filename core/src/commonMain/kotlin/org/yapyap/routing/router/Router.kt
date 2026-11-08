@@ -74,11 +74,10 @@ internal interface Router {
     fun localTorEndpoint(): TorEndpoint
 
     /**
-     * How the router reaches each of [accounts]' devices, for display only (the roster's endpoint
-     * and "last seen" lines). Reported per account; banned and unknown devices are absent. Routing
-     * decisions stay inside the router.
+     * What the router knows about reaching each of [accounts], for display only (the roster's
+     * "last seen"). Reported per account, never per device; routing decisions stay inside the router.
      */
-    suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<PeerId, DeviceReach>>
+    suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach>
 
     /**
      * Pushes [payload] to every device of [target]. Transport selection is owned by the

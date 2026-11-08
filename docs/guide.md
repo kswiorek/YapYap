@@ -51,10 +51,12 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - Owns the message history (the DAG), the global and room folds, onboarding and recovery, typing state, and **sync**
   (working out what is missing, serving sync requests, retrying them).
 - Hands a payload to the router addressed to an account and gets back an account-level report. Its own onion
-  endpoint (for invites and its own AddDevice) comes from `Router.localTorEndpoint()`; the roster's per-device
-  endpoint and "last seen" come from `Router.accountReach()`, reported per account and for display only.
+  endpoint (for invites and its own AddDevice) comes from `Router.localTorEndpoint()`; the roster's "last seen"
+  comes from `Router.accountReach()`, per account and for display only. Other devices' endpoints in the roster are
+  the ones they declared on the chain.
 - Models devices only as **members of an account**: an `Account` carries its `AccountDevice`s, which hold
-  identity facts (keys, type, status, provisional) and nothing about reaching them. It may name a device as the
+  identity facts (keys, type, status, provisional, declared endpoint) and nothing the router learned about reaching
+  them. It may name a device as the
   *subject* of an identity fact (add/remove a device, re-verify messages from a device) using `PeerId`, but **never
   addresses** one. The single exception is bootstrap: before an account exists, an
   intro or recovery request is sent to a device id plus an out-of-band `TorEndpoint`.
@@ -72,8 +74,10 @@ lose the boundary that matters most here: who knows about devices and packets, a
 - Reads accounts and devices through `DeviceDirectory` (account → devices, status, the endpoint a device
   declared), a read-only view it declares, and who it is through crypto's `LocalIdentity`. What it learns about
   reaching peers (proven endpoints, reliability, last seen) is its own state, in its own table (§4).
-- Treats payloads as opaque beyond their routing header. It never reads a `RoomId`, never looks at the DAG or
-  membership, and never decides what content to send. When it needs content it does not own (the frontiers it
+- Treats payloads as opaque beyond their routing header. Orchestrator values such as a `RoomId` may pass through
+  it (a typing indicator's room, the frontiers in a ping): it **carries them, never interprets them**. It never
+  branches on a room, never looks at the DAG or membership, and never decides what content to send. When it needs
+  content it does not own (the frontiers it
   advertises in a ping), it asks through an interface it declares itself, implemented by the orchestrator.
 - Folds transport health into its own `LocalLinkStatus` (`Router.localLinkStatus`); transport types stop at the
   router.
@@ -171,8 +175,9 @@ Rules:
 
 - The folds are the only writers of state derived from the event chains. Services that act on the user's behalf (add a
   member, remove a device) **publish an event**; they never write the projected tables directly.
-- How to reach a device (endpoint, availability, last seen) is never part of the orchestrator's identity
-  model: the router owns it and reports it per account (`Router.accountReach()`), for display only.
+- What the router learns about reaching a device (proven endpoint, availability, last seen) is never part of the
+  orchestrator's identity model. The router reports it only per account (`onlineAccounts`, `Router.accountReach()`),
+  never per device. The endpoint a device declared on the chain is identity data and stays with the orchestrator.
 - The full identity store (`IdentityStore`) is held only by the composition root. Everyone else gets the view
   they need: `IdentityReader`, `IdentityWriter`, `ProvisionalIdentitySeeder`, `LocalIdentityStore`,
   `PeerKeyDirectory`, `DeviceDirectory`.

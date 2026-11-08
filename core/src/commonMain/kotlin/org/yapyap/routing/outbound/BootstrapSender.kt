@@ -1,6 +1,5 @@
 package org.yapyap.routing.outbound
 
-import org.yapyap.routing.store.OutboxTag
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -9,6 +8,7 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.store.OutboxTag
 import kotlin.uuid.Uuid
 
 /**
@@ -16,7 +16,7 @@ import kotlin.uuid.Uuid
  * outbox, scheme chosen by kind), queue with `dispositionRequested` and the short
  * envelope TTL [bootstrapIntroLifetime][org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime]
  * (distinct from the newcomer's session budget
- * [bootstrapSessionLifetime][org.yapyap.routing.router.RouterConfig.bootstrapSessionLifetime]).
+ * the orchestrator's onboarding session budget).
  *
  * `targetEndpoint` out-of-band endpoint override for targets with no local devices row
  *   (persisted on the outbox row, preferred at dispatch).

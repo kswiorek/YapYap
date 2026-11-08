@@ -12,6 +12,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OnboardingState
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.identity.IdentityReader
@@ -22,7 +23,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.RouterConfig
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -47,7 +47,7 @@ internal class DefaultOnboardingProvider(
     private val provisionalSeeder: ProvisionalIdentitySeeder,
     private val projector: GlobalEventProjector,
     private val clock: Clock = Clock.System,
-    private val routerConfig: StateFlow<RouterConfig>,
+    private val config: StateFlow<OrchestratorConfig>,
 ) : OnboardingProvider {
 
     private val _state = MutableStateFlow(OnboardingState.IDLE)
@@ -113,7 +113,7 @@ internal class DefaultOnboardingProvider(
 
     override suspend fun beginSession(secret: ByteArray) {
         checkNotNull(scope) { "OnboardingProvider must be started before beginning a session" }
-        val deadline = clock.now() + routerConfig.value.bootstrapSessionLifetime
+        val deadline = clock.now() + config.value.onboardingSessionLifetime
         sessionStore.setActiveSecret(secret, deadline)
         activate()
         transitionTo(
@@ -241,7 +241,7 @@ internal class DefaultOnboardingProvider(
 
     private suspend fun onBootstrapIntro(intro: Intro) {
         // The sync phase gets its own budget — extend first, then do the fallible work.
-        val syncDeadline = clock.now() + routerConfig.value.bootstrapSessionLifetime
+        val syncDeadline = clock.now() + config.value.onboardingSessionLifetime
         sessionStore.extendDeadline(syncDeadline)
         transitionTo(
             OnboardingState.SYNCING,

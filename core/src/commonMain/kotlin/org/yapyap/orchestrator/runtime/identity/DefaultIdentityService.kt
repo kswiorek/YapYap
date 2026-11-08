@@ -12,8 +12,8 @@ import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.identity.Account
 import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.PeerId
-import org.yapyap.routing.router.DeviceReach
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.routing.router.AccountReach
 import org.yapyap.routing.router.Router
 
 /**
@@ -75,7 +75,7 @@ internal class DefaultIdentityService(
 
     override suspend fun account(accountId: AccountId): AccountView? {
         val row = identityReader.getAllAccounts().firstOrNull { it.accountId == accountId } ?: return null
-        val reach = router.accountReach(listOf(accountId))[accountId].orEmpty()
+        val reach = router.accountReach(listOf(accountId))[accountId]
         return viewOf(row, _onlineAccounts.value, reach)
     }
 
@@ -84,7 +84,7 @@ internal class DefaultIdentityService(
         val rows = identityReader.getAllAccounts()
         val reach = router.accountReach(rows.map { it.accountId })
         val views = rows
-            .map { row -> viewOf(row, online, reach[row.accountId].orEmpty()) }
+            .map { row -> viewOf(row, online, reach[row.accountId]) }
             .sortedWith(compareBy({ it.displayName }, { it.accountId.id }))
         _accounts.value = views
         _localAccount.value = views.firstOrNull { it.isLocal }
@@ -93,22 +93,26 @@ internal class DefaultIdentityService(
     private fun viewOf(
         row: Account,
         online: Set<AccountId>,
-        reach: Map<PeerId, DeviceReach>,
+        reach: AccountReach?,
     ): AccountView {
         val deviceViews = row.devices
             .map {
                 DeviceView(
                     deviceId = it.deviceId,
-                    torEndpoint = reach[it.deviceId]?.torEndpoint,
+                    torEndpoint = when {
+                        it.status == IdentityStatus.BANNED -> null
+                        // This device's own endpoint is what Tor published, not the declared one.
+                        it.isLocal -> runCatching { router.localTorEndpoint() }.getOrDefault(it.declaredEndpoint)
+                        else -> it.declaredEndpoint
+                    },
                     deviceType = it.deviceType,
                     status = it.status,
                     isLocal = it.isLocal,
                     provisional = it.provisional,
-                    lastSeen = reach[it.deviceId]?.lastSeen,
                 )
             }
             .sortedBy { it.deviceId.id }
-        val seen = deviceViews.mapNotNull { it.lastSeen }.maxOrNull()
+        val seen = reach?.lastSeen
         val label = when {
             // The running app is its own presence proof — self-presence is not
             // peer presence, so the router never reports the local account.

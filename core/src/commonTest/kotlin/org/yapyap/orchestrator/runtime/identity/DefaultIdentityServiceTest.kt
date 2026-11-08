@@ -3,7 +3,11 @@ package org.yapyap.orchestrator.runtime.identity
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -11,7 +15,13 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -20,7 +30,13 @@ import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.AccountReach
+import org.yapyap.routing.router.BootstrapPacketEvent
+import org.yapyap.routing.router.Delivery
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -50,9 +66,9 @@ private class FakeRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    val reach = mutableMapOf<AccountId, MutableMap<PeerId, DeviceReach>>()
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<PeerId, DeviceReach>> =
-        accounts.associateWith { reach[it].orEmpty().toMap() }
+    val reach = mutableMapOf<AccountId, AccountReach>()
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach> =
+        accounts.associateWith { reach[it] ?: AccountReach(lastSeen = null) }
     override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport =
         error("not used")
 
@@ -147,7 +163,9 @@ class DefaultIdentityServiceTest {
         ) {
             val endpoint = TorEndpoint(onionAddress = "${device.id}.onion", port = 80)
             repo.insertPeerDevice(account, DeviceType.DESKTOP, dummyDevice(device), endpoint, provisional)
-            router.reach.getOrPut(account) { mutableMapOf() }[device] = DeviceReach(endpoint, lastSeen)
+            // The router reports the latest device per account; mirror that here.
+            val previous = router.reach[account]?.lastSeen
+            router.reach[account] = AccountReach(listOfNotNull(previous, lastSeen).maxOrNull())
         }
 
         private fun accountRecord(account: AccountId, displayName: String) = AccountIdentity(
@@ -200,7 +218,6 @@ class DefaultIdentityServiceTest {
                         status = IdentityStatus.ACTIVE,
                         isLocal = false,
                         provisional = false,
-                        lastSeen = seenAt,
                     ),
                 ),
             ),
@@ -253,7 +270,6 @@ class DefaultIdentityServiceTest {
         val view = fixture.service.account(memberAccount)
         assertEquals(AvailabilityLabel.UNKNOWN, view?.availability?.label)
         assertNull(view?.availability?.lastSeen)
-        assertNull(view?.devices?.single()?.lastSeen)
         fixture.service.stop()
     }
 
@@ -273,7 +289,7 @@ class DefaultIdentityServiceTest {
     }
 
     @Test
-    fun availability_lastSeenIsMaxOverDevices() = runTest(UnconfinedTestDispatcher()) {
+    fun availability_lastSeenComesFromAccountReach() = runTest(UnconfinedTestDispatcher()) {
         val fixture = Fixture()
         fixture.seedLocal()
         fixture.seedAccount(memberAccount, displayName = "Amy")

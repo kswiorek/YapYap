@@ -2,22 +2,50 @@ package org.yapyap.orchestrator.fold.room
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.orchestrator.dag.*
+import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.MessageDraft
+import org.yapyap.orchestrator.dag.RoomCreatedDraft
+import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.orchestrator.dag.VerificationStateChange
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.store.Room
 import org.yapyap.orchestrator.store.RoomMember
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.persistence.key.InMemoryIdentityStore
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.Invite
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.RecoveryRequest
+import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.BootstrapPacketEvent
+import org.yapyap.routing.router.Delivery
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -180,7 +208,7 @@ private class FakeRouter : Router {
     override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
         org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, Map<org.yapyap.protocol.PeerId, org.yapyap.routing.router.DeviceReach>> =
+    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
         emptyMap()
     override suspend fun sendMessage(
         target: AccountId,

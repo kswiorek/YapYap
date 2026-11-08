@@ -1,6 +1,12 @@
 package org.yapyap.persistence.key
 
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.DefaultLocalIdentity
+import org.yapyap.crypto.identity.DefaultLocalKeys
+import org.yapyap.crypto.identity.DefaultPeerKeys
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalOneTimePreKey
+import org.yapyap.crypto.identity.PeerKeys
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.store.KeyStore
@@ -9,8 +15,19 @@ import org.yapyap.crypto.store.OpkStatus
 import org.yapyap.orchestrator.identity.Account
 import org.yapyap.orchestrator.identity.AccountDevice
 import org.yapyap.orchestrator.identity.IdentityStore
-import org.yapyap.protocol.*
-import org.yapyap.protocol.identity.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.OneTimePreKeyId
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -266,6 +283,7 @@ internal class InMemoryIdentityStore(
                 devices = devices.keys.filter { deviceToAccount[it] == id }.map { deviceId ->
                     AccountDevice(
                         identity = devices.getValue(deviceId),
+                        declaredEndpoint = torForDevice[deviceId] ?: defaultLocalTor,
                         deviceType = deviceTypes[deviceId] ?: defaultLocalDeviceType,
                         status = deviceStatuses[deviceId] ?: IdentityStatus.ACTIVE,
                         isLocal = localDevice?.deviceId?.id == deviceId,

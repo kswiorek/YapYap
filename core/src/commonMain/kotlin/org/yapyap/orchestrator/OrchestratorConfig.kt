@@ -3,6 +3,7 @@ package org.yapyap.orchestrator
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
@@ -30,6 +31,19 @@ internal data class OrchestratorConfig(
      * proof, the backoff is the rate governor.
      */
     val removalRePushBackoff: Duration = 1.hours,
+    /**
+     * Newcomer onboarding session budget (AWAITING_INTRO + SYNCING wall-clock):
+     * how long the newcomer waits for the sponsor intro and the follow-up
+     * global-room sync before burning the secret (TIMED_OUT). Deliberately much
+     * longer than the router's bootstrap envelope TTL
+     * ([org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime]) — Tor circuit setup, onion
+     * descriptor publication/HSDir propagation, and a human paste-and-scan round
+     * trip routinely exceed a few minutes on real networks, while the envelope
+     * TTL still bounds replayability. The outbox keeps re-sending the
+     * intro until its own TTL lapses; the session budget covers the whole
+     * human + network round trip.
+     */
+    val onboardingSessionLifetime: Duration = 40.minutes,
 ) {
     init {
         require(maintenanceInterval > Duration.ZERO) { "maintenanceIntervalSeconds must be > 0" }
@@ -39,5 +53,6 @@ internal data class OrchestratorConfig(
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }
         require(removalRePushBackoff > Duration.ZERO) { "removalRePushBackoff must be > 0" }
+        require(onboardingSessionLifetime > Duration.ZERO) { "onboardingSessionLifetime must be > 0" }
     }
 }
