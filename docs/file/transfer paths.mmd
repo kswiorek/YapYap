@@ -1,0 +1,42 @@
+flowchart TD
+    %% Send side
+    ATTACH([User attaches file to a message]) --> COPY[GUI copies file into app-internal storage]
+    COPY --> PREP[Hash → fileId · create per-file AEAD key · classify]
+    PREP --> MSG[Publish message with attachment references]
+    PREP --> CLASS{file class}
+
+    CLASS -- "small (≤ smallFileMaxBytes)" --> MARKER[OFFER as outbox marker<br>direct link first]
+    CLASS -- "large (no upper bound)" --> SESS{WebRTC session open?}
+    SESS -- no --> WAIT[Engine waits · never Tor · never relays]
+    WAIT --> SESS
+    SESS -- yes --> STREAM[Stream AEAD chunks on a per-transfer data channel<br>channel flow control · checkpoint resume]
+
+    MARKER -- "ACK (accepted)" --> CHUNKS[Chunk rows in the outbox · windowed]
+    MARKER -- "DECLINED (relay full)" --> NEXTRELAY[Next relay or re-offer later]
+    CHUNKS -- "all ACKed" --> PUSHED((push complete))
+    CHUNKS -- "stall / link break" --> REM[Remainder = suffix after the<br>highest contiguous ACKed prefix]
+    REM --> DEPOSIT[Deposit remainder · identical set<br>at every relay RelaySelectionPolicy returns]
+    DEPOSIT --> ADM{Relay admission against<br>relayFileBudgetBytes}
+    ADM -- accepted --> HOLD
+    ADM -- DECLINED --> OUT([that relay is out · one jump<br>the sender never chases])
+    HOLD[Store ciphertext chunks in the relay store<br>PK (transferId, chunkIndex) · signature verified]
+    HOLD --> WHOLE{Whole covered suffix?}
+    WHOLE -- no --> TTL[Reservation TTL cleans up<br>never pushed, never offered]
+    WHOLE -- yes --> FOFFER[OFFER marker to the target<br>stored OFFER payload replayed]
+    FOFFER -- ACK --> FWD[Forward chunks from the store<br>per-chunk ACKs delete rows]
+    FWD --> DRAINED((transfer row dropped when drained))
+
+    STREAM -- "done · COMPLETE" --> PUSHED
+
+    %% Teardown
+    PUSHED --> TEARDOWN[Target-confirmed full receipt or user cancel<br>→ CANCEL outstanding deposits]
+    TEARDOWN --> DONE([transfer COMPLETED])
+
+    %% Pull path
+    MSG -. "synced / processed by any device" .-> TRIG
+    TRIG{Message references a fileId ·<br>no complete local file · no active transfer?} -- yes --> REQ[REQUEST · one candidate at a time<br>sender devices, then own-account siblings]
+    REQ -- "OFFER (fresh transferId)" --> SERVE[Holder serves the suffix from the<br>lowest missing index · deterministic ciphertext]
+    REQ -- "all DECLINED / expired" --> UNAV([file unavailable])
+    SERVE --> MERGE[Receiver merges into its fileId-scoped tracker<br>verify hash → READY]
+    FWD -. delivered .-> MERGE
+    STREAM -. delivered .-> MERGE

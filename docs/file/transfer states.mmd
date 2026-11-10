@@ -1,0 +1,57 @@
+stateDiagram-v2
+    state "Sender transfer row (orchestrator · file_transfers)" as send {
+        [*] --> CREATED
+        CREATED --> IN_FLIGHT: OFFER accepted (direct or deposit)
+        IN_FLIGHT --> COMPLETED: target confirmed full receipt (SACK / COMPLETE) or all deposits resolved
+        IN_FLIGHT --> EXPIRED: fileTransferTtl
+        IN_FLIGHT --> CANCELLED: user cancel → CANCEL to active transfers and deposits
+        CREATED --> CANCELLED: user cancel before the offer
+    }
+
+    state "Large transfer (engine loop inside IN_FLIGHT)" as large {
+        [*] --> AWAIT_SESSION
+        AWAIT_SESSION --> STREAMING: session open → per-transfer channel
+        STREAMING --> AWAIT_SESSION: session dropped · checkpoint kept
+        STREAMING --> DONE_L: all chunks sent and acked → COMPLETE
+    }
+
+    state "Receiver (fileId-scoped · transfers merge)" as recv {
+        [*] --> PENDING: OFFER or message seen
+        PENDING --> IN_FLIGHT: .part reserved · key stored
+        PENDING --> DECLINED: no space or user declined
+        IN_FLIGHT --> VERIFYING: file-level chunk count met
+        VERIFYING --> READY: hash (fileId) verified · atomic rename
+        VERIFYING --> FAILED: hash mismatch
+        IN_FLIGHT --> FAILED: ENOSPC mid-write
+        IN_FLIGHT --> EXPIRED: no progress within TTL → REQUEST may re-open
+    }
+
+    state "Relay transfer row (routing · file_relay_transfers)" as relay {
+        [*] --> RESERVED: admission ok · quota reserved · signature verified
+        RESERVED --> WHOLE: covered suffix complete
+        RESERVED --> EXPIRED: reservation TTL · sender never finished
+        WHOLE --> FORWARDING: OFFER to target ACKed
+        WHOLE --> EXPIRED: fileTransferTtl before the target surfaced
+        FORWARDING --> DRAINED: every stored chunk ACKed by target · row dropped
+    }
+
+    state "Request row (orchestrator · pending_file_requests)" as req {
+        [*] --> PENDING: trigger with guards (grace period first)
+        PENDING --> ASKING: one candidate asked
+        ASKING --> PENDING: timeout or non-terminal NACK → next candidate
+        ASKING --> SATISFIED: OFFER received · serve transfer takes over
+        ASKING --> UNAVAILABLE: every candidate DECLINED or expired
+        SATISFIED --> PENDING: serve transfer died re-requestably (EXPIRED)
+    }
+
+    state "Outbox marker (routing · outbox row · tag FILE)" as marker {
+        [*] --> QUEUED
+        QUEUED --> DISPATCHED: claimed and sent
+        DISPATCHED --> GONE_ACK: ACK · accepted · engine owns the rest
+        DISPATCHED --> GONE_NACK: terminal NACK (DECLINED) · engine tries next
+        DISPATCHED --> QUEUED: retry cadence · the engine resumes, never restarts
+        QUEUED --> GONE_EXPIRY: expiry · engine state re-arms
+        GONE_ACK --> [*]
+        GONE_NACK --> [*]
+        GONE_EXPIRY --> [*]
+    }
