@@ -19,7 +19,7 @@ flowchart TD
     DEPOSIT --> ADM{Relay admission against<br>relayFileBudgetBytes}
     ADM -- accepted --> HOLD
     ADM -- DECLINED --> OUT([that relay is out · one jump<br>the sender never chases])
-    HOLD[Store ciphertext chunks in the relay store<br>PK (transferId, chunkIndex) · signature verified]
+    HOLD["Store ciphertext chunks in the relay store<br>PK (transferId, chunkIndex) · signature verified"]
     HOLD --> WHOLE{Whole covered suffix?}
     WHOLE -- no --> TTL[Reservation TTL cleans up<br>never pushed, never offered]
     WHOLE -- yes --> FOFFER[OFFER marker to the target<br>stored OFFER payload replayed]
