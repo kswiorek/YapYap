@@ -170,7 +170,9 @@ read-only interfaces that the *reading* layer declares (the router's `DeviceDire
 | `sync_attempts`, `sync_declined_devices`                             | routing        | the sync retry processor                                                                                                                                                                                        |
 | `device_routes`                                                      | routing        | the router: endpoints it proved, reliability, last seen (a proven endpoint overrides the declared one in `devices`)                                                                                             |
 | `outbox`, `dedup`                                                    | routing        | the router                                                                                                                                                                                                      |
-| `file_transfers`, `file_chunk_tracker`, `spaces`                     | not in use yet | —                                                                                                                                                                                                               |
+| `file_descriptors`, `file_transfers`, `file_receives`, `file_receive_chunks`, `pending_file_requests` | orchestrator | the file service (`orchestrator/runtime/file`): file/account-grain send, receive and request state per [`file/design.md`](file/design.md) §13 (schema lands with implementation) |
+| `file_pushes`, `file_relay_transfers`, `file_relay_chunks`, `file_request_attempts`, `file_request_declined_devices` | routing | the file pusher, the file relay store and the file request processor: transferId-grain state per [`file/design.md`](file/design.md) §6–§7 |
+| `spaces`                     | not in use yet | —                                                                                                                                                                                                               |
 
 Rules:
 

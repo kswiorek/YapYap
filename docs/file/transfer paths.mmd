@@ -1,42 +1,48 @@
 flowchart TD
     %% Send side
-    ATTACH([User attaches file to a message]) --> COPY[GUI copies file into app-internal storage]
-    COPY --> PREP[Hash → fileId · create per-file AEAD key · classify]
-    PREP --> MSG[Publish message with attachment references]
-    PREP --> CLASS{file class}
+    ATTACH([User attaches a file to a message]) --> PICK[GUI picks the file · platform chooser]
+    PICK --> COPY[Core copies it into app-internal storage<br>hash → fileId · per-file key · classify]
+    COPY --> MSG[Publish message with attachment references<br>notification only — no key, no chunk params]
+    COPY --> FAN[Send fans out: one transfer per device of the account]
+    MSG --> FAN
+    FAN --> CLASS{file class}
 
-    CLASS -- "small (≤ smallFileMaxBytes)" --> MARKER[OFFER as outbox marker<br>direct link first]
+    CLASS -- "small (≤ smallFileMaxBytes)" --> MARKER[OFFER marker per device · direct link first<br>sealed half: fileId + key, ratchet-encrypted]
     CLASS -- "large (no upper bound)" --> SESS{WebRTC session open?}
     SESS -- no --> WAIT[Engine waits · never Tor · never relays]
     WAIT --> SESS
     SESS -- yes --> STREAM[Stream AEAD chunks on a per-transfer data channel<br>channel flow control · checkpoint resume]
 
-    MARKER -- "ACK (accepted)" --> CHUNKS[Chunk rows in the outbox · windowed]
+    MARKER -- "ACK (accepted)" --> CHUNKS[Chunk rows in the outbox · windowed<br>chunk ACK = decrypted + durably staged]
     MARKER -- "DECLINED (relay full)" --> NEXTRELAY[Next relay or re-offer later]
+    MARKER -- "DECLINED (target)" --> DEAD([send to that device terminally DECLINED])
     CHUNKS -- "all ACKed" --> PUSHED((push complete))
     CHUNKS -- "stall / link break" --> REM[Remainder = suffix after the<br>highest contiguous ACKed prefix]
-    REM --> DEPOSIT[Deposit remainder · identical set<br>at every relay RelaySelectionPolicy returns]
-    DEPOSIT --> ADM{Relay admission against<br>relayFileBudgetBytes}
+    REM --> DEPOSIT[Deposit once per transfer · identical set<br>at every relay RelaySelectionPolicy returns]
+    DEPOSIT --> ADM{Admission against<br>the storage pledge}
     ADM -- accepted --> HOLD
     ADM -- DECLINED --> OUT([that relay is out · one jump<br>the sender never chases])
-    HOLD["Store ciphertext chunks in the relay store<br>PK (transferId, chunkIndex) · signature verified"]
+    HOLD["Store ciphertext chunks in the relay store<br>PK (transferId, chunkIndex) · signature verified<br>dead transferId or out-of-range index → DECLINED at the door"]
     HOLD --> WHOLE{Whole covered suffix?}
     WHOLE -- no --> TTL[Reservation TTL cleans up<br>never pushed, never offered]
-    WHOLE -- yes --> FOFFER[OFFER marker to the target<br>stored OFFER payload replayed]
+    WHOLE -- yes --> FOFFER[OFFER marker to the target<br>stored OFFER payload replayed verbatim]
     FOFFER -- ACK --> FWD[Forward chunks from the store<br>per-chunk ACKs delete rows]
+    FOFFER -- "DECLINED (no space)" --> DROP([relay drops the transfer · quota freed])
     FWD --> DRAINED((transfer row dropped when drained))
 
-    STREAM -- "done · COMPLETE" --> PUSHED
+    STREAM -- "coverage complete" --> PUSHED
 
     %% Teardown
-    PUSHED --> TEARDOWN[Target-confirmed full receipt or user cancel<br>→ CANCEL outstanding deposits]
+    PUSHED --> TEARDOWN[Receiver READY → COMPLETE to every live transfer author<br>each resolves its transfer and cancels its deposits]
     TEARDOWN --> DONE([transfer COMPLETED])
 
     %% Pull path
     MSG -. "synced / processed by any device" .-> TRIG
-    TRIG{Message references a fileId ·<br>no complete local file · no active transfer?} -- yes --> REQ[REQUEST · one candidate at a time<br>sender devices, then own-account siblings]
-    REQ -- "OFFER (fresh transferId)" --> SERVE[Holder serves the suffix from the<br>lowest missing index · deterministic ciphertext]
-    REQ -- "all DECLINED / expired" --> UNAV([file unavailable])
-    SERVE --> MERGE[Receiver merges into its fileId-scoped tracker<br>verify hash → READY]
+    TRIG{Message references a fileId · no complete local file ·<br>no progressing transfer · grace period} -- yes --> REQ[REQUEST · one candidate at a time<br>sender devices, then own-account siblings<br>ACK → waiting for the OFFER · DECLINED → next candidate]
+    REQ -- "OFFER (fresh transferId · carries the key)" --> SERVE[Holder serves the suffix from the floor-aligned<br>boundary below the requester's lowest missing byte]
+    REQ -- "all DECLINED / expired" --> UNAV([file unavailable · re-openable])
+    SERVE --> MERGE[Receiver merges into fileId-scoped byte coverage<br>verify hash → READY → COMPLETE to live authors]
     FWD -. delivered .-> MERGE
     STREAM -. delivered .-> MERGE
+    CHUNKS -. delivered .-> MERGE
+    MERGE -. "prefix stalls for fileStallTimeout" .-> TRIG

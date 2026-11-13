@@ -486,6 +486,21 @@ policy. Track in a future sprint.
 
 ---
 
+## Planned: session-retention window for file transfers
+
+The file-transfer design ([`file/design.md`](file/design.md) §4, §15) seals each transfer OFFER's private half
+through the standard Double Ratchet, and relays replay that sealed half verbatim for up to the transfer TTL
+(`fileTransferTtl`, 2 days). A superseded generation must therefore stay decryptable for longer than a
+transfer can live. When file transfer lands:
+
+- `supersededRetentionSeconds` is renamed `supersededSessionRetention` (Duration-typed, matching
+  `RouterConfig` naming) and bumped 2 days → 3 days;
+- the config invariant `fileTransferTtl < supersededSessionRetention` is enforced at wiring.
+
+Cost: superseded ratchet rows are retained one day longer; message lifetimes are unaffected.
+
+---
+
 ## Wire format summary
 
 ### `SessionWireFrame` (magic `YSW1`, version `1`)
@@ -592,4 +607,5 @@ policy. Track in a future sprint.
 | 2026-06-27 | P1.7 persistence hardening: initiator ephemeral private keys not persisted; skipped-keys superseded-DH tombstones + session housekeeping bounds exposure. RAM wipe still deferred. |
 | 2026-06-28 | P2.9 transactional ratchet decrypt (snapshot rollback, replay guard, deferred generation supersede). P2.8 partially fixed at ratchet layer.                                        |
 | 2026-06-28 | P2.11 decode bounds via `CryptoWireLimits` at codec layer.                                                                                                                         |
-| 2026-06-28 | Signal-aligned ratchet bootstrap: initiator reuses X3DH ephemeral as first sending DH key; first ratchet header matches `outerHandshake.ephemeralPublicKey`.                       |
+| 2026-06-28 | Signal-aligned ratchet bootstrap: initiator reuses X3DH ephemeral as first sending DH key; first ratchet header matches `outerHandshake.ephemeralPublicKey`. |
+| 2026-11-13 | Documented the planned session-retention window for file transfers (Planned section above; `file/design.md` §4/§15): `supersededRetentionSeconds` → `supersededSessionRetention`, 2 d → 3 d, so ratchet-sealed file OFFERs stay decryptable across `fileTransferTtl`                       |
