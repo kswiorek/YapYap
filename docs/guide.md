@@ -6,7 +6,8 @@ in one of them and raise it, don't silently follow the code.
 
 Deeper references: [`transport.md`](transport.md) (Tor/WebRTC links), [`router.md`](router.md) (router
 internals), [`e2ee.md`](e2ee.md) (sessions and ratchets), [`file/design.md`](file/design.md) (file transfer
-design, ready to implement), [`global events.md`](global%20events.md) (accounts,
+design, ready to implement; order in [`file/plan.md`](file/plan.md)), [`global events.md`](global%20events.md)
+(accounts,
 devices, admin chain), [`room events.md`](room%20events.md) (rooms and membership), [`gui-api.md`](gui-api.md)
 (what the GUI may use).
 
@@ -341,7 +342,7 @@ Working:
 Not done yet:
 
 - File transfer (envelope family exists; protection, pipeline and storage are not built — the agreed design is
-  in [`file/design.md`](file/design.md)).
+  in [`file/design.md`](file/design.md), the build order in [`file/plan.md`](file/plan.md)).
 - Audio/video media (session contracts exist; media tracks do not).
 - Mobile: push and background behavior, network monitoring on Android/iOS.
 - Signed-prekey rotation and the remaining epoch lifecycle work (see [`e2ee.md`](e2ee.md)).

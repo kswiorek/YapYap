@@ -8,6 +8,8 @@ may reference a file in place instead of copying it (§10). **Both paths are the
 [`../sprints.mmd`](../sprints.mmd) stays authoritative for sprint sequencing at its coarser grain and is not
 modified by this design.
 
+Implementation order: [`plan.md`](plan.md).
+
 Related: [`../guide.md`](../guide.md) (layer model, dependency rules, the delivery model in §6),
 [`../transport.md`](../transport.md) (links, channels, frame limits), [`../router.md`](../router.md) (outbox and
 relay machinery this design reuses), [`../e2ee.md`](../e2ee.md) (sessions — used for the OFFER's sealed half,
