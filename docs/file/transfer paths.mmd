@@ -1,17 +1,14 @@
 flowchart TD
     %% Send side
     ATTACH([User attaches a file to a message]) --> PICK[GUI picks the file · platform chooser]
-    PICK --> COPY[Core copies it into app-internal storage<br>hash → fileId · per-file key · classify]
+PICK --> COPY[Core copies it into the store, or references it in place · keep-a-copy checkbox<br>block hashes → fileId · classify]
     COPY --> MSG[Publish message with attachment references<br>notification only — no key, no chunk params]
-    COPY --> FAN[Send fans out: one transfer per device of the account]
-    MSG --> FAN
-    FAN --> CLASS{file class}
+COPY --> CLASS{file class}
+MSG --> CLASS
+CLASS -- " small (≤ smallFileMaxBytes) " --> FAN[Send fans out: one transfer per device of the account]
+CLASS -- " large (no upper bound) " --> NOPUSH([nothing pushed · each device decides to fetch])
 
-    CLASS -- "small (≤ smallFileMaxBytes)" --> MARKER[OFFER marker per device · direct link first<br>sealed half: fileId + key, ratchet-encrypted]
-    CLASS -- "large (no upper bound)" --> SESS{WebRTC session open?}
-    SESS -- no --> WAIT[Engine waits · never Tor · never relays]
-    WAIT --> SESS
-    SESS -- yes --> STREAM[Stream AEAD chunks on a per-transfer data channel<br>channel flow control · checkpoint resume]
+FAN --> MARKER[OFFER marker per device · direct link first<br>sealed half: fileId + block list + this transfer's own key, ratchet-encrypted]
 
     MARKER -- "ACK (accepted)" --> CHUNKS[Chunk rows in the outbox · windowed<br>chunk ACK = decrypted + durably staged]
     MARKER -- "DECLINED (relay full)" --> NEXTRELAY[Next relay or re-offer later]
@@ -30,7 +27,6 @@ flowchart TD
     FOFFER -- "DECLINED (no space)" --> DROP([relay drops the transfer · quota freed])
     FWD --> DRAINED((transfer row dropped when drained))
 
-    STREAM -- "coverage complete" --> PUSHED
 
     %% Teardown
     PUSHED --> TEARDOWN[Receiver READY → COMPLETE to every live transfer author<br>each resolves its transfer and cancels its deposits]
@@ -38,10 +34,13 @@ flowchart TD
 
     %% Pull path
     MSG -. "synced / processed by any device" .-> TRIG
-    TRIG{Message references a fileId · no complete local file ·<br>no progressing transfer · grace period} -- yes --> REQ[REQUEST · one candidate at a time<br>sender devices, then own-account siblings<br>ACK → waiting for the OFFER · DECLINED → next candidate]
-    REQ -- "OFFER (fresh transferId · carries the key)" --> SERVE[Holder serves the suffix from the floor-aligned<br>boundary below the requester's lowest missing byte]
+TRIG{Message references a fileId · no complete local file ·<br>no progressing transfer · small: grace period ·<br>large: auto-download limit or user click} -- yes --> REQ[REQUEST · sealed, direct-only · serve gate · one candidate at a time<br>sender devices, then own-account siblings<br>large: requester opens a WebRTC session first<br>ACK → waiting for the OFFER · DECLINED → next candidate]
+REQ -- " small: OFFER (fresh transferId · fresh key) " --> SERVE[Holder serves the suffix from the floor-aligned<br>boundary below the requester's lowest missing byte<br>checks each block as it reads]
+REQ -- " large: OFFER over the session " --> STREAM[Stream AEAD chunks on a per-transfer data channel<br>checkpoint ACKs · credit window · ends with the session]
+STREAM -- " session dropped " --> REQ
+NOPUSH -. " message lands" .-> TRIG
     REQ -- "all DECLINED / expired" --> UNAV([file unavailable · re-openable])
-    SERVE --> MERGE[Receiver merges into fileId-scoped byte coverage<br>verify hash → READY → COMPLETE to live authors]
+SERVE --> MERGE[Receiver merges into fileId-scoped byte coverage<br>blocks verified at checkpoints → READY → COMPLETE to live authors]
     FWD -. delivered .-> MERGE
     STREAM -. delivered .-> MERGE
     CHUNKS -. delivered .-> MERGE

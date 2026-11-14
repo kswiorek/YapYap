@@ -4,25 +4,30 @@ stateDiagram-v2
         CREATED --> IN_FLIGHT: OFFER accepted (direct or deposit)
         IN_FLIGHT --> COMPLETED: COMPLETE from the target → resolve + cancel deposits
         IN_FLIGHT --> EXPIRED: fileTransferTtl
-        IN_FLIGHT --> DECLINED: target DECLINED — terminal for this device
-        IN_FLIGHT --> CANCELLED: user cancel → CANCEL to active transfers and deposits
+        IN_FLIGHT --> DECLINED: target DECLINED the OFFER — terminal for this device
+IN_FLIGHT --> COMPLETED: target DECLINED a chunk — transfer gone there, ended quietly
+IN_FLIGHT --> CANCELLED: user cancel, or superseded by a serve to the same device
         CREATED --> CANCELLED: user cancel before the offer
     }
 
-    state "Large transfer (engine loop inside IN_FLIGHT)" as large {
-        [*] --> AWAIT_SESSION
-        AWAIT_SESSION --> STREAMING: session open → per-transfer channel
-        STREAMING --> AWAIT_SESSION: session dropped · checkpoint kept
-        STREAMING --> DONE_L: coverage complete · COMPLETE → resolved
+state "Stream — a large serve (routing · file_pushes kind STREAM · session-bound)" as large {
+[*] --> OFFERED: REQUEST ACKed over the requester's session · serve OFFER sent
+OFFERED --> STREAMING: OFFER ACKed · per-transfer channel opened
+STREAMING --> STREAMING: checkpoint ACK · window moves (fileStreamWindowBytes)
+STREAMING --> DONE_L: COMPLETE · channel closed
+STREAMING --> ENDED_L: session dropped · gap-trigger CANCEL · bad block at the source
+OFFERED --> ENDED_L: session dropped
+ENDED_L --> [*]: row dropped · the next REQUEST starts a new stream
     }
 
     state "Receiver (fileId-scoped · transfers and chunkings merge)" as recv {
         [*] --> PENDING: OFFER or message seen
-        PENDING --> IN_FLIGHT: .part reserved · key stored (first OFFER)
-        PENDING --> DECLINED: no space or user declined (large only)
-        IN_FLIGHT --> VERIFYING: byte coverage complete
-        VERIFYING --> READY: hash (fileId) verified · atomic rename · COMPLETE to live authors
-        VERIFYING --> FAILED: hash mismatch
+PENDING --> IN_FLIGHT: .part reserved (first OFFER · keys live on incoming-transfer rows)
+PENDING --> DECLINED: no space, or a large file this device did not fetch (local)
+IN_FLIGHT --> IN_FLIGHT: checkpoint · blocks verified · P committed · fsync
+IN_FLIGHT --> READY: coverage complete · last block verified · atomic rename · COMPLETE to live authors
+IN_FLIGHT --> STALLED: block mismatch below fileHashRetryLimit · .part truncated to the block start
+IN_FLIGHT --> FAILED: block mismatch at fileHashRetryLimit
         IN_FLIGHT --> FAILED: ENOSPC mid-write → CANCEL
         IN_FLIGHT --> STALLED: no prefix progress within fileStallTimeout → REQUEST re-opens
         STALLED --> IN_FLIGHT: a serve resumes delivery
@@ -40,14 +45,15 @@ stateDiagram-v2
     }
 
     state "Request row (orchestrator · pending_file_requests)" as req {
-        [*] --> PENDING: trigger with guards (grace period first)
-        PENDING --> ASKING: one candidate asked
+[*] --> PENDING: trigger with guards (small: grace period · large: auto-download limit or user click)
+PENDING --> ASKING: one candidate asked (large: session opened first)
+PENDING --> PENDING: large · every remaining candidate unreachable · wait for one to come online
         ASKING --> WAITING: ACK · candidate holds it · offer pending
         WAITING --> SATISFIED: OFFER received · serve transfer takes over
         WAITING --> PENDING: offer timeout → next candidate
         ASKING --> PENDING: DECLINED or expiry → next candidate at once
         ASKING --> UNAVAILABLE: every candidate DECLINED or expired
-        SATISFIED --> PENDING: serve transfer died re-requestably (STALLED / EXPIRED)
+SATISFIED --> PENDING: serve transfer died re-requestably (STALLED / EXPIRED · stream ended with its session)
     }
 
     state "Outbox marker (routing · outbox row · tag FILE)" as marker {
