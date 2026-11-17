@@ -15,6 +15,9 @@ These come from [`../guide.md`](../guide.md) and apply to every step below.
     - Files, accounts and the `fileId` are orchestrator code.
     - Devices, transfers, envelopes, the outbox and relays are routing code.
     - Bytes on a channel are transport code.
+- **Two homes inside the orchestrator.** The file machinery lives in `orchestrator/file`, a domain package
+  beside `dag` and `sync`; the GUI reaches it only through the thin `FileTransferService` facade in
+  `orchestrator/runtime/file` (design §12).
 - **Dependency table** (guide §3). When routing needs the orchestrator, routing declares the interface in its
   own package and the orchestrator implements it. This applies to `FileChunkSource`, the ingest port and
   `FileCarrier`. `ArchitectureTest` must stay green after every step, with no new entries in its debt list.
@@ -35,7 +38,7 @@ These come from [`../guide.md`](../guide.md) and apply to every step below.
 - **Composition root.**
     - Components take interfaces through their constructors and subscribe to their own inputs in `start()`.
     - `wiring` contains no `launch`/`collect`.
-    - Config types live next to their layer (`FileServiceConfig` with the file service, fields on
+    - Config types live next to their layer (`FileServiceConfig` in `orchestrator/file`, fields on
       `RouterConfig`). New config fields land in the step that first uses them.
 - **Delivery contract** (guide §6).
     - Never ACK before handling.
@@ -66,7 +69,7 @@ used yet unless the step says so.
   odd-sized pieces.
 - **Done when:** the design's §20 `CryptoProvider` row is true.
 
-### Step 2 — Ids and the `fileId` rule (`protocol`, `orchestrator/runtime/file`)
+### Step 2 — Ids and the `fileId` rule (`protocol`, `orchestrator/file`)
 
 - **Changes:**
     - `protocol` gains `FileId` and `TransferId` value types, plus the `fileId` preimage layout and the
@@ -74,7 +77,7 @@ used yet unless the step says so.
         - `blockSizeFor(totalBytes)`;
         - the preimage `"yapyap-file-v1" ‖ u64 totalBytes ‖ u32 blockSize ‖ h₀ … hₙ₋₁`.
     - Hashing happens outside `protocol` (guide §2: "codecs encode and decode; hashing happens elsewhere", the
-      `RoomIds` pattern). A `FileIds` helper in `orchestrator/runtime/file` computes block hashes and the
+      `RoomIds` pattern). A `FileIds` helper in `orchestrator/file` computes block hashes and the
       `fileId` through `CryptoProvider`, and checks a block list against a `fileId`.
 - **Tests:** fixed vectors for an empty file, one short block, exactly one block, an exact multiple, and a
   short last block; the block-size doubling at 1024 blocks; a block list that doesn't match its `fileId` is
@@ -137,7 +140,7 @@ used yet unless the step says so.
 
 ## Phase B — The file store and local I/O (orchestrator)
 
-### Step 7 — File I/O module (`orchestrator/runtime/file/io`)
+### Step 7 — File I/O module (`orchestrator/file/io`)
 
 - **Changes:** the chunk-shaped I/O boundary (design §11):
     - **Append-only writer:** append, fsync, and truncate-to-length at open. kotlinx.io.
@@ -153,7 +156,7 @@ used yet unless the step says so.
     - truncate a torn append back to a length;
     - fsync is called once per flush.
 
-### Step 8 — The file store and send-side import (`orchestrator/runtime/file`)
+### Step 8 — The file store and send-side import (`orchestrator/file`)
 
 - **Tables:** `file_descriptors` (migration `7.sqm`).
 - **Changes:**
@@ -167,7 +170,7 @@ used yet unless the step says so.
     - reference then edit the original: the block check fails and the file becomes `SOURCE_LOST`;
     - quota eviction never touches references.
 
-### Step 9 — The block-checking chunk source (`orchestrator/runtime/file`)
+### Step 9 — The block-checking chunk source (`orchestrator/file`)
 
 - **Changes:** implement the `FileChunkSource` behaviour (the port itself is declared in step 11).
     - Read plaintext at any offset, starting from the start of the block that contains it.
@@ -222,7 +225,7 @@ used yet unless the step says so.
     - DEFER from the port produces no ACK or NACK and clears dedup;
     - rows are dropped on COMPLETE, CANCEL and expiry.
 
-### Step 12 — The receive engine (`orchestrator/runtime/file`)
+### Step 12 — The receive engine (`orchestrator/file`)
 
 - **Tables:** `file_receives`, `file_receive_chunks` (migration `9.sqm`).
 - **Changes:** design §8:
@@ -260,12 +263,13 @@ used yet unless the step says so.
 - **Tests:** restart mid-push resumes without re-sending ACKed chunks; a target DECLINED on the OFFER is
   terminal; a DECLINED on a chunk resolves the transfer as COMPLETED.
 
-### Step 14 — Send API and the first end-to-end (`orchestrator/runtime/file`, `wiring`)
+### Step 14 — Send API and the first end-to-end (`orchestrator/runtime/file`, `orchestrator/file`, `wiring`)
 
 - **Tables:** `file_transfers` (orchestrator, migration `11.sqm`).
 - **Changes:**
-    - `FileTransferService.send(peer, picked file, keepCopy)`: import, classify, publish the message with
-      attachments, start the per-device push for small files.
+    - `FileTransferService.send(peer, picked file, keepCopy)`: the runtime facade composes the machinery from
+      steps 7–9 — import, classify, publish the message with attachments, start the per-device push for small
+      files.
     - Wire everything in `NodeGraph`.
     - `FileLimits` in `wiring` derives the chunk size from `WebRtcBackendConfig`/Tor limits, like
       `MessageLimits`.
@@ -283,7 +287,7 @@ used yet unless the step says so.
   seam for "on success" (design §9). Sync behaviour doesn't change.
 - **Tests:** the existing `SyncRetryProcessorTest` passes unchanged.
 
-### Step 16 — File requests (`routing`, `orchestrator/runtime/file`)
+### Step 16 — File requests (`routing`, `orchestrator/file`)
 
 - **Tables:** routing `file_request_attempts`, `file_request_declined_devices`; orchestrator
   `pending_file_requests` (migrations `12.sqm`, `13.sqm` — one per owner).
@@ -332,7 +336,7 @@ used yet unless the step says so.
     - a target's DECLINED on the forwarded OFFER drops the transfer;
     - a forwarding relay never re-deposits.
 
-### Step 19 — Deposits, stalls and the gap trigger (`routing`, `orchestrator/runtime/file`)
+### Step 19 — Deposits, stalls and the gap trigger (`routing`, `orchestrator/file`)
 
 - **Routing:**
     - the stall detector (`chunkAckTimeout`);
@@ -376,7 +380,7 @@ used yet unless the step says so.
     - a session drop ends both rows;
     - no chunk crosses Tor (transport assertion).
 
-### Step 22 — Large requests and the accept decision (`routing`, `orchestrator/runtime/file`)
+### Step 22 — Large requests and the accept decision (`routing`, `orchestrator/file`, `orchestrator/runtime/file`)
 
 - **Routing:**
     - the request processor opens a WebRTC session for a large request (`SessionTransport.openSession`,
@@ -385,7 +389,7 @@ used yet unless the step says so.
     - an unreachable candidate is not a decline, so the request stays PENDING until a candidate comes online.
 - **Orchestrator:**
     - the auto-download decision (`autoDownloadMaxBytes`);
-    - the user accept/decline API (a local DECLINED, re-openable);
+    - the user accept/decline API on the runtime facade (a local DECLINED, re-openable);
     - large files skip the push in `send`.
 - **Guide:** §6 says "Sends never open a connection", with bootstrap as the only exception. Add large file
   requests as the second exception, in this change.
@@ -402,8 +406,8 @@ used yet unless the step says so.
 ### Step 23 — GUI API contract and settings (`docs/gui-api.md`, `wiring`)
 
 - **Changes:**
-    - Write the send / progress / accept / decline / open contract into `gui-api.md`: the keep-a-copy flag,
-      attachment states, `SOURCE_LOST`, and "preparing" while hashing.
+    - Write the runtime facade's contract into `gui-api.md` — send / progress / accept / decline / open: the
+      keep-a-copy flag, attachment states, `SOURCE_LOST`, and "preparing" while hashing.
     - Map the user-facing settings (`autoDownloadMaxBytes`, `copyIntoStoreMaxBytes`, the pledge) in the
       settings registry.
     - Update the guide's §8 feature status.
