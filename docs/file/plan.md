@@ -19,7 +19,7 @@ These come from [`../guide.md`](../guide.md) and apply to every step below.
   beside `dag` and `sync`; the GUI reaches it only through the thin `FileTransferService` facade in
   `orchestrator/runtime/file` (design §12).
 - **Dependency table** (guide §3). When routing needs the orchestrator, routing declares the interface in its
-  own package and the orchestrator implements it. This applies to `FileChunkSource`, the ingest port and
+  own package and the orchestrator implements it. This applies to `FilePlaintextSource`, the ingest port and
   `FileCarrier`. `ArchitectureTest` must stay green after every step, with no new entries in its debt list.
 
 **Data**
@@ -49,7 +49,7 @@ These come from [`../guide.md`](../guide.md) and apply to every step below.
 **Docs**
 
 - **Docs stay honest.** A step that moves a rule in the guide updates the guide in the same change. Steps 4,
-  19 and 23 do this. A step that settles a detail the design left open writes it back into `design.md`.
+  13, 19, 22 and 23 do this. A step that settles a detail the design left open writes it back into `design.md`.
 
 Each step lists its packages, its tables, what it changes, the tests it brings, and when it counts as done.
 "Done" always also means: `ArchitectureTest` passes, all existing tests pass, and nothing is wired that isn't
@@ -75,6 +75,8 @@ used yet unless the step says so.
     - `protocol` gains `FileId` and `TransferId` value types, plus the `fileId` preimage layout and the
       block-size rule as pure functions over bytes (design §2):
         - `blockSizeFor(totalBytes)`;
+      - `SMALL_FILE_MAX_BYTES` (10 MB), a constant beside them until the network config exists (design §1).
+        It is not a config field and has no settings-registry entry;
         - the preimage `"yapyap-file-v1" ‖ u64 totalBytes ‖ u32 blockSize ‖ h₀ … hₙ₋₁`.
     - Hashing happens outside `protocol` (guide §2: "codecs encode and decode; hashing happens elsewhere", the
       `RoomIds` pattern). A `FileIds` helper in `orchestrator/file` computes block hashes and the
@@ -85,14 +87,21 @@ used yet unless the step says so.
 
 ### Step 3 — Message attachments on the wire (`protocol`, `wiring`)
 
+This is a **breaking wire change** (design §3.1). New builds do not decode old payloads, stored ones
+included, so every test data directory is reset when this step lands.
+
 - **Changes:**
     - `MessagePayload.Text` gains `attachments: List<Attachment>` (`fileId`, `fileName`, `mimeType`,
-      `totalBytes`, design §3.1), with codec support and round-trip tests.
+      `totalBytes`), always encoded (count, then entries) between the text and the author signature, and
+      included in `encodeForAuthorSigning`. A cap on the count and on `fileName` length.
+    - `PAYLOAD_HEADER_VERSION` goes from 2 to 3. The version byte is shared by text and event payloads, so
+      old chains are rejected too; that is the intended clean break.
     - The `Text` header reserve grows to cover attachments, and `wiring/MessageLimits` threads the new budget
       through, so the orchestrator's max text size shrinks by what attachments cost.
-- **Tests:** round trip with 0, 1 and many attachments; a payload at the size limit with attachments still
-  fits the transport frame.
-- **Done when:** old messages (no attachments) decode unchanged, so existing DAG content stays valid.
+- **Tests:** round trip with 0, 1 and the maximum number of attachments; the signature covers the
+  attachments (changing one breaks verification); a version-2 payload is rejected; a payload at the size limit
+  with attachments still fits the transport frame.
+- **Done when:** the team has been told to reset test data, and a fresh network runs on version 3.
 
 ### Step 4 — `FileEnvelope` rework (`protocol`)
 
@@ -107,7 +116,8 @@ used yet unless the step says so.
   Every packet but REQUEST is addressed by `TransferId`. The sealed half's plaintext layout (`fileId`, block
   list, key, name, mime) is a separate codec, encoded before protection seals it. Drop `FileChunk`,
   `FileControlPayload`, `FileTransferClass` and `FileTransportPreference`. Update the `FileEnvelope`
-  observability profile: no `fileId` outside sealed bytes.
+  observability profile: no `fileId` outside sealed bytes. The envelope family is the small path only; the
+  large path's frames come in step 20.
 - **Tests:** rework `FileEnvelopeCodecTest`; add a codec-level check that no envelope kind carries a `fileId`
   in clear (design §19).
 
@@ -162,7 +172,9 @@ used yet unless the step says so.
 - **Changes:**
     - `FileStore`: import in copy mode (copy and hash in one pass) or reference mode (hash in place); the
       directory layout; the quota with LRU over copies only; `SOURCE_LOST`.
-    - `FileServiceConfig` with `smallFileMaxBytes` and `copyIntoStoreMaxBytes`.
+  - `FileServiceConfig` with `copyIntoStoreMaxBytes` (its default is the `SMALL_FILE_MAX_BYTES` constant,
+    which is not itself config).
+  - Quota eviction sets the receive state `EVICTED`; nothing re-fetches an evicted file automatically.
     - The import result is a descriptor carrying the `fileId` and block list. The GUI only gets paths and
       metadata vended back (guide §2, design §10).
 - **Tests:**
@@ -170,9 +182,11 @@ used yet unless the step says so.
     - reference then edit the original: the block check fails and the file becomes `SOURCE_LOST`;
     - quota eviction never touches references.
 
-### Step 9 — The block-checking chunk source (`orchestrator/file`)
+### Step 9 — The block-checking plaintext source (`routing`, `orchestrator/file`)
 
-- **Changes:** implement the `FileChunkSource` behaviour (the port itself is declared in step 11).
+- **Changes:** routing declares the `FilePlaintextSource` port here (plaintext from a byte offset, nothing
+  about keys or chunks — design §6), and the orchestrator implements it. Both the pusher (step 13) and the
+  fetch (step 21) read through it.
     - Read plaintext at any offset, starting from the start of the block that contains it.
     - Hash each block and compare it to the list before handing out its bytes.
     - Stop on a mismatch.
@@ -190,7 +204,9 @@ used yet unless the step says so.
 - **Changes:**
     - Seal and open the OFFER's sealed half and the REQUEST through the existing ratchet session machinery,
       like messages.
-    - Chunk AEAD through `encryptAead`/`decryptAead` with AAD (`transferId`, `chunkIndex`).
+  - Chunk AEAD through `encryptAead`/`decryptAead` with AAD (`transferId`, `chunkIndex`), and chunk
+    signing. Routing calls this on plaintext it read from `FilePlaintextSource`; the orchestrator never
+    sees a key.
     - Generate per-transfer keys with `randomBytes`.
     - Map failures to `ProtectionDisposition` (`PERMANENT` / `DEFER`) so crypto exceptions never cross into
       routing (guide §3).
@@ -205,14 +221,14 @@ used yet unless the step says so.
 
 - **Tables:** `file_incoming_transfers` (migration `8.sqm`), with its store in `routing/store`.
 - **Ports declared by routing:**
-    - `FileChunkSource` (implemented by the orchestrator, step 9);
     - `FileIngestPort` (synchronous: `(fileId, byteOffset, plaintext) → Staged | Duplicate | Defer | Refused`,
       implemented in step 12);
     - `FileCarrier` on `Router` (account-level ops and file events, design §12).
 - **Outbox:** `OutboxTag.Kind.FILE`; `packetId` on `OutboxOutcome`.
 - **`FileInboundHandler`, local target:**
     - OFFER: open the sealed half, check the block list via the port, create the incoming-transfer row, ACK.
-      The free-space and accept verdicts come through the port.
+      The free-space and accept verdicts come through the port. An OFFER for a file that is already READY is
+      ACKed, gets no row, and is answered with COMPLETE — never DECLINED.
     - CHUNK: look up the row, decrypt, call the ingest port, then ACK / DEFER (silent) / DECLINED as design
       §3.5–§3.6 and §8 say.
     - COMPLETE / CANCEL: end the row.
@@ -223,6 +239,7 @@ used yet unless the step says so.
     - a chunk before its OFFER is never ACKed;
     - an unknown `transferId` is DECLINED;
     - DEFER from the port produces no ACK or NACK and clears dedup;
+  - an OFFER for a READY file is ACKed and answered with COMPLETE;
     - rows are dropped on COMPLETE, CANCEL and expiry.
 
 ### Step 12 — The receive engine (`orchestrator/file`)
@@ -236,7 +253,8 @@ used yet unless the step says so.
     - a block mismatch truncates to the block start (`hash_mismatches`, `fileHashRetryLimit`);
     - the free-space reserve;
     - READY by atomic rename, then COMPLETE to the live authors through `FileCarrier`;
-    - restart truncates to P and re-hashes the partial block.
+  - restart truncates to P and re-hashes the partial block;
+  - a receive row with no referencing message after `fileTransferTtl` is deleted with its file.
 
   Implements `FileIngestPort`.
 - **Tests:**
@@ -246,22 +264,36 @@ used yet unless the step says so.
     - crash between checkpoints;
     - a block mismatch keeps the earlier blocks;
     - ENOSPC is a clean failure;
-    - an already-READY file answers COMPLETE at its OFFER.
+  - an already-READY file answers COMPLETE at its OFFER;
+  - a READY file no message references is deleted after the TTL.
 
-### Step 13 — The pusher, direct only (`routing`, file push package)
+### Step 13 — Outbox changes and the pusher, direct only (`routing`)
 
 - **Tables:** `file_pushes` (migration `10.sqm`).
-- **Changes:** design §6.1–§6.2 and §6.5:
+- **Outbox first** (design §6.2), as its own change with the existing outbox tests green:
+    - the due query returns ids, targets and tags, ordered and limited, without blobs; the envelope is loaded
+      at claim;
+    - non-FILE rows are claimed before FILE rows;
+    - FILE rows retry at a flat `fileChunkRetryDelay`, outside `fastRetryBudget`/`standbyRetryDelay`.
+- **Then stress-test `outboxMaxInFlightPerTarget`** with chunk traffic over Tor and over WebRTC and set it to
+  what the links take. Add a FILE-only cap only if the test shows messages and chunks need different numbers.
+  Write the result into `design.md` §6.2 and the guide's router notes.
+- **Pusher:** design §6.1–§6.2 and §6.5:
     - per-device fan-out of an account-level send;
-    - the OFFER marker (DECLINED split, expiry);
-    - chunk outbox rows in a `maxInFlightChunks` window;
+  - the OFFER marker (target DECLINED is terminal; any other terminal NACK ends the transfer as `ENDED`;
+    expiry re-arms);
+  - plaintext from `FilePlaintextSource`, cut into chunks, protected, enqueued in a `maxInFlightChunks`
+    window;
     - resume from rows plus the outbox after restart;
-    - COMPLETE resolves the transfer; a chunk DECLINED ends it quietly;
+  - COMPLETE resolves the transfer as `COMPLETED`; a chunk DECLINED ends it as `ENDED` (outcome unknown,
+    never shown as delivered);
     - user CANCEL.
 
   No deposits yet.
 - **Tests:** restart mid-push resumes without re-sending ACKed chunks; a target DECLINED on the OFFER is
-  terminal; a DECLINED on a chunk resolves the transfer as COMPLETED.
+  terminal; a DECLINED on a chunk ends the transfer as `ENDED`; a text message enqueued behind a full chunk
+  window goes out before the remaining chunks; a DEFERred chunk keeps retrying at the flat delay; a due pass
+  loads no blobs for rows it does not claim.
 
 ### Step 14 — Send API and the first end-to-end (`orchestrator/runtime/file`, `orchestrator/file`, `wiring`)
 
@@ -295,6 +327,7 @@ used yet unless the step says so.
   the OFFER, DECLINED moves to the next candidate); the sealed REQUEST is direct-only.
 - **Orchestrator:**
     - the REQUEST trigger on message ingest, with the grace period and re-requestable vs refused states;
+  - a REQUEST for a file above `SMALL_FILE_MAX_BYTES` is DECLINED;
     - the serve gate through `message_attachments` and the sync gate's visibility check;
     - serve-on-REQUEST through the pusher, with a fresh transfer and the floor-aligned start;
     - one live transfer per (`fileId`, target device), where a REQUEST supersedes a push;
@@ -312,8 +345,9 @@ used yet unless the step says so.
 
 ### Step 17 — Extract the deposit-trigger policy (`routing/outbound`, refactor only)
 
-- **Changes:** move the relay-backup triggers out of `OutboxProcessor`/`RelayDepositor` into a shared policy,
-  and generalize the MESSAGE-only no-ACK check (design §5). Message behaviour doesn't change.
+- **Changes:** move the relay-backup triggers out of `OutboxProcessor`/`RelayDepositor` into a shared policy
+  that takes the packet's kind, so step 19 can give the OFFER marker the message triggers and chunk rows
+  their own set (design §5, §6.3). Message behaviour doesn't change.
 - **Tests:** `OutboxRelayBackupTest` and `OutboxProcessorTest` pass unchanged.
 
 ### Step 18 — The relay store (`routing`, file relay package)
@@ -339,65 +373,85 @@ used yet unless the step says so.
 ### Step 19 — Deposits, stalls and the gap trigger (`routing`, `orchestrator/file`)
 
 - **Routing:**
-    - the stall detector (`chunkAckTimeout`);
-    - deposit-on-stall: one round, one transfer and one sealed OFFER per relay returned by
+    - the chunk-phase deposit signals (design §6.3): the target's link closes, no link at claim time, or no
+      chunk ACK at all for `chunkAckTimeout`. One slow or retried chunk is not a signal. The OFFER marker
+      uses the message triggers;
+    - the deposit: one round, one transfer and one sealed OFFER per relay returned by
       `RelaySelectionPolicy`;
     - no chasing of a failing relay.
-- **Orchestrator:** the gap trigger (`fileStallTimeout`): CANCEL the live transfers, then STALLED, then
-  re-REQUEST.
-- **Guide:** state in §6 that FILE markers and chunks use the shared deposit triggers.
+- **Orchestrator:** the gap trigger (`fileStallTimeout`): STALLED, then re-REQUEST. It cancels no transfer,
+  and its timer counts only while the device runs (design §8).
+- **Guide:** state in §6 which deposit triggers FILE markers and chunk rows use.
 - **Tests:**
     - target offline: deposit, wholeness, forward, READY;
     - a link break mid-send: the remainder from the contiguous ACKed prefix;
     - two relays: two `transferId`s, both decrypt;
-    - sender killed after the deposit: the relays still deliver.
+  - sender killed after the deposit: the relays still deliver;
+  - a slow link that still ACKs within `chunkAckTimeout` never deposits; a closed link deposits at once;
+  - receiver offline mid-forward past `fileStallTimeout`, then back: the relay's forward completes.
 - **Done when:** design §19's small-file rows are covered.
 
 ---
 
 ## Phase F — Large files
 
-### Step 20 — WebRTC file channels (`transport/webrtc`)
+The large path is a plain fetch protocol on its own data channel (design §6.6). It uses no envelopes, no
+`transferId`, no key, no outbox row and no routing table.
+
+### Step 20 — Fetch frames and WebRTC file channels (`protocol`, `transport/webrtc`)
 
 - **Changes:**
-    - A per-transfer file channel kind with labels, alongside the envelope and AV channels.
-    - `bufferedAmount` low-threshold events.
-    - Channel open and close per label on an existing peer connection, without renegotiation.
-- **Tests:** two channels stream at once without starving the envelope channel; a low-threshold callback
+    - `protocol`: the fetch frames — `FETCH { fileId, fromOffset }`, `FETCH_OK { totalBytes, block list }`,
+      `FETCH_DECLINED`, `PROGRESS { P }`, `ABORT { reason }`, and `DATA` (a type byte, then raw bytes) — with
+      codecs and round-trip tests.
+    - `transport/webrtc`: a file channel kind, opened per fetch by either side on an existing peer connection
+      without renegotiation, carrying raw frames instead of `BinaryEnvelope`s; `bufferedAmount` low-threshold
+      events (the backend's `onBufferedAmountChange` hook is there, unused); channel close events.
+- **Tests:** two file channels stream at once without starving the envelope channel; a low-threshold callback
   fires; channels close when the session ends.
 
-### Step 21 — The stream (`routing`, file stream package)
+### Step 21 — The fetch (`routing`, file fetch package)
 
-- **Changes:** design §6.6:
-    - the holder side: open the channel after the OFFER's ACK, stream in order, credit window (`fileStreamWindowBytes`)
-      plus `bufferedAmount`;
-    - the receiver side: in-order chunks straight to the ingest port, ACK at checkpoints;
-    - the transfer ends with its session on both ends;
-    - stream control packets travel on the channel and never go through the outbox;
-    - `file_pushes.kind = STREAM` (a migration if the enum's check constraint needs one).
+- **Changes:** design §6.6. The router passes frames straight between the transport channel and this code;
+  nothing goes through the envelope pipeline.
+    - **Holder side:** on `FETCH`, ask the orchestrator's serve gate for the session's peer device; answer
+      `FETCH_OK` or `FETCH_DECLINED`; send `DATA` from `fromOffset` through `FilePlaintextSource`, within
+      `fileStreamWindowBytes` past the last `PROGRESS` and the channel's `bufferedAmount` threshold; `ABORT` on
+      a bad block at the source.
+    - **Requester side:** check the block list against the `fileId` before accepting bytes; hand frames in
+      order to the ingest port; send `PROGRESS` when the receive engine reports a committed checkpoint; close
+      on READY; `ABORT` on no space, the gap trigger or a user cancel.
+    - State is in memory on both ends and dies with the channel.
 - **Tests:**
-    - a slow-disk receiver bounds the holder at the window;
-    - a session drop ends both rows;
-    - no chunk crosses Tor (transport assertion).
+    - a slow-disk receiver bounds the holder at the window, and the envelope channel keeps flowing;
+    - a session drop leaves no state on either end;
+    - a block list that does not match the `fileId` closes the channel with nothing written;
+    - the serve gate declines a device whose account sees no referencing message;
+    - no file byte crosses Tor or the outbox (transport assertion).
 
 ### Step 22 — Large requests and the accept decision (`routing`, `orchestrator/file`, `orchestrator/runtime/file`)
 
 - **Routing:**
-    - the request processor opens a WebRTC session for a large request (`SessionTransport.openSession`,
-      timeout `fileSessionOpenTimeout`);
-    - it sends the REQUEST only over that session;
-    - an unreachable candidate is not a decline, so the request stays PENDING until a candidate comes online.
+    - for a large file the request processor's attempt opens a WebRTC session through
+      `ProactiveSessionOpener.awaitSession` (timeout `fileSessionOpenTimeout`), then a fetch (step 21);
+      `FETCH_OK` and `FETCH_DECLINED` are the attempt's outcomes, and there is no WAITING state;
+    - an unreachable candidate is not a decline, so the request stays PENDING until a candidate comes online;
+    - a candidate that is online but whose session cannot be made is reported as "no direct connection";
+    - remove the "fallback to Tor" wording for files from `ProactiveSessionOpener`'s doc.
 - **Orchestrator:**
     - the auto-download decision (`autoDownloadMaxBytes`);
     - the user accept/decline API on the runtime facade (a local DECLINED, re-openable);
-    - large files skip the push in `send`.
+  - large files skip the push in `send`;
+  - serve-on-fetch: the serve gate for a fetch, by the peer device's account.
 - **Guide:** §6 says "Sends never open a connection", with bootstrap as the only exception. Add large file
-  requests as the second exception, in this change.
+  fetches as the second exception, in this change, and note in §2 that the router has a direct channel path
+  beside the outbox (files now, AV later).
 - **Tests:**
     - auto-download end to end;
-    - above the limit nothing is requested until accepted;
-    - a session drop mid-file resumes as a new serve from P with a positioned read;
-    - all holders offline: PENDING, then fetched when one comes online.
+  - above the limit nothing is fetched until accepted;
+  - a session drop mid-file resumes as a new fetch from P with a positioned read;
+  - all holders offline: PENDING, then fetched when one comes online;
+  - holder online, no session possible: "no direct connection", and nothing goes over Tor.
 
 ---
 
@@ -407,7 +461,8 @@ used yet unless the step says so.
 
 - **Changes:**
     - Write the runtime facade's contract into `gui-api.md` — send / progress / accept / decline / open: the
-      keep-a-copy flag, attachment states, `SOURCE_LOST`, and "preparing" while hashing.
+      keep-a-copy flag, attachment states (including `EVICTED`, "no direct connection" and the sender's `ENDED` — not
+      delivered, not refused), `SOURCE_LOST`, and "preparing" while hashing.
     - Map the user-facing settings (`autoDownloadMaxBytes`, `copyIntoStoreMaxBytes`, the pledge) in the
       settings registry.
     - Update the guide's §8 feature status.
@@ -416,7 +471,7 @@ used yet unless the step says so.
 ### Step 24 — Test matrix and soak (`jvmTest`)
 
 - **Changes:** fill the remaining design §19 rows. Add a soak test that moves a multi-GB file through a
-  stream with forced session drops and a receiver restart, and checks memory stays bounded and the resume
+  fetch with forced session drops and a receiver restart, and checks memory stays bounded and the resume
   count is right.
 - **Done when:** every §19 row maps to a named test.
 
@@ -427,6 +482,7 @@ used yet unless the step says so.
 - **The trunk:** Phase A (steps 1–6), then Phase B (7–9), then Phase C (10–14).
 - **After step 14**, Phase D (15–16) and Phase E (17–19) only meet in the pusher and can go in either order.
   D comes first because the pull path is the safety net that makes every later failure recoverable.
-- **Phase F** needs step 16 (requests) and step 12 (the receive engine). It doesn't depend on Phase E.
+- **Phase F** needs step 16 (requests), step 12 (the receive engine) and step 9 (the plaintext source). It
+  doesn't depend on Phase E, the pusher or `FileProtection`.
 - **Refactors run alone.** Steps 15 and 17 are pure refactors. Land them on their own, with existing tests
   green, before the features that need them.

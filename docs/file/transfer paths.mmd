@@ -5,16 +5,17 @@ PICK --> COPY[Core copies it into the store, or references it in place · keep-a
     COPY --> MSG[Publish message with attachment references<br>notification only — no key, no chunk params]
 COPY --> CLASS{file class}
 MSG --> CLASS
-CLASS -- " small (≤ smallFileMaxBytes) " --> FAN[Send fans out: one transfer per device of the account]
+CLASS -- " small (≤ smallFileMaxBytes · one network value) " --> FAN[Send fans out: one transfer per device of the account]
 CLASS -- " large (no upper bound) " --> NOPUSH([nothing pushed · each device decides to fetch])
 
 FAN --> MARKER[OFFER marker per device · direct link first<br>sealed half: fileId + block list + this transfer's own key, ratchet-encrypted]
 
-    MARKER -- "ACK (accepted)" --> CHUNKS[Chunk rows in the outbox · windowed<br>chunk ACK = decrypted + durably staged]
+MARKER -- " ACK (accepted) " --> CHUNKS[Chunk rows in the outbox · windowed · messages go first<br>routing encrypts plaintext from the orchestrator's source<br>chunk ACK = decrypted + durably staged]
     MARKER -- "DECLINED (relay full)" --> NEXTRELAY[Next relay or re-offer later]
     MARKER -- "DECLINED (target)" --> DEAD([send to that device terminally DECLINED])
+MARKER -- " other terminal NACK " --> ENDEDM([transfer ENDED · REQUEST recovers])
     CHUNKS -- "all ACKed" --> PUSHED((push complete))
-    CHUNKS -- "stall / link break" --> REM[Remainder = suffix after the<br>highest contiguous ACKed prefix]
+CHUNKS -- " link closed · no link · no chunk ACK at all for chunkAckTimeout " --> REM[Remainder = suffix after the<br>highest contiguous ACKed prefix]
     REM --> DEPOSIT[Deposit once per transfer · identical set<br>at every relay RelaySelectionPolicy returns]
     DEPOSIT --> ADM{Admission against<br>the storage pledge}
     ADM -- accepted --> HOLD
@@ -34,14 +35,17 @@ FAN --> MARKER[OFFER marker per device · direct link first<br>sealed half: file
 
     %% Pull path
     MSG -. "synced / processed by any device" .-> TRIG
-TRIG{Message references a fileId · no complete local file ·<br>no progressing transfer · small: grace period ·<br>large: auto-download limit or user click} -- yes --> REQ[REQUEST · sealed, direct-only · serve gate · one candidate at a time<br>sender devices, then own-account siblings<br>large: requester opens a WebRTC session first<br>ACK → waiting for the OFFER · DECLINED → next candidate]
-REQ -- " small: OFFER (fresh transferId · fresh key) " --> SERVE[Holder serves the suffix from the floor-aligned<br>boundary below the requester's lowest missing byte<br>checks each block as it reads]
-REQ -- " large: OFFER over the session " --> STREAM[Stream AEAD chunks on a per-transfer data channel<br>checkpoint ACKs · credit window · ends with the session]
-STREAM -- " session dropped " --> REQ
+TRIG{Message references a fileId · no complete local file ·<br>no progressing transfer · small: grace period ·<br>large: auto-download limit or user click} -- yes --> CAND[One candidate at a time · serve gate at the holder<br>sender devices, then own-account siblings]
+CAND -- " small " --> REQ[REQUEST envelope · sealed, direct-only<br>ACK → waiting for the OFFER · DECLINED → next candidate]
+CAND -- " large " --> FETCH[Requester opens a WebRTC session and a fetch channel<br>FETCH fileId + fromOffset = checkpointed P<br>FETCH_OK with the block list · FETCH_DECLINED → next candidate]
+REQ -- " OFFER (fresh transferId · fresh key) " --> SERVE[Holder serves the suffix from the floor-aligned<br>boundary below the requester's lowest missing byte<br>checks each block as it reads]
+FETCH -- " FETCH_OK " --> STREAM[Holder sends plain DATA frames in order · block-checked<br>no envelope, no key, no transferId · DTLS protects the channel<br>PROGRESS at checkpoints · credit window · ends with the channel]
+STREAM -- " session dropped " --> CAND
+FETCH -- " no session possible " --> NOCONN([no direct connection · shown to the user · never over Tor])
 NOPUSH -. " message lands" .-> TRIG
-    REQ -- "all DECLINED / expired" --> UNAV([file unavailable · re-openable])
+CAND -- " all DECLINED / expired " --> UNAV([file unavailable · re-openable])
 SERVE --> MERGE[Receiver merges into fileId-scoped byte coverage<br>blocks verified at checkpoints → READY → COMPLETE to live authors]
     FWD -. delivered .-> MERGE
     STREAM -. delivered .-> MERGE
     CHUNKS -. delivered .-> MERGE
-    MERGE -. "prefix stalls for fileStallTimeout" .-> TRIG
+MERGE -. " prefix stalls for fileStallTimeout · live transfers are kept " .-> TRIG
