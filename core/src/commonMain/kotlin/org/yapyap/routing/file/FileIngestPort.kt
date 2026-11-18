@@ -33,6 +33,10 @@ internal sealed interface FileOfferVerdict {
 
 internal enum class FileRefusalReason {
     NO_SPACE,
+    /** The block list does not hash to the fileId (the sender's copy is treated as bad). */
+    INVALID_OFFER,
+    /** Terminal states (FAILED/DECLINED/CANCELLED/EVICTED) are never auto-resurrected. */
+    NOT_RETRYABLE,
 }
 
 /** Result of handing one decrypted chunk to the receive engine (synchronous, design §8). */

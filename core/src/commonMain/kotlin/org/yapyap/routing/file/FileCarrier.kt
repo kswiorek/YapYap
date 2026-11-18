@@ -3,6 +3,7 @@ package org.yapyap.routing.file
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.envelopes.FileCancelReason
 
 /** Account-level file events for the orchestrator (design §12): devices never cross the seam. */
 internal sealed interface FileEvent {
@@ -60,6 +61,12 @@ internal interface FileCarrier {
      * incoming-transfer rows), drop those rows, and emit [FileEvent.Ready].
      */
     suspend fun fileReady(fileId: FileId)
+
+    /**
+     * Our receive of [fileId] failed cleanly (hash limit, ENOSPC): send CANCEL to every live
+     * transfer author and drop those rows so senders stop into a quiet end.
+     */
+    suspend fun cancelIncoming(fileId: FileId, reason: FileCancelReason)
 
     /** Contribute an event to [fileEvents] (receive-side progress and failures). */
     suspend fun emit(event: FileEvent)

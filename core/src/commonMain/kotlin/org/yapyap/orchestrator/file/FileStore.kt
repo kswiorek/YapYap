@@ -33,6 +33,9 @@ internal interface FileStore {
     suspend fun resolve(fileId: FileId): FileDescriptor?
 
     suspend fun markSourceLost(fileId: FileId)
+
+    /** Enforce the copy quota now (used after a receive lands in the permanent store). */
+    suspend fun enforceQuota()
 }
 
 internal class DefaultFileStore(
@@ -123,6 +126,8 @@ internal class DefaultFileStore(
     override suspend fun markSourceLost(fileId: FileId) {
         descriptors.setStatus(fileId, FileDescriptorStatus.SOURCE_LOST)
     }
+
+    override suspend fun enforceQuota() = enforceQuota(newFileId = null)
 
     private suspend fun sourceSize(source: FileImportSource): Long? = when (source) {
         is FileImportSource.PathSource -> files.fileSize(source.path)

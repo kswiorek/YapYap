@@ -34,7 +34,12 @@ import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
+import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
+import org.yapyap.orchestrator.file.DefaultFileReceiveStore
+import org.yapyap.orchestrator.file.DefaultFileStore
+import org.yapyap.orchestrator.file.FileServiceConfig
+import org.yapyap.routing.file.DelegatingFileIngestPort
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.store.DefaultDeviceRouteStore
@@ -98,6 +103,18 @@ internal class NodeGraph(
     private val pendingSyncRepository = DefaultPendingSyncRepository(database)
     private val deviceRoutes = DefaultDeviceRouteStore(database, identityStore)
     private val fileIncomingStore = DefaultFileIncomingTransferStore(database)
+    private val fileDescriptorStore = DefaultFileDescriptorStore(database)
+    private val fileReceiveStore = DefaultFileReceiveStore(database)
+    private val fileAccess = platform.fileAccess()
+    private val fileServiceConfig = FileServiceConfig()
+    private val fileStore = DefaultFileStore(
+        descriptors = fileDescriptorStore,
+        crypto = crypto,
+        files = fileAccess,
+        storeDirectory = layout.fileStoreDirectory,
+        config = fileServiceConfig,
+    )
+    private val fileIngestPort = DelegatingFileIngestPort()
 
     // Crypto and envelope protection
     private val cryptoSessionManager = DefaultCryptoSessionManager(
@@ -154,11 +171,26 @@ internal class NodeGraph(
         transportLimits = config.transportLimits,
         frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepository, localDeviceId),
         peerAvailabilityStore = deviceRoutes,
-        // Step 11: the receive engine (step 12) takes over the ingest port; until then
-        // every OFFER is cleanly declined and every chunk answered DECLINED.
-        fileIngestPort = RefusingFileIngestPort(),
+        // Step 12: the receive engine implements the ingest port the handler calls.
+        fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
     )
+
+    // Receive engine (step 12): implements the ingest port the router's file handler calls.
+    private val fileReceiveEngine = DefaultFileReceiveEngine(
+        receives = fileReceiveStore,
+        descriptors = fileDescriptorStore,
+        messages = messageRepository,
+        crypto = crypto,
+        files = fileAccess,
+        storeDirectory = layout.fileStoreDirectory,
+        incomingDirectory = layout.fileIncomingDirectory,
+        config = fileServiceConfig,
+        fileStore = fileStore,
+        carrier = router.fileCarrier,
+        routerConfig = config.routerConfig,
+        clock = clock,
+    ).also { fileIngestPort.delegate = it }
 
     // History, folds and sync
     private val dagEngine = DefaultDagEngine(
@@ -285,6 +317,7 @@ internal class NodeGraph(
         )
         pipeline.start(scope)
         syncCoordinator.start(scope)
+        fileReceiveEngine.start(scope)
         globalEventProjector.start(scope)
         // Started after the global projector so the room boot sweep sees committed identity;
         // deferred rows land on the next GLOBAL commit anyway.

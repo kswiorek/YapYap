@@ -11,6 +11,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
@@ -89,6 +90,36 @@ internal class DefaultFileCarrier(
         }
         incoming.deleteByFile(fileId)
         emit(FileEvent.Ready(fileId))
+    }
+
+    override suspend fun cancelIncoming(fileId: FileId, reason: FileCancelReason) {
+        val now = clock.now()
+        val expiresAt = now + routerConfig.value.fileTransferTtl
+        val rows = incoming.findByFile(fileId)
+        for (row in rows) {
+            val envelope = buildFileControlEnvelope(
+                protection = protection,
+                transferId = row.transferId,
+                source = localDeviceId,
+                target = row.authorDevice,
+                createdAt = now,
+                expiresAt = expiresAt,
+                payload = FilePayload.Cancel(reason, reasonText = null),
+            )
+            enqueue(envelope)
+            AppLog.info(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+                message = "File receive failed: CANCEL sent to transfer author",
+                fields = mapOf(
+                    "fileId" to fileId,
+                    "transferId" to row.transferId,
+                    "author" to row.authorDevice,
+                    "reason" to reason,
+                ),
+            )
+        }
+        incoming.deleteByFile(fileId)
     }
 
     override suspend fun emit(event: FileEvent) {

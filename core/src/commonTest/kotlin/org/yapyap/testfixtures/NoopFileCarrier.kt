@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.routing.file.FileCarrier
 import org.yapyap.routing.file.FileEvent
 
@@ -16,6 +17,8 @@ internal class NoopFileCarrier : FileCarrier {
     override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
 
     override suspend fun fileReady(fileId: FileId) = Unit
+
+    override suspend fun cancelIncoming(fileId: FileId, reason: FileCancelReason) = Unit
 
     override suspend fun emit(event: FileEvent) = Unit
 }

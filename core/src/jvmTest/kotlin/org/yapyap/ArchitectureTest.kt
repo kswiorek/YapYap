@@ -32,7 +32,7 @@ class ArchitectureTest {
         // The router reads the local identity through crypto's read-only view (LocalIdentity).
         "routing" to listOf("transport", "protection", "protocol", "crypto.identity"),
         // The orchestrator talks to the router through its API and vocabulary, and implements the
-        // ports the router declares for it (directory, sync content, ping frontiers, file plaintext).
+        // ports the router declares for it (directory, sync content, ping frontiers, file ports).
         "orchestrator" to listOf(
             "routing.router",
             "routing.directory",
@@ -40,6 +40,15 @@ class ArchitectureTest {
             "routing.ping.FrontierSnapshotProvider",
             "routing.file.FilePlaintextSource",
             "routing.file.FileReadResult",
+            "routing.file.FileCarrier",
+            "routing.file.FileEvent",
+            "routing.file.FileFailureReason",
+            "routing.file.FileIngestPort",
+            "routing.file.FileIngestResult",
+            "routing.file.FileOfferInfo",
+            "routing.file.FileOfferVerdict",
+            "routing.file.FileRefusalReason",
+            "routing.router.RouterConfig",
             "crypto",
             "protocol",
         ),

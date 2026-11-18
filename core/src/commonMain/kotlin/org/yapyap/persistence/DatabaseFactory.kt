@@ -166,6 +166,15 @@ internal class DatabaseFactory(
                     statusAdapter = EnumColumnAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
                 ),
+                file_receivesAdapter = File_receives.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    statusAdapter = EnumColumnAdapter(),
+                    created_atAdapter = InstantEpochSecondsAdapter,
+                    updated_atAdapter = InstantEpochSecondsAdapter,
+                ),
+                file_receive_chunksAdapter = File_receive_chunks.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                ),
                 file_incoming_transfersAdapter = File_incoming_transfers.Adapter(
                     file_idAdapter = FileIdAdapter(),
                     author_deviceAdapter = PeerIdAdapter(),

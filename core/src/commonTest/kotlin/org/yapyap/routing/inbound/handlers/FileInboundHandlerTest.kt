@@ -70,6 +70,9 @@ internal class RecordingFileCarrier : FileCarrier {
     override suspend fun fileReady(fileId: FileId): Unit =
         error("not used in inbound handler tests")
 
+    override suspend fun cancelIncoming(fileId: FileId, reason: org.yapyap.protocol.envelopes.FileCancelReason): Unit =
+        error("not used in inbound handler tests")
+
     override suspend fun emit(event: FileEvent) {
         events += event
     }
