@@ -16,6 +16,8 @@ import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TransferId
 
 internal class DefaultEnvelopeProtectionService(
     val webRtcSignalProtection: WebRtcSignalProtection,
@@ -36,8 +38,33 @@ internal class DefaultEnvelopeProtectionService(
     override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         fileProtection.open(envelope)
 
-    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
-        fileProtection.decryptChunk(chunk)
+    override suspend fun decryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        chunk: FilePayload.EncryptedChunk,
+    ): ByteArray =
+        fileProtection.decryptChunk(transferId, chunkIndex, key, chunk)
+
+    override suspend fun encryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        plaintext: ByteArray,
+    ): ByteArray =
+        fileProtection.encryptChunk(transferId, chunkIndex, key, plaintext)
+
+    override suspend fun sealFileOffer(
+        offer: FilePayload.SealedOffer,
+        target: PeerId,
+    ): ByteArray =
+        fileProtection.sealOffer(offer, target)
+
+    override suspend fun openFileOffer(
+        sealed: ByteArray,
+        source: PeerId,
+    ): FilePayload.SealedOffer =
+        fileProtection.openOffer(sealed, source)
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
         messageProtection.protect(input, context)

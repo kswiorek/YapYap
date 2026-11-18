@@ -37,6 +37,9 @@ internal data class FileEnvelope(
         return writer.toByteArray()
     }
 
+    /** Canonical bytes covered by the author's signature (everything but the signature itself). */
+    fun encodeForSigning(): ByteArray = copy(signature = null).encode()
+
     fun observableHeaderValues(): Map<String, Any?> = mapOf(
         Fields.TRANSFER_ID to transferId,
         Fields.SOURCE to source,

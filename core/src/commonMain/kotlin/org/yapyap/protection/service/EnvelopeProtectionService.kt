@@ -2,6 +2,7 @@ package org.yapyap.protection.service
 
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.FileEnvelope
@@ -35,8 +36,28 @@ internal interface EnvelopeProtectionService {
     ): OpenedFileEnvelope
 
     suspend fun decryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray
+
+    suspend fun encryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        plaintext: ByteArray,
+    ): ByteArray
+
+    suspend fun sealFileOffer(
+        offer: FilePayload.SealedOffer,
+        target: PeerId,
+    ): ByteArray
+
+    suspend fun openFileOffer(
+        sealed: ByteArray,
+        source: PeerId,
+    ): FilePayload.SealedOffer
 
     suspend fun protectMessage(
         input: MessagePayload,
@@ -80,4 +101,6 @@ internal data class EnvelopeProtectContext(
     val sourceDeviceId: PeerId,
     val targetDeviceId: PeerId,
     val securityScheme: SignalSecurityScheme,
+    /** File transfers address the envelope by transfer; message/system/signal protectors ignore it. */
+    val transferId: TransferId? = null,
 )

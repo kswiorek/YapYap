@@ -256,11 +256,14 @@ A DECLINED is read by **what it answers**, never on its own:
 - The **OFFER's sealed half rides the standard ratchet** (§3.3) — one small frame per transfer, bootstraps
   offline, late-decrypt-safe by the retention invariant.
 - **Chunk AEAD is `CryptoProvider.encryptAead` as it is**: library-managed random IV, AAD = (`transferId`,
-  `chunkIndex`). The AAD pins every chunk to its transfer and position, so a relay can neither
+  `chunkIndex`) laid out as the 16 transfer-id bytes followed by the chunk index u32 BE. The AAD pins every
+  chunk to its transfer and position, so a relay can neither
   reorder chunks nor splice them across transfers. No nonce derivation is needed: one key never outlives one
   transfer, a random 96-bit IV is safe at any chunk count a transfer reaches, and nothing relies on
   ciphertext being reproducible — re-encrypting a chunk after a restart yields different bytes for the same
   index, which nobody compares (the relay keeps the first by its PK; the receiver tracks plaintext coverage).
+  Keys are threaded explicitly per call (the bootstrap pattern): the pusher passes its push-row key to seal
+  and encrypt, the inbound handler passes its incoming-row key to open and decrypt — protection holds no key.
 - A small-path chunk that happens to travel over a WebRTC link keeps its AEAD: the same outbox row may go over
   Tor on a retry or to a relay, so its format cannot depend on the link.
 - Encryption and decryption happen in routing (through protection), which holds the transfer's key in its

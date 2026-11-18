@@ -22,10 +22,12 @@ import org.yapyap.protection.samplePeerTriplet
 import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protection.sampleWebRtcSignal
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FilePayload
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.uuid.Uuid
 
 class DefaultEnvelopeProtectionServiceTest {
 
@@ -117,7 +119,12 @@ class DefaultEnvelopeProtectionServiceTest {
             chunkIndex = 0,
             chunkCiphertext = byteArrayOf(0xab.toByte()),
         )
-        val plain = service.decryptFileChunk(chunk)
+        val plain = service.decryptFileChunk(
+            transferId = TransferId(Uuid.random()),
+            chunkIndex = 0,
+            key = ByteArray(32),
+            chunk = chunk,
+        )
         assertContentEquals(chunk.chunkCiphertext, plain)
     }
 }

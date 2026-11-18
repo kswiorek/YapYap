@@ -261,6 +261,24 @@ internal class PassthroughFileProtection : FileProtection {
             payload = input.decodePayload(),
         )
 
-    override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
+    override suspend fun decryptChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        chunk: FilePayload.EncryptedChunk,
+    ): ByteArray =
         chunk.chunkCiphertext
+
+    override suspend fun encryptChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        plaintext: ByteArray,
+    ): ByteArray = plaintext
+
+    override suspend fun sealOffer(offer: FilePayload.SealedOffer, target: PeerId): ByteArray =
+        offer.encode()
+
+    override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
+        FilePayload.SealedOffer.decode(sealed)
 }

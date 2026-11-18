@@ -115,7 +115,7 @@ internal class NodeGraph(
             cryptoSessionManager,
             crypto
         ),
-        fileProtection = PlaintextFileProtection(crypto), //TODO: [Sprint 5] file protection
+        fileProtection = SignedAndEncryptedFileProtection(signatureProvider, cryptoSessionManager, crypto),
         messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, cryptoSessionManager, crypto),
         systemProtection = SignedSystemProtection(signatureProvider, crypto),
         bootstrapProtection = BootstrapProtection(crypto, vault.bootstrapSessionStore),

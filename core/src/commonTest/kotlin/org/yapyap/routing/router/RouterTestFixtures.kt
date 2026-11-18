@@ -40,6 +40,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
@@ -112,7 +113,32 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         error("not used in router transport tests")
 
-    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
+    override suspend fun decryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        chunk: FilePayload.EncryptedChunk,
+    ): ByteArray =
+        error("not used in router transport tests")
+
+    override suspend fun encryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        plaintext: ByteArray,
+    ): ByteArray =
+        error("not used in router transport tests")
+
+    override suspend fun sealFileOffer(
+        offer: FilePayload.SealedOffer,
+        target: PeerId,
+    ): ByteArray =
+        error("not used in router transport tests")
+
+    override suspend fun openFileOffer(
+        sealed: ByteArray,
+        source: PeerId,
+    ): FilePayload.SealedOffer =
         error("not used in router transport tests")
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
@@ -197,8 +223,33 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
     override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         delegate.openFile(envelope)
 
-    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
-        delegate.decryptFileChunk(chunk)
+    override suspend fun decryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        chunk: FilePayload.EncryptedChunk,
+    ): ByteArray =
+        delegate.decryptFileChunk(transferId, chunkIndex, key, chunk)
+
+    override suspend fun encryptFileChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        key: ByteArray,
+        plaintext: ByteArray,
+    ): ByteArray =
+        delegate.encryptFileChunk(transferId, chunkIndex, key, plaintext)
+
+    override suspend fun sealFileOffer(
+        offer: FilePayload.SealedOffer,
+        target: PeerId,
+    ): ByteArray =
+        delegate.sealFileOffer(offer, target)
+
+    override suspend fun openFileOffer(
+        sealed: ByteArray,
+        source: PeerId,
+    ): FilePayload.SealedOffer =
+        delegate.openFileOffer(sealed, source)
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         protectStatsMutex.withLock {
