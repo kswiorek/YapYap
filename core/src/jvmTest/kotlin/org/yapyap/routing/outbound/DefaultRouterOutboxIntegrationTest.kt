@@ -72,7 +72,7 @@ class DefaultRouterOutboxIntegrationTest {
         withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
 
         val now = epochSeconds(10_000L)
-        assertTrue(outbox.listDue(now).isEmpty())
+        assertTrue(outbox.listDueIds(now, nonFileLimit = 100, fileLimit = 100).isEmpty())
         assertEquals(now + RouterConfig().torRetryDelay, outbox.earliestPendingRetryAt())
         assertEquals(1, tor.sendsExcludingHeartbeat().size)
 
@@ -80,7 +80,7 @@ class DefaultRouterOutboxIntegrationTest {
         tor.tryEmitIncoming(inboundTorAck(packetId, FixtureTorEndpoint))
         delay(400.milliseconds)
 
-        assertTrue(outbox.listDue(now).isEmpty())
+        assertTrue(outbox.listDueIds(now, nonFileLimit = 100, fileLimit = 100).isEmpty())
         router.stop()
     }
 

@@ -35,6 +35,7 @@ import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
+import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
 import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileStore
@@ -44,6 +45,7 @@ import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.store.DefaultDeviceRouteStore
 import org.yapyap.routing.store.DefaultFileIncomingTransferStore
+import org.yapyap.routing.store.DefaultFilePushStore
 import org.yapyap.routing.store.DefaultPacketDeduplicator
 import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.routing.store.DefaultSyncAttemptStore
@@ -103,6 +105,7 @@ internal class NodeGraph(
     private val pendingSyncRepository = DefaultPendingSyncRepository(database)
     private val deviceRoutes = DefaultDeviceRouteStore(database, identityStore)
     private val fileIncomingStore = DefaultFileIncomingTransferStore(database)
+    private val filePushStore = DefaultFilePushStore(database)
     private val fileDescriptorStore = DefaultFileDescriptorStore(database)
     private val fileReceiveStore = DefaultFileReceiveStore(database)
     private val fileAccess = platform.fileAccess()
@@ -174,6 +177,9 @@ internal class NodeGraph(
         // Step 12: the receive engine implements the ingest port the handler calls.
         fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
+        filePushStore = filePushStore,
+        plaintextSource = DefaultFilePlaintextSource(fileDescriptorStore, fileAccess, crypto),
+        fileChunkSize = config.fileChunkSizeBytes,
     )
 
     // Receive engine (step 12): implements the ingest port the router's file handler calls.

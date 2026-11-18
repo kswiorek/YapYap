@@ -113,7 +113,7 @@ class OutboxRelayBackupMigrationJvmTest {
             assertEquals(YapYapDatabase.Schema.version, readPragmaUserVersion(connection.driver))
             val outbox = DefaultPacketOutbox(connection.database)
 
-            assertEquals(listOf(queuedBefore.packetId), outbox.listDue(epochSeconds(2_000L)).map { it.packetId })
+            assertEquals(listOf(queuedBefore.packetId), outbox.listDueIds(epochSeconds(2_000L), nonFileLimit = 100, fileLimit = 100).map { it.packetId })
             assertFalse(outbox.claimRelayBackup(queuedBefore.packetId), "rows from before the upgrade owe no backup")
 
             val queuedAfter = envelope()

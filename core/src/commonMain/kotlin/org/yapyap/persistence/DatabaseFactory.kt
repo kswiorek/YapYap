@@ -181,6 +181,12 @@ internal class DatabaseFactory(
                     created_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
+                file_pushesAdapter = File_pushes.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    target_deviceAdapter = PeerIdAdapter(),
+                    created_atAdapter = InstantEpochSecondsAdapter,
+                    expires_atAdapter = InstantEpochSecondsAdapter,
+                ),
             ),
             driver = driver,
             created = created,

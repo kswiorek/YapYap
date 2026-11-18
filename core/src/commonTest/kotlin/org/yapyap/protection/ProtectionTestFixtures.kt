@@ -281,4 +281,6 @@ internal class PassthroughFileProtection : FileProtection {
 
     override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
         FilePayload.SealedOffer.decode(sealed)
+
+    override fun generateTransferKey(): ByteArray = ByteArray(32)
 }

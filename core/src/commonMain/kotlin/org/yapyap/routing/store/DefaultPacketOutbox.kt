@@ -131,10 +131,29 @@ internal class DefaultPacketOutbox(
             queries.getAllForTargetDevice(target.id).executeAsList().mapNotNull { mapRowOrDrop(it) }
         }
 
-    override suspend fun listDue(now: Instant): List<OutboxEntry> =
+    override suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow> =
         withContext(dbDispatcher) {
-            queries.getDue(now).executeAsList().mapNotNull { mapRowOrDrop(it) }
+            val fileKind = OutboxTag.Kind.FILE.code
+            val nonFile = queries.getDueIdsNonFile(now, fileKind, nonFileLimit.toLong()).executeAsList()
+            val file = queries.getDueIdsFile(now, fileKind, fileLimit.toLong()).executeAsList()
+            fun tagOf(kind: Long?, id: Uuid?): OutboxTag? =
+                kind?.let { OutboxTag.Kind.fromCode(it) }?.let { k -> id?.let { OutboxTag(k, it) } }
+            nonFile.map { row ->
+                DueOutboxRow(row.packet_id, PeerId(row.target_device_id), row.retry_count, tagOf(row.tag_kind, row.tag_id))
+            } + file.map { row ->
+                DueOutboxRow(row.packet_id, PeerId(row.target_device_id), row.retry_count, tagOf(row.tag_kind, row.tag_id))
+            }
         }
+
+    override suspend fun getByPacketId(packetId: Uuid): OutboxEntry? = withContext(dbDispatcher) {
+        queries.getByPacketId(packetId).executeAsOneOrNull()?.let { mapRowOrDrop(it) }
+    }
+
+    override suspend fun deleteByTag(tag: OutboxTag) {
+        withContext(dbDispatcher) {
+            queries.deleteByTag(tag.kind.code, tag.id)
+        }
+    }
 
     override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =
         withContext(dbDispatcher) {

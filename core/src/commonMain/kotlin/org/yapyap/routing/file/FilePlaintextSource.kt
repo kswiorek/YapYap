@@ -13,6 +13,12 @@ import org.yapyap.protocol.FileId
  */
 internal interface FilePlaintextSource {
     suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult
+
+    /**
+     * What the pusher needs to offer and serve a file, or null when this device does
+     * not hold it (missing descriptor or SOURCE_LOST — both decline later REQUESTs).
+     */
+    suspend fun describe(fileId: FileId): FileDescriptorInfo?
 }
 
 /**

@@ -275,6 +275,8 @@ internal class SignedAndEncryptedFileProtection(
         }
     }
 
+    override fun generateTransferKey(): ByteArray = generateTransferKey(cryptoProvider)
+
     /**
      * Sealed REQUEST wire form: kind byte in clear (dispatch + direct-only link sees
      * a REQUEST) with the fields ratchet-sealed after it. The `fileId` and coverage

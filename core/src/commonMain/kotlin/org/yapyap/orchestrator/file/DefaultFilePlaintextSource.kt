@@ -4,6 +4,7 @@ import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.protocol.FileId
+import org.yapyap.routing.file.FileDescriptorInfo
 import org.yapyap.routing.file.FilePlaintextSource
 import org.yapyap.routing.file.FileReadResult
 
@@ -21,6 +22,19 @@ internal class DefaultFilePlaintextSource(
     private val files: FileAccess,
     private val crypto: CryptoProvider,
 ) : FilePlaintextSource {
+    override suspend fun describe(fileId: FileId): FileDescriptorInfo? {
+        val descriptor = descriptors.findById(fileId) ?: return null
+        if (descriptor.status != FileDescriptorStatus.HELD) return null
+        return FileDescriptorInfo(
+            fileId = descriptor.fileId,
+            totalBytes = descriptor.totalBytes,
+            blockSize = descriptor.blockSize,
+            blockHashes = descriptor.blockHashes,
+            fileName = descriptor.fileName,
+            mimeType = descriptor.mimeType,
+        )
+    }
+
     override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult {
         require(offset >= 0) { "offset must be >= 0 but was $offset" }
         require(maxBytes > 0) { "maxBytes must be > 0 but was $maxBytes" }

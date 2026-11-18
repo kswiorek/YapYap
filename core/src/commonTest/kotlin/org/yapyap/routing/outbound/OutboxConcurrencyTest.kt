@@ -19,6 +19,7 @@ import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
+import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.testfixtures.FakeClock
@@ -49,10 +50,15 @@ class OutboxConcurrencyTest {
 
     private class CountingOutbox(val delegate: TrackingPacketOutbox = TrackingPacketOutbox()) :
         PacketOutbox by delegate {
-        var listDueCalls = 0
-        override suspend fun listDue(now: Instant): List<OutboxEntry> {
-            listDueCalls++
-            return delegate.listDue(now)
+        var listDueIdsCalls = 0
+        var getByPacketIdCalls = 0
+        override suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow> {
+            listDueIdsCalls++
+            return delegate.listDueIds(now, nonFileLimit, fileLimit)
+        }
+        override suspend fun getByPacketId(packetId: Uuid): OutboxEntry? {
+            getByPacketIdCalls++
+            return delegate.getByPacketId(packetId)
         }
     }
 
@@ -188,7 +194,7 @@ class OutboxConcurrencyTest {
         val h = harness()
         advanceTimeBy(10.seconds)
         runCurrent()
-        assertTrue(h.outbox.listDueCalls <= 2, "idle outbox polled ${h.outbox.listDueCalls} times in 10 s")
+        assertTrue(h.outbox.listDueIdsCalls <= 2, "idle outbox polled ${h.outbox.listDueIdsCalls} times in 10 s")
     }
 
     @Test

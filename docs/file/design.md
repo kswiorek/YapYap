@@ -390,6 +390,12 @@ the pusher, not later:
 stress-tested with chunk traffic over Tor and WebRTC and raised to what the links take; a separate cap for
 FILE rows is added only if that test shows messages and chunks need different numbers.
 
+**v1 status (implemented in step 13):** the three outbox changes are in (blob-less due query with
+non-FILE first, flat `fileChunkRetryDelay` for FILE rows). The caps stay at 2 per target: the
+ordering guarantee (messages before chunks) is covered by tests, but no real-network chunk
+stress run has set a higher number yet, so no FILE-only cap was added. Revisit once
+multi-MB transfers run over real Tor/WebRTC links.
+
 ### 6.3 Stall detection
 
 A transfer in its chunk phase deposits its remainder (§6.4) on the first of three signals, all of which mean

@@ -19,23 +19,10 @@ import org.yapyap.routing.store.FileIncomingTransferStore
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
-/** Pusher side of [FileCarrier] (step 13 owns the per-device push machinery). */
+/** Pusher side of [FileCarrier]: the per-device push machinery owns this contract. */
 internal interface FilePushOps {
     suspend fun pushFile(fileId: FileId, target: AccountId)
     suspend fun cancelFile(fileId: FileId, target: AccountId)
-}
-
-/**
- * Scaffolding until step 13 wires the pusher: loud (never silent) if a push is
- * attempted before the push machinery exists. Nothing calls it in steps 11–12
- * (no sender exists yet).
- */
-internal class UnwiredFilePushOps : FilePushOps {
-    override suspend fun pushFile(fileId: FileId, target: AccountId): Unit =
-        error("File push lands in step 13 (FilePusher)")
-
-    override suspend fun cancelFile(fileId: FileId, target: AccountId): Unit =
-        error("File push lands in step 13 (FilePusher)")
 }
 
 /**

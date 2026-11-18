@@ -65,12 +65,21 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.file.FileDescriptorInfo
 import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.FilePlaintextSource
+import org.yapyap.routing.file.FilePushOps
+import org.yapyap.routing.file.FileReadResult
 import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FilePush
+import org.yapyap.routing.store.FilePushKind
+import org.yapyap.routing.store.FilePushStatus
+import org.yapyap.routing.store.FilePushStore
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
@@ -144,6 +153,9 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
         sealed: ByteArray,
         source: PeerId,
     ): FilePayload.SealedOffer =
+        error("not used in router transport tests")
+
+    override fun generateFileTransferKey(): ByteArray =
         error("not used in router transport tests")
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
@@ -256,6 +268,9 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
     ): FilePayload.SealedOffer =
         delegate.openFileOffer(sealed, source)
 
+    override fun generateFileTransferKey(): ByteArray =
+        delegate.generateFileTransferKey()
+
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         protectStatsMutex.withLock {
             activeProtects++
@@ -363,6 +378,67 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
     fun contains(syncId: Uuid): Boolean = rows.containsKey(syncId)
     fun attemptsOf(syncId: Uuid): Int? = rows[syncId]?.attempts
     fun nextAttemptAt(syncId: Uuid): Instant? = rows[syncId]?.nextAttemptAt
+}
+
+/** In-memory [FilePushStore], mirroring the SQL semantics. */
+internal class InMemoryFilePushStore : FilePushStore {
+    private val rows = linkedMapOf<TransferId, FilePush>()
+    private val mutex = Mutex()
+
+    override suspend fun insert(row: FilePush) = mutex.withLock {
+        rows[row.transferId] = row
+    }
+
+    override suspend fun find(transferId: TransferId): FilePush? = mutex.withLock {
+        rows[transferId]
+    }
+
+    override suspend fun findLiveByFileAndTarget(fileId: FileId, target: PeerId): List<FilePush> = mutex.withLock {
+        rows.values.filter { it.fileId == fileId && it.targetDevice == target && it.status.isLive }
+    }
+
+    override suspend fun live(): List<FilePush> = mutex.withLock {
+        rows.values.filter { it.status.isLive }
+    }
+
+    override suspend fun setStatus(transferId: TransferId, status: FilePushStatus) = mutex.withLock {
+        rows[transferId]?.let { rows[transferId] = it.copy(status = status) }
+        Unit
+    }
+
+    override suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?) = mutex.withLock {
+        rows[transferId]?.let { rows[transferId] = it.copy(markerPacketId = markerPacketId) }
+        Unit
+    }
+
+    override suspend fun setProgress(transferId: TransferId, nextChunkIndex: Int, contiguousAcked: Int) =
+        mutex.withLock {
+            rows[transferId]?.let { rows[transferId] = it.copy(nextChunkIndex = nextChunkIndex, contiguousAcked = contiguousAcked) }
+            Unit
+        }
+
+    override suspend fun expired(now: Instant): List<FilePush> = mutex.withLock {
+        rows.values.filter { it.expiresAt <= now }
+    }
+
+    fun all(): List<FilePush> = rows.values.toList()
+}
+
+/** Scriptable [FilePlaintextSource] for pusher tests. */
+internal class FakeFilePlaintextSource(
+    var describeImpl: (FileId) -> FileDescriptorInfo? = { null },
+    var readImpl: (FileId, Long, Int) -> FileReadResult = { _, _, _ -> FileReadResult.NotHeld },
+) : FilePlaintextSource {
+    override suspend fun describe(fileId: FileId): FileDescriptorInfo? = describeImpl(fileId)
+
+    override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult =
+        readImpl(fileId, offset, maxBytes)
+}
+
+/** No-op [FilePushOps]: starting/cancelling pushes is the pusher's covered behavior. */
+internal class NoopFilePushOps : FilePushOps {
+    override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
+    override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
 }
 
 /** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */
@@ -643,12 +719,31 @@ internal class TrackingPacketOutbox : PacketOutbox {
                 .map { it.toOutboxEntry() }
         }
 
-    override suspend fun listDue(now: Instant): List<OutboxEntry> =
+    override suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow> =
         synchronized(lock) {
-            entries.values
+            val (file, nonFile) = entries.values
                 .filter { it.nextRetryAt <= now }
-                .map { it.toOutboxEntry() }
+                .partition { it.tag?.kind == OutboxTag.Kind.FILE }
+            (nonFile.take(nonFileLimit) + file.take(fileLimit)).map { stored ->
+                DueOutboxRow(
+                    packetId = stored.envelope.packetId,
+                    target = stored.envelope.target,
+                    attempts = stored.attempts,
+                    tag = stored.tag,
+                )
+            }
         }
+
+    val getByPacketIdCalls = mutableListOf<Uuid>()
+
+    override suspend fun getByPacketId(packetId: Uuid): OutboxEntry? {
+        getByPacketIdCalls.add(packetId)
+        return synchronized(lock) { entries[packetId]?.toOutboxEntry() }
+    }
+
+    override suspend fun deleteByTag(tag: OutboxTag) {
+        synchronized(lock) { entries.entries.removeIf { it.value.tag == tag } }
+    }
 
     override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =
         synchronized(lock) {
@@ -861,6 +956,9 @@ internal fun e2eeRouterUnderTest(
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
     fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
+    filePushStore: FilePushStore = InMemoryFilePushStore(),
+    plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
+    fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -881,6 +979,9 @@ internal fun e2eeRouterUnderTest(
         peerAvailabilityStore = FakePeerAvailabilityStore(),
         fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
+        filePushStore = filePushStore,
+        plaintextSource = plaintextSource,
+        fileChunkSize = fileChunkSize,
     )
 
 internal fun outboxProcessorUnderTest(
@@ -932,6 +1033,9 @@ internal fun defaultRouterUnderTest(
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
     fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
+    filePushStore: FilePushStore = InMemoryFilePushStore(),
+    plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
+    fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -952,4 +1056,7 @@ internal fun defaultRouterUnderTest(
         peerAvailabilityStore = FakePeerAvailabilityStore(),
         fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
+        filePushStore = filePushStore,
+        plaintextSource = plaintextSource,
+        fileChunkSize = fileChunkSize,
     )

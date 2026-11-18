@@ -28,6 +28,7 @@ import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.directory.DeviceDirectory
@@ -37,7 +38,9 @@ import org.yapyap.routing.file.DefaultFileCarrier
 import org.yapyap.routing.file.FileCarrier
 import org.yapyap.routing.file.FileEvent
 import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.UnwiredFilePushOps
+import org.yapyap.routing.file.FileOutbox
+import org.yapyap.routing.file.FilePlaintextSource
+import org.yapyap.routing.file.FilePusher
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
@@ -62,6 +65,7 @@ import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FilePushStore
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.PeerAvailabilityStore
@@ -99,6 +103,9 @@ internal class DefaultRouter(
     val peerAvailabilityStore: PeerAvailabilityStore,
     val fileIngestPort: FileIngestPort,
     val fileIncomingStore: FileIncomingTransferStore,
+    val filePushStore: FilePushStore,
+    val plaintextSource: FilePlaintextSource,
+    val fileChunkSize: StateFlow<Int>,
 ) : Router {
 
 
@@ -206,6 +213,21 @@ internal class DefaultRouter(
 
     private val fileEventFlow = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
 
+    private val filePusher = FilePusher(
+        ctx = routingContext,
+        plaintext = plaintextSource,
+        pushes = filePushStore,
+        outbox = object : FileOutbox {
+            override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag) =
+                outboxProcessor.enqueueAndWake(envelope, clock.now(), tag = tag)
+
+            override suspend fun deleteByTag(tag: OutboxTag) =
+                packetOutbox.deleteByTag(tag)
+        },
+        events = fileEventFlow,
+        chunkSizeBytes = fileChunkSize,
+    )
+
     override val fileCarrier: FileCarrier = DefaultFileCarrier(
         localDeviceId = localDeviceId,
         protection = envelopeProtectionService,
@@ -213,7 +235,7 @@ internal class DefaultRouter(
         enqueue = { envelope -> outboxProcessor.enqueueAndWake(envelope, clock.now()) },
         clock = clock,
         routerConfig = routerConfig,
-        pushOps = UnwiredFilePushOps(),
+        pushOps = filePusher,
         events = fileEventFlow,
     )
 
@@ -223,7 +245,21 @@ internal class DefaultRouter(
         handlers = mapOf(
             PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
-            PacketType.FILE to FileInboundHandler(routingContext, fileIncomingStore, fileIngestPort, fileCarrier),
+            PacketType.FILE to FileInboundHandler(
+                routingContext,
+                fileIncomingStore,
+                fileIngestPort,
+                fileCarrier,
+                onCoverageAck = { transferId, contiguous, missing ->
+                    filePusher.onCoverageAck(transferId, contiguous, missing)
+                },
+                onTransferComplete = { transferId ->
+                    filePusher.onTransferComplete(transferId)
+                },
+                onTransferCancelled = { transferId ->
+                    filePusher.onTransferCancelled(transferId)
+                },
+            ),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
             PacketType.BOOTSTRAP to BootstrapInboundHandler(
                 routingContext,
@@ -404,6 +440,10 @@ internal class DefaultRouter(
         }
         outboxRetryJob = outboxProcessor.runIn(scope)
 
+        // Reconcile push transfers with the outbox after a restart (drops stale rows,
+        // re-arms live ones); the outbox loop above dispatches what the pusher re-queues.
+        filePusher.start()
+
         syncRetryJob = syncProcessor.runIn(scope)
 
         pingProvider.runIn(scope)
@@ -564,10 +604,9 @@ internal class DefaultRouter(
 
             OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
 
-            // Step 13 (FilePusher) consumes FILE outcomes: OFFER/chunk ACKs, DECLINED
-            // terminals and expiries per transfer. No pusher exists in step 11, and no
-            // FILE-tagged rows are enqueued yet, so there is nothing to route.
-            OutboxTag.Kind.FILE -> Unit
+            // Pusher-owned: OFFER/chunk ACKs advance the window, DECLINED and other
+            // terminals end the transfer, expiries re-arm live transfers.
+            OutboxTag.Kind.FILE -> filePusher.onOutboxOutcome(outcome)
         }
     }
 }

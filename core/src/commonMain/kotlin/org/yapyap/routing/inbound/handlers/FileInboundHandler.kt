@@ -1,6 +1,5 @@
 package org.yapyap.routing.inbound.handlers
 
-import kotlinx.coroutines.flow.MutableSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -8,6 +7,7 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.ChunkRange
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -47,6 +47,9 @@ internal class FileInboundHandler(
     private val incoming: FileIncomingTransferStore,
     private val ingest: FileIngestPort,
     private val carrier: FileCarrier,
+    private val onCoverageAck: suspend (transferId: TransferId, contiguousChunks: Int, missing: List<ChunkRange>) -> Unit,
+    private val onTransferComplete: suspend (transferId: TransferId) -> Unit,
+    private val onTransferCancelled: suspend (transferId: TransferId) -> Unit,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val fileEnvelope = runCatching { FileEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -76,13 +79,23 @@ internal class FileInboundHandler(
         return when (val payload = opened.payload) {
             is FilePayload.Offer -> handleOffer(env, fileEnvelope, payload)
             is FilePayload.EncryptedChunk -> handleChunk(env, fileEnvelope, payload)
-            is FilePayload.Ack,
-            is FilePayload.Complete,
-            -> InboundHandleResult.Success(sourceAuthenticated = true)
+            is FilePayload.Ack -> {
+                onCoverageAck(fileEnvelope.transferId, payload.contiguousChunks, payload.missingRanges)
+                InboundHandleResult.Success(sourceAuthenticated = true)
+            }
+            is FilePayload.Complete -> {
+                onTransferComplete(fileEnvelope.transferId)
+                InboundHandleResult.Success(sourceAuthenticated = true)
+            }
             is FilePayload.Request -> handleRequest(env, fileEnvelope, payload)
             is FilePayload.Cancel -> {
-                incoming.delete(fileEnvelope.transferId)
-                InboundHandleResult.Success(sourceAuthenticated = true)
+                if (incoming.find(fileEnvelope.transferId) != null) {
+                    incoming.delete(fileEnvelope.transferId)
+                    InboundHandleResult.Success(sourceAuthenticated = true)
+                } else {
+                    onTransferCancelled(fileEnvelope.transferId)
+                    InboundHandleResult.Success(sourceAuthenticated = true)
+                }
             }
         }
     }
@@ -201,7 +214,26 @@ internal class FileInboundHandler(
                         totalBytes = result.totalBytes,
                     ),
                 )
-                InboundHandleResult.Success(sourceAuthenticated = true)
+                // Progress ACK back to the transfer's pusher (own chunk indices, capped).
+                // Best-effort like the transport ACK: untagged, so no outbox outcome.
+                val contiguous = if (result.contiguousBytes == 0L) {
+                    -1
+                } else {
+                    ((result.contiguousBytes - 1) / row.chunkSizeBytes).toInt()
+                }
+                val reply = buildFileControlEnvelope(
+                    protection = ctx.envelopeProtectionService,
+                    transferId = fileEnvelope.transferId,
+                    source = ctx.localDeviceId,
+                    target = fileEnvelope.source,
+                    createdAt = ctx.clock.now(),
+                    expiresAt = ctx.clock.now() + ctx.routerConfig.value.fileTransferTtl,
+                    payload = FilePayload.Ack(contiguous, emptyList()),
+                )
+                InboundHandleResult.Success(
+                    sideEffects = listOf(InboundSideEffect.EnqueueDirect(reply)),
+                    sourceAuthenticated = true,
+                )
             }
 
             FileIngestResult.Duplicate ->

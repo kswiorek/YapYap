@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketOutbox
@@ -233,35 +234,51 @@ internal class OutboxProcessor(
                 )
             }
         }
-        val dueEntries = packetOutbox.listDue(now)
+        // Due rows load without envelope blobs (design §6.2): messages (and ACKs, pings,
+        // system traffic) are claimed before FILE chunk rows, and each claimed row's
+        // envelope loads alone at claim time.
+        val dueIds = packetOutbox.listDueIds(
+            now = now,
+            nonFileLimit = config.outboxMaxInFlight * 2,
+            fileLimit = config.outboxMaxInFlight * 4,
+        )
         val started = inFlightLock.withLock {
             buildList {
-                for (entry in dueEntries) {
+                for (due in dueIds) {
                     if (inFlight.size >= config.outboxMaxInFlight) break
-                    val packetId = entry.envelope.packetId
-                    val target = entry.envelope.target
-                    if (packetId in inFlight) continue
-                    if (inFlight.values.count { it == target } >= config.outboxMaxInFlightPerTarget) continue
-                    inFlight[packetId] = target
-                    add(entry)
+                    if (due.packetId in inFlight) continue
+                    if (inFlight.values.count { it == due.target } >= config.outboxMaxInFlightPerTarget) continue
+                    inFlight[due.packetId] = due.target
+                    add(due)
                 }
             }
         }
-        if (dueEntries.isNotEmpty() || pruned.isNotEmpty()) {
+        if (dueIds.isNotEmpty() || pruned.isNotEmpty()) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
                 event = LogEvent.OUTBOX_PROCESSED,
                 message = "Processing due outbox entries",
                 fields = mapOf(
-                    "dueCount" to dueEntries.size,
+                    "dueCount" to dueIds.size,
                     "startedCount" to started.size,
                     "prunedCount" to pruned.size,
                 ),
             )
         }
         if (started.isEmpty()) return
-        val claimed = started.mapNotNull { entry -> claim(entry, now) }
-        val parked = started.filter { entry -> claimed.none { it.entry === entry } }
+        // Envelopes load one row at a time, only for rows this pass claims.
+        val hydrated = mutableMapOf<Uuid, OutboxEntry>()
+        val claimed = started.mapNotNull { due ->
+            val entry = packetOutbox.getByPacketId(due.packetId) ?: run {
+                inFlightLock.withLock { inFlight.remove(due.packetId) }
+                return@mapNotNull null
+            }
+            hydrated[due.packetId] = entry
+            claim(entry, due, now)
+        }
+        val parked = started.mapNotNull { due ->
+            if (claimed.none { it.entry.packetId == due.packetId }) hydrated[due.packetId] else null
+        }
         if (parked.isNotEmpty()) park(parked, now)
         if (claimed.isEmpty()) return
         val scope = dispatchScope
@@ -285,9 +302,13 @@ internal class OutboxProcessor(
         val config = ctx.routerConfig.value
         val startable = inFlightLock.withLock {
             inFlight.size < config.outboxMaxInFlight &&
-                    packetOutbox.listDue(now).any { entry ->
-                        entry.envelope.packetId !in inFlight &&
-                                inFlight.values.count { it == entry.envelope.target } < config.outboxMaxInFlightPerTarget
+                    packetOutbox.listDueIds(
+                        now,
+                        nonFileLimit = config.outboxMaxInFlight * 2,
+                        fileLimit = config.outboxMaxInFlight * 4,
+                    ).any { due ->
+                        due.packetId !in inFlight &&
+                                inFlight.values.count { it == due.target } < config.outboxMaxInFlightPerTarget
                     }
         }
         return if (startable) earliest else packetOutbox.earliestPendingRetryAfter(now)
@@ -307,7 +328,7 @@ internal class OutboxProcessor(
      * an explicit endpoint (bootstrap to a newcomer, never a linked peer) are the exception
      * and have Tor dial a stream on demand.
      */
-    private suspend fun claim(entry: OutboxEntry, now: Instant): ClaimedDispatch? {
+    private suspend fun claim(entry: OutboxEntry, due: DueOutboxRow, now: Instant): ClaimedDispatch? {
         val envelope = entry.envelope
         val outbound = transportPolicy.resolve(
             target = envelope.target,
@@ -319,7 +340,14 @@ internal class OutboxProcessor(
         // A retry means the previous attempt went unacknowledged (also after a restart, when
         // the in-memory ACK timer of [send] is gone).
         if (entry.attempts > 0) backUpToRelays(envelope, reason = "retry")
-        val nextRetryAt = now + outbound.retryDelay
+        // FILE rows retry at a flat delay for as long as their transfer lives (design §6.2):
+        // a DEFERred chunk would burn the message fast-retry budget in minutes and then sleep
+        // for an hour. The transfer TTL and the stall detector bound them, not an attempt count.
+        val nextRetryAt = if (due.tag?.kind == OutboxTag.Kind.FILE) {
+            now + ctx.routerConfig.value.fileChunkRetryDelay
+        } else {
+            now + outbound.retryDelay
+        }
         packetOutbox.recordAttempt(envelope.packetId, nextRetryAt, now)
         return ClaimedDispatch(entry, transport, now, nextRetryAt)
     }

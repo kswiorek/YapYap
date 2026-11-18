@@ -46,6 +46,7 @@ class DefaultFileCarrierTest {
 
     private data class Harness(
         val carrier: DefaultFileCarrier,
+        val service: DefaultEnvelopeProtectionService,
         val incoming: InMemoryFileIncomingTransferStore,
         val sent: MutableList<org.yapyap.protocol.envelopes.BinaryEnvelope>,
         val localId: PeerId,
@@ -87,10 +88,10 @@ class DefaultFileCarrierTest {
             enqueue = { sent += it },
             clock = FakeClock(epochSeconds(10_000L)),
             routerConfig = MutableStateFlow(RouterConfig()),
-            pushOps = UnwiredFilePushOps(),
+            pushOps = org.yapyap.routing.router.NoopFilePushOps(),
             events = MutableSharedFlow(extraBufferCapacity = 64),
         )
-        return Harness(carrier, incoming, sent, localPeer.device.deviceId)
+        return Harness(carrier, service, incoming, sent, localPeer.device.deviceId)
     }
 
     private fun row(
@@ -162,14 +163,26 @@ class DefaultFileCarrierTest {
     }
 
     @Test
-    fun push_unwired_failsLoudly() = runTest {
+    fun push_delegatesToPushOps() = runTest {
         val h = harness()
-        var failed = false
-        try {
-            h.carrier.pushFile(fileId, AccountId("acct"))
-        } catch (e: IllegalStateException) {
-            failed = true
-        }
-        assertTrue(failed, "push before step 13 must fail loudly, never silently drop")
+        var pushed: Pair<FileId, AccountId>? = null
+        val carrier = DefaultFileCarrier(
+            localDeviceId = h.localId,
+            protection = h.service,
+            incoming = h.incoming,
+            enqueue = { h.sent += it },
+            clock = FakeClock(epochSeconds(10_000L)),
+            routerConfig = MutableStateFlow(RouterConfig()),
+            pushOps = object : org.yapyap.routing.file.FilePushOps {
+                override suspend fun pushFile(fileId: FileId, target: AccountId) {
+                    pushed = fileId to target
+                }
+                override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
+            },
+            events = MutableSharedFlow(extraBufferCapacity = 64),
+        )
+        val target = AccountId("target-account")
+        carrier.pushFile(fileId, target)
+        assertEquals(fileId to target, pushed)
     }
 }

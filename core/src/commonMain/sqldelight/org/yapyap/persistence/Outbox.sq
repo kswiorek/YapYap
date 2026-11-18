@@ -78,12 +78,27 @@ getAllForTargetDevice:
 SELECT * FROM outbox
 WHERE target_device_id = ?;
 
-getDue:
-SELECT * FROM outbox
-WHERE next_retry_at <= ?;
+-- Due pass (design §6.2): ids, targets and tags only — no blobs. Non-FILE rows
+-- (messages, ACKs, pings, system traffic) come before FILE chunk rows so a text
+-- message queued behind a full chunk window goes out first. Each class is
+-- oldest-first and bounded; claimed rows load their envelopes one by one.
+getDueIdsNonFile:
+SELECT packet_id, target_device_id, retry_count, tag_kind, tag_id FROM outbox
+WHERE next_retry_at <= :now AND (tag_kind IS NULL OR tag_kind != :fileKind)
+ORDER BY next_retry_at ASC, packet_id ASC
+LIMIT :limit;
+
+getDueIdsFile:
+SELECT packet_id, target_device_id, retry_count, tag_kind, tag_id FROM outbox
+WHERE next_retry_at <= :now AND tag_kind = :fileKind
+ORDER BY next_retry_at ASC, packet_id ASC
+LIMIT :limit;
 
 getByPacketId:
 SELECT * FROM outbox WHERE packet_id = ?;
+
+deleteByTag:
+DELETE FROM outbox WHERE tag_kind = :kind AND tag_id = :id;
 
 getExpired:
 SELECT * FROM outbox

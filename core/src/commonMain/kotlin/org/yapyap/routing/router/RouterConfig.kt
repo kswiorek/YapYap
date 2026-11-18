@@ -132,6 +132,13 @@ internal data class RouterConfig(
      * (`fileTransferTtl < supersededSessionRetention`, 2 days < 3 days).
      */
     val fileTransferTtl: Duration = 2.days,
+    /** The pusher's in-flight window: pending chunk rows per transfer (≈3.5 MB of outbox). */
+    val maxInFlightChunks: Int = 16,
+    /**
+     * Flat retry delay for FILE chunk rows (design §6.2), outside the message
+     * `fastRetryBudget` / `standbyRetryDelay` policy.
+     */
+    val fileChunkRetryDelay: Duration = 10.seconds,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
@@ -172,6 +179,8 @@ internal data class RouterConfig(
         require(maxRelays > 0) { "maxRelays must be > 0" }
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }
         require(fileTransferTtl > Duration.ZERO) { "fileTransferTtl must be > 0" }
+        require(maxInFlightChunks > 0) { "maxInFlightChunks must be > 0" }
+        require(fileChunkRetryDelay > Duration.ZERO) { "fileChunkRetryDelay must be > 0" }
     }
 
     fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {

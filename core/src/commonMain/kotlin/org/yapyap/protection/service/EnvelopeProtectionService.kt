@@ -59,6 +59,9 @@ internal interface EnvelopeProtectionService {
         source: PeerId,
     ): FilePayload.SealedOffer
 
+    /** Fresh per-transfer symmetric key (design §4): one key never outlives one transfer. */
+    fun generateFileTransferKey(): ByteArray
+
     suspend fun protectMessage(
         input: MessagePayload,
         context: EnvelopeProtectContext,

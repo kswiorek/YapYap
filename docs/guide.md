@@ -268,9 +268,11 @@ never a loss.
 ### Outcomes and delivery state
 
 - Every outbox entry that someone waits on carries a tag saying what it is for (a message push, a bootstrap
-  packet, a sync attempt). However the entry leaves the outbox — ACK, terminal NACK, expiry — the outcome is
-  reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets a tag; it
-  does not add another callback path.
+  packet, a sync attempt, a file transfer). However the entry leaves the outbox — ACK, terminal NACK, expiry —
+  the outcome is reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets
+  a tag; it does not add another callback path. The due query loads only ids, targets and tags (never blobs),
+  claims non-FILE rows first, and FILE chunk rows retry at their own flat delay instead of the message
+  backoff.
 - Upward, the router reports only push-path ACKs, per account (`Router.deliveries`). An ACK proves delivery;
   its absence proves nothing, since relays and the pull path never ACK to the original sender.
 - What the user sees is the orchestrator's: the delivery tracker records an account as holding a message on

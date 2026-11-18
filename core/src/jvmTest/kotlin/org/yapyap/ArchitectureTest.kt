@@ -41,6 +41,7 @@ class ArchitectureTest {
             "routing.file.FilePlaintextSource",
             "routing.file.FileReadResult",
             "routing.file.FileCarrier",
+            "routing.file.FileDescriptorInfo",
             "routing.file.FileEvent",
             "routing.file.FileFailureReason",
             "routing.file.FileIngestPort",
@@ -76,6 +77,7 @@ class ArchitectureTest {
         "routesQueries" to "routing.store",
         "fileQueries" to "orchestrator.file",
         "fileIncomingQueries" to "routing.store",
+        "filePushQueries" to "routing.store",
     )
 
     /** "file (relative to org/yapyap) -> imported name" pairs that are known, scheduled debt. */

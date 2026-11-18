@@ -38,7 +38,19 @@ internal interface PacketOutbox {
     suspend fun deferRetry(packetId: Uuid, nextRetryAt: Instant)
     suspend fun listAllForTarget(target: PeerId): List<OutboxEntry>
 
-    suspend fun listDue(now: Instant): List<OutboxEntry>
+    /**
+     * Due rows *without* envelope blobs (design §6.2): the due pass selects ids, targets and
+     * tags — ordered non-FILE first, then FILE, each oldest-first and bounded — and each
+     * claimed row's envelope loads alone at claim time. Messages (and ACKs, pings, system
+     * traffic) are therefore never stuck behind a full chunk window.
+     */
+    suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow>
+
+    /** Loads one row with its envelope blob (the only blob-loading read on the due path). */
+    suspend fun getByPacketId(packetId: Uuid): OutboxEntry?
+
+    /** Drops every queued row carrying [tag] (transfer teardown, resume clean-slate). */
+    suspend fun deleteByTag(tag: OutboxTag)
 
     /** Removes every row expired at [now]; returns them. */
     suspend fun pruneExpired(now: Instant): List<OutboxEntry>
@@ -76,6 +88,14 @@ internal data class OutboxEntry(
     /** Out-of-band endpoint override, present exactly when the target has no devices row (bootstrap). */
     val targetEndpoint: TorEndpoint? = null,
     val tag: OutboxTag? = null,
+)
+
+/** A due outbox row without its envelope blob: id, target, attempt count and tag. */
+internal data class DueOutboxRow(
+    val packetId: Uuid,
+    val target: PeerId,
+    val attempts: Long,
+    val tag: OutboxTag?,
 )
 
 /**

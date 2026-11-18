@@ -302,9 +302,12 @@ class PersistenceContractsJvmTest {
 
         corruptOutboxBlob(connection!!.driver, corruptPacketId)
 
-        val due = outbox.listDue(epochSeconds(now))
-        assertEquals(1, due.size)
-        assertEquals(validPacketId, due.single().packetId)
+        // The due pass carries no blobs, so both rows are listed; the corrupt row is
+        // dropped when its envelope is loaded at claim time.
+        val due = outbox.listDueIds(epochSeconds(now), nonFileLimit = 100, fileLimit = 100)
+        assertEquals(2, due.size)
+        assertNotNull(outbox.getByPacketId(validPacketId))
+        assertNull(outbox.getByPacketId(corruptPacketId), "corrupt row dropped at claim")
         assertEquals(1, outbox.listAllForTarget(FixtureDevicePeerId).size)
     }
 
@@ -322,16 +325,16 @@ class PersistenceContractsJvmTest {
             envelope = sampleOutboxEnvelope(packetId, FixtureDevicePeerId, now = now),
             nextRetryAt = epochSeconds(now + 100),
         )
-        assertTrue(outbox.listDue(epochSeconds(now)).isEmpty())
+        assertTrue(outbox.listDueIds(epochSeconds(now), nonFileLimit = 100, fileLimit = 100).isEmpty())
         assertEquals(epochSeconds(now + 100), outbox.earliestPendingRetryAt())
 
-        val due = outbox.listDue(epochSeconds(now + 100))
+        val due = outbox.listDueIds(epochSeconds(now + 100), nonFileLimit = 100, fileLimit = 100)
         assertEquals(1, due.size)
         assertEquals(packetId, due.single().packetId)
 
         assertEquals(packetId, outbox.remove(packetId)?.packetId)
         assertNull(outbox.remove(packetId), "a removed row is reported once")
-        assertTrue(outbox.listDue(epochSeconds(now + 100)).isEmpty())
+        assertTrue(outbox.listDueIds(epochSeconds(now + 100), nonFileLimit = 100, fileLimit = 100).isEmpty())
         assertNull(outbox.earliestPendingRetryAt())
     }
 
@@ -359,7 +362,7 @@ class PersistenceContractsJvmTest {
         )
 
         assertTrue(outbox.hasTagged(ackedTag))
-        assertEquals(ackedTag, outbox.listDue(epochSeconds(now)).single { it.packetId == acked }.tag)
+        assertEquals(ackedTag, outbox.listDueIds(epochSeconds(now), nonFileLimit = 100, fileLimit = 100).single { it.packetId == acked }.tag)
         assertEquals(ackedTag, outbox.remove(acked)?.tag)
         assertFalse(outbox.hasTagged(ackedTag))
 
@@ -383,9 +386,9 @@ class PersistenceContractsJvmTest {
         )
         outbox.recordAttempt(packetId, nextRetryAt = epochSeconds(now + 60), at = epochSeconds(now))
 
-        assertTrue(outbox.listDue(epochSeconds(now)).isEmpty())
+        assertTrue(outbox.listDueIds(epochSeconds(now), nonFileLimit = 100, fileLimit = 100).isEmpty())
         assertEquals(epochSeconds(now + 60), outbox.earliestPendingRetryAt())
-        assertEquals(1L, outbox.listDue(epochSeconds(now + 60)).single().attempts)
+        assertEquals(1L, outbox.listDueIds(epochSeconds(now + 60), nonFileLimit = 100, fileLimit = 100).single().attempts)
     }
 
     @Test
@@ -419,7 +422,7 @@ class PersistenceContractsJvmTest {
         )
 
         assertEquals(1, outbox.pruneExpired(epochSeconds(now)).size)
-        assertEquals(validId, outbox.listDue(epochSeconds(now)).single().packetId)
+        assertEquals(validId, outbox.listDueIds(epochSeconds(now), nonFileLimit = 100, fileLimit = 100).single().packetId)
     }
 
     @Test
@@ -444,7 +447,7 @@ class PersistenceContractsJvmTest {
 
         outbox.setDueForTarget(FixtureDevicePeerId, epochSeconds(now))
 
-        val due = outbox.listDue(epochSeconds(now)).map { it.packetId }.toSet()
+        val due = outbox.listDueIds(epochSeconds(now), nonFileLimit = 100, fileLimit = 100).map { it.packetId }.toSet()
         assertEquals(setOf(dueId, futureId), due)
     }
 

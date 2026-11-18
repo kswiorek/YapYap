@@ -66,6 +66,9 @@ internal class DefaultEnvelopeProtectionService(
     ): FilePayload.SealedOffer =
         fileProtection.openOffer(sealed, source)
 
+    override fun generateFileTransferKey(): ByteArray =
+        fileProtection.generateTransferKey()
+
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
         messageProtection.protect(input, context)
 

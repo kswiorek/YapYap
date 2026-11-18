@@ -12,7 +12,9 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.router.InMemoryFilePushStore
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -155,6 +157,9 @@ class UnknownDevicePolicyTest {
             peerAvailabilityStore = availabilityStore,
             fileIngestPort = RefusingFileIngestPort(),
             fileIncomingStore = InMemoryFileIncomingTransferStore(),
+            filePushStore = InMemoryFilePushStore(),
+            plaintextSource = FakeFilePlaintextSource(),
+            fileChunkSize = MutableStateFlow(220 * 1024),
         )
         router.start()
 

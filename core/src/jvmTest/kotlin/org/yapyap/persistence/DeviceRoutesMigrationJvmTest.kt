@@ -41,6 +41,13 @@ internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )""",
         "CREATE INDEX devices_account_idx ON devices(account_id)",
+        // 10.sqm undone: the push rows go (fresh schema creates them).
+        "DROP INDEX IF EXISTS file_pushes_file_target_idx",
+        "DROP TABLE IF EXISTS file_pushes",
+        // 9.sqm undone: the receive state and staging go (fresh schema creates them).
+        "DROP INDEX IF EXISTS file_receive_chunks_file_idx",
+        "DROP TABLE IF EXISTS file_receive_chunks",
+        "DROP TABLE IF EXISTS file_receives",
         // 8.sqm undone: the incoming-transfer rows go (fresh schema creates them).
         "DROP INDEX IF EXISTS file_incoming_transfers_file_idx",
         "DROP TABLE IF EXISTS file_incoming_transfers",

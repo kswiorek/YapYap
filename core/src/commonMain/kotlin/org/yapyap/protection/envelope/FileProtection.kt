@@ -49,4 +49,7 @@ internal interface FileProtection {
 
     /** Inverse of [sealOffer]; a sealed-half replay fails here. */
     suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer
+
+    /** Fresh per-transfer symmetric key (design §4): one key never outlives one transfer. */
+    fun generateTransferKey(): ByteArray
 }

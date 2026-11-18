@@ -59,6 +59,9 @@ internal class ConfigStore(
     private val _transportLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()).transport)
     val transportLimits: StateFlow<TransportLimits> = _transportLimits.asStateFlow()
 
+    private val _fileChunkSizeBytes = MutableStateFlow(FileLimits.from(RuntimeConfig()).chunkSizeBytes)
+    val fileChunkSizeBytes: StateFlow<Int> = _fileChunkSizeBytes.asStateFlow()
+
     private val _userOverrides = MutableStateFlow<Overrides>(emptyMap())
     private val _networkOverrides = MutableStateFlow<Overrides>(emptyMap())
 
@@ -154,6 +157,7 @@ internal class ConfigStore(
         _maxTextMessageBytes.value = limits.maxTextMessageBytes
         _cryptoLimits.value = limits.crypto
         _transportLimits.value = limits.transport
+        _fileChunkSizeBytes.value = FileLimits.from(effective).chunkSizeBytes
     }
 
     private fun readText(file: Path): String? {
