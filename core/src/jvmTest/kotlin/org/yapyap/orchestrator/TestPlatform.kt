@@ -12,6 +12,8 @@ import org.yapyap.crypto.store.MapBackedKeyringSessionFactory
 import org.yapyap.logging.AppLogger
 import org.yapyap.logging.NoopAppLogger
 import org.yapyap.orchestrator.boot.BootConfig
+import org.yapyap.orchestrator.file.io.FileAccess
+import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.persistence.DriverFactory
 import org.yapyap.protocol.DeviceType
 import org.yapyap.transport.tor.RecordingTorBackend
@@ -41,6 +43,8 @@ internal class TestPlatform(
     override fun configFileWatcher(userSettingsFile: Path): ConfigFileWatcher = object : ConfigFileWatcher {
         override fun changes(): Flow<Unit> = emptyFlow()
     }
+
+    override fun fileAccess(): FileAccess = JvmFileAccess()
 }
 
 /** A full-client desktop orchestrator on [dir], wired like production but on [platform]. */

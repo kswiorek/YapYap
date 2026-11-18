@@ -1,0 +1,45 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.FileId;
+import org.yapyap.orchestrator.file.FileStorage;
+import org.yapyap.orchestrator.file.FileDescriptorStatus;
+
+-- Orchestrator-owned permanent store index (design §13): what we hold.
+-- Keys are per transfer and never stored here.
+CREATE TABLE file_descriptors (
+    file_id TEXT AS FileId NOT NULL PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    mime_type TEXT,
+    total_bytes INTEGER NOT NULL,
+    block_size INTEGER NOT NULL,
+    -- Concatenated 32-byte per-block SHA-256 hashes; encoded/decoded in the repository.
+    block_hashes BLOB NOT NULL,
+    storage TEXT AS FileStorage NOT NULL,
+    -- Store path for COPY; original path or content-URI string for REFERENCE.
+    path TEXT NOT NULL,
+    status TEXT AS FileDescriptorStatus NOT NULL,
+    created_at INTEGER AS Instant NOT NULL
+);
+
+insertFileDescriptor:
+INSERT OR REPLACE INTO file_descriptors (
+    file_id, file_name, mime_type, total_bytes, block_size, block_hashes,
+    storage, path, status, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectFileDescriptorById:
+SELECT * FROM file_descriptors WHERE file_id = ?;
+
+deleteFileDescriptorById:
+DELETE FROM file_descriptors WHERE file_id = ?;
+
+updateFileDescriptorStatus:
+UPDATE file_descriptors SET status = ? WHERE file_id = ?;
+
+selectCopyDescriptorsOrderedByCreated:
+SELECT * FROM file_descriptors WHERE storage = 'COPY' ORDER BY created_at ASC;
+
+sumCopyBytes:
+SELECT COALESCE(SUM(total_bytes), 0) FROM file_descriptors WHERE storage = 'COPY';
+
+selectAllFileDescriptors:
+SELECT * FROM file_descriptors;

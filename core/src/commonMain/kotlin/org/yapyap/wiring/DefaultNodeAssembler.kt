@@ -23,6 +23,8 @@ internal class DefaultNodeAssembler(
         SystemFileSystem.createDirectories(layout.dataDirectory)
         SystemFileSystem.createDirectories(layout.torStateRoot)
         SystemFileSystem.createDirectories(layout.logDirectory)
+        SystemFileSystem.createDirectories(layout.fileStoreDirectory)
+        SystemFileSystem.createDirectories(layout.fileIncomingDirectory)
         AppLog.init(platform.logger(layout.logDirectory))
     }
 

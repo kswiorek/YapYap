@@ -160,6 +160,12 @@ internal class DatabaseFactory(
                     sync_idAdapter = UuidAdapter(),
                     account_idAdapter = AccountIdAdapter()
                 ),
+                file_descriptorsAdapter = File_descriptors.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    storageAdapter = EnumColumnAdapter(),
+                    statusAdapter = EnumColumnAdapter(),
+                    created_atAdapter = InstantEpochSecondsAdapter,
+                ),
             ),
             driver = driver,
             created = created,

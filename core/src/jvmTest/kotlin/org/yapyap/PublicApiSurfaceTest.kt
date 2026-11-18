@@ -107,6 +107,8 @@ class PublicApiSurfaceTest {
         "org.yapyap.orchestrator.dag.VerificationState",
         "org.yapyap.protocol.FileId",
         "org.yapyap.protocol.TransferId",
+        "org.yapyap.orchestrator.file.FileStorage",
+        "org.yapyap.orchestrator.file.FileDescriptorStatus",
         "org.yapyap.crypto.store.OpkStatus",
         "org.yapyap.protocol.identity.PublicKey",
         "org.yapyap.protocol.identity.SigningPublicKey",

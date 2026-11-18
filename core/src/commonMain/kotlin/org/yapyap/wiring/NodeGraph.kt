@@ -14,13 +14,7 @@ import org.yapyap.crypto.store.DefaultOpkRepository
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.BootPhase
-import org.yapyap.orchestrator.BootProgress
-import org.yapyap.orchestrator.LocalIdentityWatch
-import org.yapyap.orchestrator.LocalTransportStatus
-import org.yapyap.orchestrator.NodeMode
-import org.yapyap.orchestrator.OnboardingState
-import org.yapyap.orchestrator.TransportStatusMonitor
+import org.yapyap.orchestrator.*
 import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.orchestrator.boot.Node
 import org.yapyap.orchestrator.boot.ResetRequest
@@ -33,19 +27,11 @@ import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
 import org.yapyap.orchestrator.onboarding.LocalSetup
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
-import org.yapyap.orchestrator.store.DefaultCausalHoldRepository
-import org.yapyap.orchestrator.store.DefaultMessageDeliveryRepository
-import org.yapyap.orchestrator.store.DefaultMessageRepository
-import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
-import org.yapyap.orchestrator.store.DefaultRoomRepository
+import org.yapyap.orchestrator.store.*
 import org.yapyap.orchestrator.sync.DefaultFrontierSnapshotProvider
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
-import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.PlaintextFileProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedSystemProtection
+import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
@@ -65,6 +51,9 @@ internal class DataLayout(val dataDirectory: Path) {
     val logDirectory = Path(dataDirectory, "logs")
     val userSettingsFile = Path(dataDirectory, "userSettings.toml")
     val stateFile = Path(dataDirectory, "state.toml")
+    val filesDirectory = Path(dataDirectory, "files")
+    val fileStoreDirectory = Path(filesDirectory, "store")
+    val fileIncomingDirectory = Path(filesDirectory, "incoming")
 }
 
 /**

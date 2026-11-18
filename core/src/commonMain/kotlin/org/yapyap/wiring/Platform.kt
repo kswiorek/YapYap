@@ -5,6 +5,7 @@ import kotlinx.io.files.Path
 import org.yapyap.config.ConfigFileWatcher
 import org.yapyap.crypto.store.KeyringSessionFactory
 import org.yapyap.logging.AppLogger
+import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.persistence.DriverFactory
 import org.yapyap.transport.tor.backend.TorBackend
 import org.yapyap.transport.tor.backend.TorBackendConfig
@@ -24,4 +25,6 @@ internal interface Platform {
     fun logger(logDirectory: Path): AppLogger
 
     fun configFileWatcher(userSettingsFile: Path): ConfigFileWatcher
+
+    fun fileAccess(): FileAccess
 }

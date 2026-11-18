@@ -32,12 +32,14 @@ class ArchitectureTest {
         // The router reads the local identity through crypto's read-only view (LocalIdentity).
         "routing" to listOf("transport", "protection", "protocol", "crypto.identity"),
         // The orchestrator talks to the router through its API and vocabulary, and implements the
-        // ports the router declares for it (directory, sync content, ping frontiers).
+        // ports the router declares for it (directory, sync content, ping frontiers, file plaintext).
         "orchestrator" to listOf(
             "routing.router",
             "routing.directory",
             "routing.sync.SyncPayloadProvider",
             "routing.ping.FrontierSnapshotProvider",
+            "routing.file.FilePlaintextSource",
+            "routing.file.FileReadResult",
             "crypto",
             "protocol",
         ),
@@ -63,6 +65,7 @@ class ArchitectureTest {
         "dedupQueries" to "routing.store",
         "syncAttemptQueries" to "routing.store",
         "routesQueries" to "routing.store",
+        "fileQueries" to "orchestrator.file",
     )
 
     /** "file (relative to org/yapyap) -> imported name" pairs that are known, scheduled debt. */

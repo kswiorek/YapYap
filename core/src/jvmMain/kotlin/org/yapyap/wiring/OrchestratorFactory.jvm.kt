@@ -11,6 +11,8 @@ import org.yapyap.logging.JvmAppLogger
 import org.yapyap.orchestrator.NodeMode
 import org.yapyap.orchestrator.Orchestrator
 import org.yapyap.orchestrator.boot.BootConfig
+import org.yapyap.orchestrator.file.io.FileAccess
+import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.persistence.DriverFactory
 import org.yapyap.persistence.JvmEncryptedDriverFactory
 import org.yapyap.protocol.DeviceType
@@ -69,4 +71,6 @@ internal class JvmPlatform(
     override fun logger(logDirectory: Path): AppLogger = JvmAppLogger(logDirectory = logDirectory)
 
     override fun configFileWatcher(userSettingsFile: Path): ConfigFileWatcher = JvmConfigFileWatcher(userSettingsFile)
+
+    override fun fileAccess(): FileAccess = JvmFileAccess()
 }
