@@ -8,6 +8,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -47,6 +48,14 @@ internal interface MessageRepository {
         ancestryComplete: Boolean,
         verificationState: VerificationState
     ): Boolean
+
+    /** Attachment index (DAG-owned serve-gate index): one row per (message, file). */
+    suspend fun insertAttachment(messageId: Uuid, fileId: FileId)
+
+    /** Read-only lookup for the serve gate: messageIds referencing [fileId]. */
+    suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid>
+
+    suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId>
 
     suspend fun findById(messageId: Uuid): StoredMessage?
 
@@ -129,43 +138,71 @@ internal class DefaultMessageRepository(
         ancestryComplete: Boolean,
         verificationState: VerificationState,
     ): Boolean = withContext(dbDispatcher) {
-        queries.insertMessage(
-            message_id = payload.messageId,
-            room_id = payload.roomId,
-            sender_account_id = payload.senderAccountId,
-            author_device_id = payload.authorDeviceId,
-            verification_state = verificationState,
-            created_at_epoch_seconds = payload.createdAt,
-            payload_type = payload.payloadType,
-            message_payload = payload.encode(),
-            is_orphaned = isOrphaned,
-            ancestry_complete = ancestryComplete,
-        )
-        val inserted = queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
-        if (inserted) {
-            AppLog.debug(
-                component = LogComponent.DATABASE,
-                event = LogEvent.MESSAGE_INSERTED,
-                message = "Inserted message into room",
-                fields = mapOf(
-                    "messageId" to payload.messageId,
-                    "roomId" to payload.roomId,
-                    "isOrphaned" to isOrphaned,
-                    "ancestryComplete" to ancestryComplete,
-                ),
+        queries.transactionWithResult {
+            queries.insertMessage(
+                message_id = payload.messageId,
+                room_id = payload.roomId,
+                sender_account_id = payload.senderAccountId,
+                author_device_id = payload.authorDeviceId,
+                verification_state = verificationState,
+                created_at_epoch_seconds = payload.createdAt,
+                payload_type = payload.payloadType,
+                message_payload = payload.encode(),
+                is_orphaned = isOrphaned,
+                ancestry_complete = ancestryComplete,
             )
-        } else {
-            AppLog.warn(
-                component = LogComponent.DATABASE,
-                event = LogEvent.MESSAGE_INSERT_DUPLICATE,
-                message = "Message insert skipped — message_id already present",
-                fields = mapOf(
-                    "messageId" to payload.messageId,
-                    "roomId" to payload.roomId,
-                ),
-            )
+            val inserted = queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
+            if (inserted) {
+                insertAttachmentRows(payload.messageId, (payload as? MessagePayload.Text)?.attachments)
+                AppLog.debug(
+                    component = LogComponent.DATABASE,
+                    event = LogEvent.MESSAGE_INSERTED,
+                    message = "Inserted message into room",
+                    fields = mapOf(
+                        "messageId" to payload.messageId,
+                        "roomId" to payload.roomId,
+                        "isOrphaned" to isOrphaned,
+                        "ancestryComplete" to ancestryComplete,
+                    ),
+                )
+            } else {
+                AppLog.warn(
+                    component = LogComponent.DATABASE,
+                    event = LogEvent.MESSAGE_INSERT_DUPLICATE,
+                    message = "Message insert skipped — message_id already present",
+                    fields = mapOf(
+                        "messageId" to payload.messageId,
+                        "roomId" to payload.roomId,
+                    ),
+                )
+            }
+            inserted
         }
-        inserted
+    }
+
+    override suspend fun insertAttachment(messageId: Uuid, fileId: FileId) {
+        withContext(dbDispatcher) {
+            queries.insertMessageAttachment(message_id = messageId, file_id = fileId)
+        }
+    }
+
+    override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> =
+        withContext(dbDispatcher) {
+            queries.selectMessageIdsByFileId(fileId).executeAsList()
+        }
+
+    override suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId> =
+        withContext(dbDispatcher) {
+            queries.selectFileIdsByMessageId(messageId).executeAsList()
+        }
+
+    private fun insertAttachmentRows(
+        messageId: Uuid,
+        attachments: List<MessagePayload.Attachment>?,
+    ) {
+        attachments?.forEach { attachment ->
+            queries.insertMessageAttachment(message_id = messageId, file_id = attachment.fileId)
+        }
     }
 
     override suspend fun findById(messageId: Uuid): StoredMessage? =

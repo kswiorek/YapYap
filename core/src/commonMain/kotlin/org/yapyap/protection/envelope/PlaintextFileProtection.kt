@@ -8,7 +8,10 @@ import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.FieldSensitivity
 import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import kotlin.uuid.Uuid
 
 // TODO: [Sprint 5] Replace with real encrypted file protection (SignedAndEncryptedFileProtection).
@@ -23,7 +26,7 @@ internal class PlaintextFileProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextFileProtection but got ${context.securityScheme}"
         }
         val envelope = FileEnvelope(
-            transferId = Uuid.random(),
+            transferId = TransferId(Uuid.random()),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -81,15 +84,9 @@ internal class PlaintextFileProtection(
         )
     }
 
-    override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk {
+    override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): ByteArray {
         // TODO: [Sprint 5] Decrypt chunk payload using per-chunk keys or sender key.
-        return FileChunk(
-            fileName = "",
-            chunkIndex = chunk.chunkIndex,
-            chunkCount = chunk.chunkCount,
-            type = FileType.GENERIC,
-            fileData = chunk.chunkCiphertext,
-        )
+        return chunk.chunkCiphertext
     }
 
     fun observableHeaderValues(envelope: FileEnvelope): Map<String, Any?> =

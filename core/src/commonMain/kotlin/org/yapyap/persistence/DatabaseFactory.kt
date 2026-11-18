@@ -10,6 +10,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.identity.EncryptionPublicKey
@@ -109,6 +110,10 @@ internal class DatabaseFactory(
                     verification_stateAdapter = EnumColumnAdapter(),
                     author_device_idAdapter = PeerIdAdapter(),
                     sender_account_idAdapter = AccountIdAdapter(),
+                ),
+                message_attachmentsAdapter = Message_attachments.Adapter(
+                    message_idAdapter = UuidAdapter(),
+                    file_idAdapter = FileIdAdapter(),
                 ),
                 causal_holdAdapter = Causal_hold.Adapter(
                     gap_idAdapter = UuidAdapter(),
@@ -221,6 +226,11 @@ internal class PeerIdAdapter : ColumnAdapter<PeerId, String> {
     override fun encode(value: PeerId): String {
         return value.id
     }
+}
+
+internal class FileIdAdapter : ColumnAdapter<FileId, String> {
+    override fun decode(databaseValue: String): FileId = FileId(databaseValue)
+    override fun encode(value: FileId): String = value.value
 }
 
 internal data class DatabaseConnection(

@@ -2,7 +2,11 @@ package org.yapyap.crypto.primitives
 
 import dev.whyoleg.cryptography.BinarySize.Companion.bytes
 import dev.whyoleg.cryptography.CryptographyProvider
-import dev.whyoleg.cryptography.algorithms.*
+import dev.whyoleg.cryptography.algorithms.ChaCha20Poly1305
+import dev.whyoleg.cryptography.algorithms.EdDSA
+import dev.whyoleg.cryptography.algorithms.HKDF
+import dev.whyoleg.cryptography.algorithms.SHA256
+import dev.whyoleg.cryptography.algorithms.XDH
 import dev.whyoleg.cryptography.random.CryptographyRandom
 import org.kotlincrypto.error.SignatureException
 import org.yapyap.crypto.keys.EncryptionKeyPair
@@ -44,6 +48,39 @@ internal class DefaultCryptoProvider(
 
     override suspend fun sha256(bytes: ByteArray): ByteArray =
         provider.get(SHA256).hasher().hash(bytes)
+
+    override fun sha256Hasher(): Sha256Hasher = DefaultSha256Hasher(provider.get(SHA256).hasher().createHashFunction())
+
+    private class DefaultSha256Hasher(
+        private val delegate: dev.whyoleg.cryptography.operations.HashFunction,
+    ) : Sha256Hasher {
+        private var closed = false
+
+        override fun update(bytes: ByteArray, offset: Int, length: Int) {
+            require(offset >= 0) { "offset must be >= 0 but was $offset" }
+            require(length >= 0) { "length must be >= 0 but was $length" }
+            require(offset + length <= bytes.size) {
+                "offset ($offset) + length ($length) exceeds size ${bytes.size}"
+            }
+            check(!closed) { "Hasher already digested" }
+            if (length == 0) return
+            delegate.update(bytes, startIndex = offset, endIndex = offset + length)
+        }
+
+        override fun digest(): ByteArray {
+            check(!closed) { "Hasher already digested" }
+            closed = true
+            try {
+                return delegate.hashToByteArray()
+            } finally {
+                try {
+                    delegate.close()
+                } catch (_: Exception) {
+                    // Best effort; digest already computed.
+                }
+            }
+        }
+    }
 
     override fun randomBytes(size: Int): ByteArray {
         require(size > 0) { "size must be greater than 0" }

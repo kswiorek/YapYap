@@ -4,8 +4,23 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.protection.*
-import org.yapyap.protection.envelope.*
+import org.yapyap.protection.FakeIdentityResolverForProtection
+import org.yapyap.protection.PassthroughFileProtection
+import org.yapyap.protection.deviceRecordFor
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.PlaintextMessageProtection
+import org.yapyap.protection.envelope.PlaintextSystemProtection
+import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedMessageProtection
+import org.yapyap.protection.envelope.SignedSystemProtection
+import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
+import org.yapyap.protection.sampleEnvelopeContext
+import org.yapyap.protection.sampleFileOfferPayload
+import org.yapyap.protection.samplePacketAckPayload
+import org.yapyap.protection.samplePacketNackPayload
+import org.yapyap.protection.samplePeerTriplet
+import org.yapyap.protection.sampleTextPayload
+import org.yapyap.protection.sampleWebRtcSignal
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.FilePayload
 import kotlin.test.Test
@@ -100,10 +115,9 @@ class DefaultEnvelopeProtectionServiceTest {
         )
         val chunk = FilePayload.EncryptedChunk(
             chunkIndex = 0,
-            chunkCount = 2,
             chunkCiphertext = byteArrayOf(0xab.toByte()),
         )
         val plain = service.decryptFileChunk(chunk)
-        assertContentEquals(chunk.chunkCiphertext, plain.fileData)
+        assertContentEquals(chunk.chunkCiphertext, plain)
     }
 }

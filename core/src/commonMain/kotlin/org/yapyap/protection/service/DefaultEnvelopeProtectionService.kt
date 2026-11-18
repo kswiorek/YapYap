@@ -1,7 +1,21 @@
 package org.yapyap.protection.service
 
-import org.yapyap.protection.envelope.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protection.envelope.MessageProtection
+import org.yapyap.protection.envelope.SystemProtection
+import org.yapyap.protection.envelope.WebRtcSignalProtection
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.OpenedFileEnvelope
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 
 internal class DefaultEnvelopeProtectionService(
     val webRtcSignalProtection: WebRtcSignalProtection,
@@ -22,7 +36,7 @@ internal class DefaultEnvelopeProtectionService(
     override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         fileProtection.open(envelope)
 
-    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
         fileProtection.decryptChunk(chunk)
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =

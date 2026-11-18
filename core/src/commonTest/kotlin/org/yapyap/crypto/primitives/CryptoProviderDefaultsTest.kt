@@ -62,6 +62,7 @@ class CryptoProviderDefaultsTest {
     /** Base type so overrides only touch methods under test. */
     private open class ThrowingCryptoStub : CryptoProvider {
         override suspend fun sha256(bytes: ByteArray): ByteArray = error("not stubbed: sha256")
+        override fun sha256Hasher(): Sha256Hasher = error("not stubbed: sha256Hasher")
         override fun randomBytes(size: Int): ByteArray = error("not stubbed: randomBytes")
         override suspend fun generateSigningKeyPair(): SigningKeyPair = error("not stubbed: generateSigningKeyPair")
         override suspend fun generateEncryptionKeyPair(): EncryptionKeyPair =

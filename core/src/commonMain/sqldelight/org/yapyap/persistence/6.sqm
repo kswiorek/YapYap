@@ -1,0 +1,14 @@
+-- Phase A foundations: drop placeholder file tables; create the DAG-owned attachment index.
+-- Runs with foreign keys off (see DatabaseInitializer).
+DROP INDEX IF EXISTS file_chunk_tracker_status_idx;
+DROP INDEX IF EXISTS file_transfers_message_idx;
+DROP TABLE IF EXISTS file_chunk_tracker;
+DROP TABLE IF EXISTS file_transfers;
+
+CREATE TABLE message_attachments (
+    message_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    PRIMARY KEY (message_id, file_id),
+    FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
+);
+CREATE INDEX message_attachments_file_idx ON message_attachments(file_id);

@@ -1,36 +1,6 @@
-import org.yapyap.persistence.FileChunkStatus;
-import org.yapyap.persistence.FileTransferStatus;
-
 -- placeholder schema for not-yet implemented tables
 CREATE TABLE spaces (
     space_id TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
     avatar_url TEXT
 );
-
-CREATE TABLE file_transfers (
-    transfer_id TEXT NOT NULL PRIMARY KEY,
-    message_id TEXT NOT NULL,
-    status TEXT AS FileTransferStatus NOT NULL,
-    file_name_hint TEXT,
-    mime_type TEXT,
-    total_bytes INTEGER NOT NULL,
-    chunk_size_bytes INTEGER NOT NULL,
-    chunk_count INTEGER NOT NULL,
-    object_hash BLOB NOT NULL,
-    highest_contiguous_chunk INTEGER NOT NULL DEFAULT -1,
-    local_file_path TEXT NOT NULL,
-    FOREIGN KEY (message_id) REFERENCES messages(message_id)
-);
-
-CREATE TABLE file_chunk_tracker (
-    transfer_id TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    status TEXT AS FileChunkStatus NOT NULL,
-    PRIMARY KEY (transfer_id, chunk_index),
-    FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
-);
-
-
-CREATE INDEX file_transfers_message_idx ON file_transfers(message_id);
-CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status);

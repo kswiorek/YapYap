@@ -6,6 +6,16 @@ import org.yapyap.protocol.RoomId;
 import org.yapyap.protocol.MessagePayloadType;
 import org.yapyap.orchestrator.dag.VerificationState;
 import org.yapyap.protocol.PeerId;
+import org.yapyap.protocol.FileId;
+
+CREATE TABLE message_attachments (
+    message_id TEXT AS Uuid NOT NULL,
+    file_id TEXT AS FileId NOT NULL,
+    PRIMARY KEY (message_id, file_id),
+    FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
+);
+
+CREATE INDEX message_attachments_file_idx ON message_attachments(file_id);
 
 CREATE TABLE messages (
     message_id TEXT AS Uuid NOT NULL PRIMARY KEY,
@@ -239,3 +249,15 @@ DELETE FROM causal_hold WHERE missing_prev_id = ?;
 
 deleteCausalHoldByOrphanedMessageId:
 DELETE FROM causal_hold WHERE orphaned_message_id = ?;
+
+-- ---- message_attachments CRUD (DAG-owned serve-gate index) ----
+
+insertMessageAttachment:
+INSERT OR IGNORE INTO message_attachments (message_id, file_id)
+VALUES (?, ?);
+
+selectMessageIdsByFileId:
+SELECT message_id FROM message_attachments WHERE file_id = ?;
+
+selectFileIdsByMessageId:
+SELECT file_id FROM message_attachments WHERE message_id = ?;

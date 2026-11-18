@@ -38,6 +38,14 @@ public sealed interface MessageDisplayItem {
 
 public data class Message(
     val content: String,
+    val attachments: List<MessageAttachment> = emptyList(),
+)
+
+public data class MessageAttachment(
+    val fileId: String,
+    val fileName: String,
+    val mimeType: String?,
+    val totalBytes: Long,
 )
 
 /**

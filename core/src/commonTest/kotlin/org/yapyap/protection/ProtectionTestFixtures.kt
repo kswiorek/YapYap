@@ -25,13 +25,9 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.FileChunk
-import org.yapyap.protocol.envelopes.FileControlPayload
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.FileTransferClass
-import org.yapyap.protocol.envelopes.FileTransportPreference
-import org.yapyap.protocol.envelopes.FileType
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -111,18 +107,10 @@ internal fun samplePacketNackPayload(
 
 internal fun sampleFileOfferPayload(): FilePayload.Offer =
     FilePayload.Offer(
-        fileNameHint = "note.txt",
-        mimeType = "text/plain",
-        totalBytes = 100L,
         chunkSizeBytes = 10,
-        chunkCount = 10,
-        objectHash = ByteArray(32) { 9 },
-        control = FileControlPayload(
-            transferClass = FileTransferClass.SMALL_STORE_FORWARD,
-            preferredTransport = FileTransportPreference.TOR,
-            supportsResume = false,
-            maxInFlightChunks = 4,
-        ),
+        totalBytes = 100L,
+        startIndex = 0,
+        sealedOfferBytes = byteArrayOf(9),
     )
 
 /**
@@ -253,7 +241,7 @@ internal class PassthroughFileProtection : FileProtection {
 
     override suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
         FileEnvelope(
-            transferId = Uuid.random(),
+            transferId = TransferId(Uuid.random()),
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -273,12 +261,6 @@ internal class PassthroughFileProtection : FileProtection {
             payload = input.decodePayload(),
         )
 
-    override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
-        FileChunk(
-            fileName = "fixture.bin",
-            chunkIndex = chunk.chunkIndex,
-            chunkCount = chunk.chunkCount,
-            type = FileType.GENERIC,
-            fileData = chunk.chunkCiphertext,
-        )
+    override suspend fun decryptChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
+        chunk.chunkCiphertext
 }

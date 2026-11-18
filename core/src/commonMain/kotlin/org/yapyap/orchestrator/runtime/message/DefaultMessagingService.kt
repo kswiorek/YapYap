@@ -1,7 +1,22 @@
 package org.yapyap.orchestrator.runtime.message
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.LocalIdentity
@@ -9,10 +24,20 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.dag.*
+import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.dag.DagException
+import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.dag.MessageDraft
+import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.orchestrator.dag.VerificationStateChange
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.orchestrator.store.*
+import org.yapyap.orchestrator.store.CausalHoldRepository
+import org.yapyap.orchestrator.store.MessageCursor
+import org.yapyap.orchestrator.store.MessageDeliveryRepository
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -267,7 +292,15 @@ internal class DefaultMessagingService(
         }
 
         val payload = try {
-            dagEngine.append(roomId, MessageDraft.Text(message.content))
+            val wireAttachments = message.attachments.map {
+                MessagePayload.Attachment(
+                    fileId = FileId(it.fileId),
+                    fileName = it.fileName,
+                    mimeType = it.mimeType,
+                    totalBytes = it.totalBytes,
+                )
+            }
+            dagEngine.append(roomId, MessageDraft.Text(message.content, wireAttachments))
         } catch (_: DagException.FrontierUnavailable) {
             AppLog.warn(
                 component = LogComponent.MESSAGING,

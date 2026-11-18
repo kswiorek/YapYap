@@ -1,8 +1,18 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.MessagePayloadType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.uuid.Uuid
 
 class MessageEnvelopeCodecTest {
@@ -236,6 +246,7 @@ class MessageEnvelopeCodecTest {
         assertEquals(expected.prevIds, actual.prevIds)
         assertEquals(expected.createdAt, actual.createdAt)
         assertEquals(expected.text, actual.text)
+        assertEquals(expected.attachments, actual.attachments)
         assertContentEquals(expected.authorSignature, actual.authorSignature)
     }
 

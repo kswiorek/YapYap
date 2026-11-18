@@ -44,7 +44,6 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
-import org.yapyap.protocol.envelopes.FileChunk
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
@@ -113,7 +112,7 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
     override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         error("not used in router transport tests")
 
-    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
         error("not used in router transport tests")
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
@@ -198,7 +197,7 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
     override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
         delegate.openFile(envelope)
 
-    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): FileChunk =
+    override suspend fun decryptFileChunk(chunk: FilePayload.EncryptedChunk): ByteArray =
         delegate.decryptFileChunk(chunk)
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {

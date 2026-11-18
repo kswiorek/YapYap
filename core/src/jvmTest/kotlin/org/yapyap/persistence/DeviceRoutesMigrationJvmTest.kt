@@ -15,7 +15,8 @@ import kotlin.test.assertNull
 
 /**
  * Turns a store created at today's schema back into a version-5 store: undoes 5.sqm (the
- * router's device_routes split out of devices) by recreating the version-5 devices shape.
+ * router's device_routes split out of devices) by recreating the version-5 devices shape,
+ * and undoes 6.sqm (file placeholders -> attachment index) by restoring the placeholders.
  */
 internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
     listOf(
@@ -40,6 +41,32 @@ internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )""",
         "CREATE INDEX devices_account_idx ON devices(account_id)",
+        // 6.sqm undone: attachment index goes, old placeholders come back (empty).
+        "DROP INDEX IF EXISTS message_attachments_file_idx",
+        "DROP TABLE IF EXISTS message_attachments",
+        """CREATE TABLE file_transfers (
+            transfer_id TEXT NOT NULL PRIMARY KEY,
+            message_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            file_name_hint TEXT,
+            mime_type TEXT,
+            total_bytes INTEGER NOT NULL,
+            chunk_size_bytes INTEGER NOT NULL,
+            chunk_count INTEGER NOT NULL,
+            object_hash BLOB NOT NULL,
+            highest_contiguous_chunk INTEGER NOT NULL DEFAULT -1,
+            local_file_path TEXT NOT NULL,
+            FOREIGN KEY (message_id) REFERENCES messages(message_id)
+        )""",
+        """CREATE TABLE file_chunk_tracker (
+            transfer_id TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            PRIMARY KEY (transfer_id, chunk_index),
+            FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
+        )""",
+        "CREATE INDEX file_transfers_message_idx ON file_transfers(message_id)",
+        "CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status)",
         "PRAGMA user_version = 5",
     ).forEach { driver.execute(null, it, 0) }
 }

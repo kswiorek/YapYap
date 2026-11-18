@@ -44,6 +44,7 @@ import org.yapyap.orchestrator.store.RoomMember
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -1027,6 +1028,12 @@ private class FakeMessageRepository : MessageRepository {
         byId[payload.messageId] = StoredMessage(payload, isOrphaned, verificationState, ancestryComplete)
         return true
     }
+
+    override suspend fun insertAttachment(messageId: Uuid, fileId: FileId) = Unit
+
+    override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> = emptyList()
+
+    override suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId> = emptyList()
 
     override suspend fun findById(messageId: Uuid): StoredMessage? = byId[messageId]
 

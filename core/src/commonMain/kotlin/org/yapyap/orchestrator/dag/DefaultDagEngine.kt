@@ -12,7 +12,11 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.store.*
+import org.yapyap.orchestrator.store.CausalHoldRepository
+import org.yapyap.orchestrator.store.Gap
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
@@ -104,6 +108,7 @@ internal class DefaultDagEngine(
                 prevIds = prevIds,
                 createdAt = createdAt,
                 text = draft.text,
+                attachments = draft.attachments,
             )
 
             is MessageDraft.GlobalEvent -> MessagePayload.GlobalEvent(

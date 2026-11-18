@@ -1,6 +1,13 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MessagePayloadType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -184,11 +191,15 @@ internal sealed interface MessagePayload {
         override val prevIds: List<Uuid>,
         override val createdAt: Instant,
         val text: String,
+        val attachments: List<Attachment> = emptyList(),
         override val authorSignature: ByteArray? = null,
     ) : MessagePayload {
         init {
             if (authorSignature != null) {
                 require(authorSignature.isNotEmpty()) { "authorSignature must not be empty" }
+            }
+            require(attachments.size <= Attachment.MAX_ATTACHMENTS) {
+                "attachments exceed max ${Attachment.MAX_ATTACHMENTS}"
             }
         }
 
@@ -200,6 +211,8 @@ internal sealed interface MessagePayload {
             val writer = ByteWriter(256 + text.length + (authorSignature?.size ?: 4))
             writeCommonHeader(writer)
             writer.writeString(text)
+            writer.writeInt(attachments.size)
+            attachments.forEach { it.encode(writer) }
             writer.writeNullableByteArray(authorSignature)
             return writer.toByteArray()
         }
@@ -208,6 +221,8 @@ internal sealed interface MessagePayload {
             val writer = ByteWriter(256 + text.length)
             writeCommonHeader(writer)
             writer.writeString(text)
+            writer.writeInt(attachments.size)
+            attachments.forEach { it.encode(writer) }
             return writer.toByteArray()
         }
 
@@ -216,15 +231,22 @@ internal sealed interface MessagePayload {
              * Generous reserve for the fixed [Text] header bytes added by [encode] around the
              * text content: version(1) + type(1) + messageId(16) + roomId(16) + accountId(2+n)
              * + authorDeviceId(2+64) + prevIds(4+16*n) + createdAt(8) + text length
-             * prefix(2) + authorSignature(1+4+64). The variable `accountId` portion is the reason
-             * for the margin; the fixed portion is ~127 bytes.
+             * prefix(2) + attachment count(4) + max attachments + authorSignature(1+4+64).
+             * The variable `accountId` portion is the reason for the margin; the fixed
+             * portion without attachments is ~127 bytes.
              */
-            const val ENCODED_HEADER_RESERVE_BYTES: Int = 512
+            const val ENCODED_HEADER_RESERVE_BYTES: Int =
+                512 + 4 + Attachment.MAX_ATTACHMENTS * Attachment.MAX_ENCODED_BYTES
 
             fun decode(bytes: ByteArray): Text {
                 val reader = ByteReader(bytes)
                 val header = readCommonHeader(reader, MessagePayloadType.TEXT)
                 val text = reader.readString()
+                val count = reader.readInt()
+                require(count in 0..Attachment.MAX_ATTACHMENTS) {
+                    "attachment count $count out of bounds"
+                }
+                val attachments = List(count) { Attachment.decode(reader) }
                 val authorSignature = reader.readNullableByteArray()
                 reader.requireFullyRead()
                 return Text(
@@ -235,6 +257,7 @@ internal sealed interface MessagePayload {
                     prevIds = header.prevIds,
                     createdAt = header.createdAt,
                     text = text,
+                    attachments = attachments,
                     authorSignature = authorSignature,
                 )
             }
@@ -253,6 +276,7 @@ internal sealed interface MessagePayload {
             if (authorDeviceId != other.authorDeviceId) return false
             if (prevIds != other.prevIds) return false
             if (text != other.text) return false
+            if (attachments != other.attachments) return false
             if (!authorSignature.contentEquals(other.authorSignature)) return false
             if (payloadType != other.payloadType) return false
 
@@ -267,10 +291,74 @@ internal sealed interface MessagePayload {
             result = 31 * result + authorDeviceId.hashCode()
             result = 31 * result + prevIds.hashCode()
             result = 31 * result + text.hashCode()
+            result = 31 * result + attachments.hashCode()
             result = 31 * result + (authorSignature?.contentHashCode() ?: 0)
             result = 31 * result + payloadType.hashCode()
             return result
         }
+    }
+
+    data class Attachment(
+        val fileId: FileId,
+        val fileName: String,
+        val mimeType: String?,
+        val totalBytes: Long,
+    ) {
+        init {
+            require(fileName.isNotBlank()) { "fileName must not be blank" }
+            require(fileName.length <= MAX_FILENAME_CHARS) {
+                "fileName exceeds $MAX_FILENAME_CHARS chars"
+            }
+            require(fileName.encodeToByteArray().size <= MAX_FILENAME_BYTES) {
+                "fileName exceeds $MAX_FILENAME_BYTES bytes"
+            }
+            if (mimeType != null) {
+                require(mimeType.isNotBlank()) { "mimeType must not be blank when present" }
+                require(mimeType.length <= MAX_MIMETYPE_CHARS) {
+                    "mimeType exceeds $MAX_MIMETYPE_CHARS chars"
+                }
+                require(mimeType.encodeToByteArray().size <= MAX_MIMETYPE_BYTES) {
+                    "mimeType exceeds $MAX_MIMETYPE_BYTES bytes"
+                }
+            }
+            require(totalBytes >= 0) { "totalBytes must be >= 0" }
+        }
+
+        fun encode(writer: ByteWriter) {
+            writer.writeString(fileId.value)
+            writer.writeString(fileName)
+            writer.writeNullableString(mimeType)
+            writer.writeLong(totalBytes)
+        }
+
+        companion object {
+            const val MAX_ATTACHMENTS: Int = 16
+            const val MAX_FILENAME_CHARS: Int = 80
+            const val MAX_FILENAME_BYTES: Int = 255
+            const val MAX_MIMETYPE_CHARS: Int = 128
+            const val MAX_MIMETYPE_BYTES: Int = 128
+
+            /**
+             * Worst-case encoded bytes per attachment:
+             * fileId(2+64) + fileName(2+255) + mime(2+128 worst, 2 when null) + totalBytes(8).
+             */
+            const val MAX_ENCODED_BYTES: Int = (2 + 64) + (2 + MAX_FILENAME_BYTES) + (2 + MAX_MIMETYPE_BYTES) + 8
+
+            fun decode(reader: ByteReader): Attachment {
+                val fileId = FileId(reader.readString())
+                val fileName = reader.readString()
+                val mimeType = reader.readNullableString()
+                val totalBytes = reader.readLong()
+                return Attachment(
+                    fileId = fileId,
+                    fileName = fileName,
+                    mimeType = mimeType,
+                    totalBytes = totalBytes,
+                )
+            }
+        }
+
+        // FileId is a value class; default equals/hashCode suffice (fileId + strings + long).
     }
 
     data class GlobalEvent(
@@ -498,7 +586,7 @@ private data class MessagePayloadHeader(
     val createdAt: Instant,
 )
 
-private const val PAYLOAD_HEADER_VERSION: Byte = 2
+private const val PAYLOAD_HEADER_VERSION: Byte = 3
 
 private fun readPayloadHeaderVersion(reader: ByteReader) {
     val version = reader.readByte()

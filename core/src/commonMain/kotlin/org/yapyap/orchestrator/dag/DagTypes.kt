@@ -20,7 +20,10 @@ public enum class VerificationState {
 }
 
 internal sealed interface MessageDraft {
-    data class Text(val text: String) : MessageDraft
+    data class Text(
+        val text: String,
+        val attachments: List<MessagePayload.Attachment> = emptyList(),
+    ) : MessageDraft
     data class GlobalEvent(val event: GlobalEventPayload) : MessageDraft
 
     /**

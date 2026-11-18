@@ -12,8 +12,15 @@ import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.uuid.Uuid
 
 
+internal interface Sha256Hasher {
+    fun update(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset)
+    fun digest(): ByteArray
+}
+
 internal interface CryptoProvider {
     suspend fun sha256(bytes: ByteArray): ByteArray
+
+    fun sha256Hasher(): Sha256Hasher
 
     fun randomBytes(size: Int): ByteArray
 

@@ -1,13 +1,33 @@
 package org.yapyap.testfixtures
 
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerKeys
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.signature.AuthorshipOutcome
 import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.store.*
-import org.yapyap.protocol.*
+import org.yapyap.orchestrator.store.CausalHoldRepository
+import org.yapyap.orchestrator.store.Gap
+import org.yapyap.orchestrator.store.MessageCursor
+import org.yapyap.orchestrator.store.MessageDeliveryRepository
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.Room
+import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
@@ -27,6 +47,7 @@ import kotlin.uuid.Uuid
 internal class FakeMessageRepository : MessageRepository {
     val byId = mutableMapOf<Uuid, StoredMessage>()
     private val parentIds = mutableMapOf<Uuid, MutableList<Uuid>>()
+    private val attachments = mutableMapOf<Uuid, MutableSet<FileId>>()
 
     /** Wired by tests exercising the removal-boundary render queries. */
     var roomRepository: FakeRoomRepository? = null
@@ -42,8 +63,21 @@ internal class FakeMessageRepository : MessageRepository {
             return true
         }
         byId[payload.messageId] = StoredMessage(payload, isOrphaned, verificationState, ancestryComplete)
+        (payload as? MessagePayload.Text)?.attachments?.forEach {
+            attachments.getOrPut(payload.messageId) { mutableSetOf() }.add(it.fileId)
+        }
         return true
     }
+
+    override suspend fun insertAttachment(messageId: Uuid, fileId: FileId) {
+        attachments.getOrPut(messageId) { mutableSetOf() }.add(fileId)
+    }
+
+    override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> =
+        attachments.filter { fileId in it.value }.map { it.key }
+
+    override suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId> =
+        attachments[messageId]?.toList() ?: emptyList()
 
     override suspend fun findById(messageId: Uuid): StoredMessage? = byId[messageId]
 
