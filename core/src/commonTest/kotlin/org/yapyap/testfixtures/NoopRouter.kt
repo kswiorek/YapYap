@@ -16,6 +16,7 @@ import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
+import org.yapyap.routing.file.FileCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -31,6 +32,7 @@ internal open class NoopRouter : Router {
     override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
         MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
+    override val fileCarrier: FileCarrier = NoopFileCarrier()
 
     override suspend fun start() = Unit
     override suspend fun stop() = Unit

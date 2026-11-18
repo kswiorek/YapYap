@@ -135,7 +135,12 @@ class SyncRetryProcessorTest {
         val first = h.stack.outbox.enqueued.single()
         h.stack.outboxProcessor.onDisposition(first.packetId, PacketNackReason.DECLINED)
         h.processor.onAttemptOutcome(
-            OutboxOutcome.Nacked(OutboxTag(OutboxTag.Kind.SYNC, syncId), remoteDevice, PacketNackReason.DECLINED),
+            OutboxOutcome.Nacked(
+                OutboxTag(OutboxTag.Kind.SYNC, syncId),
+                remoteDevice,
+                first.packetId,
+                PacketNackReason.DECLINED,
+            ),
         )
 
         h.runFor()
@@ -175,8 +180,15 @@ class SyncRetryProcessorTest {
         val syncId = h.pendingSync()
         h.runFor()
         val tag = OutboxTag(OutboxTag.Kind.SYNC, syncId)
-        h.stack.outboxProcessor.onDisposition(h.stack.outbox.enqueued.single().packetId)  // gone, like an expiry
-        h.processor.onAttemptOutcome(OutboxOutcome.Expired(tag, remoteDevice))
+        val gone = h.stack.outbox.enqueued.single()
+        h.stack.outboxProcessor.onDisposition(gone.packetId)  // gone, like an expiry
+        h.processor.onAttemptOutcome(
+            OutboxOutcome.Expired(
+                tag,
+                remoteDevice,
+                gone.packetId,
+            ),
+        )
 
         h.runFor()
 
@@ -190,13 +202,21 @@ class SyncRetryProcessorTest {
         val syncId = h.pendingSync()
         val tag = OutboxTag(OutboxTag.Kind.SYNC, syncId)
 
-        h.processor.onAttemptOutcome(OutboxOutcome.Nacked(tag, remoteDevice, PacketNackReason.EXPIRED))
+        h.processor.onAttemptOutcome(
+            OutboxOutcome.Nacked(
+                tag,
+                remoteDevice,
+                Uuid.random(),
+                PacketNackReason.EXPIRED,
+            ),
+        )
         h.processor.onAttemptOutcome(
             OutboxOutcome.Nacked(
                 tag,
                 otherDevice,
-                PacketNackReason.PERMANENT_PROTECTION_FAILED
-            )
+                Uuid.random(),
+                PacketNackReason.PERMANENT_PROTECTION_FAILED,
+            ),
         )
 
         assertEquals(emptySet(), h.attempts.declinedDevices(syncId))
@@ -208,9 +228,16 @@ class SyncRetryProcessorTest {
         val syncId = h.pendingSync()
         h.runFor()
         val backoff = h.attempts.nextAttemptAt(syncId)
-        h.stack.outboxProcessor.onDisposition(h.stack.outbox.enqueued.single().packetId)
+        val gone = h.stack.outbox.enqueued.single()
+        h.stack.outboxProcessor.onDisposition(gone.packetId)
 
-        h.processor.onAttemptOutcome(OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.SYNC, syncId), remoteDevice))
+        h.processor.onAttemptOutcome(
+            OutboxOutcome.Expired(
+                OutboxTag(OutboxTag.Kind.SYNC, syncId),
+                remoteDevice,
+                gone.packetId,
+            ),
+        )
 
         assertEquals(backoff, h.attempts.nextAttemptAt(syncId), "nobody else to ask: not every timeout")
     }

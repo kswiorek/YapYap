@@ -36,6 +36,8 @@ import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -451,6 +453,7 @@ private class RecordingRouter : Router {
     override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
         MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
+    override val fileCarrier: FileCarrier = NoopFileCarrier()
 
     /** Where [startSync] goes: the test's local sync retry processor. */
     var onStartSync: suspend (Uuid, Instant) -> Unit = { _, _ -> }

@@ -8,6 +8,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.file.FileCarrier
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -51,6 +52,12 @@ internal interface Router {
      * transport status. Transport types stop here.
      */
     val localLinkStatus: StateFlow<LocalLinkStatus>
+
+    /**
+     * Account-level file operations and events (design §12): the orchestrator pushes and
+     * cancels by account and observes progress/readiness; routing fans out per device.
+     */
+    val fileCarrier: FileCarrier
 
     suspend fun start()
     suspend fun stop()

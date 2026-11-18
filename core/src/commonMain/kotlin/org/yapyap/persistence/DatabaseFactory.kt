@@ -166,6 +166,12 @@ internal class DatabaseFactory(
                     statusAdapter = EnumColumnAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
                 ),
+                file_incoming_transfersAdapter = File_incoming_transfers.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    author_deviceAdapter = PeerIdAdapter(),
+                    created_atAdapter = InstantEpochSecondsAdapter,
+                    expires_atAdapter = InstantEpochSecondsAdapter,
+                ),
             ),
             driver = driver,
             created = created,

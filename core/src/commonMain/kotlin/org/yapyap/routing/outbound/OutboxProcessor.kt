@@ -121,9 +121,10 @@ internal class OutboxProcessor(
     suspend fun onDisposition(packetId: Uuid, nackReason: PacketNackReason? = null) {
         packetOutbox.remove(packetId)?.let { entry ->
             report(entry) { tag, target ->
-                if (nackReason == null) OutboxOutcome.Acked(tag, target) else OutboxOutcome.Nacked(
+                if (nackReason == null) OutboxOutcome.Acked(tag, target, packetId) else OutboxOutcome.Nacked(
                     tag,
                     target,
+                    packetId,
                     nackReason
                 )
             }
@@ -223,7 +224,15 @@ internal class OutboxProcessor(
         val now = ctx.clock.now()
         val config = ctx.routerConfig.value
         val pruned = packetOutbox.pruneExpired(now)
-        pruned.forEach { entry -> report(entry) { tag, target -> OutboxOutcome.Expired(tag, target) } }
+        pruned.forEach { entry ->
+            report(entry) { tag, target ->
+                OutboxOutcome.Expired(
+                    tag,
+                    target,
+                    entry.envelope.packetId,
+                )
+            }
+        }
         val dueEntries = packetOutbox.listDue(now)
         val started = inFlightLock.withLock {
             buildList {

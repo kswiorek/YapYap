@@ -471,6 +471,12 @@ internal class InboundEnvelopeProcessor(
                         relayMessage = true,
                     )
 
+                is InboundSideEffect.EnqueueDirect ->
+                    outboxProcessor.enqueueAndWake(
+                        effect.envelope,
+                        nextRetryAt = ctx.clock.now(),
+                    )
+
                 is InboundSideEffect.OutboxDisposition ->
                     outboxProcessor.onDisposition(effect.packetId, effect.nackReason)
 

@@ -35,6 +35,8 @@ import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.InMemoryIdentityStore
 import kotlin.test.Test
@@ -53,6 +55,7 @@ private class FakeRouter : Router {
     override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
         MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
+    override val fileCarrier: FileCarrier = NoopFileCarrier()
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
     override val incomingMessages: Flow<MessagePayload> = emptyFlow()

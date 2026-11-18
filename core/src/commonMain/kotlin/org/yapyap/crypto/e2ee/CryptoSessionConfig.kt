@@ -6,8 +6,10 @@ import kotlin.time.Duration.Companion.days
 
 @Serializable
 internal data class CryptoSessionConfig(
-    /** Keep superseded rows for late decrypt, then delete this long after supersede (`updatedAtEpochSeconds`). */
-    val supersededRetention: Duration = 2.days,
+    /** Keep superseded rows for late decrypt, then delete this long after supersede (`updatedAtEpochSeconds`).
+     * Must exceed `RouterConfig.fileTransferTtl` (2 days): a ratchet-sealed OFFER half replayed
+     * at the transfer TTL edge must still decrypt (design §3.3, §15). */
+    val supersededRetention: Duration = 3.days,
     /** Delete OFFERED OPKs not consumed within this window (aligned with message lifetime). */
     val offeredOpkRetention: Duration = 2.days,
     /** Delete unpromoted epoch-2 initiator rows after this window (abandoned upgrade attempts). */

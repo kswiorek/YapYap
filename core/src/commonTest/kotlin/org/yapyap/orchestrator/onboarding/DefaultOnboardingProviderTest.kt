@@ -33,6 +33,8 @@ import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryIdentityStore
@@ -49,6 +51,7 @@ import kotlin.uuid.Uuid
 private class FakeOnboardingRouter(
     override val bootstrapPackets: Flow<BootstrapPacketEvent>,
     override val deliveries: Flow<Delivery> = emptyFlow(),
+    override val fileCarrier: FileCarrier = NoopFileCarrier(),
 ) : Router {
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit

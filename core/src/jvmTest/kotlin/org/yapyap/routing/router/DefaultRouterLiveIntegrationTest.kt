@@ -21,6 +21,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.file.RefusingFileIngestPort
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -143,6 +144,8 @@ class DefaultRouterLiveIntegrationTest {
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
+                fileIngestPort = RefusingFileIngestPort(),
+                fileIncomingStore = InMemoryFileIncomingTransferStore(),
             )
         val bobRouter =
             DefaultRouter(
@@ -162,6 +165,8 @@ class DefaultRouterLiveIntegrationTest {
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
+                fileIngestPort = RefusingFileIngestPort(),
+                fileIncomingStore = InMemoryFileIncomingTransferStore(),
             )
 
         try {

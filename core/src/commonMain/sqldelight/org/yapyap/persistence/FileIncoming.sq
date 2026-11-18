@@ -1,0 +1,46 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.FileId;
+import org.yapyap.protocol.PeerId;
+
+-- Receiver-side per-transfer rows (design §13): chunk mapping, decryption and COMPLETE
+-- targets. Rows end with their transfer — COMPLETE sent, CANCEL either way, or expiry —
+-- and are dropped then; a later chunk for the transferId is unknown and gets DECLINED.
+-- Status is a plain string mapped in the store (always ACTIVE while the row lives).
+CREATE TABLE file_incoming_transfers (
+    transfer_id TEXT NOT NULL PRIMARY KEY,
+    file_id TEXT AS FileId NOT NULL,
+    author_device TEXT AS PeerId NOT NULL,
+    key BLOB NOT NULL,
+    chunk_size_bytes INTEGER NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    start_index INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER AS Instant NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL
+);
+
+insertFileIncomingTransfer:
+INSERT INTO file_incoming_transfers (
+    transfer_id, file_id, author_device, key, chunk_size_bytes, total_bytes,
+    start_index, status, created_at, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectFileIncomingTransferById:
+SELECT * FROM file_incoming_transfers WHERE transfer_id = ?;
+
+selectFileIncomingTransfersByFileId:
+SELECT * FROM file_incoming_transfers WHERE file_id = ?;
+
+deleteFileIncomingTransferById:
+DELETE FROM file_incoming_transfers WHERE transfer_id = ?;
+
+deleteFileIncomingTransfersByFileId:
+DELETE FROM file_incoming_transfers WHERE file_id = ?;
+
+selectExpiredFileIncomingTransfers:
+SELECT * FROM file_incoming_transfers WHERE expires_at <= ?;
+
+deleteExpiredFileIncomingTransfers:
+DELETE FROM file_incoming_transfers WHERE expires_at <= ?;
+
+CREATE INDEX file_incoming_transfers_file_idx ON file_incoming_transfers(file_id);

@@ -66,6 +66,7 @@ class ArchitectureTest {
         "syncAttemptQueries" to "routing.store",
         "routesQueries" to "routing.store",
         "fileQueries" to "orchestrator.file",
+        "fileIncomingQueries" to "routing.store",
     )
 
     /** "file (relative to org/yapyap) -> imported name" pairs that are known, scheduled debt. */

@@ -12,6 +12,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.routing.file.RefusingFileIngestPort
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -152,6 +153,8 @@ class UnknownDevicePolicyTest {
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
             peerAvailabilityStore = availabilityStore,
+            fileIngestPort = RefusingFileIngestPort(),
+            fileIncomingStore = InMemoryFileIncomingTransferStore(),
         )
         router.start()
 

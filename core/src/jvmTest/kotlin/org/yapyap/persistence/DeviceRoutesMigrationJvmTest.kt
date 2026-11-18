@@ -41,6 +41,9 @@ internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )""",
         "CREATE INDEX devices_account_idx ON devices(account_id)",
+        // 8.sqm undone: the incoming-transfer rows go (fresh schema creates them).
+        "DROP INDEX IF EXISTS file_incoming_transfers_file_idx",
+        "DROP TABLE IF EXISTS file_incoming_transfers",
         // 7.sqm undone: the permanent store index goes (fresh schema creates it).
         "DROP TABLE IF EXISTS file_descriptors",
         // 6.sqm undone: attachment index goes, old placeholders come back (empty).

@@ -33,6 +33,11 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
+import org.yapyap.routing.file.DefaultFileCarrier
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.routing.file.FileEvent
+import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.UnwiredFilePushOps
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
@@ -56,6 +61,7 @@ import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.PeerAvailabilityStore
@@ -91,6 +97,8 @@ internal class DefaultRouter(
     val syncPayloadProvider: SyncPayloadProvider,
     val frontierSnapshotProvider: FrontierSnapshotProvider,
     val peerAvailabilityStore: PeerAvailabilityStore,
+    val fileIngestPort: FileIngestPort,
+    val fileIncomingStore: FileIncomingTransferStore,
 ) : Router {
 
 
@@ -196,13 +204,26 @@ internal class DefaultRouter(
     )
     private val deliveryFlow = MutableSharedFlow<Delivery>(extraBufferCapacity = 64)
 
+    private val fileEventFlow = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
+
+    override val fileCarrier: FileCarrier = DefaultFileCarrier(
+        localDeviceId = localDeviceId,
+        protection = envelopeProtectionService,
+        incoming = fileIncomingStore,
+        enqueue = { envelope -> outboxProcessor.enqueueAndWake(envelope, clock.now()) },
+        clock = clock,
+        routerConfig = routerConfig,
+        pushOps = UnwiredFilePushOps(),
+        events = fileEventFlow,
+    )
+
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
         ctx = routingContext,
         systemSender = systemSender,
         handlers = mapOf(
             PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
-            PacketType.FILE to FileInboundHandler(),
+            PacketType.FILE to FileInboundHandler(routingContext, fileIncomingStore, fileIngestPort, fileCarrier),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
             PacketType.BOOTSTRAP to BootstrapInboundHandler(
                 routingContext,
@@ -542,6 +563,11 @@ internal class DefaultRouter(
             }
 
             OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
+
+            // Step 13 (FilePusher) consumes FILE outcomes: OFFER/chunk ACKs, DECLINED
+            // terminals and expiries per transfer. No pusher exists in step 11, and no
+            // FILE-tagged rows are enqueued yet, so there is nothing to route.
+            OutboxTag.Kind.FILE -> Unit
         }
     }
 }

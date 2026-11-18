@@ -102,6 +102,12 @@ internal data class BootstrapPacketEvent(
 internal sealed interface InboundSideEffect {
     data class EnqueueForRelay(val envelope: BinaryEnvelope) : InboundSideEffect
 
+    /**
+     * Direct reply to the source (FILE COMPLETE/CANCEL): ordinary routable packet, enqueued
+     * untagged with no relay backup — control packets are politeness, bounded by the TTL.
+     */
+    data class EnqueueDirect(val envelope: BinaryEnvelope) : InboundSideEffect
+
     /** The target answered our outbox packet: ACK when [nackReason] is null, else a terminal NACK. */
     data class OutboxDisposition(val packetId: Uuid, val nackReason: PacketNackReason? = null) : InboundSideEffect
 
@@ -150,14 +156,27 @@ internal sealed interface OutboxOutcome {
     val tag: OutboxTag
     val target: PeerId
 
-    data class Acked(override val tag: OutboxTag, override val target: PeerId) : OutboxOutcome
+    /** The outbox row that left (chunk rows share their transfer tag; this tells them apart). */
+    val packetId: Uuid
+
+    data class Acked(
+        override val tag: OutboxTag,
+        override val target: PeerId,
+        override val packetId: Uuid,
+    ) : OutboxOutcome
+
     data class Nacked(
         override val tag: OutboxTag,
         override val target: PeerId,
+        override val packetId: Uuid,
         val reason: PacketNackReason,
     ) : OutboxOutcome
 
-    data class Expired(override val tag: OutboxTag, override val target: PeerId) : OutboxOutcome
+    data class Expired(
+        override val tag: OutboxTag,
+        override val target: PeerId,
+        override val packetId: Uuid,
+    ) : OutboxOutcome
 }
 
 internal sealed interface PeerSendOutcome {

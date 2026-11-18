@@ -35,6 +35,7 @@ import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -64,8 +65,12 @@ import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.RefusingFileIngestPort
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.FileIncomingTransfer
+import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
@@ -358,6 +363,40 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
     fun contains(syncId: Uuid): Boolean = rows.containsKey(syncId)
     fun attemptsOf(syncId: Uuid): Int? = rows[syncId]?.attempts
     fun nextAttemptAt(syncId: Uuid): Instant? = rows[syncId]?.nextAttemptAt
+}
+
+/** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */
+internal class InMemoryFileIncomingTransferStore : FileIncomingTransferStore {
+    private val rows = linkedMapOf<TransferId, FileIncomingTransfer>()
+    private val mutex = Mutex()
+
+    override suspend fun insert(row: FileIncomingTransfer) = mutex.withLock {
+        rows[row.transferId] = row
+    }
+
+    override suspend fun find(transferId: TransferId): FileIncomingTransfer? = mutex.withLock {
+        rows[transferId]
+    }
+
+    override suspend fun findByFile(fileId: FileId): List<FileIncomingTransfer> = mutex.withLock {
+        rows.values.filter { it.fileId == fileId }
+    }
+
+    override suspend fun delete(transferId: TransferId) = mutex.withLock {
+        rows.remove(transferId)
+        Unit
+    }
+
+    override suspend fun deleteByFile(fileId: FileId) = mutex.withLock {
+        rows.entries.removeIf { it.value.fileId == fileId }
+        Unit
+    }
+
+    override suspend fun pruneExpired(now: Instant): List<FileIncomingTransfer> = mutex.withLock {
+        val expired = rows.values.filter { it.expiresAt <= now }
+        expired.forEach { rows.remove(it.transferId) }
+        expired
+    }
 }
 
 
@@ -820,6 +859,8 @@ internal fun e2eeRouterUnderTest(
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
+    fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
+    fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -838,6 +879,8 @@ internal fun e2eeRouterUnderTest(
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
+        fileIngestPort = fileIngestPort,
+        fileIncomingStore = fileIncomingStore,
     )
 
 internal fun outboxProcessorUnderTest(
@@ -887,6 +930,8 @@ internal fun defaultRouterUnderTest(
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
+    fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
+    fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
 ): DefaultRouter =
     DefaultRouter(
         torTransport = tor,
@@ -905,4 +950,6 @@ internal fun defaultRouterUnderTest(
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
+        fileIngestPort = fileIngestPort,
+        fileIncomingStore = fileIncomingStore,
     )

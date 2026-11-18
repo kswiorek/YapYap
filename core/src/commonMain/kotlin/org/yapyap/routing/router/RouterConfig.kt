@@ -125,6 +125,13 @@ internal data class RouterConfig(
     val maxRelays: Int = 3,
     /** Relays below this reliability score are never used (score 0 = opted out). */
     val minRelayScore: Double = 0.1,
+    /**
+     * File-transfer lifetime (design §15): OFFER markers, relay reservations and transfer
+     * rows live this long. Must stay below the ratchet superseded-session retention so a
+     * sealed OFFER half replayed at the TTL edge still decrypts
+     * (`fileTransferTtl < supersededSessionRetention`, 2 days < 3 days).
+     */
+    val fileTransferTtl: Duration = 2.days,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
@@ -164,6 +171,7 @@ internal data class RouterConfig(
         require(relayTargetSuccessProbability in 0.0..1.0) { "relayTargetSuccessProbability must be in [0,1]" }
         require(maxRelays > 0) { "maxRelays must be > 0" }
         require(minRelayScore in 0.0..1.0) { "minRelayScore must be in [0,1]" }
+        require(fileTransferTtl > Duration.ZERO) { "fileTransferTtl must be > 0" }
     }
 
     fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {

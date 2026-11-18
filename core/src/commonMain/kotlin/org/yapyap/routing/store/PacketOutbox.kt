@@ -93,6 +93,13 @@ internal data class OutboxTag(val kind: Kind, val id: Uuid) {
 
         /** One attempt of a sync request; [id] is the sync id. */
         SYNC(2),
+
+        /**
+         * One file-transfer packet; [id] is the transfer id. The outcome routes to the
+         * pusher (step 13): the OFFER marker, chunk rows and control packets of one transfer
+         * share the transfer id, while [OutboxOutcome.packetId] tells chunk rows apart.
+         */
+        FILE(3),
         ;
 
         companion object {

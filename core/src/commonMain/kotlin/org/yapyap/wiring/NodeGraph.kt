@@ -34,9 +34,11 @@ import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
+import org.yapyap.routing.file.RefusingFileIngestPort
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.store.DefaultDeviceRouteStore
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
 import org.yapyap.routing.store.DefaultPacketDeduplicator
 import org.yapyap.routing.store.DefaultPacketOutbox
 import org.yapyap.routing.store.DefaultSyncAttemptStore
@@ -95,6 +97,7 @@ internal class NodeGraph(
     private val roomRepository = DefaultRoomRepository(database)
     private val pendingSyncRepository = DefaultPendingSyncRepository(database)
     private val deviceRoutes = DefaultDeviceRouteStore(database, identityStore)
+    private val fileIncomingStore = DefaultFileIncomingTransferStore(database)
 
     // Crypto and envelope protection
     private val cryptoSessionManager = DefaultCryptoSessionManager(
@@ -151,6 +154,10 @@ internal class NodeGraph(
         transportLimits = config.transportLimits,
         frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepository, localDeviceId),
         peerAvailabilityStore = deviceRoutes,
+        // Step 11: the receive engine (step 12) takes over the ingest port; until then
+        // every OFFER is cleanly declined and every chunk answered DECLINED.
+        fileIngestPort = RefusingFileIngestPort(),
+        fileIncomingStore = fileIncomingStore,
     )
 
     // History, folds and sync
