@@ -2,13 +2,27 @@ package org.yapyap.transport.tor.backend
 
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.ioDispatcher
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
@@ -68,7 +82,7 @@ internal class LoopbackTorBackend(
 
         // ktor's selector loop blocks its thread in select(): never on Default (several
         // loopback instances in one process would starve it).
-        val selector = SelectorManager(Dispatchers.IO)
+        val selector = SelectorManager(ioDispatcher)
         selectorManager = selector
 
         val listener = aSocket(selector).tcp().bind(LOOPBACK_HOST, 0)

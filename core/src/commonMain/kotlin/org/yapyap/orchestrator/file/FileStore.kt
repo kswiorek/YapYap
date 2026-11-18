@@ -1,10 +1,10 @@
 package org.yapyap.orchestrator.file
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.file.io.FileAccess
+import org.yapyap.persistence.ioDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.blockSizeFor
 import kotlin.time.Clock
@@ -51,7 +51,7 @@ internal class DefaultFileStore(
         fileName: String,
         mimeType: String?,
         keepCopy: Boolean,
-    ): FileDescriptor = withContext(Dispatchers.IO) {
+    ): FileDescriptor = withContext(ioDispatcher) {
         require(fileName.isNotBlank()) { "fileName must not be blank" }
         val totalBytes = sourceSize(source)
             ?: throw IllegalArgumentException("import source is missing")

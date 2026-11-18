@@ -1,12 +1,11 @@
 package org.yapyap.crypto.store
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import org.yapyap.crypto.keys.KeySlot
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.persistence.ioDispatcher
 import kotlin.io.encoding.Base64
 
 internal class DefaultKeyStore(
@@ -15,7 +14,7 @@ internal class DefaultKeyStore(
 ) : KeyStore {
 
     override suspend fun putKey(slot: KeySlot, key: ByteArray) {
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             sessionFactory.open().use { session ->
                 session.setPassword(
                     serviceName = serviceName,
@@ -33,7 +32,7 @@ internal class DefaultKeyStore(
     }
 
     override suspend fun getKey(slot: KeySlot): ByteArray? {
-        val encoded = withContext(Dispatchers.IO) {
+        val encoded = withContext(ioDispatcher) {
             sessionFactory.open().use { session ->
                 runCatching {
                     session.getPassword(serviceName, slot.keyringName)
@@ -53,7 +52,7 @@ internal class DefaultKeyStore(
     }
 
     override suspend fun deleteKey(slot: KeySlot) {
-        val deleted = withContext(Dispatchers.IO) {
+        val deleted = withContext(ioDispatcher) {
             sessionFactory.open().use { session ->
                 runCatching {
                     session.deletePassword(serviceName, slot.keyringName)

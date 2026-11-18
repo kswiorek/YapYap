@@ -7,6 +7,11 @@ import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DagEngine
+import org.yapyap.orchestrator.file.FileDescriptorStore
+import org.yapyap.orchestrator.file.FileReceiveStore
+import org.yapyap.orchestrator.file.FileStore
+import org.yapyap.orchestrator.file.FileTransferStore
+import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
 import org.yapyap.orchestrator.identity.IdentityReader
@@ -19,6 +24,8 @@ import org.yapyap.orchestrator.runtime.admin.DefaultAdminService
 import org.yapyap.orchestrator.runtime.config.ConfigService
 import org.yapyap.orchestrator.runtime.config.DefaultConfigService
 import org.yapyap.orchestrator.runtime.config.UserSettings
+import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
+import org.yapyap.orchestrator.runtime.file.FileTransferService
 import org.yapyap.orchestrator.runtime.identity.DefaultIdentityService
 import org.yapyap.orchestrator.runtime.identity.IdentityService
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
@@ -33,6 +40,8 @@ import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.DeviceType
 import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.RouterConfig
+import kotlin.time.Clock
 
 public interface OrchestratorRuntime {
     public val messaging: MessagingService
@@ -46,6 +55,9 @@ public interface OrchestratorRuntime {
 
     /** Chat list, headers, and room creation. */
     public val rooms: RoomService
+
+    /** Files: receive state, completed-file paths and transfer progress. */
+    public val files: FileTransferService
 
     /** Admin-gated global-event mutations. */
     public val admin: AdminService
@@ -74,6 +86,13 @@ internal class DefaultOrchestratorRuntime(
     roomEventProjector: RoomEventProjector,
     roomRepository: RoomRepository,
     localDeviceType: DeviceType,
+    fileStore: FileStore,
+    fileTransfers: FileTransferStore,
+    fileReceives: FileReceiveStore,
+    fileDescriptors: FileDescriptorStore,
+    fileAccess: FileAccess,
+    routerConfig: StateFlow<RouterConfig>,
+    clock: Clock,
 ) : OrchestratorRuntime {
 
     override val messaging = DefaultMessagingService(
@@ -87,6 +106,16 @@ internal class DefaultOrchestratorRuntime(
         localIdentity = localIdentity,
         maxTextBytes = maxTextMessageBytes,
         orchestratorConfig = orchestratorConfig,
+        fileStore = fileStore,
+        fileTransfers = fileTransfers,
+        routerConfig = routerConfig,
+        clock = clock,
+    )
+
+    override val files = DefaultFileTransferService(
+        receives = fileReceives,
+        descriptors = fileDescriptors,
+        files = fileAccess,
     )
 
     override val onboarding = DefaultOnboardingService(

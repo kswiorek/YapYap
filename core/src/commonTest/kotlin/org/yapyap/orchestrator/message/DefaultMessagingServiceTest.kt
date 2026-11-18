@@ -27,12 +27,24 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.orchestrator.file.FileDescriptor
+import org.yapyap.orchestrator.file.FileDescriptorStatus
+import org.yapyap.orchestrator.file.FileImportSource
+import org.yapyap.orchestrator.file.FileStorage
+import org.yapyap.orchestrator.file.FileStore
+import org.yapyap.orchestrator.file.FileTransfer
+import org.yapyap.orchestrator.file.FileTransferClass
+import org.yapyap.orchestrator.file.FileTransferDirection
+import org.yapyap.orchestrator.file.FileTransferStatus
+import org.yapyap.orchestrator.file.FileTransferStore
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.FanoutReport
 import org.yapyap.orchestrator.runtime.message.IncomingMessageEvent
 import org.yapyap.orchestrator.runtime.message.Message
 import org.yapyap.orchestrator.runtime.message.MessageDisplayItem
+import org.yapyap.orchestrator.runtime.message.PickedFile
+import org.yapyap.orchestrator.runtime.message.PickedFileSource
 import org.yapyap.orchestrator.runtime.message.SendMessageResult
 import org.yapyap.orchestrator.runtime.message.SendRefusal
 import org.yapyap.orchestrator.store.CausalHoldRepository
@@ -60,16 +72,18 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.routing.file.FileEvent
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Router
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.testfixtures.NoopFileCarrier
+import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
+import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -137,26 +151,34 @@ class DefaultMessagingServiceTest {
     }
 
     private fun newService(
-        scope: TestScope,
         pipeline: DefaultInboundMessagePipeline = DefaultInboundMessagePipeline(router, dagEngine),
         maxTextMessageBytes: Int = testMessageLimits().maxTextMessageBytes,
-    ): DefaultMessagingService = DefaultMessagingService(
-        dagEngine = dagEngine,
-        router = router,
-        pipeline = pipeline,
-        roomRepository = roomMembershipRepo,
-        messageRepository = messageRepo,
-        deliveryRepository = InMemoryMessageDeliveryRepository(messageRepo),
-        causalHoldRepository = causalHoldRepo,
-        localIdentity = identityResolver,
-        maxTextBytes = MutableStateFlow(maxTextMessageBytes),
-        orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
-    )
+        fileStore: FileStore = FakeFileStore(),
+        fileTransfers: FileTransferStore = FakeFileTransferStore(),
+        fileCarrier: FileCarrier = RecordingFileCarrier(),
+    ): DefaultMessagingService {
+        router.fileCarrier = fileCarrier
+        return DefaultMessagingService(
+            dagEngine = dagEngine,
+            router = router,
+            pipeline = pipeline,
+            roomRepository = roomMembershipRepo,
+            messageRepository = messageRepo,
+            deliveryRepository = InMemoryMessageDeliveryRepository(messageRepo),
+            causalHoldRepository = causalHoldRepo,
+            localIdentity = identityResolver,
+            maxTextBytes = MutableStateFlow(maxTextMessageBytes),
+            orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
+            fileStore = fileStore,
+            fileTransfers = fileTransfers,
+            routerConfig = MutableStateFlow(RouterConfig()),
+        )
+    }
 
     @Test
     fun sendTextMessage_appendsToDag_andFansOutToAllMembers() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val result = service.sendMessage(roomId, Message("hello from local"))
@@ -177,6 +199,101 @@ class DefaultMessagingServiceTest {
     }
 
     @Test
+    fun sendMessage_withPickedFiles_importsPublishesAndPushesSmallFiles() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val fileCarrier = RecordingFileCarrier()
+        val fileStore = FakeFileStore(
+            nextDescriptor = { name ->
+                FileDescriptor(
+                    fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                    fileName = name,
+                    mimeType = "image/jpeg",
+                    totalBytes = 1024L,
+                    blockSize = 1024 * 1024,
+                    blockHashes = emptyList(),
+                    storage = FileStorage.COPY,
+                    path = "/store/img",
+                    status = FileDescriptorStatus.HELD,
+                    createdAt = epochSeconds(1L),
+                )
+            },
+        )
+        val transfers = FakeFileTransferStore()
+        val service = newService(pipeline, fileStore = fileStore, fileTransfers = transfers, fileCarrier = fileCarrier)
+        startStack(this, pipeline, service)
+
+        val result = service.sendMessage(
+            roomId,
+            Message(
+                content = "look at this",
+                pickedFiles = listOf(
+                    PickedFile("photo.jpg", "image/jpeg", PickedFileSource.FilePath("/tmp/photo.jpg")),
+                ),
+            ),
+        )
+
+        assertIs<SendMessageResult.Sent>(result)
+        // The message carries the imported attachment.
+        val stored = messageRepo.findAllInRoom(roomId).map { it.payload }.single()
+        val attachments = (stored as MessagePayload.Text).attachments
+        assertEquals(1, attachments.size)
+        assertEquals("photo.jpg", attachments.single().fileName)
+        assertEquals(1024L, attachments.single().totalBytes)
+        // One SEND row per member (local + remote), small files push to every member.
+        assertEquals(2, transfers.rows.size)
+        assertTrue(transfers.rows.all { it.direction == FileTransferDirection.SEND })
+        assertEquals(
+            setOf(localAccount, remoteAccount),
+            fileCarrier.pushed.map { it.second }.toSet(),
+        )
+    }
+
+    @Test
+    fun sendMessage_withLargePickedFile_publishesWithoutPushing() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+        val fileCarrier = RecordingFileCarrier()
+        val fileStore = FakeFileStore(
+            nextDescriptor = { name ->
+                FileDescriptor(
+                    fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                    fileName = name,
+                    mimeType = "application/octet-stream",
+                    totalBytes = 100L * 1024 * 1024,
+                    blockSize = 1024 * 1024,
+                    blockHashes = emptyList(),
+                    storage = FileStorage.REFERENCE,
+                    path = "/tmp/big.bin",
+                    status = FileDescriptorStatus.HELD,
+                    createdAt = epochSeconds(1L),
+                )
+            },
+        )
+        val transfers = FakeFileTransferStore()
+        val service = newService(pipeline, fileStore = fileStore, fileTransfers = transfers, fileCarrier = fileCarrier)
+        startStack(this, pipeline, service)
+
+        val result = service.sendMessage(
+            roomId,
+            Message(
+                content = "big one",
+                pickedFiles = listOf(
+                    PickedFile(
+                        "big.bin",
+                        "application/octet-stream",
+                        PickedFileSource.FilePath("/tmp/big.bin"),
+                        keepCopy = false
+                    ),
+                ),
+            ),
+        )
+
+        assertIs<SendMessageResult.Sent>(result)
+        assertEquals(FileTransferClass.LARGE, transfers.rows.single { it.peerAccountId == remoteAccount }.klass)
+        assertTrue(fileCarrier.pushed.isEmpty(), "large files are pull-only: nothing is pushed")
+        assertEquals(listOf("big.bin"), fileStore.imports)
+    }
+
+    @Test
     fun sendTextMessage_parkedFrontier_returnsHistoryIncomplete_andSendsNothing() =
         runTest(UnconfinedTestDispatcher()) {
             dagEngine.ingest(
@@ -192,7 +309,7 @@ class DefaultMessagingServiceTest {
                 ),
             )
             val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-            val service = newService(this, pipeline)
+            val service = newService(pipeline)
             startStack(this, pipeline, service)
 
             val result = service.sendMessage(roomId, Message("hello from local"))
@@ -207,7 +324,7 @@ class DefaultMessagingServiceTest {
     fun sendTextMessage_toEmptyRoom_returnsSuccessWithZeroPeers() = runTest(UnconfinedTestDispatcher()) {
         roomMembershipRepo.members[roomId] = emptyList()
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val result = service.sendMessage(roomId, Message("no peers here"))
@@ -221,7 +338,6 @@ class DefaultMessagingServiceTest {
     fun sendTextMessage_oversizedText_returnsTooLarge_andDoesNotAppendToDag() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
         val service = newService(
-            this,
             pipeline,
             maxTextMessageBytes = 8,
         )
@@ -243,7 +359,7 @@ class DefaultMessagingServiceTest {
         dagEngine.append(roomId, MessageDraft.Text("msg-2"))
 
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val window = service.openRoom(roomId, initialPageSize = 100)
@@ -262,7 +378,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun sendTextMessage_updatesOpenWindow() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val window = service.openRoom(roomId, initialPageSize = 10)
@@ -284,7 +400,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun incomingMessage_updatesOpenWindow_withSenderTimestamp() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val msg1Uuid = Uuid.random()
@@ -321,7 +437,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun incomingOutOfOrderMessage_showsGapIndicator() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val msg1Uuid = Uuid.random()
@@ -354,7 +470,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun gapClosure_removesGapFromWindow() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val msg1Uuid = Uuid.random()
@@ -409,7 +525,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun incomingMessage_emitsSignal_onlyFromOthers() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val msg1Uuid = Uuid.random()
@@ -470,7 +586,7 @@ class DefaultMessagingServiceTest {
         // suppress the notification — the event carries content, so the
         // filter (not contentlessness) is the enforcement.
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val received = mutableListOf<IncomingMessageEvent>()
@@ -504,7 +620,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun globalEvent_doesNotUpdateWindow_andDoesNotEmitEvent() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val window = service.openRoom(roomId, initialPageSize = 100)
@@ -536,7 +652,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun roomEvent_doesNotUpdateWindow_andDoesNotEmitEvent() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val window = service.openRoom(roomId, initialPageSize = 100)
@@ -568,14 +684,14 @@ class DefaultMessagingServiceTest {
     @Test
     fun loadOlder_paginatesBackward() = runTest(UnconfinedTestDispatcher()) {
         // Three messages: m1 (oldest), m2, m3 (newest).
-        val m1 = dagEngine.append(roomId, MessageDraft.Text("a"))
+        dagEngine.append(roomId, MessageDraft.Text("a"))
         clock.advanceBy(1L.seconds)
-        val m2 = dagEngine.append(roomId, MessageDraft.Text("b"))
+        dagEngine.append(roomId, MessageDraft.Text("b"))
         clock.advanceBy(1L.seconds)
-        val m3 = dagEngine.append(roomId, MessageDraft.Text("c"))
+        dagEngine.append(roomId, MessageDraft.Text("c"))
 
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val window = service.openRoom(roomId, initialPageSize = 2)
@@ -630,7 +746,7 @@ class DefaultMessagingServiceTest {
     fun roomPreview_returnsNewestVisibleMessage() = runTest(UnconfinedTestDispatcher()) {
         seedText(localAccount, "old", tick = 1L)
         seedText(remoteAccount, "new", tick = 2L)
-        val service = newService(this)
+        val service = newService()
 
         val preview = service.roomPreview(roomId)
 
@@ -649,7 +765,7 @@ class DefaultMessagingServiceTest {
         val stranger = AccountId("msg-stranger")
         seedText(remoteAccount, "member says hi", tick = 1L)
         seedText(stranger, "stranger smuggles", tick = 2L)
-        val service = newService(this)
+        val service = newService()
 
         val preview = service.roomPreview(roomId)
 
@@ -667,7 +783,7 @@ class DefaultMessagingServiceTest {
         // boundary is the whole rule).
         val era = seedLinkedText(remoteAccount, "before i left", tick = 1L, parents = emptyList())
         seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
-        val service = newService(this)
+        val service = newService()
 
         val preview = service.roomPreview(roomId)
 
@@ -684,7 +800,7 @@ class DefaultMessagingServiceTest {
         // the removal event itself has no display item, so nothing renders.
         val removal = seedRemoval(remoteAccount, parents = emptyList(), tick = 2L)
         seedLinkedText(remoteAccount, "post removal spam", tick = 3L, parents = listOf(removal.messageId))
-        val service = newService(this)
+        val service = newService()
 
         assertNull(service.roomPreview(roomId))
     }
@@ -697,7 +813,7 @@ class DefaultMessagingServiceTest {
         val era = seedLinkedText(remoteAccount, "era", tick = 1L, parents = emptyList())
         seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
         seedLinkedText(remoteAccount, "backdated forgery", tick = 3L, parents = listOf(era.messageId))
-        val service = newService(this)
+        val service = newService()
 
         val preview = service.roomPreview(roomId)
 
@@ -713,7 +829,7 @@ class DefaultMessagingServiceTest {
             val era = seedLinkedText(remoteAccount, "era", tick = 1L, parents = emptyList())
             seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
             val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-            val service = newService(this, pipeline)
+            val service = newService(pipeline)
             startStack(this, pipeline, service)
 
             val window = service.openRoom(roomId, initialPageSize = 100)
@@ -769,7 +885,7 @@ class DefaultMessagingServiceTest {
         val era = seedLinkedText(remoteAccount, "era", tick = 1L, parents = emptyList())
         val removal = seedRemoval(remoteAccount, parents = listOf(era.messageId), tick = 2L)
         seedLinkedText(remoteAccount, "post removal", tick = 3L, parents = listOf(removal.messageId))
-        val service = newService(this)
+        val service = newService()
 
         // While removed, the newest visible message is the member-era one.
         assertEquals("era", ((service.roomPreview(roomId)!!.item) as MessageDisplayItem.Text).text)
@@ -831,7 +947,7 @@ class DefaultMessagingServiceTest {
         // per the sprint-2 orphan UX; REJECTED never does).
         seedText(remoteAccount, "pending identity", tick = 1L, state = VerificationState.PENDING)
         seedText(remoteAccount, "proven forgery", tick = 2L, state = VerificationState.REJECTED)
-        val service = newService(this)
+        val service = newService()
 
         val preview = service.roomPreview(roomId)
 
@@ -844,7 +960,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun roomPreview_allHidden_returnsNull() = runTest(UnconfinedTestDispatcher()) {
         seedText(AccountId("msg-stranger"), "nobody vouches", tick = 1L)
-        val service = newService(this)
+        val service = newService()
 
         assertNull(service.roomPreview(roomId))
     }
@@ -854,7 +970,7 @@ class DefaultMessagingServiceTest {
         // Truncation is a GUI concern: the service hands over the full text.
         val long = "x".repeat(120)
         seedText(remoteAccount, long, tick = 1L)
-        val service = newService(this)
+        val service = newService()
 
         val preview = service.roomPreview(roomId)
 
@@ -870,7 +986,7 @@ class DefaultMessagingServiceTest {
         // the (genuine, VERIFIED) message hides exactly like a never-member's.
         val latecomer = AccountId("msg-latecomer")
         seedText(latecomer, "i was here all along", tick = 1L)
-        val service = newService(this)
+        val service = newService()
         assertNull(service.roomPreview(roomId))
 
         // GLOBAL commit lands the identity; the re-fold commits the member row.
@@ -887,7 +1003,7 @@ class DefaultMessagingServiceTest {
     fun sendTextMessage_fanOut_skipsRemovedMembers() = runTest(UnconfinedTestDispatcher()) {
         roomMembershipRepo.statuses[roomId to remoteAccount] = RoomMemberStatus.REMOVED
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val result = service.sendMessage(roomId, Message("hello"))
@@ -906,7 +1022,7 @@ class DefaultMessagingServiceTest {
         roomMembershipRepo.statuses[roomId to localAccount] = RoomMemberStatus.REMOVED
         roomMembershipRepo.removalNodes[roomId to localAccount] = Uuid.random()
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         val result = service.sendMessage(roomId, Message("should not send"))
@@ -920,7 +1036,7 @@ class DefaultMessagingServiceTest {
     @Test
     fun typingIndicator_fromRemovedOrStranger_ignored() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
-        val service = newService(this, pipeline)
+        val service = newService(pipeline)
         startStack(this, pipeline, service)
 
         // Sanity: an ACTIVE member's typing registers (then expires via idle-timeout).
@@ -1256,6 +1372,64 @@ private class FakeIdentityResolver(
     override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = resolveTorEndpointForDevice(deviceId)
 }
 
+private class RecordingFileCarrier : FileCarrier {
+    val pushed = mutableListOf<Pair<FileId, AccountId>>()
+    override val fileEvents: Flow<FileEvent> = emptyFlow()
+
+    override suspend fun pushFile(fileId: FileId, target: AccountId) {
+        pushed += fileId to target
+    }
+
+    override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
+
+    override suspend fun fileReady(fileId: FileId) = Unit
+
+    override suspend fun cancelIncoming(fileId: FileId, reason: org.yapyap.protocol.envelopes.FileCancelReason) = Unit
+
+    override suspend fun emit(event: FileEvent) = Unit
+}
+
+private class FakeFileStore(
+    var nextDescriptor: (fileName: String) -> FileDescriptor? = { null },
+) : FileStore {
+    val imports = mutableListOf<String>()
+
+    override suspend fun import(
+        source: FileImportSource,
+        fileName: String,
+        mimeType: String?,
+        keepCopy: Boolean,
+    ): FileDescriptor {
+        imports += fileName
+        return nextDescriptor(fileName) ?: error("no descriptor stubbed for $fileName")
+    }
+
+    override suspend fun resolve(fileId: FileId): FileDescriptor? = null
+
+    override suspend fun markSourceLost(fileId: FileId) = Unit
+
+    override suspend fun enforceQuota() = Unit
+}
+
+private class FakeFileTransferStore : FileTransferStore {
+    val rows = mutableListOf<FileTransfer>()
+
+    override suspend fun upsert(row: FileTransfer) {
+        rows.removeAll { it.fileId == row.fileId && it.peerAccountId == row.peerAccountId }
+        rows += row
+    }
+
+    override suspend fun find(fileId: FileId, peerAccountId: AccountId): FileTransfer? =
+        rows.singleOrNull { it.fileId == fileId && it.peerAccountId == peerAccountId }
+
+    override suspend fun findByFile(fileId: FileId): List<FileTransfer> =
+        rows.filter { it.fileId == fileId }
+
+    override suspend fun setStatus(fileId: FileId, peerAccountId: AccountId, status: FileTransferStatus, now: Instant) {
+        upsert(find(fileId, peerAccountId)!!.copy(status = status, updatedAt = now))
+    }
+}
+
 private class RecordingRouter : Router {
     private val _incomingMessages = MutableSharedFlow<MessagePayload>(extraBufferCapacity = 64)
     override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
@@ -1272,7 +1446,7 @@ private class RecordingRouter : Router {
     override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
         MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
     override val deliveries: Flow<Delivery> = emptyFlow()
-    override val fileCarrier: FileCarrier = NoopFileCarrier()
+    override var fileCarrier: FileCarrier = NoopFileCarrier()
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
 
@@ -1281,8 +1455,8 @@ private class RecordingRouter : Router {
     override suspend fun stop() {}
     override fun isRunning(): Boolean = true
     override suspend fun announceOnline() = Unit
-    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
-        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+    override fun localTorEndpoint(): TorEndpoint =
+        TorEndpoint("local.onion", 80)
 
     override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
         emptyMap()

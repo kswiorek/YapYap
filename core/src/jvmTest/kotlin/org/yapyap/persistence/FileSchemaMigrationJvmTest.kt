@@ -64,10 +64,33 @@ class FileSchemaMigrationJvmTest {
                 )
                 return found
             }
-            assertFalse(tableExists("file_transfers"), "placeholder must go")
+            // 6.sqm drops the v5 placeholders; 11.sqm reuses the file_transfers name
+            // for the new send/serve rows (file_id, peer_account_id), so the name lands
+            // again with a different schema. The old tracker must stay gone.
             assertFalse(tableExists("file_chunk_tracker"), "placeholder must go")
             assertTrue(tableExists("message_attachments"), "attachment index must land")
             assertTrue(tableExists("spaces"), "unrelated placeholder stays")
+            assertTrue(tableExists("file_transfers"), "11.sqm send/serve rows must land (name reused)")
+            var createSql: String? = null
+            driver.executeQuery(
+                null,
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='file_transfers'",
+                mapper = { cursor ->
+                    if (cursor.next().value) createSql = cursor.getString(0)
+                    app.cash.sqldelight.db.QueryResult.Value(Unit)
+                },
+                parameters = 0,
+            )
+            assertEquals(
+                true,
+                createSql?.contains("peer_account_id"),
+                "file_transfers must be the new send/serve schema, got: $createSql"
+            )
+            assertEquals(
+                false,
+                createSql?.contains("message_id"),
+                "old placeholder schema must be gone, got: $createSql"
+            )
             // Index usable: write + read back through generated queries.
             val db = connection.database
             val mid = Uuid.parseHex(messageId)
@@ -86,3 +109,5 @@ class FileSchemaMigrationJvmTest {
         }
     }
 }
+
+//TODO: Remove the test-only parts at the end of this file implementation once the migration path is stable.

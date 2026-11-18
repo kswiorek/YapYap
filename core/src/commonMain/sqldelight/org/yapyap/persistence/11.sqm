@@ -1,0 +1,13 @@
+-- Phase C step 14: the orchestrator-owned send/serve rows (design §13).
+-- Runs with foreign keys off (see DatabaseInitializer).
+CREATE TABLE file_transfers (
+    file_id TEXT NOT NULL,
+    peer_account_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    transfer_class TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (file_id, peer_account_id)
+);

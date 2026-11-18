@@ -172,6 +172,7 @@ tasks.named<Test>("jvmTest") {
             excludeTestsMatching("*KmpTorBackendLifecycleIntegrationTest")
             excludeTestsMatching("*WebRtcInMemorySignalingIntegrationTest")
             excludeTestsMatching("*DefaultRouterLiveIntegrationTest")
+            excludeTestsMatching("*FileSmallPushLiveIntegrationTest")
             excludeTestsMatching("*DefaultKeyStoreJavaKeyringIntegrationTest")
             excludeTestsMatching("*JvmEncryptedDriverFactoryIntegrationTest")
             excludeTestsMatching("*OrchestratorLoopbackBootTest")

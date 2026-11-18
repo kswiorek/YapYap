@@ -62,24 +62,23 @@ import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.ping.FrontierSnapshotProvider
-import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.file.FileDescriptorInfo
 import org.yapyap.routing.file.FileIngestPort
 import org.yapyap.routing.file.FilePlaintextSource
 import org.yapyap.routing.file.FilePushOps
 import org.yapyap.routing.file.FileReadResult
 import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.ping.FrontierSnapshotProvider
+import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.store.DueOutboxRow
-import org.yapyap.routing.store.OutboxEntry
-import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.routing.store.FilePush
-import org.yapyap.routing.store.FilePushKind
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.OutboxEntry
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
@@ -464,7 +463,7 @@ internal class InMemoryFileIncomingTransferStore : FileIncomingTransferStore {
     }
 
     override suspend fun deleteByFile(fileId: FileId) = mutex.withLock {
-        rows.entries.removeIf { it.value.fileId == fileId }
+        rows.entries.removeAll { it.value.fileId == fileId }
         Unit
     }
 
@@ -742,7 +741,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
     }
 
     override suspend fun deleteByTag(tag: OutboxTag) {
-        synchronized(lock) { entries.entries.removeIf { it.value.tag == tag } }
+        synchronized(lock) { entries.entries.removeAll { it.value.tag == tag } }
     }
 
     override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =

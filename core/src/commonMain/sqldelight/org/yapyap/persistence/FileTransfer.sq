@@ -1,0 +1,34 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.AccountId;
+import org.yapyap.protocol.FileId;
+import org.yapyap.orchestrator.file.FileTransferDirection;
+import org.yapyap.orchestrator.file.FileTransferClass;
+import org.yapyap.orchestrator.file.FileTransferStatus;
+
+-- Orchestrator-owned sends and serves: one row per (file, peer account) (design §13).
+CREATE TABLE file_transfers (
+    file_id TEXT AS FileId NOT NULL,
+    peer_account_id TEXT AS AccountId NOT NULL,
+    direction TEXT AS FileTransferDirection NOT NULL,
+    transfer_class TEXT AS FileTransferClass NOT NULL,
+    status TEXT AS FileTransferStatus NOT NULL,
+    created_at INTEGER AS Instant NOT NULL,
+    updated_at INTEGER AS Instant NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL,
+    PRIMARY KEY (file_id, peer_account_id)
+);
+
+insertFileTransfer:
+INSERT OR REPLACE INTO file_transfers (
+    file_id, peer_account_id, direction, transfer_class, status,
+    created_at, updated_at, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectFileTransfersByFile:
+SELECT * FROM file_transfers WHERE file_id = ?;
+
+selectFileTransfer:
+SELECT * FROM file_transfers WHERE file_id = ? AND peer_account_id = ?;
+
+updateFileTransferStatus:
+UPDATE file_transfers SET status = ?, updated_at = ? WHERE file_id = ? AND peer_account_id = ?;

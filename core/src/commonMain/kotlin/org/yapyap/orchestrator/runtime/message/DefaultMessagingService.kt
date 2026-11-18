@@ -19,6 +19,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.io.files.Path
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -30,6 +31,13 @@ import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.dag.VerificationStateChange
+import org.yapyap.orchestrator.file.FileImportSource
+import org.yapyap.orchestrator.file.FileStore
+import org.yapyap.orchestrator.file.FileTransfer
+import org.yapyap.orchestrator.file.FileTransferClass
+import org.yapyap.orchestrator.file.FileTransferDirection
+import org.yapyap.orchestrator.file.FileTransferStatus
+import org.yapyap.orchestrator.file.FileTransferStore
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.CausalHoldRepository
 import org.yapyap.orchestrator.store.MessageCursor
@@ -40,11 +48,14 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.concurrent.Volatile
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 internal class DefaultMessagingService(
@@ -58,6 +69,10 @@ internal class DefaultMessagingService(
     private val localIdentity: LocalIdentity,
     private val maxTextBytes: StateFlow<Int>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
+    private val fileStore: FileStore,
+    private val fileTransfers: FileTransferStore,
+    private val routerConfig: StateFlow<RouterConfig>,
+    private val clock: Clock = Clock.System,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
@@ -291,10 +306,32 @@ internal class DefaultMessagingService(
             return SendMessageResult.Refused(SendRefusal.TooLarge)
         }
 
+        val imported = message.pickedFiles.map { picked ->
+            fileStore.import(
+                source = when (val s = picked.source) {
+                    is PickedFileSource.FilePath -> FileImportSource.PathSource(Path(s.path))
+                    is PickedFileSource.ContentUri -> FileImportSource.ContentUriSource(s.uri)
+                },
+                fileName = picked.fileName,
+                mimeType = picked.mimeType,
+                keepCopy = picked.keepCopy,
+            )
+        }
+        if (message.attachments.size + imported.size > MessagePayload.Attachment.MAX_ATTACHMENTS) {
+            return SendMessageResult.Refused(SendRefusal.TooLarge)
+        }
+
         val payload = try {
             val wireAttachments = message.attachments.map {
                 MessagePayload.Attachment(
                     fileId = FileId(it.fileId),
+                    fileName = it.fileName,
+                    mimeType = it.mimeType,
+                    totalBytes = it.totalBytes,
+                )
+            } + imported.map {
+                MessagePayload.Attachment(
+                    fileId = it.fileId,
                     fileName = it.fileName,
                     mimeType = it.mimeType,
                     totalBytes = it.totalBytes,
@@ -316,6 +353,31 @@ internal class DefaultMessagingService(
         // A Text draft always appends as a displayable Text payload.
         val item = checkNotNull(payload.toDisplayItem()) { "Text draft appended as non-displayable payload" }
         notifyWindowsNewItem(IngestResult.Inserted(payload), item)
+
+        // Small files ride the direct push alongside the message; large files are
+        // pull-only (the requesting device fetches when it decides, Phase F).
+        val now = clock.now()
+        for (descriptor in imported) {
+            val klass =
+                if (descriptor.totalBytes <= SMALL_FILE_MAX_BYTES) FileTransferClass.SMALL else FileTransferClass.LARGE
+            for (member in members) {
+                fileTransfers.upsert(
+                    FileTransfer(
+                        fileId = descriptor.fileId,
+                        peerAccountId = member,
+                        direction = FileTransferDirection.SEND,
+                        klass = klass,
+                        status = FileTransferStatus.IN_FLIGHT,
+                        createdAt = now,
+                        updatedAt = now,
+                        expiresAt = now + routerConfig.value.fileTransferTtl,
+                    ),
+                )
+                if (klass == FileTransferClass.SMALL) {
+                    router.fileCarrier.pushFile(descriptor.fileId, member)
+                }
+            }
+        }
 
         if (members.isEmpty()) {
             AppLog.debug(

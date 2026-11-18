@@ -39,7 +39,31 @@ public sealed interface MessageDisplayItem {
 public data class Message(
     val content: String,
     val attachments: List<MessageAttachment> = emptyList(),
+    /**
+     * Files to attach to this send. The messaging service imports each one (hashing into
+     * the file store) and publishes the message with the resulting attachments — the GUI
+     * never handles `fileId`s itself and issues no second call. Small files start pushing
+     * on send; large files are pull-only and wait for the receiver to fetch.
+     */
+    val pickedFiles: List<PickedFile> = emptyList(),
 )
+
+/** A GUI-picked file to attach to a message send. */
+public data class PickedFile(
+    val fileName: String,
+    val mimeType: String?,
+    val source: PickedFileSource,
+    val keepCopy: Boolean = true,
+)
+
+/** Where the bytes of a [PickedFile] live. */
+public sealed interface PickedFileSource {
+    /** A platform file path. */
+    public data class FilePath(val path: String) : PickedFileSource
+
+    /** An Android content URI (persistable permission held by the GUI). */
+    public data class ContentUri(val uri: String) : PickedFileSource
+}
 
 public data class MessageAttachment(
     val fileId: String,
