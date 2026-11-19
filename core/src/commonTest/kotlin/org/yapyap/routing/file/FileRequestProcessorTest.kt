@@ -7,8 +7,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
@@ -16,9 +19,6 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.PacketType
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -58,6 +58,7 @@ class FileRequestProcessorTest {
         val attempts: InMemoryFileRequestAttemptStore,
         val events: MutableSharedFlow<FileEvent>,
         val processor: FileRequestProcessor,
+        val policy: FixedSyncPeerPolicy,
     ) {
         suspend fun runFor(millis: Long = 500) {
             val scope = CoroutineScope(SupervisorJob())
@@ -99,17 +100,18 @@ class FileRequestProcessorTest {
         val attempts = InMemoryFileRequestAttemptStore()
         val gate = FakeFileIngest(candidates)
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
+        val policy = FixedSyncPeerPolicy(nextDevice = devices.firstOrNull())
         val processor = FileRequestProcessor(
             ctx = ctx,
             attempts = attempts,
             gate = gate,
             outboxProcessor = stack.outboxProcessor,
-            peerPolicy = FixedSyncPeerPolicy(nextDevice = devices.firstOrNull()),
+            peerPolicy = policy,
             maxIdlePoll = MutableStateFlow(1.seconds),
             events = events,
             onNoLink = {},
         )
-        return Harness(stack, attempts, events, processor)
+        return Harness(stack, attempts, events, processor, policy)
     }
 
     private suspend fun Harness.request(): TransferId {
@@ -182,11 +184,20 @@ class FileRequestProcessorTest {
         val seen = mutableListOf<FileEvent>()
         val collect = launch { h.events.collect { seen += it } }
         h.request()
-        val (_, tag) = h.queuedRequest()
+        val (packet, tag) = h.queuedRequest()
+        // Production removes the entry on disposition before the outcome reaches us.
+        h.stack.outboxProcessor.onDisposition(packet.packetId, PacketNackReason.DECLINED)
         h.processor.onAttemptOutcome(
-            OutboxOutcome.Nacked(tag, holderDevice, Uuid.random(), PacketNackReason.DECLINED)
+            OutboxOutcome.Nacked(tag, holderDevice, packet.packetId, PacketNackReason.DECLINED)
         )
+        // Exhaustion is evaluated on the next due cycle (the loop is always running in
+        // production); run it again so the last candidate's decline reports UNAVAILABLE.
+        // The fixed test policy always answers; null it to simulate the real policy
+        // finding no sendable candidate once everyone declined.
+        h.policy.nextDevice = null
+        h.runFor()
         assertNull(h.attempts.findById(fileId))
+        kotlinx.coroutines.yield()
         collect.cancel()
         assertTrue(seen.any { it is FileEvent.RequestUnavailable && it.fileId == fileId })
     }

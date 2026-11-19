@@ -3,6 +3,7 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
@@ -147,7 +148,7 @@ internal interface Router {
      * // TODO: split Router into per-task services (messages, syncs, typing, files) behind
      * // narrow ports like FileCarrier instead of growing this interface (Phase D discussion).
      */
-    suspend fun startFileRequest(fileId: org.yapyap.protocol.FileId, firstAttemptAt: Instant)
+    suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
 
     /**
      * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's

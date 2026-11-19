@@ -1,10 +1,14 @@
 package org.yapyap.orchestrator.file
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
@@ -14,7 +18,12 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.file.*
+import org.yapyap.routing.file.FileCoverage
+import org.yapyap.routing.file.FileEvent
+import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.FileIngestResult
+import org.yapyap.routing.file.FileOfferInfo
+import org.yapyap.routing.file.FileOfferVerdict
 import org.yapyap.routing.router.Router
 import org.yapyap.routing.router.RouterConfig
 import kotlin.coroutines.cancellation.CancellationException
@@ -48,28 +57,49 @@ internal class DefaultFileRequestCoordinator(
     private val localIdentity: LocalIdentity,
     private val router: Router,
     private val pipeline: InboundMessagePipeline,
-    private val engine: DefaultFileReceiveEngine,
+    private val engine: FileIngestEngine,
     private val config: StateFlow<OrchestratorConfig>,
     private val routerConfig: StateFlow<RouterConfig>,
     private val clock: Clock = Clock.System,
 ) : FileIngestPort {
+    private val jobs = mutableListOf<Job>()
+
     fun start(scope: CoroutineScope) {
-        scope.launch {
+        check(jobs.isEmpty()) { "FileRequestCoordinator already started" }
+        jobs += scope.launch {
             pipeline.ingestResults.collect { result ->
-                onIngest(result.payload)
+                // One message failing must not end this collector: every later
+                // ingest would go untriggered until restart.
+                try {
+                    onIngest(result.payload)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AppLog.error(
+                        component = LogComponent.ORCHESTRATOR,
+                        event = LogEvent.SYNC_PROCESS_FAILED,
+                        message = "File request trigger from ingest failed",
+                        throwable = e,
+                    )
+                }
             }
         }
-        scope.launch {
+        jobs += scope.launch {
             router.fileCarrier.fileEvents.collect { event ->
                 runCatching { onFileEvent(event) }
             }
         }
-        scope.launch {
+        jobs += scope.launch {
             while (true) {
                 delay(config.value.fileRequestFirstAttemptDelay)
                 runCatching { sweep(clock.now()) }
             }
         }
+    }
+
+    fun stop() {
+        jobs.forEach { it.cancel() }
+        jobs.clear()
     }
 
     // -- FileIngestPort ---------------------------------------------------------
@@ -141,7 +171,6 @@ internal class DefaultFileRequestCoordinator(
         val text = payload as? MessagePayload.Text ?: return
         if (text.attachments.isEmpty()) return
         for (attachment in text.attachments) {
-            println("COORDINATOR-DEBUG ingest file=${attachment.fileId} total=${attachment.totalBytes}")
             if (attachment.totalBytes > SMALL_FILE_MAX_BYTES) continue
             maybeRequest(attachment.fileId)
         }
@@ -155,7 +184,6 @@ internal class DefaultFileRequestCoordinator(
             if (e is CancellationException) throw e
             null
         }
-        println("COORDINATOR-DEBUG maybeRequest file=$fileId row=$row")
         if (row != null) {
             when (row.status) {
                 FileReceiveStatus.READY -> {
@@ -188,7 +216,6 @@ internal class DefaultFileRequestCoordinator(
             if (e is CancellationException) throw e
             null
         }
-        println("COORDINATOR-DEBUG maybeRequest existing=$existing")
         if (existing?.status == PendingFileRequestStatus.PENDING) return
         // New trigger, or a new message/sync re-arming an UNAVAILABLE row.
         val at = now + config.value.fileRequestFirstAttemptDelay

@@ -5,8 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
@@ -16,9 +16,20 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.orchestrator.store.*
+import org.yapyap.orchestrator.store.MessageCursor
+import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.orchestrator.store.Room
+import org.yapyap.orchestrator.store.RoomMember
+import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.FileEvent
 import org.yapyap.routing.router.RouterConfig
@@ -26,7 +37,12 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.NoopRouter
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -61,9 +77,12 @@ class FileRequestCoordinatorTest {
     ): Harness {
         val db = openMemoryDatabase().database
         val clock = FakeClock(now)
-        val receives = DefaultFileReceiveStore(db)
-        val transfers = DefaultFileTransferStore(db)
-        val descriptors = DefaultFileDescriptorStore(db)
+        // Unconfined: SQLDelight's blocking driver work runs eagerly instead of racing
+        // the test scheduler (the production default is a single-threaded IO dispatcher).
+        val io = UnconfinedTestDispatcher()
+        val receives = DefaultFileReceiveStore(db, io)
+        val transfers = DefaultFileTransferStore(db, io)
+        val descriptors = DefaultFileDescriptorStore(db, io)
         val messages = FakeMessageRepository()
         val rooms = FakeRoomRepository(memberships)
         val router = RecordingFileRouter()
@@ -89,7 +108,7 @@ class FileRequestCoordinatorTest {
             clock = clock,
         )
         val coordinator = DefaultFileRequestCoordinator(
-            pending = DefaultPendingFileRequestStore(db),
+            pending = DefaultPendingFileRequestStore(db, io),
             receives = receives,
             transfers = transfers,
             messages = messages,
@@ -104,7 +123,7 @@ class FileRequestCoordinatorTest {
             clock = clock,
         )
         return Harness(
-            DefaultPendingFileRequestStore(db), receives, transfers, descriptors,
+            DefaultPendingFileRequestStore(db, io), receives, transfers, descriptors,
             messages, rooms, router, pipeline, coordinator,
         )
     }
@@ -136,8 +155,10 @@ class FileRequestCoordinatorTest {
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
 
         h.coordinator.start(this)
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.pipeline.emit(IngestResult.Inserted(textMessage(mid, senderAccount)))
-        advanceTimeBy(1_000)
+        advanceTimeBy(1.seconds)
         runCurrent()
 
         val pending = h.pending.find(fileId)
@@ -146,6 +167,7 @@ class FileRequestCoordinatorTest {
         assertEquals(1, h.router.startedFiles.size)
         assertEquals(fileId, h.router.startedFiles.single().first)
         assertEquals(now + 60.seconds, h.router.startedFiles.single().second)
+        h.coordinator.stop()
     }
 
     @Test
@@ -164,10 +186,14 @@ class FileRequestCoordinatorTest {
             )
         )
         h.coordinator.start(this)
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.pipeline.emit(IngestResult.Inserted(textMessage(mid, senderAccount)))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertNull(h.pending.find(fileId))
         assertTrue(h.router.startedFiles.isEmpty())
+        h.coordinator.stop()
     }
 
     @Test
@@ -179,10 +205,14 @@ class FileRequestCoordinatorTest {
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.coordinator.start(this)
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.pipeline.emit(IngestResult.Inserted(payload))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertNull(h.pending.find(fileId))
         assertTrue(h.router.startedFiles.isEmpty())
+        h.coordinator.stop()
     }
 
     @Test
@@ -190,15 +220,19 @@ class FileRequestCoordinatorTest {
         val h = harness()
         h.pending.upsertPending(fileId, now, now)
         h.coordinator.start(this)
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.router.events.emit(FileEvent.RequestSatisfied(fileId))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertNull(h.pending.find(fileId))
 
         h.pending.upsertPending(fileId, now, now)
         h.router.events.emit(FileEvent.Ready(fileId))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertNull(h.pending.find(fileId))
+        h.coordinator.stop()
     }
 
     @Test
@@ -206,9 +240,11 @@ class FileRequestCoordinatorTest {
         val h = harness()
         h.pending.upsertPending(fileId, now, now)
         h.coordinator.start(this)
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.router.events.emit(FileEvent.RequestUnavailable(fileId))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertEquals(PendingFileRequestStatus.UNAVAILABLE, h.pending.find(fileId)?.status)
 
         // A new message referencing the file re-arms the trigger.
@@ -216,9 +252,11 @@ class FileRequestCoordinatorTest {
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.pipeline.emit(IngestResult.Inserted(textMessage(mid, senderAccount)))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertEquals(PendingFileRequestStatus.PENDING, h.pending.find(fileId)?.status)
         assertTrue(h.router.startedFiles.isNotEmpty())
+        h.coordinator.stop()
     }
 
     @Test
@@ -234,12 +272,14 @@ class FileRequestCoordinatorTest {
             )
         )
         h.coordinator.start(this)
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertNull(h.pending.find(fileId), "no trigger before the sweep fires")
         advanceTimeBy(61.seconds)
-        advanceUntilIdle()
+        runCurrent()
         assertNotNull(h.pending.find(fileId), "stalled receive re-opens the request")
         assertTrue(h.router.startedFiles.isNotEmpty())
+        h.coordinator.stop()
     }
 
     @Test
@@ -318,23 +358,29 @@ class FileRequestCoordinatorTest {
             )
         )
         h.coordinator.start(this)
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.router.events.emit(FileEvent.OutgoingComplete(fileId, senderAccount))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         assertEquals(FileTransferStatus.COMPLETED, h.transfers.find(fileId, senderAccount)?.status)
+        h.coordinator.stop()
     }
 
     @Test
     fun serveStarted_upsertsServeRow() = runTest {
         val h = harness()
         h.coordinator.start(this)
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         h.router.events.emit(FileEvent.ServeStarted(fileId, senderAccount))
-        advanceUntilIdle()
+        advanceTimeBy(1.seconds)
+        runCurrent()
         val row = h.transfers.find(fileId, senderAccount)
         assertNotNull(row)
         assertEquals(FileTransferDirection.SERVE, row.direction)
         assertEquals(FileTransferStatus.IN_FLIGHT, row.status)
+        h.coordinator.stop()
     }
 
     @Test

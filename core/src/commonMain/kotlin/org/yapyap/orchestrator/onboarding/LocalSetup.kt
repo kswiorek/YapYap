@@ -90,7 +90,7 @@ internal class LocalSetup(
     private val cryptoProvider: CryptoProvider,
     private val onboardingProvider: OnboardingProvider,
     private val globalEventProjector: GlobalEventProjector,
-    private val router: Router,
+    internal val router: Router,
     private val localDeviceType: DeviceType,
 ) {
     /**

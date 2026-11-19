@@ -6,14 +6,22 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.FilePush
+import org.yapyap.routing.store.FilePushKind
+import org.yapyap.routing.store.FilePushStatus
+import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.OutboxTag
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
@@ -132,7 +140,7 @@ internal class FilePusher(
             plaintext.describe(fileId)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return false
         } ?: return false
         if (info.totalBytes > SMALL_FILE_MAX_BYTES) return false
@@ -163,7 +171,7 @@ internal class FilePusher(
             pushes.insert(row)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return false
         }
         accountOf(device)?.let { events.emit(FileEvent.ServeStarted(fileId, it)) }

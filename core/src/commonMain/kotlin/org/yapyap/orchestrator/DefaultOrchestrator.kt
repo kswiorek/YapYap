@@ -144,6 +144,12 @@ internal class DefaultOrchestrator(
         current.scope.launch { node.transportStatus.collect { _transportStatus.value = it } }
         current.scope.launch { node.resetRequests.collect { enterResetRequired(it.reason, it.details) } }
         node.start { _bootProgress.value = it }
+        // Announce presence + exchange room frontiers now that the ping consumers are
+        // subscribed (must stay after start returns). Fire-and-forget: a send to a
+        // not-yet-ready peer can take minutes on real Tor and must never gate boot
+        // completion (the periodic ping loop re-announces anyway). Owned by the
+        // lifecycle, not the composition root (guide §5: wiring contains no launch).
+        current.scope.launch { runCatching { node.setup.router.announceOnline() } }
         return node
     }
 

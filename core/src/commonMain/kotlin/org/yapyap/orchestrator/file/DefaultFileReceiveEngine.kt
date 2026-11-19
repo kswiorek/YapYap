@@ -19,7 +19,14 @@ import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.ByteRange
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.routing.file.*
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.routing.file.FileCoverage
+import org.yapyap.routing.file.FileEvent
+import org.yapyap.routing.file.FileFailureReason
+import org.yapyap.routing.file.FileIngestResult
+import org.yapyap.routing.file.FileOfferInfo
+import org.yapyap.routing.file.FileOfferVerdict
+import org.yapyap.routing.file.FileRefusalReason
 import org.yapyap.routing.router.RouterConfig
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -53,7 +60,7 @@ internal class DefaultFileReceiveEngine(
     private val carrier: FileCarrier,
     private val routerConfig: StateFlow<RouterConfig>,
     private val clock: Clock = Clock.System,
-) {
+) : FileIngestEngine {
     private val lock = Mutex()
     private val runningHashes = mutableMapOf<FileId, RunningHash>()
 
@@ -70,7 +77,7 @@ internal class DefaultFileReceiveEngine(
 
     // -- Ingest side (invoked through the coordinator, which owns the port) --------
 
-    suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict = lock.withLock {
+    override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict = lock.withLock {
         val now = clock.now()
         val existing = try {
             receives.find(offer.fileId)
@@ -149,7 +156,7 @@ internal class DefaultFileReceiveEngine(
         FileOfferVerdict.Accept
     }
 
-    suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
+    override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
         if (plaintext.isEmpty()) return FileIngestResult.Duplicate
         return lock.withLock {
             val now = clock.now()
@@ -224,7 +231,7 @@ internal class DefaultFileReceiveEngine(
      * contiguous-only — a coarser serve with more duplicates, still correct. Null when
      * the file needs no request: already READY (the requester's loop drops its row).
      */
-    suspend fun heldCoverage(fileId: FileId): FileCoverage? = lock.withLock {
+    override suspend fun heldCoverage(fileId: FileId): FileCoverage? = lock.withLock {
         val row = try {
             receives.find(fileId)
         } catch (e: Exception) {
@@ -660,11 +667,6 @@ internal class DefaultFileReceiveEngine(
 
     private fun finalPathFor(fileId: FileId): Path =
         Path(storeDirectory.toString(), fileId.value)
-
-    private fun stagedBytesAfter(
-        staged: List<StagedRange>,
-        uncovered: List<Pair<Long, ByteArray>>,
-    ): Long = staged.sumOf { it.length } + uncovered.sumOf { it.second.size.toLong() }
 
     /** Slices of [bytes] (covering [offset, offset + bytes.size)) neither below [floor] nor staged. */
     private fun subtractUncovered(

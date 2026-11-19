@@ -3,7 +3,6 @@ package org.yapyap.wiring
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
 import org.yapyap.crypto.e2ee.maintenance.CryptoMaintenance
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
@@ -14,12 +13,26 @@ import org.yapyap.crypto.store.DefaultOpkRepository
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.*
+import org.yapyap.orchestrator.BootPhase
+import org.yapyap.orchestrator.BootProgress
+import org.yapyap.orchestrator.LocalIdentityWatch
+import org.yapyap.orchestrator.LocalTransportStatus
+import org.yapyap.orchestrator.NodeMode
+import org.yapyap.orchestrator.OnboardingState
+import org.yapyap.orchestrator.TransportStatusMonitor
 import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.orchestrator.boot.Node
 import org.yapyap.orchestrator.boot.ResetRequest
 import org.yapyap.orchestrator.dag.DefaultDagEngine
-import org.yapyap.orchestrator.file.*
+import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
+import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
+import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
+import org.yapyap.orchestrator.file.DefaultFileReceiveStore
+import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
+import org.yapyap.orchestrator.file.DefaultFileStore
+import org.yapyap.orchestrator.file.DefaultFileTransferStore
+import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
+import org.yapyap.orchestrator.file.FileServiceConfig
 import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
 import org.yapyap.orchestrator.fold.room.DefaultRoomEventProjector
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
@@ -28,17 +41,31 @@ import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
 import org.yapyap.orchestrator.onboarding.LocalSetup
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
-import org.yapyap.orchestrator.store.*
+import org.yapyap.orchestrator.store.DefaultCausalHoldRepository
+import org.yapyap.orchestrator.store.DefaultMessageDeliveryRepository
+import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.sync.DefaultFrontierSnapshotProvider
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
-import org.yapyap.protection.envelope.*
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.file.DelegatingFileIngestPort
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.DefaultDeviceRouteStore
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRequestAttemptStore
+import org.yapyap.routing.store.DefaultPacketDeduplicator
+import org.yapyap.routing.store.DefaultPacketOutbox
+import org.yapyap.routing.store.DefaultSyncAttemptStore
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import kotlin.time.Clock
@@ -354,10 +381,6 @@ internal class NodeGraph(
         transportStatusMonitor.start(scope)
         recoveryResponder.start(scope)
         runtime?.start(scope)
-        // Announce presence + exchange room frontiers now that the ping consumers are subscribed.
-        // Fire-and-forget: a send to a not-yet-ready peer can take minutes on real Tor and must
-        // never gate boot completion (the periodic ping loop re-announces anyway).
-        scope.launch { runCatching { router.announceOnline() } }
         onProgress(BootProgress(BootPhase.READY, 0, 0))
     }
 

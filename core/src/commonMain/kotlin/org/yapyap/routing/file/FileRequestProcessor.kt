@@ -5,7 +5,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.outbound.OutboxProcessor
@@ -14,7 +19,11 @@ import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.sync.*
+import org.yapyap.routing.sync.BuiltAttempt
+import org.yapyap.routing.sync.CandidateAttemptStore
+import org.yapyap.routing.sync.CandidateRequestCore
+import org.yapyap.routing.sync.CandidateRow
+import org.yapyap.routing.sync.CandidateStrategy
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -87,9 +96,9 @@ internal class FileRequestStrategy(
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
     /**
-     * Back-reference for WAITING-timeout deprioritisation (see `isAttemptPending`);
-     * wired by the processor after construction (same late-binding pattern as
-     * `DelegatingFileIngestPort`).
+     * Back-reference for WAITING-timeout deprioritisation (see `isAttemptPending`).
+     * Assigned in the processor's init block, so the strategy is fully wired before
+     * the processor finishes constructing (no post-construction patching).
      */
     internal lateinit var core: CandidateRequestCore<FileId>
 

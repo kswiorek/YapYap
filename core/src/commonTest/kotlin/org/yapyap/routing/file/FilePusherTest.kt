@@ -7,12 +7,35 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.OpenedFileEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.FakeFilePlaintextSource
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.InMemoryFilePushStore
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.TransportLimits
 import org.yapyap.routing.store.FilePushKind
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.OutboxTag
@@ -20,7 +43,12 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.uuid.Uuid
 
@@ -204,11 +232,6 @@ private fun harness(
 private fun Harness.chunkIndices(): List<Int> = sent.mapNotNull { (env, _) ->
     val decoded = FileEnvelope.decode(env.payload).decodePayload()
     (decoded as? FilePayload.EncryptedChunk)?.chunkIndex
-}
-
-private fun Harness.offerFor(transferId: TransferId): FilePayload.Offer {
-    val env = sent.map { it.first }.first { FileEnvelope.decode(it.payload).transferId == transferId }
-    return FileEnvelope.decode(env.payload).decodePayload() as FilePayload.Offer
 }
 
 private suspend fun Harness.markerOf(transferId: TransferId): Uuid =
@@ -421,6 +444,7 @@ class FilePusherTest {
         val pushed = h.transferIdsFor(peerA).single()
 
         assertTrue(h.pusher.serveFile(fixtureFileId, peerA, fromOffset = 0L))
+        runCurrent()
 
         // Old transfer is CANCELled, its rows gone, and no failure is reported.
         assertEquals(FilePushStatus.CANCELLED, h.pushes.find(pushed)?.status)
