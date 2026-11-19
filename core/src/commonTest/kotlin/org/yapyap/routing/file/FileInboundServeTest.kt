@@ -5,12 +5,30 @@ import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.OpenedFileEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterConfig
@@ -173,10 +191,12 @@ class FileInboundServeTest {
             ingest = ingest,
             carrier = NoopFileCarrier(),
             pusher = pusher,
+            relay = InMemoryFileRelayStore(),
             onCoverageAck = { _, _, _ -> },
             onTransferComplete = {},
             onTransferCancelled = {},
             onOfferReceived = {},
+            onRelayStored = {},
         )
         return Triple(handler, ingest, pusher)
     }

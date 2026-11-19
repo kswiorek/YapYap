@@ -13,6 +13,9 @@ import kotlin.uuid.Uuid
 internal enum class FilePushKind {
     DIRECT,
     SERVE,
+
+    /** Sender-side remainder deposit at one relay (outer target, §6.4): silent, never a refusal. */
+    DEPOSIT,
 }
 
 internal enum class FilePushStatus {
@@ -37,6 +40,11 @@ internal data class FilePush(
     val transferId: TransferId,
     val fileId: FileId,
     val targetDevice: PeerId,
+    /**
+     * Outer envelope target override: null for DIRECT/SERVE (outer == target),
+     * the relay for DEPOSIT rows (outer == relay, inner stays the ultimate target).
+     */
+    val viaRelay: PeerId? = null,
     val kind: FilePushKind,
     val totalBytes: Long,
     val key: ByteArray,
@@ -56,6 +64,7 @@ internal data class FilePush(
         if (transferId != other.transferId) return false
         if (fileId != other.fileId) return false
         if (targetDevice != other.targetDevice) return false
+        if (viaRelay != other.viaRelay) return false
         if (kind != other.kind) return false
         if (totalBytes != other.totalBytes) return false
         if (!key.contentEquals(other.key)) return false
@@ -74,6 +83,7 @@ internal data class FilePush(
         var result = transferId.hashCode()
         result = 31 * result + fileId.hashCode()
         result = 31 * result + targetDevice.hashCode()
+        result = 31 * result + (viaRelay?.hashCode() ?: 0)
         result = 31 * result + kind.hashCode()
         result = 31 * result + totalBytes.hashCode()
         result = 31 * result + key.contentHashCode()
@@ -95,6 +105,9 @@ internal interface FilePushStore {
     suspend fun find(transferId: TransferId): FilePush?
     suspend fun findLiveByFileAndTarget(fileId: FileId, target: PeerId): List<FilePush>
     suspend fun live(): List<FilePush>
+
+    /** The row whose OFFER marker is the outbox packet [markerPacketId] (backup trigger). */
+    suspend fun findByMarkerPacket(markerPacketId: Uuid): FilePush?
     suspend fun setStatus(transferId: TransferId, status: FilePushStatus)
     suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?)
     suspend fun setProgress(transferId: TransferId, nextChunkIndex: Int, contiguousAcked: Int)
@@ -113,6 +126,7 @@ internal class DefaultFilePushStore(
                 transfer_id = row.transferId.value.toHexString(),
                 file_id = row.fileId,
                 target_device = row.targetDevice,
+                via_relay = row.viaRelay,
                 kind = row.kind.name,
                 total_bytes = row.totalBytes,
                 key = row.key,
@@ -141,6 +155,10 @@ internal class DefaultFilePushStore(
         queries.selectLiveFilePushes().executeAsList().map { it.toRow() }
     }
 
+    override suspend fun findByMarkerPacket(markerPacketId: Uuid): FilePush? = withContext(dbDispatcher) {
+        queries.selectFilePushByMarkerPacketId(markerPacketId.toHexString()).executeAsOneOrNull()?.toRow()
+    }
+
     override suspend fun setStatus(transferId: TransferId, status: FilePushStatus) {
         withContext(dbDispatcher) {
             queries.updateFilePushStatus(status.name, transferId.value.toHexString())
@@ -167,6 +185,7 @@ internal class DefaultFilePushStore(
         transferId = TransferId(Uuid.parseHex(transfer_id)),
         fileId = file_id,
         targetDevice = target_device,
+        viaRelay = via_relay,
         kind = FilePushKind.valueOf(kind),
         totalBytes = total_bytes,
         key = key,

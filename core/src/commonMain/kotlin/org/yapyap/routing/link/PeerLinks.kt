@@ -1,13 +1,19 @@
 package org.yapyap.routing.link
 
-import kotlinx.coroutines.flow.*
-import org.yapyap.routing.directory.DeviceRouteStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.update
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.transport.session.SessionStatus
 import org.yapyap.transport.session.SessionTransport
 import org.yapyap.transport.session.connectedKeys
+import org.yapyap.transport.session.disconnectedKeys
 import org.yapyap.transport.tor.TorLinkId
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
@@ -48,9 +54,14 @@ internal class PeerLinks(
         return currentLinks(peer)
     }
 
-    /** Every link that becomes usable, on any transport (one emission per transition). */
+    /** Every link dropping to usable, on any transport (one emission per transition). */
     val linkUps: Flow<PeerLinkUp> = RouterTransport.entries
         .map { transport -> sessions(transport).sessionStates.connectedKeys().map { PeerLinkUp(it, transport) } }
+        .merge()
+
+    /** Every link ceasing to be usable, on any transport (deposit-on-close, §6.3). */
+    val linkDowns: Flow<PeerId> = RouterTransport.entries
+        .map { transport -> sessions(transport).sessionStates.disconnectedKeys() }
         .merge()
 
     /** Records [peer]'s current Tor endpoint (resolved, or healed from authenticated traffic). */

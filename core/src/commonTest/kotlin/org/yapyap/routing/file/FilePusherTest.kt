@@ -28,6 +28,8 @@ import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.policy.NoRelaySelection
+import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFilePushStore
@@ -39,10 +41,13 @@ import org.yapyap.routing.router.TransportLimits
 import org.yapyap.routing.store.FilePushKind
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.RelayBackup
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
+import org.yapyap.transport.webrtc.types.WebRtcSessionState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -50,6 +55,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 private val fixtureFileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
@@ -57,6 +63,8 @@ private val fixtureAccount = AccountId("file-push-account")
 private val localPeerId = PeerId("pusherlocaldeviceaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 private val peerA = PeerId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 private val peerB = PeerId("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+private val relay1 = PeerId("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+private val relay2 = PeerId("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 
 private fun deviceRecord(id: PeerId): DeviceIdentity = DeviceIdentity(
     deviceId = id,
@@ -149,8 +157,11 @@ private data class Harness(
     val protection: RecordingFileProtectionService,
     val pushes: InMemoryFilePushStore,
     val sent: MutableList<Pair<BinaryEnvelope, OutboxTag?>>,
+    val backups: MutableMap<Uuid, RelayBackup>,
     val fileEvents: MutableSharedFlow<FileEvent>,
     val clock: FakeClock,
+    val tor: RecordingTorTransport,
+    val webRtc: RecordingWebRtcTransport,
     val bytes: ByteArray,
     val totalBytes: Long,
     val chunkSize: Int,
@@ -161,6 +172,7 @@ private fun harness(
     totalBytes: Long = 1024L * 1024,
     chunkSize: Int = 220 * 1024,
     now: Long = 10_000L,
+    relaySelection: RelaySelectionPolicy = NoRelaySelection,
 ): Harness {
     val bytes = ByteArray(totalBytes.toInt()) { (it * 7).toByte() }
     val local = deviceRecord(localPeerId)
@@ -188,8 +200,11 @@ private fun harness(
     }
     val pushes = InMemoryFilePushStore()
     val sent = mutableListOf<Pair<BinaryEnvelope, OutboxTag?>>()
+    val backups = mutableMapOf<Uuid, RelayBackup>()
     val fileEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
     val clock = FakeClock(epochSeconds(now))
+    val tor = RecordingTorTransport()
+    val webRtc = RecordingWebRtcTransport()
     val ctx = RoutingContext(
         localIdentity = identity,
         localDeviceId = localPeerId,
@@ -197,8 +212,8 @@ private fun harness(
         routes = identity,
         packetDeduplicator = InMemoryPacketDeduplicator(),
         envelopeProtectionService = service,
-        torTransport = RecordingTorTransport(),
-        webRtcTransport = RecordingWebRtcTransport(),
+        torTransport = tor,
+        webRtcTransport = webRtc,
         clock = clock,
         routerConfig = MutableStateFlow(RouterConfig()),
         transportLimits = MutableStateFlow(TransportLimits(4 * 1024 * 1024, 250 * 1024)),
@@ -210,8 +225,9 @@ private fun harness(
         outbox = object : FileOutbox {
             var tags = mutableListOf<OutboxTag>()
 
-            override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag) {
+            override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup) {
                 tags += tag
+                backups[envelope.packetId] = relayBackup
                 sent += envelope to tag
             }
 
@@ -222,11 +238,33 @@ private fun harness(
             override suspend fun deleteByTag(tag: OutboxTag) {
                 sent.removeAll { it.second == tag }
             }
+
+            override suspend fun hasQueued(tag: OutboxTag): Boolean =
+                sent.any { it.second == tag }
+
+            override suspend fun isPacketQueued(packetId: Uuid): Boolean =
+                sent.any { it.first.packetId == packetId }
         },
         events = fileEvents,
         chunkSizeBytes = MutableStateFlow(chunkSize),
+        relaySelection = relaySelection,
     )
-    return Harness(pusher, plaintext, protection, pushes, sent, fileEvents, clock, bytes, totalBytes, chunkSize, now)
+    return Harness(
+        pusher,
+        plaintext,
+        protection,
+        pushes,
+        sent,
+        backups,
+        fileEvents,
+        clock,
+        tor,
+        webRtc,
+        bytes,
+        totalBytes,
+        chunkSize,
+        now
+    )
 }
 
 private fun Harness.chunkIndices(): List<Int> = sent.mapNotNull { (env, _) ->
@@ -538,5 +576,208 @@ class FilePusherTest {
         h.pusher.onTransferComplete(TransferId(Uuid.random()))
         // No rows, no crash.
         assertTrue(h.pushes.live().isEmpty())
+    }
+
+    // -- Deposits (design §6.3–§6.4, step 19) ---------------------------------------
+
+    private fun depositHarness(
+        relays: List<PeerId> = listOf(relay1, relay2),
+    ): Harness = harness(
+        relaySelection = object : RelaySelectionPolicy {
+            override suspend fun selectRelays(targetDevice: PeerId): List<PeerId> = relays
+        },
+    )
+
+    /** Pushes to `device` and ACKs its marker: IN_FLIGHT with chunk rows in flight. */
+    private suspend fun Harness.drivePushToInFlight(device: PeerId = peerA): TransferId {
+        pusher.pushFile(fixtureFileId, fixtureAccount)
+        val transfer = pushes.live()
+            .first { it.targetDevice == device && it.kind == FilePushKind.DIRECT }.transferId
+        pusher.onOutboxOutcome(ackMarker(transfer, device))
+        return transfer
+    }
+
+    private suspend fun Harness.depositsFor(device: PeerId = peerA) =
+        pushes.live().filter { it.targetDevice == device && it.kind == FilePushKind.DEPOSIT }
+
+    @Test
+    fun noLinkAtSweep_depositsRemainderFromContiguousPrefix() = runTest {
+        val h = depositHarness()
+        val transfer = h.drivePushToInFlight()
+        // Prefix [0, 1] ACKed; chunk 2 unacked; 3–4 never sent (window refilled on ACK).
+        h.pusher.onCoverageAck(transfer, 1, emptyList())
+        runCurrent()
+
+        h.pusher.sweepStalls()
+
+        // One deposit per relay: same file and ultimate target, fresh transferIds and
+        // keys, remainder suffix only, outer-addressed to the relay.
+        val deposits = h.depositsFor()
+        assertEquals(2, deposits.size)
+        assertEquals(setOf(relay1, relay2), deposits.map { it.viaRelay }.toSet())
+        assertTrue(deposits.all { it.startIndex == 2 && it.contiguousAcked == 1 })
+        assertEquals(2, deposits.map { it.transferId }.toSet().size, "each deposit is its own transfer")
+        assertNotEquals(deposits[0].key.toList(), deposits[1].key.toList(), "each deposit has its own key")
+        val markerOuters = h.sent.filter { (env, tag) ->
+            tag?.let { it.kind == OutboxTag.Kind.FILE && deposits.any { d -> d.transferId.value == it.id } } == true
+        }
+        assertEquals(2, markerOuters.size)
+        for ((env, _) in markerOuters) {
+            val inner = FileEnvelope.decode(env.payload)
+            assertEquals(peerA, inner.target, "the sealed half stays targeted at the ultimate device")
+            assertTrue(env.target == relay1 || env.target == relay2, "outer envelope rides to the relay")
+        }
+        // The authoring marker went out message-backed; deposit markers never do.
+        assertEquals(RelayBackup.PENDING, h.backups[h.markerOf(transfer)])
+        for (d in deposits) {
+            assertEquals(RelayBackup.NONE, h.backups[h.markerOf(d.transferId)])
+        }
+    }
+
+    @Test
+    fun depositRound_isAtMostOnce() = runTest {
+        val h = depositHarness()
+        val transfer = h.drivePushToInFlight()
+        h.pusher.sweepStalls()
+        assertEquals(2, h.depositsFor().size)
+        val sentBefore = h.sent.size
+
+        // The outbox backup path for the same marker, re-sweeps and explicit
+        // re-deposits never open a second round (the DEPOSIT rows are the claim).
+        h.pusher.depositByMarkerPacket(h.markerOf(transfer))
+        h.pusher.sweepStalls()
+        h.pusher.depositRemainder(transfer)
+        h.pusher.sweepStalls()
+        assertEquals(2, h.depositsFor().size, "one round per (file, target), retry or restart")
+        assertEquals(sentBefore, h.sent.size, "no second round re-enqueues anything")
+    }
+
+    @Test
+    fun depositMarker_neverChases() = runTest {
+        val h = depositHarness()
+        h.drivePushToInFlight()
+        h.pusher.sweepStalls()
+        val deposit = h.depositsFor().single { it.viaRelay == relay1 }
+        // The backup path for a deposit's own marker is a no-op (never chase, §6.4).
+        assertEquals(0, h.pusher.depositByMarkerPacket(checkNotNull(deposit.markerPacketId)))
+        assertEquals(0, h.pusher.depositRemainder(deposit.transferId))
+        assertEquals(2, h.depositsFor().size)
+    }
+
+    @Test
+    fun slowButAckingLink_neverDepositsUntilItGoesSilent() = runTest {
+        val h = depositHarness()
+        h.webRtc.simulateEnvelopeChannelOpen(peerA)
+        val transfer = h.drivePushToInFlight()
+        val chunkPacket = h.sent.map { it.first }
+            .first { it.packetId != h.markerOf(transfer) }.packetId
+        val tag = OutboxTag(OutboxTag.Kind.FILE, transfer.value)
+
+        // A chunk ACK every 30s keeps the direct path looking alive: no deposit.
+        repeat(3) {
+            h.clock.advanceBy(30.seconds)
+            h.pusher.onOutboxOutcome(OutboxOutcome.Acked(tag, peerA, chunkPacket))
+            h.pusher.sweepStalls()
+            runCurrent()
+        }
+        assertTrue(h.depositsFor().isEmpty(), "one ACKing chunk is a working link, not a signal")
+
+        // Silence past chunkAckTimeout (45s) deposits at once.
+        h.clock.advanceBy(60.seconds)
+        h.pusher.sweepStalls()
+        assertEquals(2, h.depositsFor().size)
+    }
+
+    @Test
+    fun linkClose_depositsAtOnce() = runTest {
+        val h = depositHarness()
+        h.pusher.pushFile(fixtureFileId, fixtureAccount)
+        val transfer = h.transferIdsFor(peerA).single()
+        val job = h.pusher.runIn(backgroundScope)
+        runCurrent()
+        h.pusher.onOutboxOutcome(h.ackMarker(transfer, peerA))
+        runCurrent()
+        assertTrue(h.depositsFor().isEmpty())
+
+        // Link up then down: the close deposits without waiting for the timeout.
+        h.webRtc.setSessionState(WebRtcSessionState(peerA, SessionPhase.CONNECTED))
+        runCurrent()
+        h.webRtc.setSessionState(WebRtcSessionState(peerA, SessionPhase.CLOSED))
+        runCurrent()
+        runCurrent()
+
+        assertEquals(2, h.depositsFor().size, "a closed link deposits at once")
+        job.cancel()
+    }
+
+    @Test
+    fun noRelaySelected_noDeposit() = runTest {
+        val h = harness()
+        h.drivePushToInFlight()
+        h.pusher.sweepStalls()
+        assertTrue(h.depositsFor().isEmpty(), "empty selection means no deposit; the pull path covers it")
+        assertEquals(0, h.pusher.depositRemainder(h.transferIdsFor(peerA).single()))
+    }
+
+    @Test
+    fun fullyAckedTransfer_noDeposit() = runTest {
+        val h = depositHarness()
+        val transfer = h.drivePushToInFlight()
+        h.pusher.onCoverageAck(transfer, 4, emptyList())
+        runCurrent()
+        h.pusher.sweepStalls()
+        assertTrue(h.depositsFor().isEmpty(), "nothing unacked: nothing to insure")
+    }
+
+    @Test
+    fun complete_cancelsDepositsPolitelyAndStaysSilent() = runTest {
+        val h = depositHarness()
+        val seen = mutableListOf<FileEvent>()
+        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        runCurrent()
+        val transfer = h.drivePushToInFlight()
+        h.pusher.sweepStalls()
+        val deposits = h.depositsFor()
+        assertEquals(2, deposits.size)
+
+        h.pusher.onTransferComplete(transfer)
+        runCurrent()
+
+        // The send completes once; the deposits are CANCELled at their relays, silently.
+        assertEquals(FilePushStatus.COMPLETED, h.pushes.find(transfer)?.status)
+        assertTrue(deposits.all { h.pushes.find(it.transferId)?.status == FilePushStatus.CANCELLED })
+        val cancels = h.sent.mapNotNull { (env, tag) ->
+            if (tag == null) FileEnvelope.decode(env.payload).decodePayload() as? FilePayload.Cancel else null
+        }
+        assertEquals(2, cancels.size, "one CANCEL per outstanding deposit")
+        val cancelTargets = h.sent.mapNotNull { (env, tag) ->
+            if (tag == null) env.target else null
+        }
+        assertEquals(setOf(relay1, relay2), cancelTargets.toSet(), "CANCELs ride outer to the relays")
+        assertTrue(seen.none { it is FileEvent.Failed }, "deposits never surface as failures")
+        assertEquals(1, seen.filterIsInstance<FileEvent.OutgoingComplete>().size)
+    }
+
+    @Test
+    fun cancelFile_cancelsDepositsAtTheirRelays() = runTest {
+        val h = depositHarness()
+        val seen = mutableListOf<FileEvent>()
+        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        runCurrent()
+        h.drivePushToInFlight()
+        h.pusher.sweepStalls()
+        assertEquals(2, h.depositsFor().size)
+
+        h.pusher.cancelFile(fixtureFileId, fixtureAccount)
+        runCurrent()
+
+        assertTrue(h.pushes.live().none { it.fileId == fixtureFileId })
+        val cancelTargets = h.sent.mapNotNull { (env, tag) ->
+            if (tag == null) env.target else null
+        }
+        // Direct rows cancel at the target, deposit rows at their relays.
+        assertTrue(peerA in cancelTargets && relay1 in cancelTargets && relay2 in cancelTargets)
+        // The user cancel still reports the send; deposits stay silent.
+        assertTrue(seen.filterIsInstance<FileEvent.Failed>().all { it.reason == FileFailureReason.CANCELLED })
     }
 }

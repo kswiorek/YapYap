@@ -41,6 +41,10 @@ internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )""",
         "CREATE INDEX devices_account_idx ON devices(account_id)",
+        // 14.sqm undone: the file relay store goes (fresh schema creates it).
+        "DROP INDEX IF EXISTS file_relay_chunks_transfer_idx",
+        "DROP TABLE IF EXISTS file_relay_chunks",
+        "DROP TABLE IF EXISTS file_relay_transfers",
         // 13.sqm undone: the pending file requests go (fresh schema creates them).
         "DROP TABLE IF EXISTS pending_file_requests",
         // 12.sqm undone: the file request attempts go (fresh schema creates them).

@@ -1,0 +1,99 @@
+import kotlin.time.Instant;
+import org.yapyap.protocol.PeerId;
+
+-- Routing-owned relay store (design §7, §13): transient ciphertext for foreign
+-- traffic. The relay is dumb to content: it verifies the original sender's
+-- signature at the door, stores the OFFER payload blob verbatim, counts chunks
+-- toward wholeness over the covered suffix, and forwards only when whole.
+-- Plain-text file state never mixes in here (guide §4: one owner per table).
+CREATE TABLE file_relay_transfers (
+    transfer_id TEXT NOT NULL PRIMARY KEY,
+    source_device TEXT AS PeerId NOT NULL,
+    target_device TEXT AS PeerId NOT NULL,
+    chunk_size_bytes INTEGER NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    start_index INTEGER NOT NULL,
+    -- The OFFER's FileEnvelope bytes verbatim (inner signature intact), replayed on forward.
+    offer_payload BLOB NOT NULL,
+    -- RESERVED (admitted, chunks landing) | WHOLE (covered suffix complete) |
+    -- FORWARDING (marker queued/sent) | STREAMING (marker ACKed, chunks queued).
+    -- Drained/declined/expired/EVICTED rows are deleted (forget after delivery).
+    status TEXT NOT NULL,
+    -- Covered-suffix bytes reserved against relayStoragePledgeBytes at admission.
+    reserved_bytes INTEGER NOT NULL,
+    marker_packet_id TEXT,
+    created_at INTEGER AS Instant NOT NULL,
+    last_chunk_at INTEGER AS Instant NOT NULL,
+    expires_at INTEGER AS Instant NOT NULL
+);
+
+-- Stored CHUNK envelopes as they arrived (inner FileEnvelope bytes, original
+-- sender's signature intact — never re-signed). PK dedup makes re-deposits no-op.
+CREATE TABLE file_relay_chunks (
+    transfer_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    -- Outer packet id of the forwarded copy (NULL until the forward enqueues it);
+    -- target ACKs map back through it so rows drain as they land.
+    packet_id TEXT,
+    blob BLOB NOT NULL,
+    PRIMARY KEY (transfer_id, chunk_index),
+    FOREIGN KEY (transfer_id) REFERENCES file_relay_transfers(transfer_id) ON DELETE CASCADE
+);
+
+insertFileRelayTransfer:
+INSERT OR IGNORE INTO file_relay_transfers (
+    transfer_id, source_device, target_device, chunk_size_bytes, total_bytes,
+    start_index, offer_payload, status, reserved_bytes, marker_packet_id,
+    created_at, last_chunk_at, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectFileRelayTransferById:
+SELECT * FROM file_relay_transfers WHERE transfer_id = ?;
+
+selectLiveFileRelayTransfers:
+SELECT * FROM file_relay_transfers;
+
+updateFileRelayTransferStatus:
+UPDATE file_relay_transfers SET status = ?, last_chunk_at = ? WHERE transfer_id = ?;
+
+updateFileRelayTransferMarker:
+UPDATE file_relay_transfers SET marker_packet_id = ?, status = ? WHERE transfer_id = ?;
+
+touchFileRelayTransfer:
+UPDATE file_relay_transfers SET last_chunk_at = ? WHERE transfer_id = ?;
+
+sumFileRelayReservedBytes:
+SELECT COALESCE(SUM(reserved_bytes), 0) FROM file_relay_transfers;
+
+selectFileRelayEvictionCandidates:
+SELECT transfer_id FROM file_relay_transfers ORDER BY last_chunk_at ASC, transfer_id ASC LIMIT :limit;
+
+selectExpiredFileRelayTransfers:
+SELECT * FROM file_relay_transfers WHERE expires_at <= :now OR last_chunk_at <= :idleBefore;
+
+deleteFileRelayTransferById:
+DELETE FROM file_relay_transfers WHERE transfer_id = ?;
+
+insertFileRelayChunk:
+INSERT OR IGNORE INTO file_relay_chunks (transfer_id, chunk_index, packet_id, blob)
+VALUES (?, ?, ?, ?);
+
+selectFileRelayChunksByTransfer:
+SELECT * FROM file_relay_chunks WHERE transfer_id = ? ORDER BY chunk_index ASC;
+
+countFileRelayChunksByTransfer:
+SELECT COUNT(*) FROM file_relay_chunks WHERE transfer_id = ?;
+
+updateFileRelayChunkPacketId:
+UPDATE file_relay_chunks SET packet_id = ? WHERE transfer_id = ? AND chunk_index = ?;
+
+selectFileRelayChunkByPacketId:
+SELECT * FROM file_relay_chunks WHERE packet_id = ?;
+
+deleteFileRelayChunkByPacketId:
+DELETE FROM file_relay_chunks WHERE packet_id = ?;
+
+deleteFileRelayChunksByTransfer:
+DELETE FROM file_relay_chunks WHERE transfer_id = ?;
+
+CREATE INDEX file_relay_chunks_transfer_idx ON file_relay_chunks(transfer_id);

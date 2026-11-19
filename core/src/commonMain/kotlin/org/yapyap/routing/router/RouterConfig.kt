@@ -149,6 +149,34 @@ internal data class RouterConfig(
      * the next candidate is asked.
      */
     val fileRequestWaitTimeout: Duration = 90.seconds,
+    /**
+     * Chunk-phase deposit signal (design §6.3, plan step 19): a transfer with rows in
+     * flight and no chunk ACK at all for this long deposits its remainder at the
+     * policy-selected relays. Only the *absence* of every ACK counts — one slow or
+     * retried chunk never triggers it. Must stay well below [fileStallTimeout] so the
+     * push machinery acts before the receiver's gap trigger re-requests.
+     */
+    val chunkAckTimeout: Duration = 45.seconds,
+    /**
+     * Receiver gap trigger (design §8, plan step 19): an IN_FLIGHT receive whose
+     * contiguous prefix P does not advance for this long goes STALLED and the REQUEST
+     * path re-opens. Owned by the orchestrator's request coordinator, configured here
+     * per design §15 (same layer-split TBD as the router-service split).
+     */
+    val fileStallTimeout: Duration = 10.minutes,
+    /**
+     * This device's store-and-forward pledge for file relay ciphertext (design §15).
+     * Admission and whole-transfer LRU eviction in the file relay store are accounted
+     * against it; our own outbox rows are never part of it.
+     *
+     * TODO (with the router-service split): the config layering here is still a mess —
+     * `FileServiceConfig` is not part of `RuntimeConfig` (so it never reaches the
+     * settings file) while the orchestrator already carries two sub-configs, and the
+     * message relay-cache budget (`outboxMaxSizeBytes`) vs this file share are split
+     * ad hoc instead of from one pledge in wiring. Unify the pledge split with the
+     * router-service refactor; see the docs note with that TODO.
+     */
+    val relayStoragePledgeBytes: Long = 100L * 1024L * 1024L,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
@@ -193,6 +221,9 @@ internal data class RouterConfig(
         require(fileChunkRetryDelay > Duration.ZERO) { "fileChunkRetryDelay must be > 0" }
         require(fileRequestAttemptTimeout > Duration.ZERO) { "fileRequestAttemptTimeout must be > 0" }
         require(fileRequestWaitTimeout > Duration.ZERO) { "fileRequestWaitTimeout must be > 0" }
+        require(chunkAckTimeout > Duration.ZERO) { "chunkAckTimeout must be > 0" }
+        require(fileStallTimeout > chunkAckTimeout) { "fileStallTimeout must be > chunkAckTimeout" }
+        require(relayStoragePledgeBytes > 0) { "relayStoragePledgeBytes must be > 0" }
     }
 
     fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {

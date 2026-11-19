@@ -9,6 +9,9 @@ CREATE TABLE file_pushes (
     transfer_id TEXT NOT NULL PRIMARY KEY,
     file_id TEXT AS FileId NOT NULL,
     target_device TEXT AS PeerId NOT NULL,
+    -- Outer envelope target override: NULL for direct/serve pushes (outer == target),
+    -- the relay for DEPOSIT rows (outer == relay, inner stays the ultimate target).
+    via_relay TEXT AS PeerId,
     kind TEXT NOT NULL,
     total_bytes INTEGER NOT NULL,
     key BLOB NOT NULL,
@@ -24,10 +27,10 @@ CREATE TABLE file_pushes (
 
 insertFilePush:
 INSERT INTO file_pushes (
-    transfer_id, file_id, target_device, kind, total_bytes, key, chunk_size_bytes,
+    transfer_id, file_id, target_device, via_relay, kind, total_bytes, key, chunk_size_bytes,
     start_index, next_chunk_index, contiguous_acked, marker_packet_id,
     status, created_at, expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectFilePushById:
 SELECT * FROM file_pushes WHERE transfer_id = ?;
@@ -51,5 +54,8 @@ UPDATE file_pushes SET next_chunk_index = ?, contiguous_acked = ? WHERE transfer
 
 selectExpiredFilePushes:
 SELECT * FROM file_pushes WHERE expires_at <= ?;
+
+selectFilePushByMarkerPacketId:
+SELECT * FROM file_pushes WHERE marker_packet_id = ?;
 
 CREATE INDEX file_pushes_file_target_idx ON file_pushes(file_id, target_device);

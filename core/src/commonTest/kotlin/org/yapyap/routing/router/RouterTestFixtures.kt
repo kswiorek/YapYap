@@ -8,10 +8,18 @@ import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.*
+import org.yapyap.crypto.e2ee.CryptoSessionConfig
+import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
+import org.yapyap.crypto.e2ee.TestPeerIdentity
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
-import org.yapyap.crypto.identity.*
+import org.yapyap.crypto.e2ee.testCryptoLimits
+import org.yapyap.crypto.e2ee.testTransportLimits
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.crypto.identity.LocalKeys
+import org.yapyap.crypto.identity.LocalSignedPreKey
+import org.yapyap.crypto.identity.PeerKeys
+import org.yapyap.crypto.identity.PeerPreKeyBundle
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -26,19 +34,63 @@ import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.OpenedFileEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.*
+import org.yapyap.routing.file.FileDescriptorInfo
+import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.FileOfferInfo
+import org.yapyap.routing.file.FilePlaintextSource
+import org.yapyap.routing.file.FilePushOps
+import org.yapyap.routing.file.FileReadResult
+import org.yapyap.routing.file.RefusingFileIngestPort
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.DueOutboxRow
+import org.yapyap.routing.store.FileIncomingTransfer
+import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FilePush
+import org.yapyap.routing.store.FilePushStatus
+import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.FileRelayChunk
+import org.yapyap.routing.store.FileRelayStatus
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileRelayTransfer
+import org.yapyap.routing.store.FileRequestAttempt
+import org.yapyap.routing.store.FileRequestAttemptStore
+import org.yapyap.routing.store.OutboxEntry
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.SyncAttempt
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
@@ -374,7 +426,94 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
         rows.values.filter { it.expiresAt <= now }
     }
 
+    override suspend fun findByMarkerPacket(markerPacketId: Uuid): FilePush? = mutex.withLock {
+        rows.values.firstOrNull { it.markerPacketId == markerPacketId }
+    }
+
     fun all(): List<FilePush> = rows.values.toList()
+}
+
+/** In-memory [FileRelayStore], mirroring the SQL semantics (PK-dedup, cascade delete). */
+internal class InMemoryFileRelayStore : FileRelayStore {
+    private val transfers = linkedMapOf<TransferId, FileRelayTransfer>()
+    private val chunks = linkedMapOf<Pair<TransferId, Int>, FileRelayChunk>()
+    private val mutex = Mutex()
+
+    override suspend fun insert(row: FileRelayTransfer) = mutex.withLock {
+        transfers.getOrPut(row.transferId) { row }
+        Unit
+    }
+
+    override suspend fun find(transferId: TransferId): FileRelayTransfer? = mutex.withLock {
+        transfers[transferId]
+    }
+
+    override suspend fun live(): List<FileRelayTransfer> = mutex.withLock {
+        transfers.values.toList()
+    }
+
+    override suspend fun setStatus(transferId: TransferId, status: FileRelayStatus, now: Instant) = mutex.withLock {
+        transfers[transferId]?.let { transfers[transferId] = it.copy(status = status, lastChunkAt = now) }
+        Unit
+    }
+
+    override suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?) = mutex.withLock {
+        transfers[transferId]?.let {
+            transfers[transferId] = it.copy(markerPacketId = markerPacketId, status = FileRelayStatus.FORWARDING)
+        }
+        Unit
+    }
+
+    override suspend fun touch(transferId: TransferId, now: Instant) = mutex.withLock {
+        transfers[transferId]?.let { transfers[transferId] = it.copy(lastChunkAt = now) }
+        Unit
+    }
+
+    override suspend fun reservedBytes(): Long = mutex.withLock {
+        transfers.values.sumOf { it.reservedBytes }
+    }
+
+    override suspend fun evictionCandidates(limit: Long): List<TransferId> = mutex.withLock {
+        transfers.values.sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value.toHexString() }))
+            .take(limit.toInt()).map { it.transferId }
+    }
+
+    override suspend fun expired(now: Instant, idleBefore: Instant): List<FileRelayTransfer> = mutex.withLock {
+        transfers.values.filter { it.expiresAt <= now || it.lastChunkAt <= idleBefore }
+    }
+
+    override suspend fun delete(transferId: TransferId) = mutex.withLock {
+        transfers.remove(transferId)
+        chunks.keys.removeAll { it.first == transferId }
+        Unit
+    }
+
+    override suspend fun insertChunk(transferId: TransferId, chunkIndex: Int, blob: ByteArray) = mutex.withLock {
+        chunks.getOrPut(transferId to chunkIndex) { FileRelayChunk(transferId, chunkIndex, null, blob) }
+        Unit
+    }
+
+    override suspend fun chunks(transferId: TransferId): List<FileRelayChunk> = mutex.withLock {
+        chunks.values.filter { it.transferId == transferId }.sortedBy { it.chunkIndex }
+    }
+
+    override suspend fun chunkCount(transferId: TransferId): Long = mutex.withLock {
+        chunks.values.count { it.transferId == transferId }.toLong()
+    }
+
+    override suspend fun setChunkPacket(transferId: TransferId, chunkIndex: Int, packetId: Uuid) = mutex.withLock {
+        chunks[transferId to chunkIndex]?.let { chunks[transferId to chunkIndex] = it.copy(packetId = packetId) }
+        Unit
+    }
+
+    override suspend fun findChunkByPacket(packetId: Uuid): FileRelayChunk? = mutex.withLock {
+        chunks.values.firstOrNull { it.packetId == packetId }
+    }
+
+    override suspend fun deleteChunkByPacket(packetId: Uuid) = mutex.withLock {
+        chunks.keys.firstOrNull { key -> chunks[key]?.packetId == packetId }?.let { chunks.remove(it) }
+        Unit
+    }
 }
 
 /** Scriptable [FilePlaintextSource] for pusher tests. */
@@ -1026,6 +1165,7 @@ internal fun e2eeRouterUnderTest(
     fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
     filePushStore: FilePushStore = InMemoryFilePushStore(),
+    fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
     fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
@@ -1051,6 +1191,7 @@ internal fun e2eeRouterUnderTest(
         fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
         filePushStore = filePushStore,
+        fileRelayStore = fileRelayStore,
         plaintextSource = plaintextSource,
         fileChunkSize = fileChunkSize,
     )
@@ -1105,6 +1246,7 @@ internal fun defaultRouterUnderTest(
     fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
     filePushStore: FilePushStore = InMemoryFilePushStore(),
+    fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
     fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
@@ -1130,6 +1272,7 @@ internal fun defaultRouterUnderTest(
         fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
         filePushStore = filePushStore,
+        fileRelayStore = fileRelayStore,
         plaintextSource = plaintextSource,
         fileChunkSize = fileChunkSize,
     )

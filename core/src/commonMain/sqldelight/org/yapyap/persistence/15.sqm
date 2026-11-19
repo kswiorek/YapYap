@@ -1,0 +1,5 @@
+-- Phase E step 19: sender-side deposit transfers need an outer-target override.
+-- A DEPOSIT row's target_device stays the ultimate target (identity, dedup, events);
+-- via_relay carries the relay the outer envelope is addressed to (NULL otherwise).
+-- Runs with foreign keys off (see DatabaseInitializer).
+ALTER TABLE file_pushes ADD COLUMN via_relay TEXT;

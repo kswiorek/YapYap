@@ -37,6 +37,7 @@ class FilePushMigrationJvmTest {
                 transfer_id = transferId,
                 file_id = org.yapyap.protocol.FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
                 target_device = org.yapyap.protocol.PeerId(deviceId),
+                via_relay = null,
                 kind = "DIRECT",
                 total_bytes = 1000L,
                 key = ByteArray(32),

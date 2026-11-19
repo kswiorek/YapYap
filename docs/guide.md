@@ -273,6 +273,15 @@ never a loss.
   a tag; it does not add another callback path. The due query loads only ids, targets and tags (never blobs),
   claims non-FILE rows first, and FILE chunk rows retry at their own flat delay instead of the message
   backoff.
+- File relay backup is split by packet kind (the shared trigger policy consults the packet,
+  not just its tag). FILE OFFER markers use the message triggers — no link at claim, a retry (the earlier attempt went
+  unacknowledged), no ACK in time — because a marker that never lands
+  leaves the whole transfer stranded with no chunk rows to watch. FILE chunk rows never back up:
+  one slow or retried chunk must not multiply traffic. Their deposit signal is gone-only — the
+  target's link closed, no link at claim time, or no chunk ACK at all for `chunkAckTimeout` while
+  rows are in flight. One deposit round per (file, target) at most, parallel over the relays the
+  reliability policy returns; the sender never chases a failing relay and forwarding relays never
+  re-deposit (one relay hop, ever).
 - Upward, the router reports only push-path ACKs, per account (`Router.deliveries`). An ACK proves delivery;
   its absence proves nothing, since relays and the pull path never ACK to the original sender.
 - What the user sees is the orchestrator's: the delivery tracker records an account as holding a message on
@@ -339,15 +348,16 @@ Working:
 - 1:1 E2EE (X3DH + Double Ratchet) for messages and WebRTC signaling.
 - Global chain (accounts, devices, admin roles), rooms with a membership fold, the message DAG and sync.
 - Onboarding by invite, adding devices, recovery.
-- Small-file transfer core (push, REQUEST/serve pull path, receive engine with file store);
-  large files, relay deposits and the GUI file surface are still ahead.
+- Small-file transfer, both paths: direct push, REQUEST/serve pull path, relay deposits
+  with store-and-forward, stall deposit and the receiver gap trigger, receive engine with
+  file store; large files and the GUI file surface are still ahead.
 - Compose desktop GUI.
 
 Not done yet:
 
-- File transfer remainder: large files, relay deposits and the GUI file surface (progress, accept/decline, open) — the
+- File transfer remainder: large files and the GUI file surface (progress, accept/decline, open) — the
   envelope family, file protection, the small-file
-  pipeline and storage are built; the order of the rest is in [`file/plan.md`](file/plan.md).
+  pipeline (direct, pull and relay) and storage are built; the order of the rest is in [`file/plan.md`](file/plan.md).
 - Audio/video media (session contracts exist; media tracks do not).
 - Mobile: push and background behavior, network monitoring on Android/iOS.
 - Signed-prekey rotation and the remaining epoch lifecycle work (see [`e2ee.md`](e2ee.md)).

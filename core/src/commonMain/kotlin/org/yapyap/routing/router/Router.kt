@@ -147,6 +147,11 @@ internal interface Router {
      *
      * // TODO: split Router into per-task services (messages, syncs, typing, files) behind
      * // narrow ports like FileCarrier instead of growing this interface (Phase D discussion).
+     * // Config goes with it: FileServiceConfig is not part of RuntimeConfig (so it never
+     * // reaches the settings file) while the orchestrator already carries two sub-configs,
+     * // and relayStoragePledgeBytes sits ad hoc in RouterConfig instead of one pledge split
+     * // in wiring between the message relay-cache share and the file relay-store share.
+     * // Unify the pledge split with this service split (Phase E discussion).
      */
     suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
 

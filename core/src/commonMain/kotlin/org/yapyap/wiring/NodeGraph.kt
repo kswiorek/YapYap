@@ -62,6 +62,7 @@ import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.store.DefaultDeviceRouteStore
 import org.yapyap.routing.store.DefaultFileIncomingTransferStore
 import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.routing.store.DefaultPacketDeduplicator
 import org.yapyap.routing.store.DefaultPacketOutbox
@@ -123,6 +124,7 @@ internal class NodeGraph(
     private val deviceRoutes = DefaultDeviceRouteStore(database, identityStore)
     private val fileIncomingStore = DefaultFileIncomingTransferStore(database)
     private val filePushStore = DefaultFilePushStore(database)
+    private val fileRelayStore = DefaultFileRelayStore(database)
     private val fileRequestAttemptStore = DefaultFileRequestAttemptStore(database)
     private val fileDescriptorStore = DefaultFileDescriptorStore(database)
     private val fileReceiveStore = DefaultFileReceiveStore(database)
@@ -198,6 +200,7 @@ internal class NodeGraph(
         fileIngestPort = fileIngestPort,
         fileIncomingStore = fileIncomingStore,
         filePushStore = filePushStore,
+        fileRelayStore = fileRelayStore,
         plaintextSource = DefaultFilePlaintextSource(fileDescriptorStore, fileAccess, crypto),
         fileChunkSize = config.fileChunkSizeBytes,
     )

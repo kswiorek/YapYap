@@ -5,9 +5,21 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.*
-import org.yapyap.routing.file.*
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.ChunkRange
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.routing.file.FileEvent
+import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.FileIngestResult
+import org.yapyap.routing.file.FileOfferInfo
+import org.yapyap.routing.file.FileOfferVerdict
+import org.yapyap.routing.file.FilePushOps
+import org.yapyap.routing.file.buildFileControlEnvelope
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
@@ -17,16 +29,21 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileIncomingStatus
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FileRelayStatus
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileRelayTransfer
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Real small-path inbound handler (step 11), local target only. Foreign targets are
- * rejected (relays land in Phase E); REQUESTs are declined (serve-on-REQUEST is Phase D).
+ * Real small-path inbound handler (step 11 local target; step 18 relay door).
+ *
+ * Local target: the OFFER/CHUNK/REQUEST serve path. Foreign target: this device is a
+ * relay holding a deposit (design §7) — signature-checked at the door, stored as
+ * ciphertext, forwarded only when whole. The relay path never touches the ingest
+ * port, the pusher or the carrier: routing-only, no orchestrator leak.
  *
  * Chunk discipline (design §3.5): a CHUNK for an unknown or unprocessed `transferId` is
- * never ACKed and never stored — answered DECLINED. An unknown `transferId` is never a
- * race (chunks follow their OFFER by construction): the transfer is gone, so the sender
- * ends it quietly instead of retrying into the void.
+ * never ACKed and never stored — at a target or at a relay — answered DECLINED.
  */
 internal class FileInboundHandler(
     private val ctx: RoutingContext,
@@ -34,10 +51,13 @@ internal class FileInboundHandler(
     private val ingest: FileIngestPort,
     private val carrier: FileCarrier,
     private val pusher: FilePushOps,
+    private val relay: FileRelayStore,
     private val onCoverageAck: suspend (transferId: TransferId, contiguousChunks: Int, missing: List<ChunkRange>) -> Unit,
     private val onTransferComplete: suspend (transferId: TransferId) -> Unit,
     private val onTransferCancelled: suspend (transferId: TransferId) -> Unit,
     private val onOfferReceived: suspend (fileId: FileId) -> Unit,
+    /** The door stored a deposit chunk/OFFER: the relay forwarder may have work. */
+    private val onRelayStored: () -> Unit,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val fileEnvelope = runCatching { FileEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -49,7 +69,7 @@ internal class FileInboundHandler(
             return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
         }
         if (fileEnvelope.target != ctx.localDeviceId) {
-            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+            return handleRelay(env, fileEnvelope)
         }
         val opened = try {
             ctx.envelopeProtectionService.openFile(fileEnvelope)
@@ -287,4 +307,155 @@ internal class FileInboundHandler(
         }
         return InboundHandleResult.Success(sourceAuthenticated = true)
     }
+
+    // -- Relay door (design §7.1–§7.2, step 18) ---------------------------------------
+    //
+    // A foreign inner target means this device is a relay for the transfer: verify the
+    // original sender's signature, store the ciphertext, forward only when whole.
+    // DECLINED for a dead transferId or an out-of-range index so the sender cleans up
+    // at once instead of retrying into a dead store. Never touches the ingest port,
+    // the pusher (authoring side) or the carrier — the relay path is routing-only.
+
+    private suspend fun handleRelay(env: BinaryEnvelope, fileEnvelope: FileEnvelope): InboundHandleResult {
+        val opened = try {
+            ctx.envelopeProtectionService.openFile(fileEnvelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ProtectionException) {
+            logInboundProtectionFailure(
+                message = "Failed to open relayed file envelope",
+                packetId = env.packetId,
+                source = env.source,
+                exception = e,
+            )
+            return inboundResultForProtectionFailure(e)
+        }
+        // Endpoint healing (and arrival-link adoption) key off the outer source: only a
+        // deposit straight from its author authenticates that peer's reachability. Traffic
+        // in transit proves nothing about the claimed outer source (message-transit rule).
+        val direct = env.source == fileEnvelope.source
+        return when (val payload = opened.payload) {
+            is FilePayload.Offer -> handleRelayOffer(env, fileEnvelope, payload, direct)
+            is FilePayload.EncryptedChunk -> handleRelayChunk(env, fileEnvelope, payload, direct)
+            is FilePayload.Cancel -> {
+                // Polite teardown of a deposit (the author cancelling its outstanding
+                // deposits): drop what we hold; always ACK so the sender stops re-sending.
+                relay.delete(fileEnvelope.transferId)
+                InboundHandleResult.Success(sourceAuthenticated = direct)
+            }
+            // ACK / COMPLETE / REQUEST never address a relay (design §7): the transfer is
+            // gone here — answer DECLINED like any unknown transferId (§3.6).
+            else -> InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+    }
+
+    private suspend fun handleRelayOffer(
+        env: BinaryEnvelope,
+        fileEnvelope: FileEnvelope,
+        payload: FilePayload.Offer,
+        direct: Boolean,
+    ): InboundHandleResult {
+        val transferId = fileEnvelope.transferId
+        val now = ctx.clock.now()
+        relay.find(transferId)?.let { existing ->
+            if (now < existing.expiresAt) {
+                // Duplicate OFFER (the sender retries until our ACK lands): already
+                // stored, just ACK so it stops.
+                return InboundHandleResult.Success(sourceAuthenticated = direct)
+            }
+            relay.delete(transferId)
+        }
+        val chunkSize = payload.chunkSizeBytes
+        val totalBytes = payload.totalBytes
+        // Relays hold small files only (§5): large files never touch relays.
+        if (chunkSize <= 0 || totalBytes < 0 || totalBytes > SMALL_FILE_MAX_BYTES) {
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        val fileCount = fileCount(totalBytes, chunkSize)
+        if (payload.startIndex < 0 || payload.startIndex > fileCount) {
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        val reserved = maxOf(0L, totalBytes - payload.startIndex.toLong() * chunkSize)
+        if (!admit(transferId, reserved)) {
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        relay.insert(
+            FileRelayTransfer(
+                transferId = transferId,
+                sourceDevice = fileEnvelope.source,
+                targetDevice = fileEnvelope.target,
+                chunkSizeBytes = chunkSize,
+                totalBytes = totalBytes,
+                startIndex = payload.startIndex,
+                // Verbatim inner bytes (author signature intact) — replayed on forward.
+                offerPayload = env.payload,
+                status = if (fileCount - payload.startIndex <= 0) FileRelayStatus.WHOLE else FileRelayStatus.RESERVED,
+                reservedBytes = reserved,
+                markerPacketId = null,
+                createdAt = now,
+                lastChunkAt = now,
+                expiresAt = now + ctx.routerConfig.value.fileTransferTtl,
+            ),
+        )
+        onRelayStored()
+        return InboundHandleResult.Success(sourceAuthenticated = direct)
+    }
+
+    private suspend fun handleRelayChunk(
+        env: BinaryEnvelope,
+        fileEnvelope: FileEnvelope,
+        payload: FilePayload.EncryptedChunk,
+        direct: Boolean,
+    ): InboundHandleResult {
+        val transferId = fileEnvelope.transferId
+        val now = ctx.clock.now()
+        val row = relay.find(transferId)
+        if (row == null || now >= row.expiresAt) {
+            if (row != null) relay.delete(transferId)
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        val fileCount = fileCount(row.totalBytes, row.chunkSizeBytes)
+        if (payload.chunkIndex < row.startIndex || payload.chunkIndex >= fileCount) {
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        // PK dedup: a re-deposited chunk after a stall is a no-op (design §7.2).
+        relay.insertChunk(transferId, payload.chunkIndex, env.payload)
+        relay.touch(transferId, now)
+        if (row.status == FileRelayStatus.RESERVED &&
+            relay.chunkCount(transferId) >= maxOf(0, fileCount - row.startIndex)
+        ) {
+            relay.setStatus(transferId, FileRelayStatus.WHOLE, now)
+        }
+        onRelayStored()
+        return InboundHandleResult.Success(sourceAuthenticated = direct)
+    }
+
+    /**
+     * Admission against `relayStoragePledgeBytes`: evict whole transfers oldest-first
+     * until the reservation fits (RESERVED transfers mid-deposit are not exempt — an
+     * evicted sender learns it through the door DECLINED on its next chunk, §7.2).
+     * False when nothing fits: the sender is DECLINED at the door and tries the next
+     * relay or re-offers later.
+     */
+    private suspend fun admit(transferId: TransferId, reserved: Long): Boolean {
+        val pledge = ctx.routerConfig.value.relayStoragePledgeBytes
+        var used = relay.reservedBytes()
+        if (used + reserved <= pledge) return true
+        var candidates = relay.evictionCandidates(16)
+        while (used + reserved > pledge && candidates.isNotEmpty()) {
+            for (candidate in candidates) {
+                if (candidate == transferId || used + reserved <= pledge) continue
+                relay.find(candidate)?.let { victim ->
+                    relay.delete(candidate)
+                    used -= victim.reservedBytes
+                }
+            }
+            candidates = if (used + reserved > pledge) relay.evictionCandidates(16) else emptyList()
+        }
+        return used + reserved <= pledge
+    }
+
+    private fun fileCount(totalBytes: Long, chunkSizeBytes: Int): Int =
+        if (totalBytes == 0L) 0
+        else ((totalBytes - 1) / chunkSizeBytes + 1).toInt()
 }

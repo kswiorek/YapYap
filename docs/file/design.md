@@ -432,7 +432,10 @@ target online simultaneously.
   returns (§5) — **each deposit its own transfer**: its own `transferId`, its own key, its own separately
   sealed OFFER. Two relays forwarding one shared sealed OFFER would deliver the same ratchet ciphertext twice,
   and the second would fail as a replay (§3.3). The "at most once" above counts the deposit *round*, not the
-  relays in it. If one relay's deposit stalls, that is the outbox's business — per-chunk
+  relays in it. A deposit's OFFER is sealed to the ultimate target (the relay stays blind, §3.3) and rides
+  outer-addressed to its relay — one `file_pushes` row of kind DEPOSIT per relay, `via_relay` carrying the
+  outer target while the row's target stays the ultimate device. If one relay's deposit stalls, that is the outbox's
+  business — per-chunk
   rows retry at their own cadence, and the reservation TTL eventually cleans what never lands. **The sender
   never chases a failing relay by re-depositing its missing parts elsewhere.**
 - **One jump, ever.** Combined with the no-chaining rule for forwarding relays (§7), file ciphertext makes at
@@ -877,7 +880,9 @@ pending_file_requests (file_id TEXT PK, status TEXT, next_attempt_at, …)
 
 -- routing (transferId grain: pushing, forwarding, asking)
 file_pushes (                 -- the pusher's per-device transfer state (small path; a large fetch has no row)
-  transfer_id TEXT PK, file_id TEXT, target_device TEXT,
+  transfer_id TEXT PK, file_id TEXT, target_device TEXT, via_relay TEXT NULL,
+                        -- via_relay: outer envelope target for DEPOSIT rows (the relay);
+                        -- NULL for DIRECT/SERVE (outer == target_device)
   kind TEXT,                  -- DIRECT | DEPOSIT | SERVE
   key BLOB,                   -- this transfer's own key
   chunk_size_bytes INT, start_index INT, …               -- the covered suffix; resume derives

@@ -182,6 +182,7 @@ internal class DatabaseFactory(
                 file_pushesAdapter = File_pushes.Adapter(
                     file_idAdapter = FileIdAdapter(),
                     target_deviceAdapter = PeerIdAdapter(),
+                    via_relayAdapter = PeerIdAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
@@ -210,6 +211,13 @@ internal class DatabaseFactory(
                 file_request_declined_devicesAdapter = File_request_declined_devices.Adapter(
                     file_idAdapter = FileIdAdapter(),
                     device_idAdapter = PeerIdAdapter(),
+                ),
+                file_relay_transfersAdapter = File_relay_transfers.Adapter(
+                    source_deviceAdapter = PeerIdAdapter(),
+                    target_deviceAdapter = PeerIdAdapter(),
+                    created_atAdapter = InstantEpochSecondsAdapter,
+                    last_chunk_atAdapter = InstantEpochSecondsAdapter,
+                    expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
             ),
             driver = driver,

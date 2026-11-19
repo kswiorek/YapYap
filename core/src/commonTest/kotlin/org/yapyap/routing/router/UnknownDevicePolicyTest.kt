@@ -5,8 +5,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
@@ -145,6 +156,7 @@ class UnknownDevicePolicyTest {
             fileIngestPort = RefusingFileIngestPort(),
             fileIncomingStore = InMemoryFileIncomingTransferStore(),
             filePushStore = InMemoryFilePushStore(),
+            fileRelayStore = InMemoryFileRelayStore(),
             fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
             plaintextSource = FakeFilePlaintextSource(),
             fileChunkSize = MutableStateFlow(220 * 1024),

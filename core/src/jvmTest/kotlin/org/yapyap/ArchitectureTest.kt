@@ -79,6 +79,7 @@ class ArchitectureTest {
         "fileQueries" to "orchestrator.file",
         "fileIncomingQueries" to "routing.store",
         "filePushQueries" to "routing.store",
+        "fileRelayQueries" to "routing.store",
         "fileTransferQueries" to "orchestrator.file",
         "fileRequestAttemptQueries" to "routing.store",
     )

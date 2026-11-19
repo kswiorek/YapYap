@@ -1,32 +1,81 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.*
+import org.yapyap.routing.file.DefaultFileCarrier
+import org.yapyap.routing.file.FileCarrier
+import org.yapyap.routing.file.FileEvent
+import org.yapyap.routing.file.FileIngestPort
+import org.yapyap.routing.file.FileOutbox
+import org.yapyap.routing.file.FilePlaintextSource
+import org.yapyap.routing.file.FilePusher
+import org.yapyap.routing.file.FileRequestProcessor
+import org.yapyap.routing.file.relay.FileRelayForwarder
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
-import org.yapyap.routing.inbound.handlers.*
+import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
+import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.inbound.handlers.MessageInboundHandler
+import org.yapyap.routing.inbound.handlers.SignalInboundHandler
+import org.yapyap.routing.inbound.handlers.SystemInboundHandler
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.LinkKeeperConfig
-import org.yapyap.routing.outbound.*
+import org.yapyap.routing.outbound.BootstrapSender
+import org.yapyap.routing.outbound.OutboundMessenger
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.ProactiveSessionOpener
+import org.yapyap.routing.outbound.RelayDepositor
+import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.outbound.TypingIndicatorDispatcher
+import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileRequestAttemptStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.PeerAvailabilityStore
+import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -62,6 +111,7 @@ internal class DefaultRouter(
     val fileIngestPort: FileIngestPort,
     val fileIncomingStore: FileIncomingTransferStore,
     val filePushStore: FilePushStore,
+    val fileRelayStore: FileRelayStore,
     val plaintextSource: FilePlaintextSource,
     val fileChunkSize: StateFlow<Int>,
 ) : Router {
@@ -111,7 +161,17 @@ internal class DefaultRouter(
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
         isPeerOnline = { peerAvailabilityRegistry.isOnline(it) },
         onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
-        relayCopies = { envelope -> relayDepositor.deposit(envelope) },
+        relayCopies = { envelope ->
+            when (envelope.packetType) {
+                PacketType.MESSAGE -> relayDepositor.deposit(envelope)
+                // OFFER markers use the message triggers (§5, step 19): the marker's
+                // packet maps back to its authoring transfer for a one-round deposit.
+                // Chunks never reach here (policy) and DEPOSIT markers no-op inside
+                // (never chase a failing relay, §6.4).
+                PacketType.FILE -> filePusher.depositByMarkerPacket(envelope.packetId)
+                else -> 0
+            }
+        },
     )
 
     private val bootstrapSender = BootstrapSender(routingContext, outboxProcessor)
@@ -130,7 +190,6 @@ internal class DefaultRouter(
         peerAvailabilityRegistry = peerAvailabilityRegistry,
         routerConfig = routerConfig,
     )
-
     private val relayDepositor: RelayDepositor = RelayDepositor(
         ctx = routingContext,
         relaySelectionPolicy = relaySelectionPolicy,
@@ -171,22 +230,39 @@ internal class DefaultRouter(
 
     private val fileEventFlow = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
 
+    private val fileOutbox: FileOutbox = object : FileOutbox {
+        override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup) =
+            outboxProcessor.enqueueAndWake(envelope, clock.now(), relayBackup = relayBackup, tag = tag)
+
+        override suspend fun enqueueDirect(envelope: BinaryEnvelope) =
+            outboxProcessor.enqueueAndWake(envelope, clock.now())
+
+        override suspend fun deleteByTag(tag: OutboxTag) =
+            packetOutbox.deleteByTag(tag)
+
+        override suspend fun hasQueued(tag: OutboxTag) =
+            packetOutbox.hasTagged(tag)
+
+        override suspend fun isPacketQueued(packetId: Uuid) =
+            packetOutbox.getByPacketId(packetId) != null
+    }
+
     private val filePusher = FilePusher(
         ctx = routingContext,
         plaintext = plaintextSource,
         pushes = filePushStore,
-        outbox = object : FileOutbox {
-            override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag) =
-                outboxProcessor.enqueueAndWake(envelope, clock.now(), tag = tag)
-
-            override suspend fun enqueueDirect(envelope: BinaryEnvelope) =
-                outboxProcessor.enqueueAndWake(envelope, clock.now())
-
-            override suspend fun deleteByTag(tag: OutboxTag) =
-                packetOutbox.deleteByTag(tag)
-        },
+        outbox = fileOutbox,
         events = fileEventFlow,
         chunkSizeBytes = fileChunkSize,
+        relaySelection = relaySelectionPolicy,
+    )
+
+    // Relay-side forward driver (design §7, step 18): shares the file outbox with
+    // the authoring pusher; FILE outcomes for unknown push rows are its forwards.
+    private val relayForwarder = FileRelayForwarder(
+        ctx = routingContext,
+        relay = fileRelayStore,
+        outbox = fileOutbox,
     )
 
     override val fileCarrier: FileCarrier = DefaultFileCarrier(
@@ -212,6 +288,7 @@ internal class DefaultRouter(
                 fileIngestPort,
                 fileCarrier,
                 filePusher,
+                fileRelayStore,
                 onCoverageAck = { transferId, contiguous, missing ->
                     filePusher.onCoverageAck(transferId, contiguous, missing)
                 },
@@ -224,6 +301,7 @@ internal class DefaultRouter(
                 onOfferReceived = { fileId ->
                     fileRequestProcessor.onOfferReceived(fileId)
                 },
+                onRelayStored = { relayForwarder.wake() },
             ),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
             PacketType.BOOTSTRAP to BootstrapInboundHandler(
@@ -305,6 +383,8 @@ internal class DefaultRouter(
     private var outboxOutcomeJob: Job? = null
     private var syncRetryJob: Job? = null
     private var fileRequestRetryJob: Job? = null
+    private var filePusherJob: Job? = null
+    private var relayForwardJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
@@ -418,12 +498,17 @@ internal class DefaultRouter(
         outboxRetryJob = outboxProcessor.runIn(scope)
 
         // Reconcile push transfers with the outbox after a restart (drops stale rows,
-        // re-arms live ones); the outbox loop above dispatches what the pusher re-queues.
-        filePusher.start()
+        // re-arms live ones); the outbox loop above dispatches what the pusher
+        // re-queues. The pusher's loop also runs the deposit-on-stall sweep (§6.3).
+        filePusherJob = filePusher.runIn(scope)
 
         syncRetryJob = syncProcessor.runIn(scope)
 
         fileRequestRetryJob = fileRequestProcessor.runIn(scope)
+
+        // Relay forwards (whole deposits stream to their targets); the outbox loop
+        // above dispatches what the forwarder enqueues.
+        relayForwardJob = relayForwarder.runIn(scope)
 
         pingProvider.runIn(scope)
 
@@ -485,6 +570,8 @@ internal class DefaultRouter(
             outboxOutcomeJob,
             syncRetryJob,
             fileRequestRetryJob,
+            filePusherJob,
+            relayForwardJob,
         ).forEach { it.cancelAndJoin() }
 
         torIncomingJob = null
@@ -496,6 +583,8 @@ internal class DefaultRouter(
         outboxOutcomeJob = null
         syncRetryJob = null
         fileRequestRetryJob = null
+        filePusherJob = null
+        relayForwardJob = null
         scope.cancel()
 
         AppLog.info(
@@ -592,8 +681,13 @@ internal class DefaultRouter(
             OutboxTag.Kind.FILE_REQUEST -> fileRequestProcessor.onAttemptOutcome(outcome)
 
             // Pusher-owned: OFFER/chunk ACKs advance the window, DECLINED and other
-            // terminals end the transfer, expiries re-arm live transfers.
-            OutboxTag.Kind.FILE -> filePusher.onOutboxOutcome(outcome)
+            // terminals end the transfer, expiries re-arm live transfers. Relay
+            // forwards share the FILE tag: the pusher ignores unknown transfer ids
+            // and the forwarder below drains its own.
+            OutboxTag.Kind.FILE -> {
+                filePusher.onOutboxOutcome(outcome)
+                relayForwarder.onOutboxOutcome(outcome)
+            }
         }
     }
 }

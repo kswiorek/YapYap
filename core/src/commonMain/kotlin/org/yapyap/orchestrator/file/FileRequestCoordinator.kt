@@ -43,7 +43,8 @@ import kotlin.uuid.Uuid
  * Trigger (message ingest): a Text attachment referencing a small file with no READY
  * local copy and no progressing transfer opens a PENDING row (grace
  * `fileRequestFirstAttemptDelay`, deduped by fileId) and starts the router's asking
- * loop. STALLED (hash mismatch below the retry limit) and EXPIRED rows re-open;
+ * loop. STALLED (hash mismatch below the retry limit, or the gap trigger after
+ * `fileStallTimeout` without prefix progress) and EXPIRED rows re-open;
  * DECLINED / CANCELLED / FAILED / EVICTED are never auto-resurrected — those need a
  * new message or a user re-open. Large files never trigger: they are pull-only (Phase F).
  */
@@ -225,10 +226,28 @@ internal class DefaultFileRequestCoordinator(
 
     private suspend fun sweep(now: Instant) {
         // Re-arm the router for due rows (restart recovery: routing rows persist, but a
-        // dropped routing row must not strand a PENDING trigger) and reopen stalled
-        // receives. startFileRequest is idempotent.
+        // dropped routing row must not strand a PENDING trigger), run the gap trigger,
+        // and reopen stalled receives. startFileRequest is idempotent.
         for (row in pending.due(now)) {
             router.startFileRequest(row.fileId, row.nextAttemptAt)
+        }
+        // Gap trigger (design §8, step 19): an IN_FLIGHT receive whose contiguous
+        // prefix P has not advanced for fileStallTimeout goes STALLED — re-requestable,
+        // never refused — and the STALLED branch below re-opens the REQUEST with held
+        // coverage. It cancels nothing: live incoming transfers keep merging whatever
+        // arrives, and a serve from an already-pushing device supersedes that push at
+        // the serving device. The timer counts only while this device runs (this sweep
+        // is the only writer, and it runs in the started scope).
+        val stallAfter = routerConfig.value.fileStallTimeout
+        for (row in receives.active()) {
+            if (row.status == FileReceiveStatus.IN_FLIGHT &&
+                row.totalBytes <= SMALL_FILE_MAX_BYTES &&
+                now - row.updatedAt > stallAfter
+            ) {
+                runCatching {
+                    receives.updateStatus(row.fileId, FileReceiveStatus.STALLED, now)
+                }
+            }
         }
         for (row in receives.active()) {
             if (row.status != FileReceiveStatus.STALLED) continue

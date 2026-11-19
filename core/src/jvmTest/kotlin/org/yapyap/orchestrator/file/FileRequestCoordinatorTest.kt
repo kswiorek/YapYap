@@ -43,6 +43,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -256,6 +257,51 @@ class FileRequestCoordinatorTest {
         runCurrent()
         assertEquals(PendingFileRequestStatus.PENDING, h.pending.find(fileId)?.status)
         assertTrue(h.router.startedFiles.isNotEmpty())
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun gapTrigger_stalledPrefixReopensRequestWithoutCancelling() = runTest {
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                partPath = "p", finalPath = "f", originMessageId = null,
+                // Silent for longer than fileStallTimeout (10 min): the gap trigger fires.
+                createdAt = now - 11.minutes, updatedAt = now - 11.minutes,
+            )
+        )
+        h.coordinator.start(this)
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        val row = assertNotNull(h.pending.find(fileId), "stalled prefix re-opens the request")
+        assertEquals(PendingFileRequestStatus.PENDING, row.status)
+        assertTrue(h.router.startedFiles.any { it.first == fileId })
+        val receive = assertNotNull(h.receives.find(fileId))
+        assertEquals(FileReceiveStatus.STALLED, receive.status)
+        assertEquals(100L, receive.contiguousBytes, "P is kept: the gap trigger cancels nothing")
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun gapTrigger_progressingPrefixDoesNotStall() = runTest {
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                partPath = "p", finalPath = "f", originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        h.coordinator.start(this)
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status)
+        assertNull(h.pending.find(fileId), "a progressing receive is left alone")
         h.coordinator.stop()
     }
 
