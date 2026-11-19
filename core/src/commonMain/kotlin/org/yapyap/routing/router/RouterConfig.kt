@@ -139,6 +139,16 @@ internal data class RouterConfig(
      * `fastRetryBudget` / `standbyRetryDelay` policy.
      */
     val fileChunkRetryDelay: Duration = 10.seconds,
+    /**
+     * One file REQUEST's lifetime: unanswered (no ACK or NACK) by then, the next candidate
+     * is asked. Over an open link a request is answered within seconds.
+     */
+    val fileRequestAttemptTimeout: Duration = 90.seconds,
+    /**
+     * How long a REQUEST waits for its OFFER after the ACK ("I hold it, serving") before
+     * the next candidate is asked.
+     */
+    val fileRequestWaitTimeout: Duration = 90.seconds,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
@@ -181,6 +191,8 @@ internal data class RouterConfig(
         require(fileTransferTtl > Duration.ZERO) { "fileTransferTtl must be > 0" }
         require(maxInFlightChunks > 0) { "maxInFlightChunks must be > 0" }
         require(fileChunkRetryDelay > Duration.ZERO) { "fileChunkRetryDelay must be > 0" }
+        require(fileRequestAttemptTimeout > Duration.ZERO) { "fileRequestAttemptTimeout must be > 0" }
+        require(fileRequestWaitTimeout > Duration.ZERO) { "fileRequestWaitTimeout must be > 0" }
     }
 
     fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {

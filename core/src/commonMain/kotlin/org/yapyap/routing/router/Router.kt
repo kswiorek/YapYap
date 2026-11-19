@@ -139,6 +139,17 @@ internal interface Router {
     suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant)
 
     /**
+     * Starts asking candidate devices for pending file [fileId] (idempotent), first at
+     * [firstAttemptAt]. What to ask for and which accounts may hold it come from the
+     * [org.yapyap.routing.file.FileIngestPort] (held coverage, candidates); the router
+     * asks one candidate at a time until an OFFER arrives or every candidate declines.
+     *
+     * // TODO: split Router into per-task services (messages, syncs, typing, files) behind
+     * // narrow ports like FileCarrier instead of growing this interface (Phase D discussion).
+     */
+    suspend fun startFileRequest(fileId: org.yapyap.protocol.FileId, firstAttemptAt: Instant)
+
+    /**
      * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's
      * room): if every candidate device has declined, that account's devices are asked again.
      */

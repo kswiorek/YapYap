@@ -87,11 +87,12 @@ OrchestratorFactory(dirB, NodeMode.FULL_CLIENT, LoopbackTransport.TOR, "dev-b")
 - Any GUI running loopback must show a visible "LOCAL — no anonymity" marker so a
   dev build is never mistaken for a real one.
 
-### The seven services (`runtime.*`)
+### The eight services (`runtime.*`)
 
 | Service      | Owns                                                                                                                                                                                                             |
 |--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `messaging`  | Send text, room windows (`openRoom` + `close`), previews, typing, incoming events. Max length: `maxTextMessageBytes`. Re-pull `roomPreview` on `incomingMessageEvents` (the event carries no content by design). |
+| `messaging`  | Send text and files, room windows (`openRoom` + `close`), previews, typing, incoming events. Send takes `Message(content, attachments, pickedFiles)`: picked files are imported (hashed into the file store, copy or reference) and published as attachment references — the only send path for messages with files. Max length: `maxTextMessageBytes`; attachment count is capped (`MAX_ATTACHMENTS`). Re-pull `roomPreview` on `incomingMessageEvents` (the event carries no content by design). |
+| `files`      | Receive-state facade for files: `receiveState(fileId)` (durable receive progress for display) and `localFilePath(fileId)` (final store path once READY and held, else null). Sending goes through `messaging`; progress events, large-file accept/decline and open land with the GUI surface work. |
 | `rooms`      | Room list (`rooms`), headers (`room`), creation, membership/admin ops, leave (+owner handover via `successorAccountId`). Refusals are values (`RoomEventOutcome.Refused`); infra failures throw.                 |
 | `identity`   | Read-only roster: `accounts`, `localAccount`, `account(id)` (null → render "unknown author"). Mutations live in `admin`/`account`.                                                                               |
 | `admin`      | Admin-gated global mutations. Gate admin UI on `localIsAdmin` (live).                                                                                                                                            |
@@ -110,8 +111,8 @@ Entry points: `OrchestratorFactory` and its dev option `LoopbackTransport` (both
 picks the backends), and from the `org.yapyap.orchestrator` root package `Orchestrator`, `OrchestratorState`,
 `BootProgress`, `BootPhase`, `NodeMode`, `SetupIntent`, `SetupResult`, `BootstrapEndpoint`, `OnboardingState`,
 `ResetReason` and the transport-status types. Then the `runtime.*` service
-interfaces, and the shared identifiers/enums: `PeerId`, `RoomId`, `TorEndpoint`,
-`AccountId`, `DeviceType`, `RoomType`, `RoomMemberRole`, `RoomMemberStatus`,
+interfaces (`MessagingService` with `Message`/`PickedFile`/`PickedFileSource`/`MessageAttachment`, `FileTransferService` with `FileReceiveSnapshot`, …), and the shared identifiers/enums: `PeerId`, `RoomId`, `TorEndpoint`,
+`AccountId`, `FileId`, `DeviceType`, `RoomType`, `RoomMemberRole`, `RoomMemberStatus`,
 `AccountRole`, `IdentityStatus`, plus the settings types (`Setting`, `ConfigValue`,
 `UpdateResult`, `Number/Text/Toggle/PeriodSetting`). This list mirrors the
 `GuiApiBoundaryTest` allow-list exactly — importing anything else fails the build.

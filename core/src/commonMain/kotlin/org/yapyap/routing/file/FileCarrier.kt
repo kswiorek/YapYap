@@ -31,6 +31,30 @@ internal sealed interface FileEvent {
         val target: AccountId?,
         val reason: FileFailureReason,
     ) : FileEvent
+
+    /**
+     * A REQUEST of ours was satisfied: the holder's OFFER arrived and its transfer
+     * takes over. The pending request is dropped.
+     */
+    data class RequestSatisfied(val fileId: FileId) : FileEvent
+
+    /** Every candidate declined (or expired without serving): terminal until a user re-opens. */
+    data class RequestUnavailable(val fileId: FileId) : FileEvent
+
+    /**
+     * We started serving [fileId] to [requester]'s account (serve-on-REQUEST): the
+     * orchestrator records the SERVE row. Follows [OutgoingProgress] for accounting.
+     */
+    data class ServeStarted(
+        val fileId: FileId,
+        val requester: AccountId,
+    ) : FileEvent
+
+    /** A send or serve transfer completed end-to-end (COMPLETE from the target). */
+    data class OutgoingComplete(
+        val fileId: FileId,
+        val target: AccountId,
+    ) : FileEvent
 }
 
 internal enum class FileFailureReason {

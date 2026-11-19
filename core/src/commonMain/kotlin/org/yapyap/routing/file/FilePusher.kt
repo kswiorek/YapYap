@@ -5,23 +5,15 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.FileCancelReason
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FilePush
-import org.yapyap.routing.store.FilePushKind
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
@@ -37,6 +29,7 @@ import kotlin.uuid.Uuid
  */
 internal interface FileOutbox {
     suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag)
+    suspend fun enqueueDirect(envelope: BinaryEnvelope)
     suspend fun deleteByTag(tag: OutboxTag)
 }
 
@@ -125,6 +118,91 @@ internal class FilePusher(
             for (row in liveRows(fileId, device)) {
                 terminate(row, FilePushStatus.CANCELLED, FileFailureReason.CANCELLED, target)
             }
+        }
+    }
+
+    /**
+     * Serve-on-REQUEST (design §9): a fresh SERVE transfer to one [device], covering the
+     * suffix from the floor-aligned [fromOffset]. A live push of the same file to that
+     * device is superseded — the old transfer is CANCELled, never left to race the
+     * serve. False when not held (or large, which is never served by transfer).
+     */
+    override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean {
+        val info = try {
+            plaintext.describe(fileId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return false
+        } ?: return false
+        if (info.totalBytes > SMALL_FILE_MAX_BYTES) return false
+        val chunkSize = chunkSizeBytes.value
+        val count = fileCount(info.totalBytes, chunkSize)
+        val start = (fromOffset / chunkSize).toInt().coerceIn(0, maxOf(count - 1, 0))
+        for (row in liveRows(fileId, device)) {
+            supersede(row)
+        }
+        val now = ctx.clock.now()
+        val row = FilePush(
+            transferId = TransferId(Uuid.random()),
+            fileId = info.fileId,
+            targetDevice = device,
+            kind = FilePushKind.SERVE,
+            totalBytes = info.totalBytes,
+            key = ctx.envelopeProtectionService.generateFileTransferKey(),
+            chunkSizeBytes = chunkSize,
+            startIndex = start,
+            nextChunkIndex = start,
+            contiguousAcked = start - 1,
+            markerPacketId = null,
+            status = FilePushStatus.CREATED,
+            createdAt = now,
+            expiresAt = now + ctx.routerConfig.value.fileTransferTtl,
+        )
+        try {
+            pushes.insert(row)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return false
+        }
+        accountOf(device)?.let { events.emit(FileEvent.ServeStarted(fileId, it)) }
+        sendMarker(row)
+        return true
+    }
+
+    /**
+     * Supersede a live transfer with a fresh serve: CANCEL the old transferId (so the
+     * target drops its row instead of answering late chunks DECLINED), drop its rows,
+     * and stay silent — this is a handoff, not a failure, so no [FileEvent.Failed].
+     */
+    private suspend fun supersede(row: FilePush) {
+        try {
+            pushes.setStatus(row.transferId, FilePushStatus.CANCELLED)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+        try {
+            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+        try {
+            val envelope = buildFileControlEnvelope(
+                protection = ctx.envelopeProtectionService,
+                transferId = row.transferId,
+                source = ctx.localDeviceId,
+                target = row.targetDevice,
+                createdAt = ctx.clock.now(),
+                expiresAt = row.expiresAt,
+                payload = FilePayload.Cancel(FileCancelReason.ABORT, reasonText = null),
+            )
+            outbox.enqueueDirect(envelope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 
@@ -252,6 +330,7 @@ internal class FilePusher(
         }
         setStatus(row, FilePushStatus.COMPLETED)
         emitProgress(row, row.totalBytes)
+        accountOf(row.targetDevice)?.let { events.emit(FileEvent.OutgoingComplete(row.fileId, it)) }
     }
 
     /** The target aborted the transfer: end it quietly. */
@@ -502,7 +581,9 @@ internal class FilePusher(
         null
     }
 
-    private fun fileCount(row: FilePush): Int =
-        if (row.totalBytes == 0L) 0
-        else ((row.totalBytes - 1) / row.chunkSizeBytes + 1).toInt()
+    private fun fileCount(row: FilePush): Int = fileCount(row.totalBytes, row.chunkSizeBytes)
+
+    private fun fileCount(totalBytes: Long, chunkSizeBytes: Int): Int =
+        if (totalBytes == 0L) 0
+        else ((totalBytes - 1) / chunkSizeBytes + 1).toInt()
 }

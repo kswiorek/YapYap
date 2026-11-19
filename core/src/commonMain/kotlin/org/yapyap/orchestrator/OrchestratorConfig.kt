@@ -13,6 +13,8 @@ internal data class OrchestratorConfig(
     val typingIndicatorInterval: Duration = 3.seconds,
     /** Delay before a freshly created pending sync is first attempted (lets in-flight messages land). */
     val syncGracePeriod: Duration = 60.seconds,
+    /** Delay before a freshly triggered file request is first attempted (lets a pushed OFFER land). */
+    val fileRequestFirstAttemptDelay: Duration = 60.seconds,
     /** Roster re-read cadence for the identity service (silent lastSeen aging emits nothing). */
     val identityRefreshInterval: Duration = 60.seconds,
     /** Max messages returned per sync response (responder-side page size). */
@@ -49,6 +51,7 @@ internal data class OrchestratorConfig(
         require(maintenanceInterval > Duration.ZERO) { "maintenanceIntervalSeconds must be > 0" }
         require(typingIndicatorInterval > Duration.ZERO) { "typingIndicatorInterval must be > 0" }
         require(syncGracePeriod >= Duration.ZERO) { "syncGracePeriodSeconds must be >= 0" }
+        require(fileRequestFirstAttemptDelay >= Duration.ZERO) { "fileRequestFirstAttemptDelay must be >= 0" }
         require(identityRefreshInterval > Duration.ZERO) { "identityRefreshInterval must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }

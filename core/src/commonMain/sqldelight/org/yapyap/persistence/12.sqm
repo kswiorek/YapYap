@@ -1,0 +1,20 @@
+-- Phase D step 16 (routing): the file request processor's asking state, mirroring
+-- SyncAttempt.sq keyed by fileId, plus the WAITING state and the in-flight REQUEST's
+-- transferId for outcome correlation. Runs with foreign keys off (see DatabaseInitializer).
+CREATE TABLE file_request_attempts(
+    file_id TEXT NOT NULL PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    waiting_device TEXT,
+    waiting_until INTEGER,
+    request_transfer_id TEXT
+);
+
+CREATE TABLE file_request_declined_devices(
+    file_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    PRIMARY KEY (file_id, device_id),
+    FOREIGN KEY (file_id) REFERENCES file_request_attempts(file_id) ON DELETE CASCADE
+);
+
+CREATE INDEX file_request_attempts_due_idx ON file_request_attempts(next_attempt_at);

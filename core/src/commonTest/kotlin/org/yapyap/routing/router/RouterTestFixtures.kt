@@ -8,18 +8,10 @@ import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.CryptoException
-import org.yapyap.crypto.e2ee.CryptoSessionConfig
-import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
-import org.yapyap.crypto.e2ee.TestPeerIdentity
+import org.yapyap.crypto.e2ee.*
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.session.X3dhHandshake
-import org.yapyap.crypto.e2ee.testCryptoLimits
-import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.crypto.identity.LocalIdentity
-import org.yapyap.crypto.identity.LocalKeys
-import org.yapyap.crypto.identity.LocalSignedPreKey
-import org.yapyap.crypto.identity.PeerKeys
-import org.yapyap.crypto.identity.PeerPreKeyBundle
+import org.yapyap.crypto.identity.*
 import org.yapyap.crypto.keys.EncryptionPrivateKey
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.CryptoProvider
@@ -34,56 +26,19 @@ import org.yapyap.protection.envelope.SignedWebRtcSignalProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
-import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.FileDescriptorInfo
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FilePlaintextSource
-import org.yapyap.routing.file.FilePushOps
-import org.yapyap.routing.file.FileReadResult
-import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.file.*
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
-import org.yapyap.routing.store.DueOutboxRow
-import org.yapyap.routing.store.FileIncomingTransfer
-import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FilePush
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.OutboxEntry
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketDeduplicator
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.RelayBackup
-import org.yapyap.routing.store.SyncAttempt
-import org.yapyap.routing.store.SyncAttemptStore
+import org.yapyap.routing.store.*
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
@@ -379,8 +334,7 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
     fun nextAttemptAt(syncId: Uuid): Instant? = rows[syncId]?.nextAttemptAt
 }
 
-/** In-memory [FilePushStore], mirroring the SQL semantics. */
-internal class InMemoryFilePushStore : FilePushStore {
+/** In-memory [FilePushStore], mirroring the SQL semantics. */internal class InMemoryFilePushStore : FilePushStore {
     private val rows = linkedMapOf<TransferId, FilePush>()
     private val mutex = Mutex()
 
@@ -438,6 +392,122 @@ internal class FakeFilePlaintextSource(
 internal class NoopFilePushOps : FilePushOps {
     override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
+    override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean = false
+}
+
+/** In-memory [FileRequestAttemptStore], mirroring the SQL semantics. */
+internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
+    private data class Row(
+        var attempts: Int = 0,
+        var nextAttemptAt: Instant = Instant.DISTANT_PAST,
+        var waitingDevice: PeerId? = null,
+        var waitingUntil: Instant? = null,
+        var requestTransferId: TransferId? = null,
+        val declined: MutableSet<PeerId> = mutableSetOf(),
+    )
+
+    private val rows = linkedMapOf<FileId, Row>()
+    private val mutex = Mutex()
+
+    override suspend fun start(fileId: FileId, firstAttemptAt: Instant) = mutex.withLock {
+        if (fileId !in rows) rows[fileId] = Row(nextAttemptAt = firstAttemptAt)
+        Unit
+    }
+
+    override suspend fun drop(fileId: FileId) {
+        mutex.withLock { rows.remove(fileId) }
+    }
+
+    override suspend fun earliestDueAt(): Instant? = mutex.withLock { rows.values.minOfOrNull { it.nextAttemptAt } }
+
+    override suspend fun findDue(now: Instant, limit: Int): List<FileRequestAttempt> = mutex.withLock {
+        rows.filterValues { it.nextAttemptAt <= now }.entries.take(limit).map { (id, row) -> row.toAttempt(id) }
+    }
+
+    override suspend fun findById(fileId: FileId): FileRequestAttempt? = mutex.withLock {
+        rows[fileId]?.toAttempt(fileId)
+    }
+
+    override suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt? = mutex.withLock {
+        rows.entries.firstOrNull { it.value.requestTransferId == transferId }?.let { (id, row) -> row.toAttempt(id) }
+    }
+
+    override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: Instant) = mutex.withLock {
+        rows[fileId]?.let { it.attempts += 1; it.nextAttemptAt = nextAttemptAt }
+        Unit
+    }
+
+    override suspend fun postpone(fileId: FileId, nextAttemptAt: Instant) = mutex.withLock {
+        rows[fileId]?.nextAttemptAt = nextAttemptAt
+    }
+
+    override suspend fun advanceToNow(fileIds: Collection<FileId>, now: Instant) = mutex.withLock {
+        fileIds.forEach { id -> rows[id]?.let { if (it.nextAttemptAt > now) it.nextAttemptAt = now } }
+    }
+
+    override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestTransferId: TransferId) =
+        mutex.withLock {
+            rows[fileId]?.let {
+                it.waitingDevice = device
+                it.waitingUntil = until
+                it.requestTransferId = requestTransferId
+            }
+            Unit
+        }
+
+    override suspend fun clearWaiting(fileId: FileId) = mutex.withLock {
+        rows[fileId]?.let {
+            it.waitingDevice = null
+            it.waitingUntil = null
+            it.requestTransferId = null
+        }
+        Unit
+    }
+
+    override suspend fun setRequestTransfer(fileId: FileId, transferId: TransferId) = mutex.withLock {
+        rows[fileId]?.requestTransferId = transferId
+        Unit
+    }
+
+    override suspend fun declinedDevices(fileId: FileId): Set<PeerId> =
+        mutex.withLock { rows[fileId]?.declined?.toSet().orEmpty() }
+
+    override suspend fun addDeclined(fileId: FileId, device: PeerId) = mutex.withLock {
+        rows[fileId]?.declined?.add(device)
+        Unit
+    }
+
+    override suspend fun removeDeclined(fileId: FileId, devices: Collection<PeerId>) = mutex.withLock {
+        rows[fileId]?.declined?.removeAll(devices.toSet())
+        Unit
+    }
+
+    override suspend fun allIds(): List<FileId> = rows.keys.toList()
+
+    private fun Row.toAttempt(id: FileId) = FileRequestAttempt(
+        fileId = id,
+        attempts = attempts,
+        declinedDevices = declined.toSet(),
+        waitingDevice = waitingDevice,
+        waitingUntil = waitingUntil,
+        requestTransferId = requestTransferId,
+    )
+}
+
+/**
+ * [FileIngestPort] backed by a real receive engine, for push-path tests that never
+ * exercise the request side (coverage/gate report "nothing held / no serving").
+ */
+internal fun engineFileIngestPort(
+    engine: org.yapyap.orchestrator.file.DefaultFileReceiveEngine,
+): FileIngestPort = object : FileIngestPort {
+    override suspend fun checkOffer(offer: FileOfferInfo) = engine.checkOffer(offer)
+    override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
+        engine.ingest(fileId, byteOffset, plaintext)
+
+    override suspend fun heldCoverage(fileId: FileId) = engine.heldCoverage(fileId)
+    override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
+    override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = false
 }
 
 /** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */
@@ -956,6 +1026,7 @@ internal fun e2eeRouterUnderTest(
     fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
     filePushStore: FilePushStore = InMemoryFilePushStore(),
+    fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
 ): DefaultRouter =
@@ -973,6 +1044,7 @@ internal fun e2eeRouterUnderTest(
         routerConfig = MutableStateFlow(routerConfig),
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncAttemptStore = InMemorySyncAttemptStore(),
+        fileRequestAttemptStore = fileRequestAttemptStore,
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
@@ -1033,6 +1105,7 @@ internal fun defaultRouterUnderTest(
     fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
     filePushStore: FilePushStore = InMemoryFilePushStore(),
+    fileRequestAttemptStore: FileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
     plaintextSource: FilePlaintextSource = FakeFilePlaintextSource(),
     fileChunkSize: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(220 * 1024),
 ): DefaultRouter =
@@ -1050,6 +1123,7 @@ internal fun defaultRouterUnderTest(
         routerConfig = MutableStateFlow(routerConfig),
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncAttemptStore = InMemorySyncAttemptStore(),
+        fileRequestAttemptStore = fileRequestAttemptStore,
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),

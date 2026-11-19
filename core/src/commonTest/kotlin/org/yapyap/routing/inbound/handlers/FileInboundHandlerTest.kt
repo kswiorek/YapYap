@@ -15,43 +15,18 @@ import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FileCancelReason
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileFailureReason
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.FileRefusalReason
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.*
+import org.yapyap.routing.file.*
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
-import org.yapyap.routing.router.FakeIdentityResolverForRouter
-import org.yapyap.routing.router.InboundHandleResult
-import org.yapyap.routing.router.InboundSideEffect
-import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.*
 import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kotlin.time.Duration.Companion.days
 import kotlin.uuid.Uuid
 
@@ -93,6 +68,12 @@ internal class ScriptedFileIngestPort(
         ingests += Triple(fileId, byteOffset, plaintext)
         return ingestResult
     }
+
+    override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
+
+    override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
+
+    override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = false
 }
 
 class FileInboundHandlerTest {
@@ -179,9 +160,11 @@ class FileInboundHandlerTest {
                 incoming,
                 ingest,
                 carrier,
+                pusher = NoopFilePushOps(),
                 onCoverageAck = { transferId, contiguous, missing -> coverageAcks += Triple(transferId, contiguous, missing) },
                 onTransferComplete = { completed += it },
                 onTransferCancelled = { cancelled += it },
+                onOfferReceived = {},
             ),
             senderProtection = senderProtection,
             incoming = incoming,
@@ -552,7 +535,8 @@ class FileInboundHandlerTest {
         val result = h.handler.handle(env)
         val rejected = assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
-        val failed = h.carrier.events.filterIsInstance<FileEvent.Failed>().single()
-        assertEquals(fileId, failed.fileId)
+        // A declined REQUEST is normal traffic (the requester moves on), not a failure:
+        // nothing is emitted and no serve starts.
+        assertTrue(h.carrier.events.none { it is FileEvent.Failed && it.fileId == fileId })
     }
 }

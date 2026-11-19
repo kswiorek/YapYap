@@ -1,0 +1,8 @@
+-- Phase D step 16 (orchestrator): the file REQUEST trigger state, one row per wanted
+-- file (design §9). Runs with foreign keys off (see DatabaseInitializer).
+CREATE TABLE pending_file_requests (
+    file_id TEXT NOT NULL PRIMARY KEY,
+    status TEXT NOT NULL,
+    next_attempt_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);

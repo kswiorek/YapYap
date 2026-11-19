@@ -7,11 +7,6 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.routing.store.DueOutboxRow
-import org.yapyap.routing.store.OutboxEntry
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.RelayBackup
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
@@ -23,6 +18,7 @@ import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.store.*
 import org.yapyap.transport.TransportException
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
@@ -343,7 +339,8 @@ internal class OutboxProcessor(
         // FILE rows retry at a flat delay for as long as their transfer lives (design §6.2):
         // a DEFERred chunk would burn the message fast-retry budget in minutes and then sleep
         // for an hour. The transfer TTL and the stall detector bound them, not an attempt count.
-        val nextRetryAt = if (due.tag?.kind == OutboxTag.Kind.FILE) {
+        // REQUEST rows share the flat policy: short-lived, DEFER-heavy, TTL-bounded the same way.
+        val nextRetryAt = if (due.tag?.kind == OutboxTag.Kind.FILE || due.tag?.kind == OutboxTag.Kind.FILE_REQUEST) {
             now + ctx.routerConfig.value.fileChunkRetryDelay
         } else {
             now + outbound.retryDelay

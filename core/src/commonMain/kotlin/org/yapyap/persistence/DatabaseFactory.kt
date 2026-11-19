@@ -195,6 +195,22 @@ internal class DatabaseFactory(
                     updated_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
+                pending_file_requestsAdapter = Pending_file_requests.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    statusAdapter = EnumColumnAdapter(),
+                    next_attempt_atAdapter = InstantEpochSecondsAdapter,
+                    updated_atAdapter = InstantEpochSecondsAdapter,
+                ),
+                file_request_attemptsAdapter = File_request_attempts.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    next_attempt_atAdapter = InstantEpochSecondsAdapter,
+                    waiting_deviceAdapter = PeerIdAdapter(),
+                    waiting_untilAdapter = InstantEpochSecondsAdapter,
+                ),
+                file_request_declined_devicesAdapter = File_request_declined_devices.Adapter(
+                    file_idAdapter = FileIdAdapter(),
+                    device_idAdapter = PeerIdAdapter(),
+                ),
             ),
             driver = driver,
             created = created,

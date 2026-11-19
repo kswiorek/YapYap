@@ -11,11 +11,7 @@ import org.yapyap.crypto.e2ee.managerForPeer
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.FakeIdentityResolverForProtection
-import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.PlaintextMessageProtection
-import org.yapyap.protection.envelope.PlaintextSystemProtection
-import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
+import org.yapyap.protection.envelope.*
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
@@ -25,8 +21,8 @@ import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingStatus
+import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -178,6 +174,11 @@ class DefaultFileCarrierTest {
                     pushed = fileId to target
                 }
                 override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
+                override suspend fun serveFile(
+                    fileId: FileId,
+                    device: PeerId,
+                    fromOffset: Long,
+                ): Boolean = false
             },
             events = MutableSharedFlow(extraBufferCapacity = 64),
         )

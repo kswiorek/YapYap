@@ -5,52 +5,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
-import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.*
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.routing.router.FakeFilePlaintextSource
-import org.yapyap.routing.router.FakeIdentityResolverForRouter
-import org.yapyap.routing.router.InMemoryFilePushStore
-import org.yapyap.routing.router.InMemoryPacketDeduplicator
-import org.yapyap.routing.router.OutboxOutcome
-import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.router.TransportLimits
+import org.yapyap.routing.router.*
+import org.yapyap.routing.store.FilePushKind
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertNotEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kotlin.time.Duration.Companion.days
 import kotlin.uuid.Uuid
 
@@ -215,6 +185,10 @@ private fun harness(
             override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag) {
                 tags += tag
                 sent += envelope to tag
+            }
+
+            override suspend fun enqueueDirect(envelope: BinaryEnvelope) {
+                sent += envelope to null
             }
 
             override suspend fun deleteByTag(tag: OutboxTag) {
@@ -408,6 +382,77 @@ class FilePusherTest {
         assertEquals(FilePushStatus.CREATED, row.status)
         assertNotEquals(oldMarker, row.markerPacketId)
         assertEquals(countBefore + 1, h.sent.size)
+    }
+
+    @Test
+    fun serve_startsFreshTransferAtFloorAlignedStart() = runTest {
+        // 5 chunks of 220 KiB; a request from byte 300_000 lands in chunk 1.
+        val h = harness(totalBytes = 1024L * 1024, chunkSize = 220 * 1024)
+        assertTrue(h.pusher.serveFile(fixtureFileId, peerA, fromOffset = 300_000L))
+
+        val row = h.pushes.live().single()
+        assertEquals(FilePushKind.SERVE, row.kind)
+        assertEquals(1, row.startIndex)
+        assertEquals(1, row.nextChunkIndex)
+        assertEquals(0, row.contiguousAcked)
+        val offer = h.sent.mapNotNull { (env, _) ->
+            FileEnvelope.decode(env.payload).decodePayload() as? FilePayload.Offer
+        }.single()
+        assertEquals(1, offer.startIndex)
+        assertEquals(FilePushStatus.CREATED, row.status)
+    }
+
+    @Test
+    fun serve_unknownFile_returnsFalseWithoutRow() = runTest {
+        val h = harness()
+        h.plaintext.describeImpl = { null }
+        assertFalse(h.pusher.serveFile(fixtureFileId, peerA, fromOffset = 0L))
+        assertTrue(h.pushes.live().isEmpty())
+        assertTrue(h.sent.isEmpty())
+    }
+
+    @Test
+    fun serve_supersedesLivePushWithCancel() = runTest {
+        val h = harness()
+        val seen = mutableListOf<FileEvent>()
+        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        runCurrent()
+        h.pusher.pushFile(fixtureFileId, fixtureAccount)
+        val pushed = h.transferIdsFor(peerA).single()
+
+        assertTrue(h.pusher.serveFile(fixtureFileId, peerA, fromOffset = 0L))
+
+        // Old transfer is CANCELled, its rows gone, and no failure is reported.
+        assertEquals(FilePushStatus.CANCELLED, h.pushes.find(pushed)?.status)
+        assertTrue(seen.none { it is FileEvent.Failed })
+        val cancels = h.sent.mapNotNull { (env, tag) ->
+            if (tag == null) FileEnvelope.decode(env.payload).decodePayload() as? FilePayload.Cancel else null
+        }
+        assertEquals(1, cancels.size)
+        // The fresh serve runs as its own transfer; the sibling device's push is untouched.
+        val liveA = h.transferIdsFor(peerA)
+        assertEquals(1, liveA.size)
+        val serveRow = h.pushes.find(liveA.single())!!
+        assertEquals(FilePushKind.SERVE, serveRow.kind)
+        assertEquals(FilePushStatus.CREATED, serveRow.status)
+        val liveB = h.transferIdsFor(peerB)
+        assertEquals(1, liveB.size)
+        assertEquals(FilePushKind.DIRECT, h.pushes.find(liveB.single())!!.kind)
+        assertTrue(seen.any { it is FileEvent.ServeStarted && it.fileId == fixtureFileId })
+    }
+
+    @Test
+    fun transferComplete_reportsOutgoingComplete() = runTest {
+        val h = harness()
+        val seen = mutableListOf<FileEvent>()
+        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        runCurrent()
+        h.pusher.pushFile(fixtureFileId, fixtureAccount)
+        val transfer = h.transferIdsFor(peerA).single()
+        h.pusher.onTransferComplete(transfer)
+        runCurrent()
+        val completed = seen.filterIsInstance<FileEvent.OutgoingComplete>()
+        assertEquals(listOf(fixtureFileId to fixtureAccount), completed.map { it.fileId to it.target })
     }
 
     @Test

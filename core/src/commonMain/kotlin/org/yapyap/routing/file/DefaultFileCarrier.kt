@@ -7,22 +7,28 @@ import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileIncomingTransferStore
 import kotlin.time.Clock
-import kotlin.uuid.Uuid
 
 /** Pusher side of [FileCarrier]: the per-device push machinery owns this contract. */
 internal interface FilePushOps {
     suspend fun pushFile(fileId: FileId, target: AccountId)
     suspend fun cancelFile(fileId: FileId, target: AccountId)
+
+    /**
+     * Serve-on-REQUEST (design §9): a fresh transfer to one [device], covering the
+     * suffix from the floor-aligned [fromOffset]. Supersedes a live push of the same
+     * file to that device (old transfer CANCELled). False when not held or large.
+     */
+    suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean
 }
 
 /**

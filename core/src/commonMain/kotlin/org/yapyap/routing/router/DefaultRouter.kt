@@ -1,75 +1,32 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.DefaultFileCarrier
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileOutbox
-import org.yapyap.routing.file.FilePlaintextSource
-import org.yapyap.routing.file.FilePusher
+import org.yapyap.routing.file.*
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
-import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
-import org.yapyap.routing.inbound.handlers.FileInboundHandler
-import org.yapyap.routing.inbound.handlers.MessageInboundHandler
-import org.yapyap.routing.inbound.handlers.SignalInboundHandler
-import org.yapyap.routing.inbound.handlers.SystemInboundHandler
+import org.yapyap.routing.inbound.handlers.*
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.LinkKeeperConfig
-import org.yapyap.routing.outbound.BootstrapSender
-import org.yapyap.routing.outbound.OutboundMessenger
-import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
-import org.yapyap.routing.outbound.RelayDepositor
-import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.outbound.TypingIndicatorDispatcher
-import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
+import org.yapyap.routing.outbound.*
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.PacketDeduplicator
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.PeerAvailabilityStore
-import org.yapyap.routing.store.SyncAttemptStore
+import org.yapyap.routing.store.*
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.routing.sync.SyncRetryProcessor
@@ -93,6 +50,7 @@ internal class DefaultRouter(
     val packetDeduplicator: PacketDeduplicator,
     val packetOutbox: PacketOutbox,
     val syncAttemptStore: SyncAttemptStore,
+    val fileRequestAttemptStore: FileRequestAttemptStore,
     val envelopeProtectionService: EnvelopeProtectionService,
     val clock: Clock = Clock.System,
     val routerConfig: StateFlow<RouterConfig>,
@@ -221,6 +179,9 @@ internal class DefaultRouter(
             override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag) =
                 outboxProcessor.enqueueAndWake(envelope, clock.now(), tag = tag)
 
+            override suspend fun enqueueDirect(envelope: BinaryEnvelope) =
+                outboxProcessor.enqueueAndWake(envelope, clock.now())
+
             override suspend fun deleteByTag(tag: OutboxTag) =
                 packetOutbox.deleteByTag(tag)
         },
@@ -250,6 +211,7 @@ internal class DefaultRouter(
                 fileIncomingStore,
                 fileIngestPort,
                 fileCarrier,
+                filePusher,
                 onCoverageAck = { transferId, contiguous, missing ->
                     filePusher.onCoverageAck(transferId, contiguous, missing)
                 },
@@ -258,6 +220,9 @@ internal class DefaultRouter(
                 },
                 onTransferCancelled = { transferId ->
                     filePusher.onTransferCancelled(transferId)
+                },
+                onOfferReceived = { fileId ->
+                    fileRequestProcessor.onOfferReceived(fileId)
                 },
             ),
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
@@ -316,6 +281,17 @@ internal class DefaultRouter(
         onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
     )
 
+    private val fileRequestProcessor = FileRequestProcessor(
+        ctx = routingContext,
+        attempts = fileRequestAttemptStore,
+        gate = fileIngestPort,
+        outboxProcessor = outboxProcessor,
+        peerPolicy = peerPolicy,
+        maxIdlePoll = retryLoopMaxIdlePollSeconds,
+        events = fileEventFlow,
+        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
+    )
+
     private var started = false
     private var torEndpoint: TorEndpoint? = null
 
@@ -328,6 +304,7 @@ internal class DefaultRouter(
     private var outboxRetryJob: Job? = null
     private var outboxOutcomeJob: Job? = null
     private var syncRetryJob: Job? = null
+    private var fileRequestRetryJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
@@ -446,6 +423,8 @@ internal class DefaultRouter(
 
         syncRetryJob = syncProcessor.runIn(scope)
 
+        fileRequestRetryJob = fileRequestProcessor.runIn(scope)
+
         pingProvider.runIn(scope)
 
         peerAvailabilityRegistry.start(scope, localDeviceId)
@@ -505,6 +484,7 @@ internal class DefaultRouter(
             outboxRetryJob,
             outboxOutcomeJob,
             syncRetryJob,
+            fileRequestRetryJob,
         ).forEach { it.cancelAndJoin() }
 
         torIncomingJob = null
@@ -515,6 +495,7 @@ internal class DefaultRouter(
         outboxRetryJob = null
         outboxOutcomeJob = null
         syncRetryJob = null
+        fileRequestRetryJob = null
         scope.cancel()
 
         AppLog.info(
@@ -581,6 +562,10 @@ internal class DefaultRouter(
         syncProcessor.start(syncId, firstAttemptAt)
     }
 
+    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) {
+        fileRequestProcessor.start(fileId, firstAttemptAt)
+    }
+
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
         syncProcessor.reopen(syncId, account)
     }
@@ -603,6 +588,8 @@ internal class DefaultRouter(
             }
 
             OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
+
+            OutboxTag.Kind.FILE_REQUEST -> fileRequestProcessor.onAttemptOutcome(outcome)
 
             // Pusher-owned: OFFER/chunk ACKs advance the window, DECLINED and other
             // terminals end the transfer, expiries re-arm live transfers.

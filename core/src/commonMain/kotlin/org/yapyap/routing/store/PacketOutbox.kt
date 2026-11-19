@@ -120,6 +120,13 @@ internal data class OutboxTag(val kind: Kind, val id: Uuid) {
          * share the transfer id, while [OutboxOutcome.packetId] tells chunk rows apart.
          */
         FILE(3),
+
+        /**
+         * One attempt of a file request; [id] is the REQUEST's transfer id. The outcome
+         * routes to the file request processor (step 16), which correlates it to the
+         * file through its attempts row.
+         */
+        FILE_REQUEST(4),
         ;
 
         companion object {

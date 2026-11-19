@@ -3,35 +3,21 @@ package org.yapyap.routing.inbound.handlers
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.ChunkRange
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileFailureReason
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.buildFileControlEnvelope
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.*
+import org.yapyap.routing.file.*
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.store.FileIncomingStatus
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FileIncomingStatus
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.uuid.Uuid
 
 /**
  * Real small-path inbound handler (step 11), local target only. Foreign targets are
@@ -47,9 +33,11 @@ internal class FileInboundHandler(
     private val incoming: FileIncomingTransferStore,
     private val ingest: FileIngestPort,
     private val carrier: FileCarrier,
+    private val pusher: FilePushOps,
     private val onCoverageAck: suspend (transferId: TransferId, contiguousChunks: Int, missing: List<ChunkRange>) -> Unit,
     private val onTransferComplete: suspend (transferId: TransferId) -> Unit,
     private val onTransferCancelled: suspend (transferId: TransferId) -> Unit,
+    private val onOfferReceived: suspend (fileId: FileId) -> Unit,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
         val fileEnvelope = runCatching { FileEnvelope.decode(env.payload) }.getOrNull() ?: run {
@@ -87,7 +75,7 @@ internal class FileInboundHandler(
                 onTransferComplete(fileEnvelope.transferId)
                 InboundHandleResult.Success(sourceAuthenticated = true)
             }
-            is FilePayload.Request -> handleRequest(env, fileEnvelope, payload)
+            is FilePayload.Request -> handleRequest(fileEnvelope, payload)
             is FilePayload.Cancel -> {
                 if (incoming.find(fileEnvelope.transferId) != null) {
                     incoming.delete(fileEnvelope.transferId)
@@ -118,18 +106,17 @@ internal class FileInboundHandler(
             )
             return inboundResultForProtectionFailure(e)
         }
-        return when (
-            val verdict = ingest.checkOffer(
-                FileOfferInfo(
-                    fileId = sealed.fileId,
-                    totalBytes = payload.totalBytes,
-                    blockSize = sealed.blockSize,
-                    blockHashes = sealed.blockHashes,
-                    fileName = sealed.fileName,
-                    mimeType = sealed.mimeType,
-                ),
-            )
-        ) {
+        val verdict = ingest.checkOffer(
+            FileOfferInfo(
+                fileId = sealed.fileId,
+                totalBytes = payload.totalBytes,
+                blockSize = sealed.blockSize,
+                blockHashes = sealed.blockHashes,
+                fileName = sealed.fileName,
+                mimeType = sealed.mimeType,
+            ),
+        )
+        return when (verdict) {
             FileOfferVerdict.Accept -> {
                 val now = ctx.clock.now()
                 incoming.insert(
@@ -146,6 +133,7 @@ internal class FileInboundHandler(
                         expiresAt = now + ctx.routerConfig.value.fileTransferTtl,
                     ),
                 )
+                onOfferReceived(sealed.fileId)
                 InboundHandleResult.Success(sourceAuthenticated = true)
             }
 
@@ -159,6 +147,7 @@ internal class FileInboundHandler(
                     expiresAt = ctx.clock.now() + ctx.routerConfig.value.fileTransferTtl,
                     payload = FilePayload.Complete,
                 )
+                onOfferReceived(sealed.fileId)
                 InboundHandleResult.Success(
                     sideEffects = listOf(InboundSideEffect.EnqueueDirect(reply)),
                     sourceAuthenticated = true,
@@ -246,30 +235,56 @@ internal class FileInboundHandler(
         }
     }
 
-    private suspend fun handleRequest(
-        env: BinaryEnvelope,
-        fileEnvelope: FileEnvelope,
-        payload: FilePayload.Request,
-    ): InboundHandleResult {
-        // Step 11: no serve yet (serve-on-REQUEST is Phase D) — decline so the
-        // requester moves to the next candidate. The sealed REQUEST was already
-        // opened (and its author authenticated) by openFile above.
-        AppLog.info(
-            component = LogComponent.ROUTER,
-            event = LogEvent.OUTBOX_NACK_RECEIVED,
-            message = "File REQUEST declined: serve lands in Phase D",
-            fields = mapOf(
-                "transferId" to fileEnvelope.transferId,
-                "sourceDeviceId" to fileEnvelope.source,
-            ),
-        )
-        carrier.emit(
-            FileEvent.Failed(
-                fileId = payload.fileId,
-                target = null,
-                reason = FileFailureReason.DECLINED,
-            ),
-        )
-        return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+    private suspend fun handleRequest(fileEnvelope: FileEnvelope, payload: FilePayload.Request): InboundHandleResult {
+        // Serve-on-REQUEST (design §9, step 16): the gate decides, then the pusher serves
+        // with a fresh transfer floor-aligned at the requester's held coverage. Refusals
+        // are DECLINED so the requester moves to its next candidate at once.
+        val requester = try {
+            ctx.devices.getAccountIdForDevice(fileEnvelope.source)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_NACK_RECEIVED,
+                message = "File REQUEST from unresolvable device; declining",
+                fields = mapOf("sourceDeviceId" to fileEnvelope.source, "error" to e.toString()),
+            )
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        } ?: return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        val allowed = try {
+            ingest.canServe(payload.fileId, requester)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_NACK_RECEIVED,
+                message = "File serve gate failed; deferring the REQUEST",
+                fields = mapOf("fileId" to payload.fileId, "error" to e.toString()),
+            )
+            return InboundHandleResult.Deferred()
+        }
+        if (!allowed) {
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        val served = try {
+            pusher.serveFile(payload.fileId, fileEnvelope.source, payload.contiguousBytes)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.warn(
+                component = LogComponent.ROUTER,
+                event = LogEvent.OUTBOX_NACK_RECEIVED,
+                message = "File serve failed; deferring the REQUEST",
+                fields = mapOf("fileId" to payload.fileId, "error" to e.toString()),
+            )
+            return InboundHandleResult.Deferred()
+        }
+        if (!served) {
+            // Not held (or large, which is never served by transfer): the next candidate is asked.
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        return InboundHandleResult.Success(sourceAuthenticated = true)
     }
 }

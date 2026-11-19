@@ -1,13 +1,9 @@
 package org.yapyap.routing.router
 
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
@@ -22,8 +18,6 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.file.RefusingFileIngestPort
-import org.yapyap.routing.router.FakeFilePlaintextSource
-import org.yapyap.routing.router.InMemoryFilePushStore
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -34,11 +28,7 @@ import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.backend.JvmWebRtcBackend
 import org.yapyap.transport.webrtc.backend.WebRtcBackendConfig
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -149,6 +139,7 @@ class DefaultRouterLiveIntegrationTest {
                 fileIngestPort = RefusingFileIngestPort(),
                 fileIncomingStore = InMemoryFileIncomingTransferStore(),
                 filePushStore = InMemoryFilePushStore(),
+                fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
                 plaintextSource = FakeFilePlaintextSource(),
                 fileChunkSize = MutableStateFlow(220 * 1024),
             )
@@ -173,6 +164,7 @@ class DefaultRouterLiveIntegrationTest {
                 fileIngestPort = RefusingFileIngestPort(),
                 fileIncomingStore = InMemoryFileIncomingTransferStore(),
                 filePushStore = InMemoryFilePushStore(),
+                fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
                 plaintextSource = FakeFilePlaintextSource(),
                 fileChunkSize = MutableStateFlow(220 * 1024),
             )

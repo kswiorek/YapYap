@@ -1,0 +1,236 @@
+package org.yapyap.routing.file
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runTest
+import org.yapyap.crypto.e2ee.testTransportLimits
+import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.store.FileIncomingTransfer
+import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.NoopFileCarrier
+import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.transport.tor.RecordingTorTransport
+import org.yapyap.transport.webrtc.RecordingWebRtcTransport
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+import kotlin.uuid.Uuid
+
+/**
+ * Step 16, holder side: a sealed REQUEST is answered by serving — gate pass + fresh
+ * floor-aligned transfer — or DECLINED so the requester moves on at once.
+ */
+class FileInboundServeTest {
+
+    private val localDevice = PeerId("serve-local-device-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    private val holderDevice = PeerId("serve-holder-device-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    private val holderAccount = AccountId("serve-holder-account")
+    private val fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    private val now = epochSeconds(10_000L)
+
+    private class FakeIngest(var canServe: Boolean = true) : FileIngestPort {
+        var coverage: FileCoverage? = FileCoverage(0L, emptyList())
+        val servedFor = mutableListOf<Pair<FileId, AccountId>>()
+        override suspend fun checkOffer(offer: FileOfferInfo) = FileOfferVerdict.Accept
+        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) = FileIngestResult.Duplicate
+        override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
+        override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
+        override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean {
+            servedFor += fileId to requester
+            return canServe
+        }
+    }
+
+    private class FakePusher : FilePushOps {
+        val serves = mutableListOf<Triple<FileId, PeerId, Long>>()
+        var serveResult = true
+        override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
+        override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
+        override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean {
+            serves += Triple(fileId, device, fromOffset)
+            return serveResult
+        }
+    }
+
+    private class FakeIncoming : FileIncomingTransferStore {
+        override suspend fun insert(row: FileIncomingTransfer) = Unit
+        override suspend fun find(transferId: TransferId): FileIncomingTransfer? = null
+        override suspend fun findByFile(fileId: FileId): List<FileIncomingTransfer> = emptyList()
+        override suspend fun delete(transferId: TransferId) = Unit
+        override suspend fun deleteByFile(fileId: FileId) = Unit
+        override suspend fun pruneExpired(now: Instant): List<FileIncomingTransfer> = emptyList()
+    }
+
+    private class OpenOnlyProtection(
+        val request: FilePayload.Request,
+        val createdAt: kotlin.time.Instant,
+    ) : EnvelopeProtectionService {
+        override suspend fun protectSignal(
+            input: WebRtcSignal,
+            context: EnvelopeProtectContext,
+        ): WebRtcSignalEnvelope = TODO("not used")
+        override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal = TODO("not used")
+        override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+            TODO("not used")
+
+        override suspend fun openFile(envelope: FileEnvelope) = OpenedFileEnvelope(
+            transferId = envelope.transferId,
+            source = envelope.source.id,
+            target = envelope.target.id,
+            createdAt = createdAt,
+            securityScheme = envelope.securityScheme,
+            payload = request,
+        )
+
+        override suspend fun decryptFileChunk(
+            transferId: TransferId,
+            chunkIndex: Int,
+            key: ByteArray,
+            chunk: FilePayload.EncryptedChunk,
+        ): ByteArray = TODO("not used")
+
+        override suspend fun encryptFileChunk(
+            transferId: TransferId,
+            chunkIndex: Int,
+            key: ByteArray,
+            plaintext: ByteArray,
+        ): ByteArray = TODO("not used")
+
+        override suspend fun sealFileOffer(
+            offer: FilePayload.SealedOffer,
+            target: PeerId,
+        ): ByteArray = TODO("not used")
+
+        override suspend fun openFileOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
+            TODO("not used")
+
+        override fun generateFileTransferKey(): ByteArray = TODO("not used")
+        override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
+            TODO("not used")
+        override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = TODO("not used")
+        override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
+            TODO("not used")
+        override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = TODO("not used")
+        override suspend fun protectBootstrap(
+            input: BootstrapPayload,
+            context: EnvelopeProtectContext,
+            sharedSecret: ByteArray?,
+        ): BootstrapEnvelope = TODO("not used")
+        override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload = TODO("not used")
+        override suspend fun isBootstrapSessionActive(): Boolean = false
+    }
+
+    private fun deviceIdentity(id: PeerId) = DeviceIdentity(
+        deviceId = id,
+        signingKey = SigningPublicKey(byteArrayOf(1)),
+        encryptionKey = EncryptionPublicKey(byteArrayOf(2)),
+    )
+
+    private fun harness(
+        canServe: Boolean = true,
+        serveResult: Boolean = true,
+    ): Triple<FileInboundHandler, FakeIngest, FakePusher> {
+        val identity = org.yapyap.routing.router.FakeIdentityResolverForRouter(
+            localDevice = deviceIdentity(localDevice),
+            peersByAccount = mapOf(holderAccount to listOf(holderDevice)),
+        )
+        val clock = FakeClock(now)
+        val ctx = RoutingContext(
+            localIdentity = identity,
+            localDeviceId = localDevice,
+            devices = identity,
+            routes = identity,
+            packetDeduplicator = InMemoryPacketDeduplicator(),
+            envelopeProtectionService = OpenOnlyProtection(
+                FilePayload.Request(fileId, 300_000L, emptyList()),
+                now,
+            ),
+            torTransport = RecordingTorTransport(),
+            webRtcTransport = RecordingWebRtcTransport(),
+            clock = clock,
+            routerConfig = MutableStateFlow(RouterConfig()),
+            transportLimits = MutableStateFlow(testTransportLimits()),
+        )
+        val ingest = FakeIngest(canServe)
+        val pusher = FakePusher().also { it.serveResult = serveResult }
+        val handler = FileInboundHandler(
+            ctx = ctx,
+            incoming = FakeIncoming(),
+            ingest = ingest,
+            carrier = NoopFileCarrier(),
+            pusher = pusher,
+            onCoverageAck = { _, _, _ -> },
+            onTransferComplete = {},
+            onTransferCancelled = {},
+            onOfferReceived = {},
+        )
+        return Triple(handler, ingest, pusher)
+    }
+
+    private fun requestEnvelope(fromOffset: Long = 300_000L): BinaryEnvelope {
+        val fileEnvelope = FileEnvelope(
+            transferId = TransferId(Uuid.random()),
+            source = holderDevice,
+            target = localDevice,
+            createdAt = now,
+            nonce = ByteArray(12),
+            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+            signature = null,
+            payload = FilePayload.Request(fileId, fromOffset, emptyList()).encode(),
+        )
+        return BinaryEnvelope(
+            packetId = Uuid.random(),
+            packetType = PacketType.FILE,
+            dispositionRequested = true,
+            createdAt = now,
+            expiresAt = now + 90.seconds,
+            source = holderDevice,
+            target = localDevice,
+            payload = fileEnvelope.encode(),
+        )
+    }
+
+    @Test
+    fun requestWithGatePass_servesFromHeldOffset() = runTest {
+        val (handler, ingest, pusher) = harness(canServe = true)
+
+        val result = handler.handle(requestEnvelope(fromOffset = 300_000L))
+
+        assertIs<InboundHandleResult.Success>(result)
+        assertEquals(listOf(fileId to holderAccount), ingest.servedFor)
+        assertEquals(listOf(Triple(fileId, holderDevice, 300_000L)), pusher.serves)
+    }
+
+    @Test
+    fun requestWithGateRefusal_isDeclinedAtOnce() = runTest {
+        val (handler, _, pusher) = harness(canServe = false)
+
+        val result = handler.handle(requestEnvelope())
+
+        assertEquals(InboundHandleResult.Rejected(PacketNackReason.DECLINED), result)
+        assertTrue(pusher.serves.isEmpty(), "no serve started on refusal")
+    }
+
+    @Test
+    fun requestWhenNotHeld_isDeclinedAtOnce() = runTest {
+        val (handler, _, pusher) = harness(canServe = true, serveResult = false)
+
+        val result = handler.handle(requestEnvelope())
+
+        assertEquals(InboundHandleResult.Rejected(PacketNackReason.DECLINED), result)
+    }
+}

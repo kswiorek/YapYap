@@ -299,9 +299,11 @@ included, so every test data directory is reset when this step lands.
 
 - **Tables:** `file_transfers` (orchestrator, migration `11.sqm`).
 - **Changes:**
-    - `FileTransferService.send(peer, picked file, keepCopy)`: the runtime facade composes the machinery from
-      steps 7–9 — import, classify, publish the message with attachments, start the per-device push for small
-      files.
+    - Sending is owned by `MessagingService.sendMessage(roomId, Message(content, pickedFiles))`: it imports
+      each picked file through `FileStore` (copy into the store or reference in place, §10), classifies by
+      `smallFileMaxBytes`, publishes the message with attachments, and starts the per-device push for small
+      files. There is no separate file-send entry point. `FileTransferService` is the receive-state facade
+      (`receiveState`, `localFilePath`); progress/accept/decline/open land with the GUI surface (step 23).
     - Wire everything in `NodeGraph`.
     - `FileLimits` in `wiring` derives the chunk size from `WebRtcBackendConfig`/Tor limits, like
       `MessageLimits`.

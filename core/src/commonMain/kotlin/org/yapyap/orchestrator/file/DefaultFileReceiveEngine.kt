@@ -16,15 +16,10 @@ import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.blockSizeFor
+import org.yapyap.protocol.envelopes.ByteRange
 import org.yapyap.protocol.envelopes.FileCancelReason
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileFailureReason
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.FileRefusalReason
+import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.routing.file.*
 import org.yapyap.routing.router.RouterConfig
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -58,7 +53,7 @@ internal class DefaultFileReceiveEngine(
     private val carrier: FileCarrier,
     private val routerConfig: StateFlow<RouterConfig>,
     private val clock: Clock = Clock.System,
-) : FileIngestPort {
+) {
     private val lock = Mutex()
     private val runningHashes = mutableMapOf<FileId, RunningHash>()
 
@@ -73,9 +68,9 @@ internal class DefaultFileReceiveEngine(
         }
     }
 
-    // -- FileIngestPort ------------------------------------------------------------
+    // -- Ingest side (invoked through the coordinator, which owns the port) --------
 
-    override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict = lock.withLock {
+    suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict = lock.withLock {
         val now = clock.now()
         val existing = try {
             receives.find(offer.fileId)
@@ -154,7 +149,7 @@ internal class DefaultFileReceiveEngine(
         FileOfferVerdict.Accept
     }
 
-    override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
+    suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
         if (plaintext.isEmpty()) return FileIngestResult.Duplicate
         return lock.withLock {
             val now = clock.now()
@@ -221,6 +216,42 @@ internal class DefaultFileReceiveEngine(
             } ?: row
             FileIngestResult.Staged(current.contiguousBytes, current.totalBytes)
         }
+    }
+
+    /**
+     * Durable held coverage for building a REQUEST (design §3.2, §9): the contiguous
+     * prefix plus the capped missing ranges beyond it. Heavy fragmentation degrades to
+     * contiguous-only — a coarser serve with more duplicates, still correct. Null when
+     * the file needs no request: already READY (the requester's loop drops its row).
+     */
+    suspend fun heldCoverage(fileId: FileId): FileCoverage? = lock.withLock {
+        val row = try {
+            receives.find(fileId)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            null
+        } ?: return FileCoverage(0L, emptyList())
+        if (row.status == FileReceiveStatus.READY) return null
+        val staged = try {
+            receives.stagedByFile(fileId).sortedBy { it.startOffset }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            emptyList()
+        }
+        val missing = mutableListOf<ByteRange>()
+        var cursor = row.contiguousBytes
+        for (range in staged) {
+            val end = range.startOffset + range.length
+            if (end <= cursor) continue
+            if (range.startOffset > cursor) {
+                if (missing.size >= FilePayload.Request.MAX_MISSING_RANGES) {
+                    return FileCoverage(row.contiguousBytes, emptyList())
+                }
+                missing += ByteRange(cursor, range.startOffset - cursor)
+            }
+            cursor = maxOf(cursor, end)
+        }
+        FileCoverage(row.contiguousBytes, missing)
     }
 
     // -- Checkpoints, restart, retention --------------------------------------------

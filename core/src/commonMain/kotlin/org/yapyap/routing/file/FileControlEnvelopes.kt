@@ -1,14 +1,13 @@
 package org.yapyap.routing.file
 
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.TransferId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.FilePayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -44,11 +43,19 @@ internal suspend fun buildFileControlEnvelope(
     )
 }
 
-/** Scaffolding until step 12 wires the receive engine: declines everything cleanly. */
+/** Scaffolding for tests without a receive engine: declines everything cleanly. */
 internal class RefusingFileIngestPort : FileIngestPort {
     override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict =
         FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE)
 
     override suspend fun ingest(fileId: org.yapyap.protocol.FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult =
         FileIngestResult.Refused
+
+    override suspend fun heldCoverage(fileId: org.yapyap.protocol.FileId): FileCoverage? = null
+
+    override suspend fun requestCandidates(fileId: org.yapyap.protocol.FileId): List<org.yapyap.protocol.AccountId> =
+        emptyList()
+
+    override suspend fun canServe(fileId: org.yapyap.protocol.FileId, requester: org.yapyap.protocol.AccountId): Boolean =
+        false
 }
