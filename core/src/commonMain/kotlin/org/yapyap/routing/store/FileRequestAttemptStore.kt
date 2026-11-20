@@ -2,6 +2,7 @@ package org.yapyap.routing.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.persistence.File_request_attempts
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
@@ -9,6 +10,11 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
+
+internal enum class FileRequestClass {
+    SMALL,
+    LARGE,
+}
 
 internal data class FileRequestAttempt(
     val fileId: FileId,
@@ -19,6 +25,7 @@ internal data class FileRequestAttempt(
     val waitingUntil: Instant?,
     /** In-flight REQUEST's transferId for outcome correlation, else null. */
     val requestTransferId: TransferId?,
+    val requestClass: FileRequestClass,
 )
 
 /**
@@ -29,13 +36,14 @@ internal data class FileRequestAttempt(
  */
 internal interface FileRequestAttemptStore {
     /** Starts tracking [fileId] (idempotent: a known file keeps its state). */
-    suspend fun start(fileId: FileId, firstAttemptAt: Instant)
+    suspend fun start(fileId: FileId, requestClass: FileRequestClass, firstAttemptAt: Instant)
 
     /** Stops tracking [fileId]; its declined devices go with it. */
     suspend fun drop(fileId: FileId)
 
-    suspend fun earliestDueAt(): Instant?
-    suspend fun findDue(now: Instant, limit: Int): List<FileRequestAttempt>
+    /** Earliest next attempt among [requestClass]'s rows: each class's loop sleeps on its own. */
+    suspend fun earliestDueAt(requestClass: FileRequestClass): Instant?
+    suspend fun findDue(now: Instant, limit: Int, requestClass: FileRequestClass): List<FileRequestAttempt>
 
     suspend fun findById(fileId: FileId): FileRequestAttempt?
     suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt?
@@ -62,8 +70,8 @@ internal interface FileRequestAttemptStore {
     suspend fun addDeclined(fileId: FileId, device: PeerId)
     suspend fun removeDeclined(fileId: FileId, devices: Collection<PeerId>)
 
-    /** Every tracked file id (link-up fan-out). */
-    suspend fun allIds(): List<FileId>
+    /** Every tracked file id of [requestClass] (link-up fan-out). */
+    suspend fun idsOf(requestClass: FileRequestClass): List<FileId>
 }
 
 internal class DefaultFileRequestAttemptStore(
@@ -72,20 +80,22 @@ internal class DefaultFileRequestAttemptStore(
 ) : FileRequestAttemptStore {
     private val queries = database.fileRequestAttemptQueries
 
-    override suspend fun start(fileId: FileId, firstAttemptAt: Instant) {
-        withContext(dbDispatcher) { queries.insertFileRequestAttempt(fileId, firstAttemptAt) }
+    override suspend fun start(fileId: FileId, requestClass: FileRequestClass, firstAttemptAt: Instant) {
+        withContext(dbDispatcher) { queries.insertFileRequestAttempt(fileId, firstAttemptAt, requestClass.name) }
     }
 
     override suspend fun drop(fileId: FileId) {
         withContext(dbDispatcher) { queries.deleteFileRequestAttempt(fileId) }
     }
 
-    override suspend fun earliestDueAt(): Instant? =
-        withContext(dbDispatcher) { queries.selectEarliestDueFileRequestAt().executeAsOneOrNull()?.MIN }
-
-    override suspend fun findDue(now: Instant, limit: Int): List<FileRequestAttempt> =
+    override suspend fun earliestDueAt(requestClass: FileRequestClass): Instant? =
         withContext(dbDispatcher) {
-            queries.selectDueFileRequestAttempts(now, limit.toLong()).executeAsList().map { row ->
+            queries.selectEarliestDueFileRequestAt(requestClass.name).executeAsOneOrNull()?.MIN
+        }
+
+    override suspend fun findDue(now: Instant, limit: Int, requestClass: FileRequestClass): List<FileRequestAttempt> =
+        withContext(dbDispatcher) {
+            queries.selectDueFileRequestAttempts(now, requestClass.name, limit.toLong()).executeAsList().map { row ->
                 row.toAttempt(queries.selectDeclinedFileRequestDevices(row.file_id).executeAsList().toSet())
             }
         }
@@ -141,11 +151,11 @@ internal class DefaultFileRequestAttemptStore(
         withContext(dbDispatcher) { queries.deleteDeclinedFileRequestDevices(fileId, devices) }
     }
 
-    override suspend fun allIds(): List<FileId> = withContext(dbDispatcher) {
-        queries.selectAllFileRequestIds().executeAsList()
+    override suspend fun idsOf(requestClass: FileRequestClass): List<FileId> = withContext(dbDispatcher) {
+        queries.selectFileRequestIdsByClass(requestClass.name).executeAsList()
     }
 
-    private fun org.yapyap.persistence.File_request_attempts.toAttempt(
+    private fun File_request_attempts.toAttempt(
         declined: Set<PeerId>,
     ): FileRequestAttempt = FileRequestAttempt(
         fileId = file_id,
@@ -154,5 +164,6 @@ internal class DefaultFileRequestAttemptStore(
         waitingDevice = waiting_device,
         waitingUntil = waiting_until,
         requestTransferId = request_transfer_id?.let { TransferId(Uuid.parseHex(it)) },
+        requestClass = FileRequestClass.valueOf(request_class),
     )
 }

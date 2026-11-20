@@ -33,12 +33,16 @@ private val fileTables = listOf(
     "file_relay_transfers",
 )
 
+/** Tables whose shape 6.sqm must match fresh, including the outbox retry_class column. */
+private val comparedTables = fileTables + "outbox"
+
 /**
- * Undoes 6.sqm on a store created at today's schema: drops every file table and restores the
- * version-5 placeholders (empty).
+ * Undoes 6.sqm on a store created at today's schema: drops every file table, drops the
+ * outbox retry_class column, and restores the version-5 placeholders (empty).
  */
 internal fun revertFileMigration(driver: SqlDriver) {
     (fileIndexes.map { "DROP INDEX $it" } + fileTables.map { "DROP TABLE $it" } + listOf(
+        "ALTER TABLE outbox DROP COLUMN retry_class",
         """CREATE TABLE file_transfers (
             transfer_id TEXT NOT NULL PRIMARY KEY,
             message_id TEXT NOT NULL,
@@ -112,7 +116,7 @@ class FileMigrationJvmTest {
             assertFalse("file_chunk_tracker" in tableNames(driver), "placeholder must go")
             assertFalse("file_transfers" in tableNames(driver), "placeholder must go")
             assertTrue("spaces" in tableNames(driver), "unrelated placeholder stays")
-            for (table in fileTables) {
+            for (table in comparedTables) {
                 assertEquals(shape(fresh.driver, table), shape(driver, table), "$table differs from the fresh schema")
             }
             assertEquals(emptyList(), rows(driver, "PRAGMA foreign_key_check", columns = 4), "foreign_key_check")

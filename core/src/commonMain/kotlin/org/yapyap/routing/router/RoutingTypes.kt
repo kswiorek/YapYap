@@ -143,14 +143,6 @@ internal sealed interface InboundHandleResult {
     ) : InboundHandleResult
 }
 
-/** A push-path ACK reported by [Router.deliveries]. */
-internal data class Delivery(val subject: DeliverySubject, val account: AccountId?)
-
-internal sealed interface DeliverySubject {
-    data class Message(val messageId: Uuid) : DeliverySubject
-    data class Bootstrap(val packetId: Uuid) : DeliverySubject
-}
-
 /** How a tagged outbox entry left the outbox ([org.yapyap.routing.outbound.OutboxProcessor.outcomes]). */
 internal sealed interface OutboxOutcome {
     val tag: OutboxTag

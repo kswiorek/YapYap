@@ -103,7 +103,8 @@ CREATE TABLE file_request_attempts (
     next_attempt_at INTEGER NOT NULL,
     waiting_device TEXT,
     waiting_until INTEGER,
-    request_transfer_id TEXT
+    request_transfer_id TEXT,
+    request_class TEXT NOT NULL
 );
 
 CREATE TABLE file_request_declined_devices (
@@ -141,3 +142,8 @@ CREATE TABLE file_relay_chunks (
 );
 
 CREATE INDEX file_relay_chunks_transfer_idx ON file_relay_chunks(transfer_id);
+
+-- The outbox is not a file table, so its retry class arrives as ALTER TABLE plus the
+-- column in Outbox.sq: chunk rows retry at their own flat delay (design §6.2), while
+-- markers and REQUESTs keep the message schedule.
+ALTER TABLE outbox ADD COLUMN retry_class INTEGER NOT NULL DEFAULT 0;

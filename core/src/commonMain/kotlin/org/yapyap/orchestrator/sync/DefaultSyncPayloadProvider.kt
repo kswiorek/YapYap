@@ -6,10 +6,8 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
 import org.yapyap.routing.sync.SyncPayloadProvider
@@ -19,7 +17,7 @@ internal class DefaultSyncPayloadProvider(
     private val messageRepository: MessageRepository,
     private val pendingSyncRepository: PendingSyncRepository,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
-    private val roomRepository: RoomRepository,
+    private val visibility: RoomVisibility,
 ) : SyncPayloadProvider {
 
     override suspend fun syncRequest(syncId: Uuid): SyncRequest? =
@@ -33,21 +31,25 @@ internal class DefaultSyncPayloadProvider(
 
     override suspend fun syncMessages(request: SyncRequest, requester: AccountId): List<MessagePayload> {
         val roomId = request.roomId
-        // Membership gate (docs/room events.md §5, narrowed to the removal boundary):
-        // ACTIVE members are served the room as today; REMOVED members are served
-        // only their member-era history (the ancestor closure of their defining
-        // removal node, removal event included — everything they legitimately
-        // held, nothing after); never-members get the generic NACK.
-        // Denial returns empty so the router declines the request (a generic NACK),
-        // without revealing whether the room is empty or access was denied.
-        // A REMOVED requester is served by walking from the removal node itself:
-        // the walk can never leave the member-era closure, so no bound set is
-        // needed — the boundary is structural, not a filter.
-        val row = roomRepository.memberRowOf(roomId, requester)
-        val removalRoot: Uuid? = if (row?.status == RoomMemberStatus.ACTIVE) {
-            null
-        } else {
-            if (row?.status != RoomMemberStatus.REMOVED || row.removalNodeId == null) {
+        // Membership gate (docs/room events.md §5, narrowed to the removal boundary), decided
+        // once per request by the shared RoomVisibility rule: ACTIVE members are served the
+        // room; REMOVED members only their member-era history (the ancestor closure of their
+        // removal node, removal event included); never-members get the generic NACK.
+        // Denial returns empty so the router declines the request (a generic NACK), without
+        // revealing whether the room is empty or access was denied.
+        val removalRoot: Uuid? = when (val scope = visibility.scope(roomId, requester)) {
+            VisibilityScope.All -> null
+            is VisibilityScope.UpTo -> {
+                AppLog.info(
+                    component = LogComponent.ORCHESTRATOR,
+                    event = LogEvent.SYNC_BOUNDED_SERVE,
+                    message = "Serving removed member their member-era history only",
+                    fields = mapOf("requester" to requester, "roomId" to roomId),
+                )
+                scope.removalNode
+            }
+
+            VisibilityScope.None -> {
                 AppLog.info(
                     component = LogComponent.ORCHESTRATOR,
                     event = LogEvent.SYNC_NO_MESSAGES_FOUND,
@@ -56,13 +58,6 @@ internal class DefaultSyncPayloadProvider(
                 )
                 return emptyList()
             }
-            AppLog.info(
-                component = LogComponent.ORCHESTRATOR,
-                event = LogEvent.SYNC_BOUNDED_SERVE,
-                message = "Serving removed member their member-era history only",
-                fields = mapOf("requester" to requester, "roomId" to roomId),
-            )
-            row.removalNodeId
         }
         // Page size is purely the responder's policy; the requester's retry loop
         // re-requests until every target arrives, so no per-request limit is needed.
@@ -82,10 +77,10 @@ internal class DefaultSyncPayloadProvider(
         // requester's known frontier (everything below a known tip is present there).
         // Gaps of our own simply yield nothing — the requester re-chases the
         // still-missing IDs against other candidates.
-        // REMOVED branch: the walk is rooted at the removal node, not at the
-        // requester's missing ids — the removal event itself always serves (a fresh
-        // removed device needs it to flip its own row), and everything collected
-        // is member-era history by construction.
+        // REMOVED branch: the walk is rooted at the removal node, not at the requester's
+        // missing ids. The removal event itself always serves (a fresh removed device needs
+        // it to flip its own row), and everything collected is member-era history by
+        // construction: the walk only goes to parents, so it can never leave the closure.
         val collected = LinkedHashMap<Uuid, MessagePayload>()
         val visited = HashSet<Uuid>()
         val queue = ArrayDeque<Uuid>()

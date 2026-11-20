@@ -2,6 +2,7 @@ package org.yapyap.routing.file
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -34,6 +35,7 @@ import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.uuid.Uuid
@@ -75,10 +77,21 @@ internal class FileRouting(
 ) {
     private val receiveEnds = ports.receiveEnds
     private val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
+    private val outcomeChannel = Channel<OutboxOutcome>(Channel.UNLIMITED)
 
     private val outbox: FileOutbox = object : FileOutbox {
-        override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup) =
-            outboxProcessor.enqueueAndWake(envelope, ctx.clock.now(), relayBackup = relayBackup, tag = tag)
+        override suspend fun enqueue(
+            envelope: BinaryEnvelope,
+            tag: OutboxTag,
+            relayBackup: RelayBackup,
+            retryClass: RetryClass,
+        ) = outboxProcessor.enqueueAndWake(
+            envelope,
+            ctx.clock.now(),
+            relayBackup = relayBackup,
+            tag = tag,
+            retryClass = retryClass,
+        )
 
         override suspend fun enqueueDirect(envelope: BinaryEnvelope) =
             outboxProcessor.enqueueAndWake(envelope, ctx.clock.now())
@@ -162,14 +175,31 @@ internal class FileRouting(
 
     /**
      * Starts the file loops in [scope]: push reconciliation and the deposit sweep, requests, relay
-     * forwards, fetch channels, and answering the receive engine's ended receives. The router's
-     * outbox loop dispatches what they queue.
+     * forwards, fetch channels, the outcome consumer, and answering the receive engine's ended
+     * receives. The router's outbox loop dispatches what they queue.
      */
     fun runIn(scope: CoroutineScope): List<Job> = listOf(
         pusher.runIn(scope),
         requestProcessor.runIn(scope),
         relayForwarder.runIn(scope),
         fetchManager.runIn(scope),
+        scope.launch {
+            for (outcome in outcomeChannel) {
+                try {
+                    routeOutcome(outcome)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AppLog.error(
+                        component = LogComponent.ROUTER,
+                        event = LogEvent.OUTBOX_PROCESS_FAILED,
+                        message = "Failed to handle file outbox outcome",
+                        throwable = e,
+                        fields = mapOf("tag" to outcome.tag),
+                    )
+                }
+            }
+        },
         scope.launch {
             receiveEnds.receiveEnds.collect { end ->
                 try {
@@ -193,17 +223,16 @@ internal class FileRouting(
     /** An OFFER marker's relay copies (design §5): a one-round deposit of its authoring transfer. */
     suspend fun depositByMarkerPacket(packetId: Uuid): Int = pusher.depositByMarkerPacket(packetId)
 
-    /** Routes a FILE or FILE_REQUEST outcome to whoever waits on it. */
+    /** Routes a FILE_PUSH / FILE_FORWARD / FILE_REQUEST outcome to whoever waits on it. */
     suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
+        outcomeChannel.trySend(outcome)
+    }
+
+    private suspend fun routeOutcome(outcome: OutboxOutcome) {
         when (outcome.tag.kind) {
             OutboxTag.Kind.FILE_REQUEST -> requestProcessor.onAttemptOutcome(outcome)
-            // Pusher-owned: OFFER/chunk ACKs advance the window, DECLINED and other terminals end
-            // the transfer, expiries re-arm live transfers. Relay forwards share the FILE tag: the
-            // pusher ignores unknown transfer ids and the forwarder drains its own.
-            OutboxTag.Kind.FILE -> {
-                pusher.onOutboxOutcome(outcome)
-                relayForwarder.onOutboxOutcome(outcome)
-            }
+            OutboxTag.Kind.FILE_PUSH -> pusher.onOutboxOutcome(outcome)
+            OutboxTag.Kind.FILE_FORWARD -> relayForwarder.onOutboxOutcome(outcome)
 
             else -> error("Not a file outcome: ${outcome.tag.kind}")
         }

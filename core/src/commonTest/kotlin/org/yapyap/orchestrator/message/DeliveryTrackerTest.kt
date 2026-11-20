@@ -13,8 +13,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.router.Delivery
-import org.yapyap.routing.router.DeliverySubject
+import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
@@ -35,10 +34,10 @@ class DeliveryTrackerTest {
     private val roomId = RoomId(Uuid.random())
 
     private class DrivenRouter {
-        val deliveryFlow = MutableSharedFlow<Delivery>(extraBufferCapacity = 16)
+        val deliveryFlow = MutableSharedFlow<MessageAck>(extraBufferCapacity = 16)
         val pingFlow = MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 16)
         val messages = object : NoopMessageCarrier() {
-            override val deliveries: Flow<Delivery> = deliveryFlow
+            override val deliveries: Flow<MessageAck> = deliveryFlow
         }
         val syncs = object : NoopSyncCarrier() {
             override val pingPayloads: Flow<PingFrontiers> = pingFlow
@@ -89,7 +88,7 @@ class DeliveryTrackerTest {
         val updates = started()
         val own = message(localAccount)
 
-        repeat(2) { router.deliveryFlow.emit(Delivery(DeliverySubject.Message(own.messageId), remoteAccount)) }
+        repeat(2) { router.deliveryFlow.emit(MessageAck(own.messageId, remoteAccount)) }
 
         assertEquals(setOf(remoteAccount), tracker.deliveredTo(own.messageId))
         assertEquals(listOf(MessageDelivery(roomId, own.messageId, remoteAccount)), updates)
@@ -101,8 +100,8 @@ class DeliveryTrackerTest {
         val theirs = message(remoteAccount)
         val own = message(localAccount)
 
-        router.deliveryFlow.emit(Delivery(DeliverySubject.Message(theirs.messageId), AccountId("third")))
-        router.deliveryFlow.emit(Delivery(DeliverySubject.Message(own.messageId), localAccount))
+        router.deliveryFlow.emit(MessageAck(theirs.messageId, AccountId("third")))
+        router.deliveryFlow.emit(MessageAck(own.messageId, localAccount))
 
         assertTrue(updates.isEmpty())
     }

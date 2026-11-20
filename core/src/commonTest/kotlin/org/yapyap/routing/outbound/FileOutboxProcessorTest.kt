@@ -1,6 +1,5 @@
 package org.yapyap.routing.outbound
 
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -11,9 +10,9 @@ import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.router.outboxProcessorUnderTest
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.RetryClass
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -60,7 +59,7 @@ class FileOutboxProcessorTest {
         payload = payload,
     )
 
-    private fun fileTag(transfer: Uuid = Uuid.random()) = OutboxTag(OutboxTag.Kind.FILE, transfer)
+    private fun fileTag(transfer: Uuid = Uuid.random()) = OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer)
 
     @Test
     fun processDue_messagesGoOutBeforeFileChunks() = runTest {
@@ -78,7 +77,8 @@ class FileOutboxProcessorTest {
             outbox.enqueue(
                 envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
                 nextRetryAt = epochSeconds(now),
-                tag = OutboxTag(OutboxTag.Kind.FILE, chunkId),
+                tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, chunkId),
+                retryClass = RetryClass.FLAT,
             )
         }
         val processor = outboxProcessorUnderTest(
@@ -105,7 +105,8 @@ class FileOutboxProcessorTest {
         outbox.enqueue(
             envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.FILE, chunkId),
+            tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, chunkId),
+            retryClass = RetryClass.FLAT,
         )
         // Burn past the message fast-retry budget: FILE rows must not fall back to standby.
         repeat(5) { outbox.recordAttempt(chunkId, epochSeconds(now), epochSeconds(now)) }
@@ -135,7 +136,8 @@ class FileOutboxProcessorTest {
             outbox.enqueue(
                 envelope = envelope(id, PacketType.FILE, fileTag(), now),
                 nextRetryAt = epochSeconds(now),
-                tag = OutboxTag(OutboxTag.Kind.FILE, id),
+                tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, id),
+                retryClass = RetryClass.FLAT,
             )
         }
         val processor = outboxProcessorUnderTest(
@@ -161,7 +163,8 @@ class FileOutboxProcessorTest {
         outbox.enqueue(
             envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
             nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.FILE, chunkId),
+            tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, chunkId),
+            retryClass = RetryClass.FLAT,
         )
         val processor = outboxProcessorUnderTest(
             tor = tor,

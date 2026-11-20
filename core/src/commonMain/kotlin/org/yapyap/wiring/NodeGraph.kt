@@ -46,6 +46,7 @@ import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.sync.DefaultFrontierSnapshotProvider
+import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protection.envelope.BootstrapProtection
@@ -138,6 +139,10 @@ internal class NodeGraph(
 
     // File machinery the router runs against: the receive engine (ingest port, ended receives)
     // and the request source (coverage, candidates, serve gate). Neither needs the router.
+    private val roomVisibility = DefaultRoomVisibility(
+        messages = messageRepository,
+        rooms = roomRepository,
+    )
     private val fileReceiveEngine = DefaultFileReceiveEngine(
         receives = fileReceiveStore,
         messages = messageRepository,
@@ -151,7 +156,7 @@ internal class NodeGraph(
     )
     private val fileRequestSource = DefaultFileRequestSource(
         messages = messageRepository,
-        rooms = roomRepository,
+        visibility = roomVisibility,
         receives = fileReceiveStore,
         descriptors = fileDescriptorStore,
         localIdentity = localIdentity,
@@ -206,7 +211,7 @@ internal class NodeGraph(
             messageRepository = messageRepository,
             pendingSyncRepository = pendingSyncRepository,
             orchestratorConfig = config.orchestratorConfig,
-            roomRepository = roomRepository,
+            visibility = roomVisibility,
         ),
         syncAttemptStore = DefaultSyncAttemptStore(database),
         routerConfig = config.routerConfig,
@@ -297,7 +302,6 @@ internal class NodeGraph(
     // requests, also in every mode — an always-on relay is exactly the bootstrap endpoint a
     // recovering device points at.
     private val onboardingProvider = DefaultOnboardingProvider(
-        messageCarrier = router.messages,
         bootstrapCarrier = router.bootstrap,
         sessionStore = vault.bootstrapSessionStore,
         syncCoordinator = syncCoordinator,

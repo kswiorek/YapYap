@@ -52,9 +52,14 @@ class OutboxConcurrencyTest {
         PacketOutbox by delegate {
         var listDueIdsCalls = 0
         var getByPacketIdCalls = 0
-        override suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow> {
+        override suspend fun listDueIds(
+            now: Instant,
+            nonFileLimit: Int,
+            fileLimit: Int,
+            excludeTargets: Collection<PeerId>,
+        ): List<DueOutboxRow> {
             listDueIdsCalls++
-            return delegate.listDueIds(now, nonFileLimit, fileLimit)
+            return delegate.listDueIds(now, nonFileLimit, fileLimit, excludeTargets)
         }
         override suspend fun getByPacketId(packetId: Uuid): OutboxEntry? {
             getByPacketIdCalls++

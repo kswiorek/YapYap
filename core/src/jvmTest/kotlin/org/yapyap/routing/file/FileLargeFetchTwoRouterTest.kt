@@ -43,6 +43,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
+import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protection.envelope.BootstrapProtection
@@ -221,7 +222,7 @@ class FileLargeFetchTwoRouterTest {
         )
         val requestSource = DefaultFileRequestSource(
             messages = messages,
-            rooms = rooms,
+            visibility = DefaultRoomVisibility(messages, rooms),
             receives = receives,
             descriptors = descriptors,
             localIdentity = identity,
@@ -549,7 +550,8 @@ class FileLargeFetchTwoRouterTest {
             // The large path never touches Tor payloads or the outbox.
             assertTrue(mesh.torFilePackets().none { it == PacketType.FILE }, "no FILE packet crossed Tor")
             assertTrue(
-                mesh.outboxFileTags().none { it.kind == OutboxTag.Kind.FILE || it.kind == OutboxTag.Kind.FILE_REQUEST },
+                mesh.outboxFileTags()
+                    .none { it.kind in OutboxTag.Kind.FILE_KINDS || it.kind == OutboxTag.Kind.FILE_REQUEST },
                 "no FILE outbox rows on either side",
             )
         } finally {

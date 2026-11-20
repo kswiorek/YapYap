@@ -5,6 +5,10 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.MessagePayload
 import kotlin.time.Duration
+import kotlin.uuid.Uuid
+
+/** A push-path ACK reported by [MessageCarrier.deliveries], resolved to the acknowledging account. */
+internal data class MessageAck(val messageId: Uuid, val account: AccountId)
 
 /** Messages and typing indicators, account-level: routing fans out per device. */
 internal interface MessageCarrier {
@@ -25,16 +29,13 @@ internal interface MessageCarrier {
 
     /**
      * Push-path ACKs, resolved to the acknowledging account: a message pushed by [sendMessage]
-     * (or served in a sync reply) was processed by one of that account's devices, or a
-     * bootstrap packet from [BootstrapCarrier.sendBootstrap] reached its target (account null:
-     * the target may have no account here yet, as with a recovery request's target before its
-     * intro).
+     * (or served in a sync reply) was processed by one of that account's devices.
      *
      * Hot and best-effort: only an ACK is reported, and the absence of one proves nothing:
      * messages also arrive through relays and the pull path, which never ACK to the sender.
      * One event per acknowledging device, so an account may be reported more than once.
      */
-    val deliveries: Flow<Delivery>
+    val deliveries: Flow<MessageAck>
 
     /**
      * Hot stream of typing indicators received from peers, resolved to the author's account.

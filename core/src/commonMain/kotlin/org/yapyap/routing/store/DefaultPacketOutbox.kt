@@ -27,6 +27,7 @@ internal class DefaultPacketOutbox(
         targetEndpoint: TorEndpoint?,
         relayBackup: RelayBackup,
         tag: OutboxTag?,
+        retryClass: RetryClass,
     ) {
         withContext(dbDispatcher) {
             val envelopeBlob = envelope.encode()
@@ -45,6 +46,7 @@ internal class DefaultPacketOutbox(
                 next_retry_at = nextRetryAt,
                 tag_kind = tag?.kind?.code,
                 tag_id = tag?.id,
+                retry_class = retryClass.code,
             )
             AppLog.debug(
                 component = LogComponent.DATABASE,
@@ -131,17 +133,35 @@ internal class DefaultPacketOutbox(
             queries.getAllForTargetDevice(target.id).executeAsList().mapNotNull { mapRowOrDrop(it) }
         }
 
-    override suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow> =
+    override suspend fun listDueIds(
+        now: Instant,
+        nonFileLimit: Int,
+        fileLimit: Int,
+        excludeTargets: Collection<PeerId>,
+    ): List<DueOutboxRow> =
         withContext(dbDispatcher) {
-            val fileKind = OutboxTag.Kind.FILE.code
-            val nonFile = queries.getDueIdsNonFile(now, fileKind, nonFileLimit.toLong()).executeAsList()
-            val file = queries.getDueIdsFile(now, fileKind, fileLimit.toLong()).executeAsList()
+            val fileKinds = OutboxTag.Kind.FILE_KINDS.map { it.code }
+            val busy = if (excludeTargets.isEmpty()) listOf("") else excludeTargets.map { it.id }
+            val nonFile = queries.getDueIdsNonFile(now, fileKinds, busy, nonFileLimit.toLong()).executeAsList()
+            val file = queries.getDueIdsFile(now, fileKinds, busy, fileLimit.toLong()).executeAsList()
             fun tagOf(kind: Long?, id: Uuid?): OutboxTag? =
                 kind?.let { OutboxTag.Kind.fromCode(it) }?.let { k -> id?.let { OutboxTag(k, it) } }
             nonFile.map { row ->
-                DueOutboxRow(row.packet_id, PeerId(row.target_device_id), row.retry_count, tagOf(row.tag_kind, row.tag_id))
+                DueOutboxRow(
+                    row.packet_id,
+                    PeerId(row.target_device_id),
+                    row.retry_count,
+                    tagOf(row.tag_kind, row.tag_id),
+                    RetryClass.fromCode(row.retry_class),
+                )
             } + file.map { row ->
-                DueOutboxRow(row.packet_id, PeerId(row.target_device_id), row.retry_count, tagOf(row.tag_kind, row.tag_id))
+                DueOutboxRow(
+                    row.packet_id,
+                    PeerId(row.target_device_id),
+                    row.retry_count,
+                    tagOf(row.tag_kind, row.tag_id),
+                    RetryClass.fromCode(row.retry_class),
+                )
             }
         }
 
@@ -268,6 +288,8 @@ internal class DefaultPacketOutbox(
             },
             tag = row.tag_kind?.let { OutboxTag.Kind.fromCode(it) }
                 ?.let { kind -> row.tag_id?.let { OutboxTag(kind, it) } },
+            retryClass = RetryClass.fromCode(row.retry_class),
+            relayBackup = RelayBackup.entries.first { it.code == row.relay_backup },
         )
     }
 }

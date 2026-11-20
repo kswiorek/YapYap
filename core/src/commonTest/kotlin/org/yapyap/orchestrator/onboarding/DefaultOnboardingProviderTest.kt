@@ -24,14 +24,12 @@ import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.routing.router.BootstrapAck
 import org.yapyap.routing.router.BootstrapPacketEvent
-import org.yapyap.routing.router.Delivery
-import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryIdentityStore
 import org.yapyap.testfixtures.InMemoryKeyStore
 import org.yapyap.testfixtures.NoopBootstrapCarrier
-import org.yapyap.testfixtures.NoopMessageCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,13 +39,11 @@ import kotlin.uuid.Uuid
 
 private class FakeOnboardingRouter(
     packets: Flow<BootstrapPacketEvent>,
-    deliveries: Flow<Delivery> = emptyFlow(),
+    deliveries: Flow<BootstrapAck> = emptyFlow(),
 ) {
-    val messages = object : NoopMessageCarrier() {
-        override val deliveries: Flow<Delivery> = deliveries
-    }
     val bootstrap = object : NoopBootstrapCarrier() {
         override val bootstrapPackets: Flow<BootstrapPacketEvent> = packets
+        override val deliveries: Flow<BootstrapAck> = deliveries
     }
 }
 
@@ -92,11 +88,10 @@ class DefaultOnboardingProviderTest {
         packets: MutableSharedFlow<BootstrapPacketEvent> = MutableSharedFlow(extraBufferCapacity = 64),
         config: OrchestratorConfig = OrchestratorConfig(),
         identityKeyRepository: IdentityStore = InMemoryIdentityStore(),
-        deliveries: MutableSharedFlow<Delivery> = MutableSharedFlow(extraBufferCapacity = 16),
+        deliveries: MutableSharedFlow<BootstrapAck> = MutableSharedFlow(extraBufferCapacity = 16),
     ): DefaultOnboardingProvider {
         val router = FakeOnboardingRouter(packets, deliveries)
         return DefaultOnboardingProvider(
-            messageCarrier = router.messages,
             bootstrapCarrier = router.bootstrap,
             sessionStore = sessionStore,
             syncCoordinator = NoopSyncCoordinator(),
@@ -189,7 +184,7 @@ class DefaultOnboardingProviderTest {
     fun recoveryRequest_sentThenDelivered_onlyForItsOwnPacket() = runTest {
         val clock = FakeClock(start)
         val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        val deliveries = MutableSharedFlow<Delivery>(extraBufferCapacity = 16)
+        val deliveries = MutableSharedFlow<BootstrapAck>(extraBufferCapacity = 16)
         val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
@@ -199,11 +194,11 @@ class DefaultOnboardingProviderTest {
         runCurrent()
         assertEquals(OnboardingState.REQUEST_SENT, provider.state.value)
 
-        deliveries.emit(Delivery(DeliverySubject.Bootstrap(Uuid.random()), account = null))
+        deliveries.emit(BootstrapAck(Uuid.random(), account = null))
         runCurrent()
         assertEquals(OnboardingState.REQUEST_SENT, provider.state.value, "someone else's packet changes nothing")
 
-        deliveries.emit(Delivery(DeliverySubject.Bootstrap(request), account = null))
+        deliveries.emit(BootstrapAck(request, account = null))
         runCurrent()
         assertEquals(OnboardingState.REQUEST_DELIVERED, provider.state.value)
         provider.stop()
@@ -231,7 +226,7 @@ class DefaultOnboardingProviderTest {
     fun cancel_afterDelivery_ignoresALateDelivery() = runTest {
         val clock = FakeClock(start)
         val sessionStore = BootstrapSessionStore(InMemoryKeyStore())
-        val deliveries = MutableSharedFlow<Delivery>(extraBufferCapacity = 16)
+        val deliveries = MutableSharedFlow<BootstrapAck>(extraBufferCapacity = 16)
         val provider = providerUnderTest(clock, sessionStore, deliveries = deliveries)
         provider.start(this)
         provider.beginSession(ByteArray(32) { 1 })
@@ -240,7 +235,7 @@ class DefaultOnboardingProviderTest {
         runCurrent()
 
         provider.cancelOnboarding()
-        deliveries.emit(Delivery(DeliverySubject.Bootstrap(request), account = null))
+        deliveries.emit(BootstrapAck(request, account = null))
         runCurrent()
         assertEquals(OnboardingState.IDLE, provider.state.value)
         provider.stop()

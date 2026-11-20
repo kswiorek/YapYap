@@ -206,7 +206,8 @@ internal class DefaultRouter(
         systemSender = systemSender,
         sessionOpener = proactiveSessionOpener,
     )
-    private val deliveryFlow = MutableSharedFlow<Delivery>(extraBufferCapacity = 64)
+    private val messageDeliveryFlow = MutableSharedFlow<MessageAck>(extraBufferCapacity = 64)
+    private val bootstrapDeliveryFlow = MutableSharedFlow<BootstrapAck>(extraBufferCapacity = 64)
 
     private val peerPolicy = DefaultSyncPeerPolicy(routingContext)
 
@@ -299,7 +300,7 @@ internal class DefaultRouter(
 
     override val messages: MessageCarrier = object : MessageCarrier {
         override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
-        override val deliveries: Flow<Delivery> = deliveryFlow.asSharedFlow()
+        override val deliveries: Flow<MessageAck> = messageDeliveryFlow.asSharedFlow()
         override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
 
         override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
@@ -333,6 +334,7 @@ internal class DefaultRouter(
 
     override val bootstrap: BootstrapCarrier = object : BootstrapCarrier {
         override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
+        override val deliveries: Flow<BootstrapAck> = bootstrapDeliveryFlow.asSharedFlow()
 
         override suspend fun sendBootstrap(
             payload: BootstrapPayload,
@@ -561,17 +563,18 @@ internal class DefaultRouter(
             OutboxTag.Kind.MESSAGE -> if (outcome is OutboxOutcome.Acked) {
                 // A device we can't place in an account can't be shown as anyone's delivery.
                 val account = devices.getAccountIdForDevice(outcome.target) ?: return
-                deliveryFlow.emit(Delivery(DeliverySubject.Message(id), account))
+                messageDeliveryFlow.emit(MessageAck(id, account))
             }
 
             OutboxTag.Kind.BOOTSTRAP -> if (outcome is OutboxOutcome.Acked) {
                 val account = devices.getAccountIdForDevice(outcome.target)
-                deliveryFlow.emit(Delivery(DeliverySubject.Bootstrap(id), account))
+                bootstrapDeliveryFlow.emit(BootstrapAck(id, account))
             }
 
             OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
 
-            OutboxTag.Kind.FILE, OutboxTag.Kind.FILE_REQUEST -> fileRouting.onOutboxOutcome(outcome)
+            OutboxTag.Kind.FILE_PUSH, OutboxTag.Kind.FILE_FORWARD, OutboxTag.Kind.FILE_REQUEST ->
+                fileRouting.onOutboxOutcome(outcome)
         }
     }
 }

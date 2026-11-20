@@ -72,7 +72,8 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
 
 ## For whoever executes this plan
 
-Phase R1 is **done** (see its "As landed" notes). Start at R2.1 and go in the order of "Order and parallelism".
+Phases R1 and R2 are **done** (see their "As landed" notes). Start at R3.1 and go in the order of "Order and
+parallelism".
 Read this section in full before every step.
 
 ### Where things are now (after R1)
@@ -321,7 +322,7 @@ All paths are under `core/src/commonMain/kotlin/org/yapyap/` unless they start w
 
 ---
 
-## Phase R2 — Shared pieces
+## Phase R2 — Shared pieces — done
 
 ### Step R2.1 — One visibility rule (`orchestrator/sync`, `orchestrator/file`, `orchestrator/store`)
 
@@ -375,6 +376,11 @@ gate, with no depth cap.
     - `grep -rn "512" core/src/commonMain/kotlin/org/yapyap/orchestrator` finds nothing related to visibility;
     - `isVisibleTo` no longer exists;
     - both callers take `RoomVisibility`.
+- **As landed:** `RoomVisibility` also has `scope(roomId, account): VisibilityScope` (`All` / `UpTo(removalNode)` /
+  `None`), and `isVisible` is built on it. Sync serving asks `scope` once per request and keeps its old structure
+  (`None` → empty answer, `UpTo` → walk from the removal node, `All` → walk from the missing ids). A first version
+  called `isVisible` per walked message: three queries plus a recursive query each, and a non-member could make us
+  walk the whole room. The file serve gate uses `isVisible`. `RoomVisibilityTest` lives in jvmTest.
 
 ### Step R2.2 — The candidate core, generalised (`routing/candidate`, `routing/sync`, `routing/file`)
 
@@ -448,6 +454,18 @@ own copy (`FileLargeRequestLoop`) with copied backoff, and small and large rows 
 - **Done when:** `FileLargeRequestLoop` and `routing/sync/CandidateCore.kt` no longer exist;
   `grep -rn "isSmall\|isLarge" routing/file`
   finds nothing; `noteSilent` is private.
+- **As landed:**
+    - WAITING lives only in the stored row: `CandidateRow.waiting: CandidateWaiting?` is read from
+      `waiting_device`/`waiting_until`, and the core has no in-memory copy. A WAITING row sleeps until its deadline,
+      then its holder goes silent and the next candidate is asked (after a restart too).
+    - `processDue` wakes itself only after a full page. It used to wake unconditionally (inherited from master's
+      `SyncRetryProcessor`), so every candidate loop spun without sleeping. `earliestDueAt` and the link-up id list
+      are per request class, and a row with a running call is postponed, not skipped.
+    - `AttemptExecutor.Call.maxConcurrent` is a `Flow<Int>` read live (`RouterConfig.maxConcurrentFetches`). Calls run
+      as children of the due loop's job; there is no stored scope.
+    - `FileRequestProcessor` always takes the session opener and fetch manager, and routes `onDeclined` and OFFER
+      arrival to the loop that owns the row. Unexpected fetch failures propagate to the core, which logs them and
+      counts the attempt unanswered.
 
 ### Step R2.3 — Outbox fixes (`routing/outbound`, `routing/store`, `routing/inbound`, `Outbox.sq`)
 
@@ -505,6 +523,8 @@ handler never turns a retry into a silent duplicate.
       treated as a duplicate;
     - `FileMigrationJvmTest` still green with `outbox` compared.
 - **Done when:** `grep -rn "RelayBackupPolicy\|Kind.FILE\b" core/src` finds nothing; the retry branch has no tag check.
+- **As landed:** `OutboxEntry` carries the row's `relayBackup`; the retry, no-link and no-ACK-in-time paths only try a
+  backup for PENDING rows (the claim query stays the gate), so chunks start no backup timer.
 
 ### Step R2.4 — Each carrier reports its own deliveries (`routing/router`, `orchestrator/runtime/message`,
 
@@ -530,6 +550,8 @@ service only to see them. Each carrier reports the ACKs of what it sent. Indepen
   test that a BOOTSTRAP ACK appears only on `bootstrap.deliveries` and a MESSAGE ACK only on `messages.deliveries`.
 - **Done when:** `grep -rn "DeliverySubject" core/src` finds nothing; `DefaultOnboardingProvider` has no
   `MessageCarrier` parameter.
+- **As landed:** the types are named `MessageAck` (non-null account) and `BootstrapAck`, so they don't clash with the
+  public `orchestrator.runtime.message.MessageDelivery`.
 
 ---
 
@@ -1182,7 +1204,7 @@ Replaces `FileFetchManager`.
 
 ## Order and parallelism
 
-**R1 is done.** Its seams are what every later step builds on.
+**R1 and R2 are done.** Their seams and shared pieces are what every later step builds on; continue at step 5 below.
 
 **Dependencies after R1:**
 
@@ -1194,10 +1216,10 @@ Replaces `FileFetchManager`.
 
 **One executor, one step at a time:** follow this sequence exactly. Each step lands green before the next starts.
 
-1. R2.1 — one visibility rule
-2. R2.4 — per-carrier deliveries
-3. R2.3 — outbox fixes
-4. R2.2 — candidate core
+1. ~~R2.1 — one visibility rule~~ (done)
+2. ~~R2.4 — per-carrier deliveries~~ (done)
+3. ~~R2.3 — outbox fixes~~ (done)
+4. ~~R2.2 — candidate core~~ (done)
 5. R3.1 — push engine
 6. R3.2 — inbound handler split
 7. R3.3 — relay on the engine

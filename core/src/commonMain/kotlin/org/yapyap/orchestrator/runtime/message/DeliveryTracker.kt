@@ -14,8 +14,7 @@ import org.yapyap.orchestrator.store.MessageDeliveryRepository
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
-import org.yapyap.routing.router.Delivery
-import org.yapyap.routing.router.DeliverySubject
+import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.SyncCarrier
@@ -27,7 +26,7 @@ import kotlin.uuid.Uuid
 /**
  * Records which member accounts hold the local account's messages, from two kinds of evidence:
  *
- * - a push-path ACK ([Router.deliveries]): fast, but only for messages pushed straight to a device;
+ * - a push-path ACK ([MessageCarrier.deliveries]): fast, but only for messages pushed straight to a device;
  * - a ping frontier that descends from the message: slower, but it covers every way a message
  *   arrives (push, relay, sync), since a device advertises only tips whose ancestry it holds.
  *
@@ -56,9 +55,9 @@ internal class DeliveryTracker(
 
     suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = deliveryRepository.deliveredTo(messageId)
 
-    private suspend fun onPushAck(delivery: Delivery) {
-        val messageId = (delivery.subject as? DeliverySubject.Message)?.messageId ?: return
-        val account = delivery.account ?: return
+    private suspend fun onPushAck(delivery: MessageAck) {
+        val messageId = delivery.messageId
+        val account = delivery.account
         val local = localIdentity.getLocalAccountId()
         if (account == local) return
         val payload = messageRepository.findById(messageId)?.payload ?: return

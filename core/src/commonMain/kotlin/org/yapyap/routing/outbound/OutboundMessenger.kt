@@ -15,9 +15,6 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.policy.DefaultRelayBackupPolicy
-import org.yapyap.routing.policy.RelayBackupPolicy
-import org.yapyap.routing.policy.RelayBackupTrigger
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.PeerSendOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -30,11 +27,6 @@ internal class OutboundMessenger(
     private val ctx: RoutingContext,
     private val outboxProcessor: OutboxProcessor,
     private val sessionOpener: ProactiveSessionOpener,
-    /**
-     * Which packet kinds back up on each trigger (plan step 17; shared with the
-     * outbox loop). Messages back up; everything else never (step 19 extends it).
-     */
-    private val backupPolicy: RelayBackupPolicy = DefaultRelayBackupPolicy(),
 ) {
     suspend fun sendMessage(
         target: AccountId,
@@ -177,16 +169,7 @@ internal class OutboundMessenger(
         // With an open link the message goes direct and relays carry nothing unless it goes
         // unacknowledged (the outbox backs it up then). With none, back it up now: relays hold
         // a copy and forward it once the recipient surfaces, sender online or not.
-        // The policy owns which kinds back up (messages today); the claim gate still
-        // enforces at-most-once per row.
-        val relaysDeposited = if (supplementRelays &&
-            backupPolicy.shouldBackUp(
-                RelayBackupTrigger.NO_LINK,
-                binaryEnvelope,
-                OutboxTag(OutboxTag.Kind.MESSAGE, payload.messageId),
-            ) &&
-            ctx.peerLinks.linksOf(target).isEmpty()
-        ) {
+        val relaysDeposited = if (supplementRelays && ctx.peerLinks.linksOf(target).isEmpty()) {
             outboxProcessor.backUpToRelays(binaryEnvelope, reason = "no link")
         } else {
             0

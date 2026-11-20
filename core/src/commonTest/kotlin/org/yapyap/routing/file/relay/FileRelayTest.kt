@@ -39,6 +39,7 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.epochSeconds
@@ -81,7 +82,12 @@ class FileRelayTest {
     )
 
     private class RecordingRelayOutbox(val sent: MutableList<Pair<BinaryEnvelope, OutboxTag?>>) : FileOutbox {
-        override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup) {
+        override suspend fun enqueue(
+            envelope: BinaryEnvelope,
+            tag: OutboxTag,
+            relayBackup: RelayBackup,
+            retryClass: RetryClass
+        ) {
             sent += envelope to tag
         }
 
@@ -301,7 +307,7 @@ class FileRelayTest {
 
         // The stored OFFER is replayed verbatim: outer source is the relay, the inner
         // source stays the original sender with its signature intact.
-        val marker = h.sent.single { it.second == OutboxTag(OutboxTag.Kind.FILE, transferId.value) }
+        val marker = h.sent.single { it.second == OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value) }
         assertEquals(h.targetId, marker.first.target)
         assertEquals(h.relayId, marker.first.source)
         val storedOffer = assertNotNull(h.relay.find(transferId)).offerPayload
@@ -323,7 +329,7 @@ class FileRelayTest {
         for ((env, _) in forwardedChunks) {
             h.forwarder.onOutboxOutcome(
                 OutboxOutcome.Acked(
-                    OutboxTag(OutboxTag.Kind.FILE, transferId.value),
+                    OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
                     h.targetId,
                     env.packetId
                 )
@@ -342,7 +348,7 @@ class FileRelayTest {
         assertTrue(before > 0)
         h.forwarder.onOutboxOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE, transferId.value),
+                OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
                 h.targetId,
                 markerPacket,
                 PacketNackReason.DECLINED
@@ -360,7 +366,7 @@ class FileRelayTest {
         val markerPacket = h.sent.single().first.packetId
         h.forwarder.onOutboxOutcome(
             OutboxOutcome.Acked(
-                OutboxTag(OutboxTag.Kind.FILE, transferId.value),
+                OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
                 h.targetId,
                 markerPacket
             )
@@ -369,7 +375,7 @@ class FileRelayTest {
         for ((env, _) in forwarded.drop(1)) {
             h.forwarder.onOutboxOutcome(
                 OutboxOutcome.Acked(
-                    OutboxTag(OutboxTag.Kind.FILE, transferId.value),
+                    OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
                     h.targetId,
                     env.packetId
                 )
@@ -449,7 +455,7 @@ class FileRelayTest {
         for ((env, _) in h.sent.drop(1)) {
             h.forwarder.onOutboxOutcome(
                 OutboxOutcome.Acked(
-                    OutboxTag(OutboxTag.Kind.FILE, transferId.value),
+                    OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
                     h.targetId,
                     env.packetId
                 )

@@ -35,6 +35,7 @@ import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.FilePushStore
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -56,7 +57,12 @@ import kotlin.uuid.Uuid
  * a deposit), sealed to the ultimate target, outer-addressed to their relay.
  */
 internal interface FileOutbox {
-    suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup = RelayBackup.NONE)
+    suspend fun enqueue(
+        envelope: BinaryEnvelope,
+        tag: OutboxTag,
+        relayBackup: RelayBackup = RelayBackup.NONE,
+        retryClass: RetryClass = RetryClass.STANDARD,
+    )
     suspend fun enqueueDirect(envelope: BinaryEnvelope)
     suspend fun deleteByTag(tag: OutboxTag)
 
@@ -152,8 +158,12 @@ internal class FilePusher(
         events.emit(FileEvent.OutgoingProgress(fileId, target, 0L, info.totalBytes))
     }
 
-    private suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup = RelayBackup.NONE) =
-        outbox.enqueue(envelope, tag, relayBackup)
+    private suspend fun enqueue(
+        envelope: BinaryEnvelope,
+        tag: OutboxTag,
+        relayBackup: RelayBackup = RelayBackup.NONE,
+        retryClass: RetryClass = RetryClass.STANDARD,
+    ) = outbox.enqueue(envelope, tag, relayBackup, retryClass)
 
     override suspend fun cancelFile(fileId: FileId, target: AccountId) {
         val devices = try {
@@ -238,7 +248,7 @@ internal class FilePusher(
         } catch (_: Exception) {
         }
         try {
-            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -278,7 +288,7 @@ internal class FilePusher(
             // the ACKed prefix so nothing ACKed is re-sent and nothing unacked is lost —
             // duplicates merge at the receiver by plaintext byte coverage.
             try {
-                outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+                outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -442,7 +452,7 @@ internal class FilePusher(
 
     /** Transport ACK / terminal NACK / expiry of a tagged outbox row. */
     suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
-        if (outcome.tag.kind != OutboxTag.Kind.FILE) return
+        if (outcome.tag.kind != OutboxTag.Kind.FILE_PUSH) return
         val row = try {
             pushes.find(TransferId(outcome.tag.id))
         } catch (e: CancellationException) {
@@ -541,7 +551,7 @@ internal class FilePusher(
         } ?: return
         if (!row.status.isLive) return
         try {
-            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -721,7 +731,7 @@ internal class FilePusher(
                 row.key,
                 plaintext,
             )
-            sendPacket(row, FilePayload.EncryptedChunk(chunkIndex, ciphertext))
+            sendPacket(row, FilePayload.EncryptedChunk(chunkIndex, ciphertext), retryClass = RetryClass.FLAT)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -744,7 +754,8 @@ internal class FilePusher(
     private suspend fun sendPacket(
         row: FilePush,
         payload: FilePayload,
-        relayBackup: RelayBackup = RelayBackup.NONE
+        relayBackup: RelayBackup = RelayBackup.NONE,
+        retryClass: RetryClass = RetryClass.STANDARD,
     ): Uuid? {
         return try {
             val envelope = ctx.envelopeProtectionService.protectFile(
@@ -769,7 +780,7 @@ internal class FilePusher(
                 target = row.viaRelay ?: row.targetDevice,
                 payload = envelope.encode(),
             )
-            enqueue(binary, OutboxTag(OutboxTag.Kind.FILE, row.transferId.value), relayBackup)
+            enqueue(binary, OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value), relayBackup, retryClass)
             binary.packetId
         } catch (e: CancellationException) {
             throw e
@@ -787,7 +798,7 @@ internal class FilePusher(
     private suspend fun terminateSilent(row: FilePush, status: FilePushStatus) {
         require(status.isTerminal) { "terminateSilent() needs a terminal status" }
         try {
-            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -803,7 +814,7 @@ internal class FilePusher(
     private suspend fun terminate(row: FilePush, status: FilePushStatus, reason: FileFailureReason, target: AccountId?) {
         require(status.isTerminal) { "terminate() needs a terminal status" }
         try {
-            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -841,7 +852,7 @@ internal class FilePusher(
     }
 
     private suspend fun hasQueued(row: FilePush): Boolean = try {
-        outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE, row.transferId.value))
+        outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE_PUSH, row.transferId.value))
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {

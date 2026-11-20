@@ -18,6 +18,7 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
+import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protocol.AccountId
@@ -201,7 +202,7 @@ class SyncIntegrationTest {
                     localMessageRepo,
                     pendingRepo,
                     MutableStateFlow(OrchestratorConfig()),
-                    localRoomRepo,
+                    DefaultRoomVisibility(localMessageRepo, localRoomRepo),
                 ),
                 systemSender = localStack.systemSender,
                 outboxProcessor = localStack.outboxProcessor,
@@ -215,11 +216,14 @@ class SyncIntegrationTest {
                     remoteMessageRepo,
                     FakePendingSyncRepository(),
                     MutableStateFlow(OrchestratorConfig()),
-                    FakeRoomRepository(
-                        mapOf(roomId to listOf(localAccount, remoteAccount)),
-                        mapOf(
-                            localAccount to listOf(localDevice),
-                            remoteAccount to listOf(remoteDevice),
+                    DefaultRoomVisibility(
+                        remoteMessageRepo,
+                        FakeRoomRepository(
+                            mapOf(roomId to listOf(localAccount, remoteAccount)),
+                            mapOf(
+                                localAccount to listOf(localDevice),
+                                remoteAccount to listOf(remoteDevice),
+                            ),
                         ),
                     ),
                 ),
@@ -323,7 +327,7 @@ class SyncIntegrationTest {
                     localMessageRepo,
                     pendingRepo,
                     MutableStateFlow(OrchestratorConfig()),
-                    localRoomRepo,
+                    DefaultRoomVisibility(localMessageRepo, localRoomRepo),
                 ),
                 systemSender = localStack.systemSender,
                 outboxProcessor = localStack.outboxProcessor,
@@ -337,11 +341,14 @@ class SyncIntegrationTest {
                     remoteMessageRepo,
                     FakePendingSyncRepository(),
                     MutableStateFlow(OrchestratorConfig()),
-                    FakeRoomRepository(
-                        mapOf(roomId to listOf(localAccount, remoteAccount)),
-                        mapOf(
-                            localAccount to listOf(localDevice),
-                            remoteAccount to listOf(remoteDevice),
+                    DefaultRoomVisibility(
+                        remoteMessageRepo,
+                        FakeRoomRepository(
+                            mapOf(roomId to listOf(localAccount, remoteAccount)),
+                            mapOf(
+                                localAccount to listOf(localDevice),
+                                remoteAccount to listOf(remoteDevice),
+                            ),
                         ),
                     ),
                 ),

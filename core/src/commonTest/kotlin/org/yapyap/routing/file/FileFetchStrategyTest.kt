@@ -17,24 +17,20 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.file.fetch.FileFetchManager
-import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
-import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileReadResult
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
-import org.yapyap.routing.router.FakeFilePorts
+import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.store.FileRequestAttempt
-import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.sync.buildSyncRoutingStack
 import org.yapyap.sync.testDeviceIdentity
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.FakeFileSource
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -52,13 +48,13 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Step 22, routing side: the large request loop opens a WebRTC session
+ * Large request path, routing side: the fetch strategy opens a WebRTC session
  * ([ProactiveSessionOpener.awaitSession]) and then runs a fetch. FETCH_OK and
  * FETCH_DECLINED are the attempt's outcomes with no WAITING state; unreachable
  * candidates stay PENDING; online-but-unconnectable reports "no direct
  * connection". Nothing large touches the outbox or Tor.
  */
-class FileLargeRequestLoopTest {
+class FileFetchStrategyTest {
 
     private val localDevice = PeerId("large-loop-local-device-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     private val holderDevice = PeerId("large-loop-holder-device-bbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -67,30 +63,6 @@ class FileLargeRequestLoopTest {
     private val fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     private val largeTotal = 11L * 1024L * 1024L
     private val now = epochSeconds(10_000L)
-
-    private class Gate(
-        var totalBytes: Long? = 11L * 1024L * 1024L,
-        var coverage: FileCoverage? = FileCoverage(0L, emptyList()),
-        var candidates: List<AccountId> = emptyList(),
-        var canServe: Boolean = true,
-    ) : FakeFilePorts {
-        var checkOffers = 0
-        var ingestedBytes = 0L
-        override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict {
-            checkOffers++
-            return FileOfferVerdict.Accept
-        }
-
-        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
-            ingestedBytes += plaintext.size
-            return FileIngestResult.Staged(byteOffset + plaintext.size, totalBytes ?: (byteOffset + plaintext.size))
-        }
-
-        override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
-        override suspend fun requestCandidates(fileId: FileId): List<AccountId> = candidates
-        override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
-        override suspend fun requestTotalBytes(fileId: FileId): Long? = totalBytes
-    }
 
     private class Plaintext(val bytes: ByteArray) : FilePlaintextSource {
         fun info(name: String = "big.bin") = FileManifest(
@@ -125,116 +97,16 @@ class FileLargeRequestLoopTest {
         override suspend fun getDeclaredTorEndpoint(deviceId: PeerId) = null
     }
 
-    private class Attempts : FileRequestAttemptStore {
-        private data class Row(
-            var attempts: Int = 0,
-            var nextAttemptAt: kotlin.time.Instant = epochSeconds(0L),
-            var waitingDevice: PeerId? = null,
-            var waitingUntil: kotlin.time.Instant? = null,
-            var requestTransferId: org.yapyap.protocol.TransferId? = null,
-            val declined: MutableSet<PeerId> = mutableSetOf(),
-        )
-
-        private val rows = mutableMapOf<FileId, Row>()
-
-        override suspend fun start(fileId: FileId, firstAttemptAt: kotlin.time.Instant) {
-            rows.getOrPut(fileId) { Row(nextAttemptAt = firstAttemptAt) }
-        }
-
-        override suspend fun drop(fileId: FileId) {
-            rows.remove(fileId)
-        }
-
-        override suspend fun earliestDueAt(): kotlin.time.Instant? = rows.values.minOfOrNull { it.nextAttemptAt }
-
-        override suspend fun findDue(now: kotlin.time.Instant, limit: Int): List<FileRequestAttempt> =
-            rows.entries.filter { it.value.nextAttemptAt <= now }.take(limit).map { (id, row) ->
-                FileRequestAttempt(
-                    id,
-                    row.attempts,
-                    row.declined.toSet(),
-                    row.waitingDevice,
-                    row.waitingUntil,
-                    row.requestTransferId
-                )
-            }
-
-        override suspend fun findById(fileId: FileId): FileRequestAttempt? = rows[fileId]?.let { row ->
-            FileRequestAttempt(
-                fileId,
-                row.attempts,
-                row.declined.toSet(),
-                row.waitingDevice,
-                row.waitingUntil,
-                row.requestTransferId
-            )
-        }
-
-        override suspend fun findByTransferId(transferId: org.yapyap.protocol.TransferId): FileRequestAttempt? =
-            rows.entries.firstOrNull { it.value.requestTransferId == transferId }?.let { (id, row) ->
-                FileRequestAttempt(
-                    id,
-                    row.attempts,
-                    row.declined.toSet(),
-                    row.waitingDevice,
-                    row.waitingUntil,
-                    row.requestTransferId
-                )
-            }
-
-        override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: kotlin.time.Instant) {
-            rows[fileId]?.let { it.attempts += 1; it.nextAttemptAt = nextAttemptAt }
-        }
-
-        override suspend fun postpone(fileId: FileId, nextAttemptAt: kotlin.time.Instant) {
-            rows[fileId]?.nextAttemptAt = nextAttemptAt
-        }
-
-        override suspend fun advanceToNow(fileIds: Collection<FileId>, now: kotlin.time.Instant) {
-            fileIds.forEach { id -> rows[id]?.let { if (it.nextAttemptAt > now) it.nextAttemptAt = now } }
-        }
-
-        override suspend fun setWaiting(
-            fileId: FileId,
-            device: PeerId,
-            until: kotlin.time.Instant,
-            requestTransferId: org.yapyap.protocol.TransferId
-        ) {
-            rows[fileId]?.let {
-                it.waitingDevice = device; it.waitingUntil = until; it.requestTransferId = requestTransferId
-            }
-        }
-
-        override suspend fun clearWaiting(fileId: FileId) {
-            rows[fileId]?.let { it.waitingDevice = null; it.waitingUntil = null; it.requestTransferId = null }
-        }
-
-        override suspend fun setRequestTransfer(fileId: FileId, transferId: org.yapyap.protocol.TransferId) {
-            rows[fileId]?.requestTransferId = transferId
-        }
-
-        override suspend fun declinedDevices(fileId: FileId): Set<PeerId> = rows[fileId]?.declined?.toSet().orEmpty()
-        override suspend fun addDeclined(fileId: FileId, device: PeerId) {
-            rows[fileId]?.declined?.add(device)
-        }
-
-        override suspend fun removeDeclined(fileId: FileId, devices: Collection<PeerId>) {
-            rows[fileId]?.declined?.removeAll(devices.toSet())
-        }
-
-        override suspend fun allIds(): List<FileId> = rows.keys.toList()
-    }
-
     private data class Fixture(
         val scope: CoroutineScope,
         val processor: FileRequestProcessor,
-        val attempts: Attempts,
+        val attempts: InMemoryFileRequestAttemptStore,
         val events: MutableSharedFlow<FileEvent>,
         val holderEvents: MutableSharedFlow<FileEvent>,
         val requesterWebRtc: RecordingWebRtcTransport,
         val requesterTor: RecordingTorTransport,
         val holderTransports: Map<PeerId, RecordingWebRtcTransport>,
-        val requesterGate: Gate,
+        val requesterGate: FakeFileSource,
         val holderData: ByteArray,
         val jobs: List<Job>,
     ) {
@@ -274,8 +146,8 @@ class FileLargeRequestLoopTest {
         val scope = CoroutineScope(SupervisorJob())
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val holderEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
-        val attempts = Attempts()
-        val requesterGate = Gate(candidates = listOf(holderAccount))
+        val attempts = InMemoryFileRequestAttemptStore()
+        val requesterGate = FakeFileSource(candidates = listOf(holderAccount), defaultTotalBytes = largeTotal)
         val requesterManager = FileFetchManager(
             localDeviceId = localDevice,
             devices = stack.ctx.devices,
@@ -308,8 +180,8 @@ class FileLargeRequestLoopTest {
                 devices = MapDevices(mapOf(localDevice to holderAccount)),
                 transport = holderTransports.getValue(device),
                 plaintext = Plaintext(dataBytes),
-                ingest = Gate(canServe = holderCanServe(device)),
-                serveGate = Gate(canServe = holderCanServe(device)),
+                ingest = FakeFileSource(canServe = holderCanServe(device)),
+                serveGate = FakeFileSource(canServe = holderCanServe(device)),
                 routerConfig = configFlow,
                 frameBytes = MutableStateFlow(32 * 1024),
                 events = holderEvents,
@@ -474,7 +346,7 @@ class FileLargeRequestLoopTest {
     @Test
     fun smallRows_ignoredByLargeLoop() = runBlocking {
         val f = fixture()
-        f.requesterGate.totalBytes = 1_000L
+        f.requesterGate.defaultTotalBytes = 1_000L
         try {
             f.processor.start(fileId, now)
             delay(500)

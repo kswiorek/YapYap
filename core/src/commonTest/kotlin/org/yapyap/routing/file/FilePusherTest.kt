@@ -47,6 +47,7 @@ import org.yapyap.routing.store.FilePushKind
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
@@ -230,7 +231,12 @@ private fun harness(
         outbox = object : FileOutbox {
             var tags = mutableListOf<OutboxTag>()
 
-            override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup) {
+            override suspend fun enqueue(
+                envelope: BinaryEnvelope,
+                tag: OutboxTag,
+                relayBackup: RelayBackup,
+                retryClass: RetryClass
+            ) {
                 tags += tag
                 backups[envelope.packetId] = relayBackup
                 sent += envelope to tag
@@ -283,7 +289,7 @@ private suspend fun Harness.markerOf(transferId: TransferId): Uuid =
     }
 
 private suspend fun Harness.ackMarker(transferId: TransferId, target: PeerId): OutboxOutcome.Acked =
-    OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE, transferId.value), target, markerOf(transferId))
+    OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value), target, markerOf(transferId))
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FilePusherTest {
@@ -311,7 +317,10 @@ class FilePusherTest {
         val markers = h.sent.filter { FileEnvelope.decode(it.first.payload).decodePayload() is FilePayload.Offer }
         assertEquals(2, markers.size)
         assertEquals(
-            setOf(OutboxTag(OutboxTag.Kind.FILE, transfersA.single().value), OutboxTag(OutboxTag.Kind.FILE, transfersB.single().value)),
+            setOf(
+                OutboxTag(OutboxTag.Kind.FILE_PUSH, transfersA.single().value),
+                OutboxTag(OutboxTag.Kind.FILE_PUSH, transfersB.single().value)
+            ),
             markers.map { it.second }.toSet(),
         )
         assertNotNull(rowA.markerPacketId)
@@ -381,7 +390,7 @@ class FilePusherTest {
 
         h.pusher.onOutboxOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE, transfer.value),
+                OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value),
                 peerA,
                 h.markerOf(transfer),
                 PacketNackReason.DECLINED,
@@ -408,7 +417,12 @@ class FilePusherTest {
         }.packetId
 
         h.pusher.onOutboxOutcome(
-            OutboxOutcome.Nacked(OutboxTag(OutboxTag.Kind.FILE, transfer.value), peerA, chunkPacket, PacketNackReason.DECLINED),
+            OutboxOutcome.Nacked(
+                OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value),
+                peerA,
+                chunkPacket,
+                PacketNackReason.DECLINED
+            ),
         )
 
         // ENDED, never DECLINED (§3.6): the transfer is gone at the target, outcome unknown.
@@ -423,7 +437,7 @@ class FilePusherTest {
         val transfer = h.transferIdsFor(peerA).single()
         h.pusher.onOutboxOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE, transfer.value),
+                OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value),
                 peerA,
                 h.markerOf(transfer),
                 PacketNackReason.PERMANENT_PROTECTION_FAILED,
@@ -442,7 +456,7 @@ class FilePusherTest {
         val transfer = h.transferIdsFor(peerA).single()
         h.pusher.onOutboxOutcome(
             OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE, transfer.value),
+                OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value),
                 peerA,
                 h.markerOf(transfer),
                 PacketNackReason.PERMANENT_PROTECTION_FAILED,
@@ -492,7 +506,7 @@ class FilePusherTest {
         val countBefore = h.sent.size
 
         h.pusher.onOutboxOutcome(
-            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE, transfer.value), peerA, oldMarker),
+            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value), peerA, oldMarker),
         )
 
         val row = h.pushes.find(transfer)!!
@@ -584,7 +598,7 @@ class FilePusherTest {
         runCurrent()
 
         h.pusher.onOutboxOutcome(
-            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE, transfer.value), peerA, h.markerOf(transfer)),
+            OutboxOutcome.Expired(OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value), peerA, h.markerOf(transfer)),
         )
         runCurrent()
 
@@ -627,7 +641,7 @@ class FilePusherTest {
     fun unknownTransfer_outcomeIgnored() = runTest {
         val h = harness()
         h.pusher.onOutboxOutcome(
-            OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE, Uuid.random()), peerA, Uuid.random()),
+            OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_PUSH, Uuid.random()), peerA, Uuid.random()),
         )
         h.pusher.onTransferComplete(TransferId(Uuid.random()))
         // No rows, no crash.
@@ -675,7 +689,7 @@ class FilePusherTest {
         assertEquals(2, deposits.map { it.transferId }.toSet().size, "each deposit is its own transfer")
         assertNotEquals(deposits[0].key.toList(), deposits[1].key.toList(), "each deposit has its own key")
         val markerOuters = h.sent.filter { (env, tag) ->
-            tag?.let { it.kind == OutboxTag.Kind.FILE && deposits.any { d -> d.transferId.value == it.id } } == true
+            tag?.let { it.kind == OutboxTag.Kind.FILE_PUSH && deposits.any { d -> d.transferId.value == it.id } } == true
         }
         assertEquals(2, markerOuters.size)
         for ((env, _) in markerOuters) {
@@ -727,7 +741,7 @@ class FilePusherTest {
         val transfer = h.drivePushToInFlight()
         val chunkPacket = h.sent.map { it.first }
             .first { it.packetId != h.markerOf(transfer) }.packetId
-        val tag = OutboxTag(OutboxTag.Kind.FILE, transfer.value)
+        val tag = OutboxTag(OutboxTag.Kind.FILE_PUSH, transfer.value)
 
         // A chunk ACK every 30s keeps the direct path looking alive: no deposit.
         repeat(3) {

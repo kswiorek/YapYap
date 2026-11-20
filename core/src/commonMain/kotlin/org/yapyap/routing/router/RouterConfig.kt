@@ -168,6 +168,8 @@ internal data class RouterConfig(
      * low threshold bounds the sender side.
      */
     val fileStreamWindowBytes: Long = 32L * 1024L * 1024L,
+    /** Large fetches running at once per node (design §9, one candidate at a time per file). */
+    val maxConcurrentFetches: Int = 2,
     /**
      * This device's store-and-forward pledge (design §15): the bytes it holds for other
      * devices' traffic, split between the file relay store and the message relay cache by
@@ -222,6 +224,7 @@ internal data class RouterConfig(
         require(chunkAckTimeout > Duration.ZERO) { "chunkAckTimeout must be > 0" }
         require(fileSessionOpenTimeout > Duration.ZERO) { "fileSessionOpenTimeout must be > 0" }
         require(fileStreamWindowBytes > 0) { "fileStreamWindowBytes must be > 0" }
+        require(maxConcurrentFetches > 0) { "maxConcurrentFetches must be > 0" }
         require(relayStoragePledgeBytes > 0) { "relayStoragePledgeBytes must be > 0" }
         require(fileRelayShare > 0.0 && fileRelayShare < 1.0) { "fileRelayShare must be in (0, 1)" }
     }

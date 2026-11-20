@@ -20,6 +20,7 @@ internal interface PacketOutbox {
         targetEndpoint: TorEndpoint? = null,
         relayBackup: RelayBackup = RelayBackup.NONE,
         tag: OutboxTag? = null,
+        retryClass: RetryClass = RetryClass.STANDARD,
     )
 
     /**
@@ -39,12 +40,19 @@ internal interface PacketOutbox {
     suspend fun listAllForTarget(target: PeerId): List<OutboxEntry>
 
     /**
-     * Due rows *without* envelope blobs (design §6.2): the due pass selects ids, targets and
-     * tags — ordered non-FILE first, then FILE, each oldest-first and bounded — and each
-     * claimed row's envelope loads alone at claim time. Messages (and ACKs, pings, system
-     * traffic) are therefore never stuck behind a full chunk window.
+     * Due rows *without* envelope blobs (design §6.2): the due pass selects ids, targets,
+     * tags and retry classes — ordered non-file rows first, then file rows, each oldest-first
+     * and bounded — and each claimed row's envelope loads alone at claim time. Messages (and
+     * ACKs, pings, system traffic) are therefore never stuck behind a full chunk window.
+     * Targets already at their per-target in-flight cap are hidden via [excludeTargets], so
+     * one capped peer never starves the rest.
      */
-    suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow>
+    suspend fun listDueIds(
+        now: Instant,
+        nonFileLimit: Int,
+        fileLimit: Int,
+        excludeTargets: Collection<PeerId> = emptyList(),
+    ): List<DueOutboxRow>
 
     /** Loads one row with its envelope blob (the only blob-loading read on the due path). */
     suspend fun getByPacketId(packetId: Uuid): OutboxEntry?
@@ -88,14 +96,18 @@ internal data class OutboxEntry(
     /** Out-of-band endpoint override, present exactly when the target has no devices row (bootstrap). */
     val targetEndpoint: TorEndpoint? = null,
     val tag: OutboxTag? = null,
+    val retryClass: RetryClass = RetryClass.STANDARD,
+    /** The row's backup state when loaded; [PacketOutbox.claimRelayBackup] stays the gate. */
+    val relayBackup: RelayBackup = RelayBackup.NONE,
 )
 
-/** A due outbox row without its envelope blob: id, target, attempt count and tag. */
+/** A due outbox row without its envelope blob: id, target, attempt count, tag and retry class. */
 internal data class DueOutboxRow(
     val packetId: Uuid,
     val target: PeerId,
     val attempts: Long,
     val tag: OutboxTag?,
+    val retryClass: RetryClass = RetryClass.STANDARD,
 )
 
 /**
@@ -115,22 +127,41 @@ internal data class OutboxTag(val kind: Kind, val id: Uuid) {
         SYNC(2),
 
         /**
-         * One file-transfer packet; [id] is the transfer id. The outcome routes to the
-         * pusher (step 13): the OFFER marker, chunk rows and control packets of one transfer
-         * share the transfer id, while [OutboxOutcome.packetId] tells chunk rows apart.
-         */
-        FILE(3),
-
-        /**
          * One attempt of a file request; [id] is the REQUEST's transfer id. The outcome
          * routes to the file request processor (step 16), which correlates it to the
          * file through its attempts row.
          */
         FILE_REQUEST(4),
+
+        /**
+         * One packet of our own transfer (OFFER marker or chunk); [id] is the transfer id.
+         * The outcome routes to the push engine. Chunks retry at a flat delay
+         * ([RetryClass.FLAT]); markers use the message schedule.
+         */
+        FILE_PUSH(5),
+
+        /**
+         * One packet of a relay forward (stored OFFER or chunk replay); [id] is the transfer id.
+         * The outcome routes to the relay forwarder. Chunks retry flat like pushes.
+         */
+        FILE_FORWARD(6),
         ;
 
         companion object {
             fun fromCode(code: Long): Kind? = entries.firstOrNull { it.code == code }
+
+            /** File traffic (pushes and forwards) vs everything else in the due query. */
+            val FILE_KINDS: Set<Kind> = setOf(FILE_PUSH, FILE_FORWARD)
         }
+    }
+}
+
+/** Retry schedule for one outbox row (design §6.2): markers and requests use the message schedule. */
+internal enum class RetryClass(val code: Long) {
+    STANDARD(0),
+    FLAT(1);
+
+    companion object {
+        fun fromCode(code: Long): RetryClass = entries.firstOrNull { it.code == code } ?: STANDARD
     }
 }

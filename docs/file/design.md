@@ -360,15 +360,16 @@ already owns (see §17, rejected alternatives).
 
 ### 6.2 The chunk phase (small path)
 
-Chunks are individual outbox rows (tagged FILE, id = `transferId`) — per-chunk retry, dedup and restart
+Chunks are individual outbox rows (tagged `FILE_PUSH` for our transfers and `FILE_FORWARD` for
+relay forwards, id = `transferId`) — per-chunk retry, dedup and restart
 survival come free. A window (`maxInFlightChunks`) bounds pending rows: each row holds a ~249 KiB blob, so a
 window of 16 ≈ 3.5 MB of outbox per transfer.
 
-Outbox extensions required: the new tag kind, and `packetId` on `OutboxOutcome` so the engine maps a chunk
+Outbox extensions required: the new tag kinds, and `packetId` on `OutboxOutcome` so the engine maps a chunk
 outcome to its index. Unacked chunks are exactly the tagged rows still queued, so the engine's pending set is
 reconstructable from the outbox — no parallel per-chunk table on the send side. Chunk offsets derive per
 transfer (`chunkIndex × chunkSizeBytes`); nothing is pre-materialized. The OFFER marker and chunk rows are the
-FILE packets that participate in the deposit triggers, each with its own set (§5, §6.3); control packets do
+file packets that participate in the deposit triggers, each with its own set (§5, §6.3); control packets do
 not. A DECLINED on a chunk ends that transfer quietly and drops its remaining rows (§3.6).
 
 **The outbox was built for message-sized rows; three things change before it carries chunks.** They land with
@@ -376,15 +377,18 @@ the pusher, not later:
 
 - **The due query stops loading blobs.** Today `getDue` is `SELECT *` with no order and no limit, and
   `processDue` runs again after every finished send. With chunk rows queued, each pass would reload megabytes
-  of blobs. The due query returns ids, targets and tags, ordered and limited; a row's envelope is loaded when
-  the row is claimed.
-- **Messages go first.** Due rows are claimed non-FILE first, so two chunks never hold both of a peer's slots
+  of blobs. The due query returns ids, targets, tags and retry classes, ordered and limited; a row's envelope is loaded
+  when
+  the row is claimed. Targets already at their per-target in-flight cap are hidden from the due query,
+  so one capped peer never starves the rest.
+- **Messages go first.** Due rows are claimed file kinds (`FILE_PUSH`, `FILE_FORWARD`) after everything
+  else, so two chunks never hold both of a peer's slots
   while a text message waits. On a Tor link a chunk takes seconds to write.
-- **FILE rows have their own retry policy.** The message policy drops to `standbyRetryDelay` (1 h) after
+- **Only chunk rows retry flat.** The message policy drops to `standbyRetryDelay` (1 h) after
   `fastRetryBudget` (3) attempts. A chunk answered with a silent DEFER (the receiver's staging bound, §8)
   would burn that in about three minutes and then sleep for an hour. Chunk rows retry at a flat
   `fileChunkRetryDelay` for as long as their transfer lives; the transfer's TTL and the stall detector bound
-  them, not an attempt count.
+  them, not an attempt count. OFFER markers and REQUESTs keep the message schedule.
 
 `outboxMaxInFlightPerTarget` (2) was set conservatively for messages. Once the three changes are in, it is
 stress-tested with chunk traffic over Tor and WebRTC and raised to what the links take; a separate cap for
@@ -720,7 +724,8 @@ files get their bytes.
   maps the `fileId` to its messages, and the sync serve gate decides visibility of those messages. No visible
   referencing message → DECLINED. Without the gate, anyone who has or guesses a file's content could pull it
   from any holder by its hash. A large fetch passes the same gate before `FETCH_OK`: the requesting account
-  is the account of the session's peer device.
+  is the account of the session's peer device. A message that references a file shares it with
+  everyone who can see that message, its author included. This is intended.
 - **Holders check blocks as they read.** AEAD only protects bytes in transit: a copy that rotted on disk, or a
   referenced original the user edited (§10), would be encrypted faithfully and fail only at the requester. So
   the plaintext source hashes each block it reads and compares it with the block list before the block's bytes go
@@ -737,9 +742,12 @@ files get their bytes.
   already pushing that file to the requester (a late OFFER after the grace period, a stalled push) supersedes
   it: the old transfer is CANCELled and the serve starts fresh from the held coverage. Never two parallel
   transfers of one file from one device to one device.
-- The candidate-asking loop is **extracted as a shared core with `SyncRetryProcessor`** (the needs now
-  coincide; on success the file request hands off to the transfer engine instead of consuming a reply payload
-  — a callback seam, not a structural fork).
+- The candidate-asking loop is **a shared core with two executors** (`routing/candidate`): sync and small
+  file requests queue outbox attempts, while large-file fetches run as bounded concurrent calls (`maxConcurrentFetches`
+  at a time). Each request class has its own core instance over its own due query (`SMALL` vs `LARGE` rows). A satisfied
+  id is dropped before any candidate is picked; a file REQUEST ACK
+  parks the row in WAITING for its OFFER (expiry re-asks the next candidate with the silent holder tried
+  last); an unreachable candidate is never a decline.
 - Relays are **not** candidates: they are transient push caches with forget-after-delivery semantics.
 
 ## 10. Storage and retention
@@ -968,8 +976,9 @@ Per guide §2, each layer's config type lives next to its code:
   `chunkAckTimeout` (no chunk ACK at all for this long → deposit, §6.3), `fileStallTimeout` (the receiver's gap
   trigger), `fileRequestAttemptTimeout`,
   `fileRequestFirstAttemptDelay` (the grace period, small files), `fileRequestWaitTimeout` (WAITING for the
-  OFFER), `fileSessionOpenTimeout` (a large request opening its session) and `fileStreamWindowBytes` (e.g.
-  32 MB — how far a fetch's holder may run past the last `PROGRESS`, §6.6).
+  OFFER), `fileSessionOpenTimeout` (a large request opening its session), `fileStreamWindowBytes` (e.g.
+  32 MB — how far a fetch's holder may run past the last `PROGRESS`, §6.6) and `maxConcurrentFetches`
+  (large fetches running at once, e.g. 2).
 - **Storage pledge**: one user-facing `relayStoragePledgeBytes` (default 100 MB) — how much of this device's
   storage the network may use — split by the composition root into the message relay-cache budget and the
   file relay-store budget, each keeping its own eviction semantics (per-row LRU vs whole-transfer LRU). Our

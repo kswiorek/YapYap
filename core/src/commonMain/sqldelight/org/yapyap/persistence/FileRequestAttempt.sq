@@ -12,7 +12,8 @@ CREATE TABLE file_request_attempts(
     next_attempt_at INTEGER AS Instant NOT NULL,
     waiting_device TEXT AS PeerId,
     waiting_until INTEGER AS Instant,
-    request_transfer_id TEXT
+    request_transfer_id TEXT,
+    request_class TEXT NOT NULL
 );
 
 CREATE TABLE file_request_declined_devices(
@@ -23,17 +24,20 @@ CREATE TABLE file_request_declined_devices(
 );
 
 insertFileRequestAttempt:
-INSERT OR IGNORE INTO file_request_attempts (file_id, attempts, next_attempt_at)
-VALUES (?, 0, ?);
+INSERT OR IGNORE INTO file_request_attempts (file_id, attempts, next_attempt_at, request_class)
+VALUES (?, 0, ?, ?);
 
 deleteFileRequestAttempt:
 DELETE FROM file_request_attempts WHERE file_id = ?;
 
+-- Per class: the small and large loops each sleep until their own next due row.
 selectEarliestDueFileRequestAt:
-SELECT MIN(next_attempt_at) FROM file_request_attempts;
+SELECT MIN(next_attempt_at) FROM file_request_attempts WHERE request_class = ?;
 
 selectDueFileRequestAttempts:
-SELECT * FROM file_request_attempts WHERE next_attempt_at <= ? LIMIT ?;
+SELECT * FROM file_request_attempts WHERE next_attempt_at <= ? AND request_class = ?
+ORDER BY next_attempt_at ASC
+LIMIT ?;
 
 recordFileRequestAttempt:
 UPDATE file_request_attempts SET attempts = attempts + 1, next_attempt_at = ? WHERE file_id = ?;
@@ -71,8 +75,8 @@ SELECT device_id FROM file_request_declined_devices WHERE file_id = ?;
 insertDeclinedFileRequestDevice:
 INSERT OR IGNORE INTO file_request_declined_devices (file_id, device_id) VALUES (?, ?);
 
-selectAllFileRequestIds:
-SELECT file_id FROM file_request_attempts;
+selectFileRequestIdsByClass:
+SELECT file_id FROM file_request_attempts WHERE request_class = ?;
 
 deleteDeclinedFileRequestDevices:
 DELETE FROM file_request_declined_devices WHERE file_id = :fileId AND device_id IN :deviceIds;

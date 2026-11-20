@@ -4,8 +4,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -30,7 +35,8 @@ class DefaultSyncPayloadProviderTest {
         mapOf(roomId to listOf(remoteAccount)),
         mapOf(remoteAccount to listOf(remoteDevice)),
     )
-    private val provider = DefaultSyncPayloadProvider(messageRepo, FakePendingSyncRepository(), config, roomRepo)
+    private val visibility = DefaultRoomVisibility(messageRepo, roomRepo)
+    private val provider = DefaultSyncPayloadProvider(messageRepo, FakePendingSyncRepository(), config, visibility)
 
     private var tick = 0L
 
@@ -185,7 +191,7 @@ class DefaultSyncPayloadProviderTest {
             messageRepo,
             FakePendingSyncRepository(),
             MutableStateFlow(OrchestratorConfig(syncMaxMessages = 2)),
-            roomRepo,
+            visibility,
         )
         val result = limitedProvider.syncMessages(
             syncRequest(missingIds = listOf(m3.messageId), knownIds = emptyList()),

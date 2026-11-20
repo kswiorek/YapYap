@@ -14,10 +14,11 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.AccountReach
+import org.yapyap.routing.router.BootstrapAck
 import org.yapyap.routing.router.BootstrapCarrier
 import org.yapyap.routing.router.BootstrapPacketEvent
-import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.LocalLinkStatus
+import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.PingFrontiers
 import org.yapyap.routing.router.Presence
@@ -31,7 +32,7 @@ import kotlin.uuid.Uuid
 /** [MessageCarrier] that does nothing; tests override what they observe or drive. */
 internal open class NoopMessageCarrier : MessageCarrier {
     override val incomingMessages: Flow<MessagePayload> = MutableSharedFlow()
-    override val deliveries: Flow<Delivery> = emptyFlow()
+    override val deliveries: Flow<MessageAck> = emptyFlow()
     override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
 
     override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport =
@@ -51,6 +52,7 @@ internal open class NoopSyncCarrier : SyncCarrier {
 /** [BootstrapCarrier] that does nothing. */
 internal open class NoopBootstrapCarrier : BootstrapCarrier {
     override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
+    override val deliveries: Flow<BootstrapAck> = emptyFlow()
 
     override suspend fun sendBootstrap(
         payload: BootstrapPayload,

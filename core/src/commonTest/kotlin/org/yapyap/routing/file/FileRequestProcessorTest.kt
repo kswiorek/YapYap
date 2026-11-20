@@ -14,27 +14,30 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.fetch.FileFetchManager
 import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.file.port.FileIngestResult
-import org.yapyap.routing.file.port.FileManifest
-import org.yapyap.routing.file.port.FileOfferVerdict
-import org.yapyap.routing.router.FakeFilePorts
+import org.yapyap.routing.outbound.ProactiveSessionOpener
+import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileRequestAttempt
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.sync.FixedSyncPeerPolicy
 import org.yapyap.sync.SyncRoutingStack
 import org.yapyap.sync.buildSyncRoutingStack
 import org.yapyap.sync.testDeviceIdentity
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.FakeFileSource
+import org.yapyap.testfixtures.NoPlaintext
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,7 +50,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
- * Step 16, routing side: one candidate at a time, ACK → WAITING, DECLINED moves on,
+ * Routing side of file requests: one candidate at a time, ACK → WAITING, DECLINED moves on,
  * WAITING timeout moves on without declining, unknown outcomes are ignored.
  */
 class FileRequestProcessorTest {
@@ -65,6 +68,7 @@ class FileRequestProcessorTest {
         val events: MutableSharedFlow<FileEvent>,
         val processor: FileRequestProcessor,
         val policy: FixedSyncPeerPolicy,
+        val gate: FakeFileSource,
     ) {
         suspend fun runFor(millis: Long = 500) {
             val scope = CoroutineScope(SupervisorJob())
@@ -75,6 +79,24 @@ class FileRequestProcessorTest {
         }
     }
 
+    // The large path is wired but idle here: every request in these tests is small.
+    private fun idleSessionOpener(ctx: RoutingContext, clock: FakeClock) = ProactiveSessionOpener(
+        ctx,
+        PeerAvailabilityRegistry(clock, ctx.routerConfig, FakePeerAvailabilityStore()),
+    )
+
+    private fun idleFetchManager(ctx: RoutingContext, events: MutableSharedFlow<FileEvent>) = FileFetchManager(
+        localDeviceId = ctx.localDeviceId,
+        devices = ctx.devices,
+        transport = ctx.webRtcTransport,
+        plaintext = NoPlaintext,
+        ingest = RefusingFilePorts(),
+        serveGate = RefusingFilePorts(),
+        routerConfig = ctx.routerConfig,
+        frameBytes = MutableStateFlow(32 * 1024),
+        events = events,
+    )
+
     private fun harness(
         devices: List<PeerId> = listOf(holderDevice),
         candidates: List<AccountId> = listOf(holderAccount),
@@ -83,11 +105,11 @@ class FileRequestProcessorTest {
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(holderAccount to devices),
-            torByPeer = devices.associateWith { org.yapyap.protocol.TorEndpoint("${it.id}.onion", 80) }.toMutableMap(),
+            torByPeer = devices.associateWith { TorEndpoint("${it.id}.onion", 80) }.toMutableMap(),
             clock = clock,
         )
         devices.forEach { device ->
-            val endpoint = org.yapyap.protocol.TorEndpoint("${device.id}.onion", 80)
+            val endpoint = TorEndpoint("${device.id}.onion", 80)
             stack.ctx.peerLinks.bindTorEndpoint(device, endpoint)
         }
         val ctx = RoutingContext(
@@ -104,7 +126,7 @@ class FileRequestProcessorTest {
             transportLimits = stack.ctx.transportLimits,
         )
         val attempts = InMemoryFileRequestAttemptStore()
-        val gate = FakeFileIngest(candidates)
+        val gate = FakeFileSource(candidates = candidates)
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val policy = FixedSyncPeerPolicy(nextDevice = devices.firstOrNull())
         val processor = FileRequestProcessor(
@@ -116,8 +138,10 @@ class FileRequestProcessorTest {
             maxIdlePoll = MutableStateFlow(1.seconds),
             events = events,
             onNoLink = {},
+            sessionOpener = idleSessionOpener(ctx, clock),
+            fetchManager = idleFetchManager(ctx, events),
         )
-        return Harness(stack, attempts, events, processor, policy)
+        return Harness(stack, attempts, events, processor, policy, gate)
     }
 
     private suspend fun Harness.request(): TransferId {
@@ -216,13 +240,13 @@ class FileRequestProcessorTest {
             localDevice = testDeviceIdentity(localDevice),
             peersByAccount = mapOf(holderAccount to listOf(holderDevice, otherDevice)),
             torByPeer = mutableMapOf(
-                holderDevice to org.yapyap.protocol.TorEndpoint("holder.onion", 80),
-                otherDevice to org.yapyap.protocol.TorEndpoint("other.onion", 80),
+                holderDevice to TorEndpoint("holder.onion", 80),
+                otherDevice to TorEndpoint("other.onion", 80),
             ),
             clock = clock,
         )
         listOf(holderDevice, otherDevice).forEach { device ->
-            stack.ctx.peerLinks.bindTorEndpoint(device, org.yapyap.protocol.TorEndpoint("${device.id}.onion", 80))
+            stack.ctx.peerLinks.bindTorEndpoint(device, TorEndpoint("${device.id}.onion", 80))
         }
         val ctx = RoutingContext(
             localIdentity = stack.ctx.localIdentity,
@@ -242,12 +266,14 @@ class FileRequestProcessorTest {
         val processor = FileRequestProcessor(
             ctx = ctx,
             attempts = attempts,
-            requests = FakeFileIngest(listOf(holderAccount)),
+            requests = FakeFileSource(candidates = listOf(holderAccount)),
             outboxProcessor = stack.outboxProcessor,
             peerPolicy = fixed,
             maxIdlePoll = MutableStateFlow(1.seconds),
             events = events,
             onNoLink = {},
+            sessionOpener = idleSessionOpener(ctx, clock),
+            fetchManager = idleFetchManager(ctx, events),
         )
         processor.start(fileId, now)
         CoroutineScope(SupervisorJob()).let { scope ->
@@ -280,131 +306,32 @@ class FileRequestProcessorTest {
         assertNull(h.attempts.findById(fileId))
     }
 
-    // -- Fakes ------------------------------------------------------------------
+    @Test
+    fun smallRow_winsFirstPassAgainstTenLarge() = kotlinx.coroutines.runBlocking {
+        val h = harness()
+        val largeIds = (0 until 10).map { hexFileId(it) }
+        val smallId = hexFileId(100)
+        h.gate.totalBytesByFile = (largeIds.associateWith { 11L * 1024L * 1024L } + (smallId to 1_000L))
+        for (id in largeIds) h.processor.start(id, now)
+        h.processor.start(smallId, now)
 
-    private class FakeFileIngest(
-        private val candidates: List<AccountId>,
-    ) : FakeFilePorts {
-        var coverage: FileCoverage? = FileCoverage(0L, emptyList())
-        var canServe = true
-        override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
-        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
-            FileIngestResult.Duplicate
+        h.runFor()
 
-        override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
-        override suspend fun requestCandidates(fileId: FileId): List<AccountId> = candidates
-        override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
-        override suspend fun requestTotalBytes(fileId: FileId): Long? = null
+        val queued = h.stack.outbox.enqueued
+        assertEquals(1, queued.size, "only the SMALL REQUEST is enqueued in the first pass")
+        val opened = FileEnvelope.decode(queued.single().payload).decodePayload()
+        assertEquals(smallId, assertIs<FilePayload.Request>(opened).fileId)
+        assertTrue(
+            largeIds.all { h.attempts.findById(it) != null },
+            "LARGE rows stay pending on the fetch path",
+        )
     }
 
-    private class InMemoryFileRequestAttemptStore : org.yapyap.routing.store.FileRequestAttemptStore {
-        private data class Row(
-            var attempts: Int = 0,
-            var nextAttemptAt: kotlin.time.Instant = epochSeconds(0L),
-            var waitingDevice: PeerId? = null,
-            var waitingUntil: kotlin.time.Instant? = null,
-            var requestTransferId: TransferId? = null,
-            val declined: MutableSet<PeerId> = mutableSetOf(),
-        )
+    // -- Fakes ------------------------------------------------------------------
 
-        private val rows = mutableMapOf<FileId, Row>()
-
-        override suspend fun start(fileId: FileId, firstAttemptAt: kotlin.time.Instant) {
-            rows.getOrPut(fileId) { Row(nextAttemptAt = firstAttemptAt) }
-        }
-
-        override suspend fun drop(fileId: FileId) {
-            rows.remove(fileId)
-        }
-
-        override suspend fun earliestDueAt(): kotlin.time.Instant? =
-            rows.values.minOfOrNull { it.nextAttemptAt }
-
-        override suspend fun findDue(now: kotlin.time.Instant, limit: Int): List<FileRequestAttempt> =
-            rows.entries.filter { it.value.nextAttemptAt <= now }.take(limit).map { (id, row) ->
-                FileRequestAttempt(
-                    fileId = id,
-                    attempts = row.attempts,
-                    declinedDevices = row.declined.toSet(),
-                    waitingDevice = row.waitingDevice,
-                    waitingUntil = row.waitingUntil,
-                    requestTransferId = row.requestTransferId,
-                )
-            }
-
-        override suspend fun findById(fileId: FileId): FileRequestAttempt? =
-            rows[fileId]?.let { row ->
-                FileRequestAttempt(
-                    fileId = fileId,
-                    attempts = row.attempts,
-                    declinedDevices = row.declined.toSet(),
-                    waitingDevice = row.waitingDevice,
-                    waitingUntil = row.waitingUntil,
-                    requestTransferId = row.requestTransferId,
-                )
-            }
-
-        override suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt? =
-            rows.entries.firstOrNull { it.value.requestTransferId == transferId }?.let { (id, row) ->
-                FileRequestAttempt(
-                    fileId = id,
-                    attempts = row.attempts,
-                    declinedDevices = row.declined.toSet(),
-                    waitingDevice = row.waitingDevice,
-                    waitingUntil = row.waitingUntil,
-                    requestTransferId = row.requestTransferId,
-                )
-            }
-
-        override suspend fun recordAttempt(fileId: FileId, nextAttemptAt: kotlin.time.Instant) {
-            rows[fileId]?.let {
-                it.attempts += 1
-                it.nextAttemptAt = nextAttemptAt
-            }
-        }
-
-        override suspend fun postpone(fileId: FileId, nextAttemptAt: kotlin.time.Instant) {
-            rows[fileId]?.nextAttemptAt = nextAttemptAt
-        }
-
-        override suspend fun advanceToNow(fileIds: Collection<FileId>, now: kotlin.time.Instant) {
-            fileIds.forEach { id ->
-                rows[id]?.let { if (it.nextAttemptAt > now) it.nextAttemptAt = now }
-            }
-        }
-
-        override suspend fun setWaiting(fileId: FileId, device: PeerId, until: kotlin.time.Instant, requestTransferId: TransferId) {
-            rows[fileId]?.let {
-                it.waitingDevice = device
-                it.waitingUntil = until
-                it.requestTransferId = requestTransferId
-            }
-        }
-
-        override suspend fun clearWaiting(fileId: FileId) {
-            rows[fileId]?.let {
-                it.waitingDevice = null
-                it.waitingUntil = null
-                it.requestTransferId = null
-            }
-        }
-
-        override suspend fun setRequestTransfer(fileId: FileId, transferId: TransferId) {
-            rows[fileId]?.requestTransferId = transferId
-        }
-
-        override suspend fun declinedDevices(fileId: FileId): Set<PeerId> =
-            rows[fileId]?.declined?.toSet().orEmpty()
-
-        override suspend fun addDeclined(fileId: FileId, device: PeerId) {
-            rows[fileId]?.declined?.add(device)
-        }
-
-        override suspend fun removeDeclined(fileId: FileId, devices: Collection<PeerId>) {
-            rows[fileId]?.declined?.removeAll(devices.toSet())
-        }
-
-        override suspend fun allIds(): List<FileId> = rows.keys.toList()
+    private companion object {
+        /** 64 lowercase hex chars, like a real content hash. */
+        fun hexFileId(n: Int): FileId = FileId(n.toString(16).padStart(64, '0'))
     }
 
     private class SealingFakeProtection(

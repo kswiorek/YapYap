@@ -11,7 +11,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
-import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
@@ -22,6 +21,7 @@ import org.yapyap.orchestrator.store.Room
 import org.yapyap.orchestrator.store.RoomMember
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
@@ -33,6 +33,7 @@ import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.testfixtures.FakeClock
+import org.yapyap.testfixtures.FakeLocalIdentity
 import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
@@ -105,7 +106,7 @@ class FileRequestCoordinatorTest {
         )
         val source = DefaultFileRequestSource(
             messages = messages,
-            rooms = rooms,
+            visibility = DefaultRoomVisibility(messages, rooms),
             receives = receives,
             descriptors = descriptors,
             localIdentity = FakeLocalIdentity(ownAccount),
@@ -520,17 +521,6 @@ class FileRequestCoordinatorTest {
         }
     }
 
-    private class FakeLocalIdentity(private val account: AccountId) : LocalIdentity {
-        override suspend fun getLocalDeviceIdentity(): org.yapyap.protocol.identity.DeviceIdentity =
-            error("not used")
-
-        override suspend fun getLocalAccountIdentity(): org.yapyap.protocol.identity.AccountIdentity =
-            error("not used")
-
-        override suspend fun getLocalDeviceId(): PeerId = error("not used")
-        override suspend fun getLocalAccountId(): AccountId = account
-    }
-
     private class FakePipeline : InboundMessagePipeline {
         private val flow = MutableSharedFlow<IngestResult>(extraBufferCapacity = 64)
         override val ingestResults: Flow<IngestResult> = flow
@@ -556,6 +546,23 @@ class FileRequestCoordinatorTest {
         override suspend fun findById(messageId: Uuid): StoredMessage? = rows[messageId]
         override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> = error("not used")
         override suspend fun findParents(messageId: Uuid): List<Uuid> = parents[messageId].orEmpty()
+        override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+            if (messageId == of) return true
+            val visited = HashSet<Uuid>()
+            val queue = ArrayDeque<Uuid>()
+            visited.add(of)
+            queue.add(of)
+            while (queue.isNotEmpty()) {
+                val id = queue.removeFirst()
+                val storedParents = parents[id].orEmpty()
+                val payloadParents = rows[id]?.payload?.prevIds.orEmpty()
+                for (parent in (storedParents + payloadParents).toSet()) {
+                    if (parent == messageId) return true
+                    if (visited.add(parent)) queue.add(parent)
+                }
+            }
+            return false
+        }
         override suspend fun insertParent(messageId: Uuid, parentId: Uuid) = error("not used")
         override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> = error("not used")
         override suspend fun findMessagesInRoomPageDesc(

@@ -1,15 +1,23 @@
 package org.yapyap.sync
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.protocol.*
+import kotlinx.coroutines.runBlocking
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -125,6 +133,21 @@ class SyncRetryProcessorTest {
 
         assertTrue(h.stack.outbox.enqueued.isEmpty())
         assertFalse(h.attempts.contains(syncId))
+    }
+
+    @Test
+    fun satisfiedSync_withOnlyUnlinkedCandidate_isDroppedOnNextDuePass() = runBlocking {
+        val h = harness(devices = listOf(remoteDevice), unlinked = setOf(remoteDevice))
+        val syncId = h.pendingSync()
+        h.pending.deleteSync(syncId)
+
+        h.runFor()
+
+        assertFalse(
+            h.attempts.contains(syncId),
+            "a satisfied sync is dropped instead of waiting for a link that will never be used",
+        )
+        assertTrue(h.stack.outbox.enqueued.isEmpty())
     }
 
     @Test

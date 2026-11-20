@@ -1,8 +1,13 @@
 package org.yapyap.routing.inbound
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -19,7 +24,11 @@ import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.NackAction
 import org.yapyap.routing.policy.nackActionFor
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.InboundSideEffect
+import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.router.RouterTransport
+import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.TorLinkId
@@ -224,18 +233,36 @@ internal class InboundEnvelopeProcessor(
         }
 
         val handler = handlers[inbound.packetType]
-        val handleResult = if (handler != null) {
-            handler.handle(inbound)
-        } else {
-            AppLog.info(
+        val handleResult = try {
+            if (handler != null) {
+                handler.handle(inbound)
+            } else {
+                AppLog.info(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
+                    message = "Envelope ignored due to unknown packet type",
+                    fields = mapOf(
+                        "packetType" to inbound.packetType,
+                    ),
+                )
+                InboundHandleResult.Rejected(PacketNackReason.UNSUPPORTED_TYPE)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
+            AppLog.error(
                 component = LogComponent.ROUTER,
-                event = LogEvent.ENVELOPE_UNKNOWN_TYPE,
-                message = "Envelope ignored due to unknown packet type",
+                event = LogEvent.ENVELOPE_HANDLE_FAILED,
+                message = "Inbound handler threw; dedup cleared so the retry is handled fresh",
+                throwable = e,
                 fields = mapOf(
+                    "packetId" to inbound.packetId,
                     "packetType" to inbound.packetType,
+                    "sourceDeviceId" to inbound.source,
                 ),
             )
-            InboundHandleResult.Rejected(PacketNackReason.UNSUPPORTED_TYPE)
+            throw e
         }
 
         // Before the side effects: a ping's echo (a side effect) should already go out on the

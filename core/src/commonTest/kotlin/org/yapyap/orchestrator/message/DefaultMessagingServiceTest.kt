@@ -1150,6 +1150,26 @@ private class FakeMessageRepository : MessageRepository {
     override suspend fun findParents(messageId: Uuid): List<Uuid> =
         parentIds[messageId].orEmpty().toList()
 
+    override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+        if (messageId == of) return true
+        val visited = HashSet<Uuid>()
+        val queue = ArrayDeque<Uuid>()
+        visited.add(of)
+        queue.add(of)
+        while (queue.isNotEmpty()) {
+            val id = queue.removeFirst()
+            val storedParents = parentIds[id]
+            val payloadParents = byId[id]?.payload?.prevIds.orEmpty()
+            val parents =
+                if (storedParents != null) (storedParents + payloadParents).toSet() else payloadParents.toSet()
+            for (parent in parents) {
+                if (parent == messageId) return true
+                if (visited.add(parent)) queue.add(parent)
+            }
+        }
+        return false
+    }
+
     override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
         parentIds.getOrPut(messageId) { mutableListOf() }.add(parentId)
     }

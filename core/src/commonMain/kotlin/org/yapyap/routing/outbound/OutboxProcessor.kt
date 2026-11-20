@@ -27,19 +27,16 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.policy.DefaultRelayBackupPolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.policy.RelayBackupPolicy
-import org.yapyap.routing.policy.RelayBackupTrigger
 import org.yapyap.routing.retry.RetryLoop
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import org.yapyap.transport.TransportException
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
@@ -62,12 +59,6 @@ internal class OutboxProcessor(
     private val onNoLink: suspend (PeerId) -> Unit = {},
     /** Makes the relay copies of a direct message (see [backUpToRelays]); returns how many. */
     private val relayCopies: suspend (BinaryEnvelope) -> Int = { 0 },
-    /**
-     * Which packet kinds back up on each trigger (design §5, §6.3; plan step 17).
-     * Step 19 extends this to FILE OFFER markers vs chunk rows; until then only
-     * messages back up and FILE rows never reach the claim gate.
-     */
-    private val backupPolicy: RelayBackupPolicy = DefaultRelayBackupPolicy(),
 ) {
     /**
      * Peers whose last Tor dispatch failed with [TransportException.TorException.OnionNotFound].
@@ -168,6 +159,7 @@ internal class OutboxProcessor(
         targetEndpoint: TorEndpoint? = null,
         relayBackup: RelayBackup = RelayBackup.NONE,
         tag: OutboxTag? = null,
+        retryClass: RetryClass = RetryClass.STANDARD,
     ) {
         packetOutbox.enqueue(
             envelope,
@@ -176,6 +168,7 @@ internal class OutboxProcessor(
             targetEndpoint = targetEndpoint,
             relayBackup = relayBackup,
             tag = tag,
+            retryClass = retryClass,
         )
         wake()
     }
@@ -257,13 +250,19 @@ internal class OutboxProcessor(
                 )
             }
         }
-        // Due rows load without envelope blobs (design §6.2): messages (and ACKs, pings,
-        // system traffic) are claimed before FILE chunk rows, and each claimed row's
-        // envelope loads alone at claim time.
+        // Fair due query (design §6.2): targets already at their per-target in-flight cap
+        // are hidden, so one capped peer never starves the rest. Due rows load without
+        // envelope blobs: non-file rows first, then file rows, each oldest-first and bounded.
+        val busyTargets = inFlightLock.withLock {
+            inFlight.values.groupingBy { it }.eachCount()
+                .filter { (_, count) -> count >= config.outboxMaxInFlightPerTarget }
+                .keys.toList()
+        }
         val dueIds = packetOutbox.listDueIds(
             now = now,
             nonFileLimit = config.outboxMaxInFlight * 2,
             fileLimit = config.outboxMaxInFlight * 4,
+            excludeTargets = busyTargets,
         )
         val started = inFlightLock.withLock {
             buildList {
@@ -297,7 +296,7 @@ internal class OutboxProcessor(
                 return@mapNotNull null
             }
             hydrated[due.packetId] = entry
-            claim(entry, due, now)
+            claim(entry, now)
         }
         val parked = started.mapNotNull { due ->
             if (claimed.none { it.entry.packetId == due.packetId }) hydrated[due.packetId] else null
@@ -324,15 +323,19 @@ internal class OutboxProcessor(
         if (earliest > now) return earliest
         val config = ctx.routerConfig.value
         val startable = inFlightLock.withLock {
-            inFlight.size < config.outboxMaxInFlight &&
-                    packetOutbox.listDueIds(
-                        now,
-                        nonFileLimit = config.outboxMaxInFlight * 2,
-                        fileLimit = config.outboxMaxInFlight * 4,
-                    ).any { due ->
-                        due.packetId !in inFlight &&
-                                inFlight.values.count { it == due.target } < config.outboxMaxInFlightPerTarget
-                    }
+            if (inFlight.size >= config.outboxMaxInFlight) return@withLock false
+            val busyTargets = inFlight.values.groupingBy { it }.eachCount()
+                .filter { (_, count) -> count >= config.outboxMaxInFlightPerTarget }
+                .keys.toList()
+            packetOutbox.listDueIds(
+                now,
+                nonFileLimit = config.outboxMaxInFlight * 2,
+                fileLimit = config.outboxMaxInFlight * 4,
+                excludeTargets = busyTargets,
+            ).any { due ->
+                due.packetId !in inFlight &&
+                        inFlight.values.count { it == due.target } < config.outboxMaxInFlightPerTarget
+            }
         }
         return if (startable) earliest else packetOutbox.earliestPendingRetryAfter(now)
     }
@@ -351,7 +354,7 @@ internal class OutboxProcessor(
      * an explicit endpoint (bootstrap to a newcomer, never a linked peer) are the exception
      * and have Tor dial a stream on demand.
      */
-    private suspend fun claim(entry: OutboxEntry, due: DueOutboxRow, now: Instant): ClaimedDispatch? {
+    private suspend fun claim(entry: OutboxEntry, now: Instant): ClaimedDispatch? {
         val envelope = entry.envelope
         val outbound = transportPolicy.resolve(
             target = envelope.target,
@@ -361,16 +364,15 @@ internal class OutboxProcessor(
         val transport = outbound.transport
             ?: if (entry.targetEndpoint != null) RouterTransport.TOR else return null
         // A retry means the previous attempt went unacknowledged (also after a restart, when
-        // the in-memory ACK timer of [send] is gone). The policy decides which kinds
-        // back up here (step 19: FILE OFFER markers join messages; chunk rows do not).
-        if (entry.attempts > 0 && backupPolicy.shouldBackUp(RelayBackupTrigger.RETRY, envelope, entry.tag)) {
+        // the in-memory ACK timer of [send] is gone). Only rows still owing a backup (PENDING:
+        // messages and OFFER markers) make one; the claim gate in backUpToRelays enforces
+        // at-most-once.
+        if (entry.attempts > 0 && entry.relayBackup == RelayBackup.PENDING) {
             backUpToRelays(envelope, reason = "retry")
         }
-        // FILE rows retry at a flat delay for as long as their transfer lives (design §6.2):
-        // a DEFERred chunk would burn the message fast-retry budget in minutes and then sleep
-        // for an hour. The transfer TTL and the stall detector bound them, not an attempt count.
-        // REQUEST rows share the flat policy: short-lived, DEFER-heavy, TTL-bounded the same way.
-        val nextRetryAt = if (due.tag?.kind == OutboxTag.Kind.FILE || due.tag?.kind == OutboxTag.Kind.FILE_REQUEST) {
+        // Only chunk rows retry at the flat delay (design §6.2): markers and REQUESTs use the
+        // message schedule. The row's own retry_class decides, never the tag kind.
+        val nextRetryAt = if (entry.retryClass == RetryClass.FLAT) {
             now + ctx.routerConfig.value.fileChunkRetryDelay
         } else {
             now + outbound.retryDelay
@@ -390,10 +392,9 @@ internal class OutboxProcessor(
         val until = now + ctx.routerConfig.value.noLinkRecheckDelay
         // An entry expiring sooner is looked at when it expires, so its expiry is reported then.
         entries.forEach { packetOutbox.deferRetry(it.packetId, minOf(until, it.envelope.expiresAt)) }
-        // The policy decides which kinds back up on no-link (step 19: FILE OFFER
-        // markers join messages; chunk rows use gone-only signals instead).
-        entries
-            .filter { backupPolicy.shouldBackUp(RelayBackupTrigger.NO_LINK, it.envelope, it.tag) }
+        // Only rows still owing a backup (PENDING: messages and OFFER markers) make one; the
+        // claim gate enforces at-most-once.
+        entries.filter { it.relayBackup == RelayBackup.PENDING }
             .forEach { backUpToRelays(it.envelope, reason = "no link") }
         inFlightLock.withLock { entries.forEach { inFlight.remove(it.packetId) } }
         val peers = entries.map { it.envelope.target }.distinct()
@@ -413,7 +414,7 @@ internal class OutboxProcessor(
                 dispatcher.dispatch(envelope, dispatch.transport, dispatch.entry.targetEndpoint)
             }.onSuccess {
                 if (dispatch.transport == RouterTransport.TOR) notFoundPeers.update { it - envelope.target }
-                awaitAckOrBackUp(envelope, dispatch.entry.tag)
+                if (dispatch.entry.relayBackup == RelayBackup.PENDING) awaitAckOrBackUp(envelope)
                 AppLog.debug(
                     component = LogComponent.ROUTER,
                     event = LogEvent.OUTBOX_RETRY_DISPATCHED,
@@ -471,11 +472,10 @@ internal class OutboxProcessor(
     /**
      * A link took the packet, but a link can look open after its peer vanished (Tor gives no
      * timely signal): unless the ACK removes the entry within `relayBackupAfter`, its relay
-     * copies are made then. Only kinds the policy names have a backup to make
-     * (messages today; FILE OFFER markers join them in step 19).
+     * copies are made then. Called only for rows still owing a backup (PENDING), so chunks
+     * and system packets start no timer; the claim gate enforces at-most-once.
      */
-    private fun awaitAckOrBackUp(envelope: BinaryEnvelope, tag: OutboxTag?) {
-        if (!backupPolicy.shouldBackUp(RelayBackupTrigger.NO_ACK_IN_TIME, envelope, tag)) return
+    private fun awaitAckOrBackUp(envelope: BinaryEnvelope) {
         val scope = dispatchScope ?: return
         scope.launch {
             delay(ctx.routerConfig.value.relayBackupAfter)

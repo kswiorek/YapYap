@@ -22,8 +22,6 @@ import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.routing.router.BootstrapCarrier
-import org.yapyap.routing.router.DeliverySubject
-import org.yapyap.routing.router.MessageCarrier
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -41,7 +39,6 @@ import kotlin.uuid.Uuid
  * [OnboardingState] flow on the orchestrator).
  */
 internal class DefaultOnboardingProvider(
-    private val messageCarrier: MessageCarrier,
     private val bootstrapCarrier: BootstrapCarrier,
     private val sessionStore: BootstrapSessionStore,
     private val syncCoordinator: SyncCoordinator,
@@ -138,8 +135,8 @@ internal class DefaultOnboardingProvider(
         }
         if (deliveryJob?.isActive == true) return
         deliveryJob = owner.launch {
-            messageCarrier.deliveries.collect { delivery ->
-                val delivered = (delivery.subject as? DeliverySubject.Bootstrap)?.packetId ?: return@collect
+            bootstrapCarrier.deliveries.collect { delivery ->
+                val delivered = delivery.packetId
                 if (delivered != awaitedRequest) return@collect
                 awaitedRequest = null
                 val current = _state.value

@@ -6,6 +6,14 @@ import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
+import org.yapyap.routing.candidate.AttemptExecutor
+import org.yapyap.routing.candidate.AttemptState
+import org.yapyap.routing.candidate.BuiltAttempt
+import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateRequestCore
+import org.yapyap.routing.candidate.CandidateRow
+import org.yapyap.routing.candidate.CandidateStrategy
+import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.SyncPeerPolicy
@@ -26,7 +34,7 @@ import kotlin.uuid.Uuid
  * makes it due at once).
  *
  * Each attempt is one sync request handed to the outbox (tag [OutboxTag.Kind.SYNC]) with a
- * short lifetime (`syncAttemptTimeout`), and its outcome comes back through [onAttemptOutcome]:
+ * short lifetime, and its outcome comes back through [onAttemptOutcome]:
  * - a decline ([PacketNackReason.DECLINED][org.yapyap.protocol.envelopes.PacketNackReason.DECLINED],
  *   or `UNSUPPORTED_TYPE` from a build that can't serve) rules that device out for this sync;
  * - expiry or any other NACK leaves the device askable but behind other candidates;
@@ -48,7 +56,7 @@ internal class SyncRetryProcessor(
         ctx = ctx,
         strategy = SyncCandidateStrategy(ctx, attempts, syncs, systemSender, outboxProcessor),
         peerPolicy = peerPolicy,
-        outboxProcessor = outboxProcessor,
+        executor = AttemptExecutor.Outbox(outboxProcessor),
         maxIdlePoll = maxIdlePoll,
         onNoLink = onNoLink,
     )
@@ -88,6 +96,8 @@ private class SyncCandidateStrategy(
 
     override suspend fun idsWithCandidate(account: AccountId): List<Uuid> = syncs.syncsWithCandidate(account)
 
+    override suspend fun isWanted(id: Uuid): Boolean = syncs.syncRequest(id) != null
+
     override suspend fun buildAttempt(id: Uuid, device: PeerId, now: Instant): BuiltAttempt? {
         val request: SyncRequest = syncs.syncRequest(id) ?: return null
         val envelope = systemSender.buildForOutbox(device, request, ctx.routerConfig.value.syncAttemptTimeout)
@@ -102,7 +112,7 @@ private class SyncCandidateStrategy(
     override suspend fun resolveOutcome(outcome: OutboxOutcome): Uuid? =
         outcome.tag.id.takeIf { outcome.tag.kind == OutboxTag.Kind.SYNC }
 
-    override suspend fun onSuccess(id: Uuid, device: PeerId) = Unit
+    override suspend fun onSuccess(id: Uuid, device: PeerId): SuccessAction = SuccessAction.Done
 }
 
 /** Adapts the sync-shaped attempt store to the shared core without touching its shape. */
@@ -124,4 +134,6 @@ private class SyncAttemptDock(
     override suspend fun addDeclined(id: Uuid, device: PeerId) = store.addDeclined(id, device)
     override suspend fun removeDeclined(id: Uuid, devices: Collection<PeerId>) =
         store.removeDeclined(id, devices)
+    override suspend fun setWaiting(id: Uuid, device: PeerId, until: Instant) = Unit
+    override suspend fun clearWaiting(id: Uuid) = Unit
 }

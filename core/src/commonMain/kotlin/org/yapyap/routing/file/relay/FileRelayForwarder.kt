@@ -18,6 +18,7 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.RetryClass
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -60,7 +61,7 @@ internal class FileRelayForwarder(
         // Forget after delivery — and after expiry: prune dead reservations (their
         // outbox rows go too) so quota frees even when nobody completes them.
         for (dead in relay.expired(now, now - ttl)) {
-            runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, dead.transferId.value)) }
+            runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, dead.transferId.value)) }
             relay.delete(dead.transferId)
             AppLog.debug(
                 component = LogComponent.ROUTER,
@@ -87,7 +88,7 @@ internal class FileRelayForwarder(
 
     /** Target ACK / terminal NACK / expiry of a forwarded marker or chunk row. */
     suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
-        if (outcome.tag.kind != OutboxTag.Kind.FILE) return
+        if (outcome.tag.kind != OutboxTag.Kind.FILE_FORWARD) return
         val transferId = TransferId(outcome.tag.id)
         val row = relay.find(transferId) ?: return // authoring side owns it (pusher)
         when (outcome) {
@@ -100,7 +101,7 @@ internal class FileRelayForwarder(
                             relay.deleteChunkByPacket(outcome.packetId)
                             if (relay.chunkCount(transferId) == 0L) {
                                 runCatching {
-                                    outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, transferId.value))
+                                    outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value))
                                 }
                                 relay.delete(transferId)
                             }
@@ -116,7 +117,7 @@ internal class FileRelayForwarder(
             is OutboxOutcome.Nacked,
             is OutboxOutcome.Expired,
                 -> {
-                runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, transferId.value)) }
+                runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value)) }
                 relay.delete(transferId)
                 AppLog.debug(
                     component = LogComponent.ROUTER,
@@ -143,7 +144,7 @@ internal class FileRelayForwarder(
         if (row.status != FileRelayStatus.WHOLE) return
         val now = ctx.clock.now()
         if (now >= row.expiresAt) {
-            runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, transferId.value)) }
+            runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value)) }
             relay.delete(transferId)
             return
         }
@@ -161,7 +162,7 @@ internal class FileRelayForwarder(
             payload = row.offerPayload,
         )
         try {
-            outbox.enqueue(outer, OutboxTag(OutboxTag.Kind.FILE, transferId.value))
+            outbox.enqueue(outer, OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -184,7 +185,7 @@ internal class FileRelayForwarder(
         if (row.status != FileRelayStatus.STREAMING) return
         val now = ctx.clock.now()
         if (now >= row.expiresAt) {
-            runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE, transferId.value)) }
+            runCatching { outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value)) }
             relay.delete(transferId)
             return
         }
@@ -211,7 +212,11 @@ internal class FileRelayForwarder(
                 payload = chunk.blob,
             )
             try {
-                outbox.enqueue(outer, OutboxTag(OutboxTag.Kind.FILE, transferId.value))
+                outbox.enqueue(
+                    outer,
+                    OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
+                    retryClass = RetryClass.FLAT
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

@@ -63,6 +63,12 @@ internal interface MessageRepository {
     /** Parent IDs of a stored message (empty for the DAG root). */
     suspend fun findParents(messageId: Uuid): List<Uuid>
 
+    /**
+     * True when [messageId] is [of] or one of its ancestors over parent edges.
+     * Used by the shared visibility rule for removed members.
+     */
+    suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean
+
     suspend fun insertParent(messageId: Uuid, parentId: Uuid)
 
     /** Stored messages in [roomId] referencing [parentId] (used for the ancestry cascade). */
@@ -233,6 +239,13 @@ internal class DefaultMessageRepository(
         withContext(dbDispatcher) {
             queries.selectParentsByMessage(messageId).executeAsList()
         }
+
+    override suspend fun isAncestorOrSelf(messageId: Uuid, of: Uuid): Boolean {
+        if (messageId == of) return true
+        return withContext(dbDispatcher) {
+            queries.isAncestorOrSelf(of, messageId).executeAsOne()
+        }
+    }
 
     override suspend fun insertParent(messageId: Uuid, parentId: Uuid) {
         withContext(dbDispatcher) {

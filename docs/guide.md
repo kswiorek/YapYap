@@ -278,8 +278,9 @@ never a loss.
 - Every outbox entry that someone waits on carries a tag saying what it is for (a message push, a bootstrap
   packet, a sync attempt, a file transfer). However the entry leaves the outbox — ACK, terminal NACK, expiry —
   the outcome is reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets
-  a tag; it does not add another callback path. The due query loads only ids, targets and tags (never blobs),
-  claims non-FILE rows first, and FILE chunk rows retry at their own flat delay instead of the message
+  a tag; it does not add another callback path. The due query loads only ids, targets, tags and retry classes (never
+  blobs), claims non-file rows first, hides targets already at their per-target in-flight cap, and
+  FILE chunk rows retry at their own flat delay instead of the message
   backoff.
 - File relay backup is split by packet kind (the shared trigger policy consults the packet,
   not just its tag). FILE OFFER markers use the message triggers — no link at claim, a retry (the earlier attempt went

@@ -258,3 +258,13 @@ VALUES (?, ?);
 
 selectMessageIdsByFileId:
 SELECT message_id FROM message_attachments WHERE file_id = ?;
+
+-- Visibility closure (orchestrator/sync RoomVisibility): true when :messageId is
+-- :removalNode or one of its ancestors over message_parents edges.
+isAncestorOrSelf:
+WITH RECURSIVE ancestors(id) AS (
+    SELECT message_id FROM messages WHERE message_id = :removalNode
+    UNION
+    SELECT parent_id FROM message_parents JOIN ancestors ON message_parents.message_id = ancestors.id
+)
+SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = :messageId);

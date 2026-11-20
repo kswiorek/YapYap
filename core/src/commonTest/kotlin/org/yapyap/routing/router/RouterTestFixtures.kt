@@ -91,11 +91,13 @@ import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileRelayTransfer
 import org.yapyap.routing.store.FileRequestAttempt
 import org.yapyap.routing.store.FileRequestAttemptStore
+import org.yapyap.routing.store.FileRequestClass
 import org.yapyap.routing.store.OutboxEntry
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.RelayBackup
+import org.yapyap.routing.store.RetryClass
 import org.yapyap.routing.store.SyncAttempt
 import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.routing.sync.SyncPayloadProvider
@@ -549,25 +551,34 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         var waitingDevice: PeerId? = null,
         var waitingUntil: Instant? = null,
         var requestTransferId: TransferId? = null,
+        var requestClass: FileRequestClass = FileRequestClass.SMALL,
         val declined: MutableSet<PeerId> = mutableSetOf(),
     )
 
     private val rows = linkedMapOf<FileId, Row>()
     private val mutex = Mutex()
 
-    override suspend fun start(fileId: FileId, firstAttemptAt: Instant) = mutex.withLock {
-        if (fileId !in rows) rows[fileId] = Row(nextAttemptAt = firstAttemptAt)
-        Unit
-    }
+    override suspend fun start(fileId: FileId, requestClass: FileRequestClass, firstAttemptAt: Instant) =
+        mutex.withLock {
+            if (fileId !in rows) rows[fileId] = Row(nextAttemptAt = firstAttemptAt, requestClass = requestClass)
+            Unit
+        }
 
     override suspend fun drop(fileId: FileId) {
         mutex.withLock { rows.remove(fileId) }
     }
 
-    override suspend fun earliestDueAt(): Instant? = mutex.withLock { rows.values.minOfOrNull { it.nextAttemptAt } }
+    override suspend fun earliestDueAt(requestClass: FileRequestClass): Instant? = mutex.withLock {
+        rows.values.filter { it.requestClass == requestClass }.minOfOrNull { it.nextAttemptAt }
+    }
 
-    override suspend fun findDue(now: Instant, limit: Int): List<FileRequestAttempt> = mutex.withLock {
-        rows.filterValues { it.nextAttemptAt <= now }.entries.take(limit).map { (id, row) -> row.toAttempt(id) }
+    override suspend fun findDue(
+        now: Instant,
+        limit: Int,
+        requestClass: FileRequestClass,
+    ): List<FileRequestAttempt> = mutex.withLock {
+        rows.filterValues { it.nextAttemptAt <= now && it.requestClass == requestClass }
+            .entries.sortedBy { it.value.nextAttemptAt }.take(limit).map { (id, row) -> row.toAttempt(id) }
     }
 
     override suspend fun findById(fileId: FileId): FileRequestAttempt? = mutex.withLock {
@@ -628,7 +639,9 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         Unit
     }
 
-    override suspend fun allIds(): List<FileId> = rows.keys.toList()
+    override suspend fun idsOf(requestClass: FileRequestClass): List<FileId> = mutex.withLock {
+        rows.filterValues { it.requestClass == requestClass }.keys.toList()
+    }
 
     private fun Row.toAttempt(id: FileId) = FileRequestAttempt(
         fileId = id,
@@ -637,6 +650,7 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
         waitingDevice = waitingDevice,
         waitingUntil = waitingUntil,
         requestTransferId = requestTransferId,
+        requestClass = requestClass,
     )
 }
 
@@ -854,6 +868,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         val targetEndpoint: TorEndpoint? = null,
         var relayBackup: RelayBackup = RelayBackup.NONE,
         val tag: OutboxTag? = null,
+        val retryClass: RetryClass = RetryClass.STANDARD,
     )
 
     private val entries = linkedMapOf<Uuid, StoredEntry>()
@@ -869,6 +884,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
         targetEndpoint: TorEndpoint?,
         relayBackup: RelayBackup,
         tag: OutboxTag?,
+        retryClass: RetryClass,
     ) {
         val blobSize = envelope.encode().size.toLong()
         synchronized(lock) {
@@ -882,6 +898,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
                 targetEndpoint = targetEndpoint,
                 relayBackup = relayBackup,
                 tag = tag,
+                retryClass = retryClass,
             )
         }
         enqueued.add(envelope)
@@ -940,17 +957,23 @@ internal class TrackingPacketOutbox : PacketOutbox {
                 .map { it.toOutboxEntry() }
         }
 
-    override suspend fun listDueIds(now: Instant, nonFileLimit: Int, fileLimit: Int): List<DueOutboxRow> =
+    override suspend fun listDueIds(
+        now: Instant,
+        nonFileLimit: Int,
+        fileLimit: Int,
+        excludeTargets: Collection<PeerId>,
+    ): List<DueOutboxRow> =
         synchronized(lock) {
-            val (file, nonFile) = entries.values
-                .filter { it.nextRetryAt <= now }
-                .partition { it.tag?.kind == OutboxTag.Kind.FILE }
+            val excluded = excludeTargets.map { it.id }.toSet()
+            val due = entries.values.filter { it.nextRetryAt <= now && it.envelope.target.id !in excluded }
+            val (file, nonFile) = due.partition { it.tag?.kind in OutboxTag.Kind.FILE_KINDS }
             (nonFile.take(nonFileLimit) + file.take(fileLimit)).map { stored ->
                 DueOutboxRow(
                     packetId = stored.envelope.packetId,
                     target = stored.envelope.target,
                     attempts = stored.attempts,
                     tag = stored.tag,
+                    retryClass = stored.retryClass,
                 )
             }
         }
@@ -1012,6 +1035,8 @@ internal class TrackingPacketOutbox : PacketOutbox {
             attempts = attempts,
             targetEndpoint = targetEndpoint,
             tag = tag,
+            retryClass = retryClass,
+            relayBackup = relayBackup,
         )
 }
 

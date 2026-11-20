@@ -152,6 +152,7 @@ class RouterLinksTest {
 
     @Test
     fun messageToAnUnlinkedPeer_waitsForTheLink_thenGoesAtOnce() = runBlocking {
+        //TODO fix: “List has more than one element” flake
         val tor = RecordingTorTransport(TorEndpoint("self.onion", 80))
         tor.unlinkedEndpoints += remoteTor
         val router = router(tor)

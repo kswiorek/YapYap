@@ -17,7 +17,6 @@ import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.router.DefaultRouter
-import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
@@ -128,7 +127,7 @@ class UnknownSourceDispositionTest {
     private suspend fun Setup.deliver(envelope: TorIncomingEnvelope) {
         router.start()
         val collector = kotlinx.coroutines.GlobalScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            router.messages.deliveries.collect { d -> (d.subject as? DeliverySubject.Bootstrap)?.let { delivered += it.packetId } }
+            router.bootstrap.deliveries.collect { d -> delivered += d.packetId }
         }
         tor.tryEmitIncoming(envelope)
         delay(400.milliseconds)
