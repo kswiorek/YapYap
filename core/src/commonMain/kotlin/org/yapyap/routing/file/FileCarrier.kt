@@ -55,6 +55,14 @@ internal sealed interface FileEvent {
         val fileId: FileId,
         val target: AccountId,
     ) : FileEvent
+
+    /**
+     * A large-fetch candidate is online but no WebRTC session could be made
+     * (NAT, no direct connection — design §6.6). Distinct from offline: the
+     * request stays PENDING (never DECLINED for this) and retries when a
+     * candidate comes online. The GUI can show "can't connect directly".
+     */
+    data class NoDirectConnection(val fileId: FileId) : FileEvent
 }
 
 internal enum class FileFailureReason {

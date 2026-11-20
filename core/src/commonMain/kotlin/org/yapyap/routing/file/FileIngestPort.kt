@@ -90,4 +90,12 @@ internal interface FileIngestPort {
      * file's content could pull it from any holder by its hash.
      */
     suspend fun canServe(fileId: FileId, requester: AccountId): Boolean
+
+    /**
+     * Total bytes of [fileId] as known from its message attachment (or receive row),
+     * or null when unknown. Lets the request loop pick the small (outbox REQUEST) or
+     * large (session + fetch) path — the limit is the network value
+     * `SMALL_FILE_MAX_BYTES` (design §1).
+     */
+    suspend fun requestTotalBytes(fileId: FileId): Long?
 }

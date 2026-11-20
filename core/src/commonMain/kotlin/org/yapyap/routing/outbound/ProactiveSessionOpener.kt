@@ -19,8 +19,7 @@ import kotlin.time.Instant
 
 /**
  * Result of a REQUIRED-mode session request ([ProactiveSessionOpener.awaitSession]).
- * Failure reasons are logged, not returned; callers branch on connected-vs-timeout
- * (e.g. file transfer NAT-failure fallback to Tor).
+ * Failure reasons are logged, not returned; callers branch on connected-vs-timeout.
  */
 internal sealed interface SessionOutcome {
     data object Connected : SessionOutcome

@@ -14,6 +14,10 @@ internal interface WebRtcTransport : SessionTransport<PeerId> {
     // Data plane
     val incomingEnvelopes: Flow<WebRtcIncomingEnvelope>
     val incomingAvFrames: Flow<WebRtcDataFrame>
+    /** Raw fetch frames on per-fetch file channels (design §6.6, step 20). */
+    val incomingFileFrames: Flow<WebRtcDataFrame>
+    /** Per-fetch file-channel lifecycle (open/close/flow-control). */
+    val fileChannelEvents: Flow<WebRtcFileChannelEvent>
 
     // Signaling plane (bootstrap only: OFFER/ANSWER/ICE/REJECT/CANCEL)
     val outgoingBootstrapSignals: Flow<WebRtcSignal>
@@ -59,6 +63,13 @@ internal interface WebRtcTransport : SessionTransport<PeerId> {
     suspend fun rejectCall(peer: PeerId, reason: String)
     suspend fun updateCallOptions(peer: PeerId, options: AvSessionOptions)
     suspend fun endCall(peer: PeerId, reason: String? = null)
+
+    // File fetch channels (one channel per fetch, raw frames, design §6.6)
+    suspend fun openFileChannel(target: PeerId, channelLabel: String)
+    suspend fun closeFileChannel(target: PeerId, channelLabel: String)
+    suspend fun sendFileFrame(target: PeerId, channelLabel: String, payload: ByteArray)
+    fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long?
+    suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long)
 }
 
 internal data class WebRtcIncomingEnvelope(

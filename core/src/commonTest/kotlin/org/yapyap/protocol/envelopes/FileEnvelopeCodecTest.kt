@@ -208,6 +208,127 @@ class FileEnvelopeCodecTest {
         assertTrue(sealed.decodeToString().contains(fileId.value.take(8)))
     }
 
+    @Test
+    fun fileFetch_fetch_encodeDecode_roundTrip() {
+        val original = FileFetchFrame.Fetch(fileId = fileId, fromOffset = 12345L)
+        val decoded = FileFetchFrame.Fetch.decode(original.encode())
+        assertEquals(original, decoded)
+        assertEquals(original, FileFetchFrame.decode(original.encode()) as FileFetchFrame.Fetch)
+    }
+
+    @Test
+    fun fileFetch_fetchOk_encodeDecode_roundTrip() {
+        val original = FileFetchFrame.FetchOk(
+            totalBytes = 10L * 1024L * 1024L,
+            blockSize = 1024 * 1024,
+            blockHashes = listOf(ByteArray(32) { 1 }, ByteArray(32) { 2 }),
+            fileName = "big.bin",
+            mimeType = "application/octet-stream",
+        )
+        val decoded = FileFetchFrame.FetchOk.decode(original.encode())
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun fileFetch_fetchOk_emptyFile_roundTrip() {
+        val original = FileFetchFrame.FetchOk(
+            totalBytes = 0L,
+            blockSize = 1024 * 1024,
+            blockHashes = emptyList(),
+            fileName = "empty",
+            mimeType = null,
+        )
+        val decoded = FileFetchFrame.FetchOk.decode(original.encode()) as FileFetchFrame.FetchOk
+        assertEquals(0L, decoded.totalBytes)
+        assertTrue(decoded.blockHashes.isEmpty())
+    }
+
+    @Test
+    fun fileFetch_declined_encodeDecode_roundTrip() {
+        val original = FileFetchFrame.FetchDeclined(reason = FileFetchDeclineReason.NOT_ALLOWED)
+        val decoded = FileFetchFrame.FetchDeclined.decode(original.encode())
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun fileFetch_progress_encodeDecode_roundTrip() {
+        val original = FileFetchFrame.Progress(contiguousBytes = 8L * 1024L * 1024L)
+        val decoded = FileFetchFrame.Progress.decode(original.encode())
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun fileFetch_abort_encodeDecode_roundTrip() {
+        val original = FileFetchFrame.Abort(reason = FileFetchAbortReason.STALLED, reasonText = "gap")
+        val decoded = FileFetchFrame.Abort.decode(original.encode())
+        assertEquals(original.reason, decoded.reason)
+        assertEquals(original.reasonText, decoded.reasonText)
+    }
+
+    @Test
+    fun fileFetch_abort_nullReasonText_roundTrip() {
+        val original = FileFetchFrame.Abort(reason = FileFetchAbortReason.CANCELLED, reasonText = null)
+        val decoded = FileFetchFrame.Abort.decode(original.encode())
+        assertEquals(FileFetchAbortReason.CANCELLED, decoded.reason)
+        assertNull(decoded.reasonText)
+    }
+
+    @Test
+    fun fileFetch_data_encodeDecode_roundTrip() {
+        val original = FileFetchFrame.Data(bytes = byteArrayOf(1, 2, 3, 4, 5))
+        val decoded = FileFetchFrame.Data.decode(original.encode())
+        assertEquals(original, decoded)
+        assertContentEquals(byteArrayOf(1, 2, 3, 4, 5), decoded.bytes)
+    }
+
+    @Test
+    fun fileFetch_data_empty_roundTrip() {
+        val original = FileFetchFrame.Data(bytes = byteArrayOf())
+        val decoded = FileFetchFrame.Data.decode(original.encode())
+        assertContentEquals(byteArrayOf(), decoded.bytes)
+    }
+
+    @Test
+    fun fileFetchKind_wireValuesDistinct() {
+        val wires = FileFetchKind.entries.map { it.wireValue }.toSet()
+        assertEquals(FileFetchKind.entries.size, wires.size)
+    }
+
+    @Test
+    fun fileFetch_decode_dispatchesAllKinds() {
+        val fetch = FileFetchFrame.Fetch(fileId, 0L).encode()
+        assertTrue(FileFetchFrame.decode(fetch) is FileFetchFrame.Fetch)
+        val ok = FileFetchFrame.FetchOk(100L, 1024 * 1024, emptyList(), "a", null).encode()
+        assertTrue(FileFetchFrame.decode(ok) is FileFetchFrame.FetchOk)
+        val declined = FileFetchFrame.FetchDeclined(FileFetchDeclineReason.NOT_HELD).encode()
+        assertTrue(FileFetchFrame.decode(declined) is FileFetchFrame.FetchDeclined)
+        val progress = FileFetchFrame.Progress(0L).encode()
+        assertTrue(FileFetchFrame.decode(progress) is FileFetchFrame.Progress)
+        val abort = FileFetchFrame.Abort(FileFetchAbortReason.NO_SPACE, null).encode()
+        assertTrue(FileFetchFrame.decode(abort) is FileFetchFrame.Abort)
+        val data = FileFetchFrame.Data(byteArrayOf(9)).encode()
+        assertTrue(FileFetchFrame.decode(data) is FileFetchFrame.Data)
+    }
+
+    @Test
+    fun fileFetch_framesCarryNoTransferId() {
+        // Fetch frames are channel messages (type byte + body), not envelopes:
+        // decoding them as FilePayload must fail, and vice versa.
+        val fetch = FileFetchFrame.Fetch(fileId, 0L).encode()
+        assertFailsWith<IllegalStateException> {
+            FilePayload.decode(fetch)
+        }
+    }
+
+    @Test
+    fun fileFetch_fetchCarriesFileIdInClear_channelProtected() {
+        // FETCH carries the fileId in clear inside the DTLS channel (design §4,
+        // invariant 23): only the peer device ever sees the channel. This is
+        // expected and distinct from envelope kinds, which must never carry it.
+        val fetch = FileFetchFrame.Fetch(fileId = fileId, fromOffset = 0L).encode()
+        assertTrue(fetch.decodeToString().contains(fileId.value.take(8)))
+    }
+
     private fun assertFileEnvelopeEquals(expected: FileEnvelope, actual: FileEnvelope) {
         assertEquals(expected.transferId, actual.transferId)
         assertEquals(expected.source, actual.source)

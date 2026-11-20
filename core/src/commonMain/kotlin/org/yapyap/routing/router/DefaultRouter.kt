@@ -265,6 +265,20 @@ internal class DefaultRouter(
         outbox = fileOutbox,
     )
 
+    // Large-path fetch (design §6.6, step 21): plain fetch protocol on dedicated
+    // file channels; no envelopes, no outbox. Passes frames straight between the
+    // transport channel and the fetch code.
+    internal val fileFetchManager = org.yapyap.routing.file.fetch.FileFetchManager(
+        localDeviceId = localDeviceId,
+        devices = devices,
+        transport = webRtcTransport,
+        plaintext = plaintextSource,
+        gate = fileIngestPort,
+        routerConfig = routerConfig,
+        chunkSize = fileChunkSize,
+        events = fileEventFlow,
+    )
+
     override val fileCarrier: FileCarrier = DefaultFileCarrier(
         localDeviceId = localDeviceId,
         protection = envelopeProtectionService,
@@ -368,6 +382,8 @@ internal class DefaultRouter(
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
         events = fileEventFlow,
         onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
+        sessionOpener = proactiveSessionOpener,
+        fetchManager = fileFetchManager,
     )
 
     private var started = false
@@ -385,6 +401,7 @@ internal class DefaultRouter(
     private var fileRequestRetryJob: Job? = null
     private var filePusherJob: Job? = null
     private var relayForwardJob: Job? = null
+    private var fileFetchJob: Job? = null
 
     override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
 
@@ -510,6 +527,10 @@ internal class DefaultRouter(
         // above dispatches what the forwarder enqueues.
         relayForwardJob = relayForwarder.runIn(scope)
 
+        // Large-path fetch channels (design §6.6, step 21): holder + requester
+        // sides share the transport's file channels; state dies with the channel.
+        fileFetchJob = fileFetchManager.runIn(scope)
+
         pingProvider.runIn(scope)
 
         peerAvailabilityRegistry.start(scope, localDeviceId)
@@ -572,6 +593,7 @@ internal class DefaultRouter(
             fileRequestRetryJob,
             filePusherJob,
             relayForwardJob,
+            fileFetchJob,
         ).forEach { it.cancelAndJoin() }
 
         torIncomingJob = null
@@ -585,6 +607,7 @@ internal class DefaultRouter(
         fileRequestRetryJob = null
         filePusherJob = null
         relayForwardJob = null
+        fileFetchJob = null
         scope.cancel()
 
         AppLog.info(

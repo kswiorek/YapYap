@@ -165,6 +165,19 @@ internal data class RouterConfig(
      */
     val fileStallTimeout: Duration = 10.minutes,
     /**
+     * Large-fetch session budget (design §15, step 22): a large request opens a
+     * WebRTC session through `ProactiveSessionOpener.awaitSession` with this timeout.
+     * Matches the generic session-await budget: signaling round-trips take seconds.
+     */
+    val fileSessionOpenTimeout: Duration = 45.seconds,
+    /**
+     * Large-fetch credit window (design §6.6, §15, step 21): the holder may run at
+     * most this far past the last PROGRESS before pausing for the receiver. Bounds
+     * a slow disk so frames never pile up in memory; the channel's `bufferedAmount`
+     * low threshold bounds the sender side.
+     */
+    val fileStreamWindowBytes: Long = 32L * 1024L * 1024L,
+    /**
      * This device's store-and-forward pledge for file relay ciphertext (design §15).
      * Admission and whole-transfer LRU eviction in the file relay store are accounted
      * against it; our own outbox rows are never part of it.
@@ -223,6 +236,8 @@ internal data class RouterConfig(
         require(fileRequestWaitTimeout > Duration.ZERO) { "fileRequestWaitTimeout must be > 0" }
         require(chunkAckTimeout > Duration.ZERO) { "chunkAckTimeout must be > 0" }
         require(fileStallTimeout > chunkAckTimeout) { "fileStallTimeout must be > chunkAckTimeout" }
+        require(fileSessionOpenTimeout > Duration.ZERO) { "fileSessionOpenTimeout must be > 0" }
+        require(fileStreamWindowBytes > 0) { "fileStreamWindowBytes must be > 0" }
         require(relayStoragePledgeBytes > 0) { "relayStoragePledgeBytes must be > 0" }
     }
 

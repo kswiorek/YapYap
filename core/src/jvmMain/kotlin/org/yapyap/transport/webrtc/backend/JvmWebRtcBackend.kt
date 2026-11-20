@@ -18,6 +18,7 @@ import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcDataType
+import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
 import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -31,14 +32,16 @@ internal class JvmWebRtcBackend(
 ) : WebRtcBackend {
 
     private val outgoingSignalFlow = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
-    private val incomingDataFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
+    private val incomingDataFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 256)
     private val sessionEventFlow = MutableSharedFlow<WebRtcSessionEvent>(extraBufferCapacity = 64)
     private val avChannelEventFlow = MutableSharedFlow<WebRtcAvChannelEvent>(extraBufferCapacity = 64)
+    private val fileChannelEventFlow = MutableSharedFlow<WebRtcFileChannelEvent>(extraBufferCapacity = 256)
 
     override val outgoingSignals: Flow<WebRtcSignal> = outgoingSignalFlow.asSharedFlow()
     override val incomingDataFrames: Flow<WebRtcDataFrame> = incomingDataFlow.asSharedFlow()
     override val sessionEvents: Flow<WebRtcSessionEvent> = sessionEventFlow.asSharedFlow()
     override val avChannelEvents: Flow<WebRtcAvChannelEvent> = avChannelEventFlow.asSharedFlow()
+    override val fileChannelEvents: Flow<WebRtcFileChannelEvent> = fileChannelEventFlow.asSharedFlow()
 
     private var localDevice: PeerId? = null
     private var factory: PeerConnectionFactory? = null
@@ -141,8 +144,12 @@ internal class JvmWebRtcBackend(
     override suspend fun closeSession(target: PeerId) {
         check(localDevice != null) { "WebRTC backend must be started before closing session" }
         val session = sessions.remove(target) ?: return
+        val fileLabels = session.snapshotFileLabels()
         session.signalMutex.withLock {
             session.dispose()
+            for (label in fileLabels) {
+                emitFileChannelEvent(WebRtcFileChannelEvent.Removed(peer = target, channelLabel = label))
+            }
             emitSessionEvent(WebRtcSessionEvent.Closed(session.remotePeer))
         }
     }
@@ -160,6 +167,31 @@ internal class JvmWebRtcBackend(
                 sizeBytes = dataFrame.payload.size,
                 limitBytes = maxPayloadBytes,
             )
+        }
+
+        if (dataFrame.dataType == WebRtcDataType.FILE_DATA) {
+            val label = requireNotNull(dataFrame.channelLabel) { "FILE_DATA frame needs a channelLabel" }
+            val channel = session.fileChannel(label)
+            if (channel?.state != RTCDataChannelState.OPEN) {
+                awaitFileChannelOpen(session, label)
+            }
+            val openChannel = session.fileChannel(label)
+                ?: error("No file channel $label available for target: ${dataFrame.target}")
+            check(openChannel.state == RTCDataChannelState.OPEN) {
+                "File data channel is not open for target: ${dataFrame.target}"
+            }
+            openChannel.send(RTCDataChannelBuffer(ByteBuffer.wrap(dataFrame.payload), true))
+            AppLog.debug(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SIGNAL_OUTBOUND_EMITTED,
+                message = "Sent WebRTC file frame",
+                fields = mapOf(
+                    "target" to dataFrame.target,
+                    "channelLabel" to label,
+                    "payloadSize" to dataFrame.payload.size,
+                ),
+            )
+            return
         }
 
         val channel = session.channelFor(dataFrame.dataType)
@@ -182,6 +214,67 @@ internal class JvmWebRtcBackend(
                 "payloadSize" to dataFrame.payload.size,
             ),
         )
+    }
+
+    override suspend fun openFileChannel(target: PeerId, channelLabel: String) {
+        check(localDevice != null) { "WebRTC backend must be started before opening file channel" }
+        require(channelLabel.startsWith(FILE_CHANNEL_PREFIX)) { "File channel label must start with $FILE_CHANNEL_PREFIX" }
+        val local = requireNotNull(localDevice)
+        val session = sessions[target] ?: error("Unknown target: $target")
+        session.signalMutex.withLock {
+            if (session.disposed.get()) error("Session disposed for target: $target")
+            val existing = session.fileChannel(channelLabel)
+            if (existing != null && existing.state != RTCDataChannelState.CLOSED) return@withLock
+            val channelInit = RTCDataChannelInit().also { init ->
+                init.ordered = config.value.orderedDataChannel
+                config.value.maxRetransmits?.let { init.maxRetransmits = it }
+                config.value.maxPacketLifeTimeMs?.let { init.maxPacketLifeTime = it }
+            }
+            val channel = session.peerConnection.createDataChannel(channelLabel, channelInit)
+            attachFileChannel(session, channel, channelLabel)
+            emitFileChannelEvent(WebRtcFileChannelEvent.Adding(peer = target, channelLabel = channelLabel))
+            AppLog.debug(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_STATE_CHANGED,
+                message = "Added file data channel; renegotiation pending",
+                fields = mapOf("peer" to target, "channelLabel" to channelLabel),
+            )
+        }
+    }
+
+    override suspend fun closeFileChannel(target: PeerId, channelLabel: String) {
+        check(localDevice != null) { "WebRTC backend must be started before closing file channel" }
+        val session = sessions[target] ?: return
+        session.signalMutex.withLock {
+            val channel = session.takeFileChannel(channelLabel) ?: return@withLock
+            runCatching {
+                channel.unregisterObserver()
+                channel.close()
+                channel.dispose()
+            }
+            session.fileChannelOpens.remove(channelLabel)
+            session.fileChannelThresholds.remove(channelLabel)
+            emitFileChannelEvent(WebRtcFileChannelEvent.Removed(peer = target, channelLabel = channelLabel))
+            AppLog.debug(
+                component = LogComponent.WEBRTC_BACKEND,
+                event = LogEvent.SESSION_STATE_CHANGED,
+                message = "File data channel removed",
+                fields = mapOf("peer" to target, "channelLabel" to channelLabel),
+            )
+        }
+    }
+
+    override suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long) {
+        require(thresholdBytes >= 0) { "threshold must be >= 0" }
+        val session = sessions[target] ?: return
+        session.fileChannelThresholds[channelLabel] = thresholdBytes
+        // webrtc-java exposes no native low-threshold setter: onBufferedAmountChange
+        // fires on every change and the threshold check happens there.
+    }
+
+    override fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long? {
+        val channel = sessions[target]?.fileChannel(channelLabel) ?: return null
+        return runCatching { channel.bufferedAmount.toLong() }.getOrNull()
     }
 
     override suspend fun addAvChannel(target: PeerId) {
@@ -528,6 +621,11 @@ internal class JvmWebRtcBackend(
                         ),
                     )
                     attachDataChannel(session, channel, dataType)
+                    if (dataType == WebRtcDataType.FILE_DATA) {
+                        emitFileChannelEvent(
+                            WebRtcFileChannelEvent.Adding(peer = session.remotePeer, channelLabel = channel.label)
+                        )
+                    }
                 }
 
                 override fun onRenegotiationNeeded() {
@@ -540,12 +638,18 @@ internal class JvmWebRtcBackend(
     }
 
     private fun attachDataChannel(session: Session, channel: RTCDataChannel, dataType: WebRtcDataType) {
+        // File channels carry their label (one fetch = one channel); envelope/AV are singletons.
+        if (dataType == WebRtcDataType.FILE_DATA) {
+            attachFileChannel(session, channel, channel.label)
+            return
+        }
         when (dataType) {
             WebRtcDataType.ENVELOPE_BINARY -> session.envelopeDataChannel = channel
             WebRtcDataType.AV_DATA -> {
                 session.avDataChannel = channel
                 emitAvChannelEvent(WebRtcAvChannelEvent.Adding(peer = session.remotePeer))
             }
+            WebRtcDataType.FILE_DATA -> error("unreachable")
         }
         channel.registerObserver(
             object : RTCDataChannelObserver {
@@ -616,8 +720,63 @@ internal class JvmWebRtcBackend(
     }
 
     private fun inferDataTypeFromLabel(label: String): WebRtcDataType {
+        if (label.startsWith(FILE_CHANNEL_PREFIX)) return WebRtcDataType.FILE_DATA
         if (label.contains("-av-")) return WebRtcDataType.AV_DATA
         return WebRtcDataType.ENVELOPE_BINARY
+    }
+
+    private fun attachFileChannel(session: Session, channel: RTCDataChannel, channelLabel: String) {
+        session.putFileChannel(channelLabel, channel)
+        channel.registerObserver(
+            object : RTCDataChannelObserver {
+                override fun onBufferedAmountChange(previousAmount: Long) {
+                    val threshold = session.fileChannelThresholds[channelLabel] ?: return
+                    val current = runCatching { channel.bufferedAmount.toLong() }.getOrNull() ?: return
+                    if (current <= threshold) {
+                        emitFileChannelEvent(
+                            WebRtcFileChannelEvent.BufferedLow(
+                                peer = session.remotePeer,
+                                channelLabel = channelLabel,
+                                bufferedAmount = current,
+                            )
+                        )
+                    }
+                }
+
+                override fun onStateChange() {
+                    when (channel.state) {
+                        RTCDataChannelState.OPEN -> {
+                            session.fileChannelOpens[channelLabel]?.complete(Unit)
+                            emitFileChannelEvent(
+                                WebRtcFileChannelEvent.Active(peer = session.remotePeer, channelLabel = channelLabel)
+                            )
+                        }
+                        RTCDataChannelState.CLOSED -> {
+                            session.takeFileChannel(channelLabel)
+                            session.fileChannelOpens.remove(channelLabel)
+                            emitFileChannelEvent(
+                                WebRtcFileChannelEvent.Removed(peer = session.remotePeer, channelLabel = channelLabel)
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
+
+                override fun onMessage(buffer: RTCDataChannelBuffer) {
+                    val bytes = ByteArray(buffer.data.remaining())
+                    buffer.data.get(bytes)
+                    emitIncomingData(
+                        WebRtcDataFrame(
+                            source = session.remotePeer,
+                            target = requireNotNull(localDevice),
+                            dataType = WebRtcDataType.FILE_DATA,
+                            payload = bytes,
+                            channelLabel = channelLabel,
+                        )
+                    )
+                }
+            }
+        )
     }
 
     private fun envelopeChannelLabel(local: PeerId, target: PeerId): String =
@@ -630,10 +789,18 @@ internal class JvmWebRtcBackend(
         val deferred = when (dataType) {
             WebRtcDataType.ENVELOPE_BINARY -> session.envelopeChannelOpen
             WebRtcDataType.AV_DATA -> session.avChannelOpen
+            WebRtcDataType.FILE_DATA -> error("Use awaitFileChannelOpen for file channels")
         }
         withTimeoutOrNull(config.value.channelOpenTimeout) {
             deferred.await()
         } ?: error("Channel did not open within ${config.value.channelOpenTimeout} for ${session.remotePeer}")
+    }
+
+    private suspend fun awaitFileChannelOpen(session: Session, channelLabel: String) {
+        val deferred = session.fileChannelOpens.getOrPut(channelLabel) { CompletableDeferred() }
+        withTimeoutOrNull(config.value.channelOpenTimeout) {
+            deferred.await()
+        } ?: error("File channel $channelLabel did not open within ${config.value.channelOpenTimeout} for ${session.remotePeer}")
     }
 
     private fun emitSignal(signal: WebRtcSignal) {
@@ -673,6 +840,10 @@ internal class JvmWebRtcBackend(
         scope?.launch { avChannelEventFlow.emit(event) }
     }
 
+    private fun emitFileChannelEvent(event: WebRtcFileChannelEvent) {
+        scope?.launch { fileChannelEventFlow.emit(event) }
+    }
+
     private class Session(
         val remotePeer: PeerId,
         val peerConnection: RTCPeerConnection,
@@ -685,6 +856,10 @@ internal class JvmWebRtcBackend(
 
         @Volatile
         var avDataChannel: RTCDataChannel? = null
+
+        val fileChannels = ConcurrentHashMap<String, RTCDataChannel>()
+        val fileChannelOpens = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        val fileChannelThresholds = ConcurrentHashMap<String, Long>()
 
         @Volatile
         var remoteDescriptionApplied: Boolean = false
@@ -700,7 +875,19 @@ internal class JvmWebRtcBackend(
         fun channelFor(dataType: WebRtcDataType): RTCDataChannel? = when (dataType) {
             WebRtcDataType.ENVELOPE_BINARY -> envelopeDataChannel
             WebRtcDataType.AV_DATA -> avDataChannel
+            WebRtcDataType.FILE_DATA -> null
         }
+
+        fun fileChannel(label: String): RTCDataChannel? = fileChannels[label]
+
+        fun putFileChannel(label: String, channel: RTCDataChannel) {
+            fileChannels[label] = channel
+            fileChannelOpens.getOrPut(label) { CompletableDeferred() }
+        }
+
+        fun takeFileChannel(label: String): RTCDataChannel? = fileChannels.remove(label)
+
+        fun snapshotFileLabels(): List<String> = fileChannels.keys.toList()
 
         fun dispose() {
             if (!disposed.compareAndSet(false, true)) return
@@ -714,6 +901,14 @@ internal class JvmWebRtcBackend(
                 avDataChannel?.close()
                 avDataChannel?.dispose()
             }
+            for ((_, channel) in fileChannels) {
+                runCatching {
+                    channel.unregisterObserver()
+                    channel.close()
+                    channel.dispose()
+                }
+            }
+            fileChannels.clear()
             runCatching { peerConnection.close() }
         }
 
@@ -796,6 +991,11 @@ private suspend fun RTCPeerConnection.setRemoteDescriptionSuspending(description
 }
 
 internal class WebRtcBackendException(message: String) : RuntimeException(message)
+
+internal const val FILE_CHANNEL_PREFIX = "yapyap-file-"
+
+/** Per-fetch file channel label: unique per fetch so two files stream at once. */
+internal fun fileChannelLabel(fetchId: String): String = "$FILE_CHANNEL_PREFIX$fetchId"
 
 private fun encodeIceCandidate(candidate: RTCIceCandidate): ByteArray {
     val mid = candidate.sdpMid

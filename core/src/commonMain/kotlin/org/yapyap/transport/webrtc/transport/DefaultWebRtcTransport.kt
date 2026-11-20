@@ -21,6 +21,8 @@ internal class DefaultWebRtcTransport(
 
     private val incomingEnvelopeFlow = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
+    private val incomingFileFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 256)
+    private val fileChannelEventFlow = MutableSharedFlow<WebRtcFileChannelEvent>(extraBufferCapacity = 64)
     private val sessionStateMap = MutableStateFlow<Map<PeerId, WebRtcSessionState>>(emptyMap())
     private val incomingCallInviteFlow =
         MutableSharedFlow<WebRtcIncomingAvSessionRequest>(replay = 1, extraBufferCapacity = 64)
@@ -29,6 +31,8 @@ internal class DefaultWebRtcTransport(
 
     override val incomingEnvelopes: Flow<WebRtcIncomingEnvelope> = incomingEnvelopeFlow.asSharedFlow()
     override val incomingAvFrames: Flow<WebRtcDataFrame> = incomingAvFrameFlow.asSharedFlow()
+    override val incomingFileFrames: Flow<WebRtcDataFrame> = incomingFileFrameFlow.asSharedFlow()
+    override val fileChannelEvents: Flow<WebRtcFileChannelEvent> = fileChannelEventFlow.asSharedFlow()
     override val sessionStates: StateFlow<Map<PeerId, WebRtcSessionState>> = sessionStateMap.asStateFlow()
     override val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest> = incomingCallInviteFlow.asSharedFlow()
     override val callStates: Flow<WebRtcAvSessionState> = callStateFlow.filterNotNull()
@@ -45,6 +49,7 @@ internal class DefaultWebRtcTransport(
     private var backendDataJob: Job? = null
     private var backendSessionEventsJob: Job? = null
     private var backendAvChannelEventsJob: Job? = null
+    private var backendFileChannelEventsJob: Job? = null
 
     /**
      * Single writer of per-peer session state: every backend transition lands here, so
@@ -202,6 +207,10 @@ internal class DefaultWebRtcTransport(
             }
         }
 
+        backendFileChannelEventsJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            backend.fileChannelEvents.collect { event -> fileChannelEventFlow.emit(event) }
+        }
+
         backendSignalsCollectorReady.await()
 
         started = true
@@ -219,10 +228,12 @@ internal class DefaultWebRtcTransport(
         backendDataJob?.cancel()
         backendSessionEventsJob?.cancel()
         backendAvChannelEventsJob?.cancel()
+        backendFileChannelEventsJob?.cancel()
         backendSignalJob = null
         backendDataJob = null
         backendSessionEventsJob = null
         backendAvChannelEventsJob = null
+        backendFileChannelEventsJob = null
 
         pendingIncomingCallByPeer.clear()
         avOptionsByPeer.clear()
@@ -265,6 +276,36 @@ internal class DefaultWebRtcTransport(
         check(started) { "WebRTC transport must be started before closing session" }
         backend.closeSession(key)
     }
+
+    override suspend fun openFileChannel(target: PeerId, channelLabel: String) {
+        check(started) { "WebRTC transport must be started before opening file channel" }
+        backend.openFileChannel(target, channelLabel)
+    }
+
+    override suspend fun closeFileChannel(target: PeerId, channelLabel: String) {
+        check(started) { "WebRTC transport must be started before closing file channel" }
+        backend.closeFileChannel(target, channelLabel)
+    }
+
+    override suspend fun sendFileFrame(target: PeerId, channelLabel: String, payload: ByteArray) {
+        check(started) { "WebRTC transport must be started before sending file frame" }
+        val local = requireNotNull(localDevice) { "Local device is not available" }
+        backend.sendData(
+            WebRtcDataFrame(
+                source = local,
+                target = target,
+                dataType = WebRtcDataType.FILE_DATA,
+                payload = payload,
+                channelLabel = channelLabel,
+            )
+        )
+    }
+
+    override fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long? =
+        backend.fileChannelBufferedAmount(target, channelLabel)
+
+    override suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long) =
+        backend.setFileChannelBufferedThreshold(target, channelLabel, thresholdBytes)
 
     override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
         check(started) { "WebRTC transport must be started before inviting call" }
@@ -392,6 +433,10 @@ internal class DefaultWebRtcTransport(
             WebRtcDataType.AV_DATA -> {
                 handleAvControlFrame(frame)
                 incomingAvFrameFlow.emit(frame)
+            }
+
+            WebRtcDataType.FILE_DATA -> {
+                incomingFileFrameFlow.emit(frame)
             }
         }
     }
