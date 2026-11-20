@@ -5,7 +5,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protection.sampleTextPayload
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
@@ -13,7 +17,11 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.DefaultRouter
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.router.defaultRouterUnderTest
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
@@ -42,7 +50,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload())
+        router.messages.sendMessage(account, sampleTextPayload())
         // Single dispatch path: the row is due immediately and the loop dispatches it.
         withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
         router.stop()
@@ -64,7 +72,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account, remoteTor = remoteTor)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload())
+        router.messages.sendMessage(account, sampleTextPayload())
         val packetId = outbox.enqueued.single().packetId
 
         tor.tryEmitIncoming(inboundTorAck(packetId, remoteTor))
@@ -85,7 +93,7 @@ class DefaultRouterOutboxTest {
         val router = routerForOutboxTests(tor = tor, outbox = outbox, account = account, remoteTor = remoteTor)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload())
+        router.messages.sendMessage(account, sampleTextPayload())
         val packetId = outbox.enqueued.single().packetId
 
         tor.tryEmitIncoming(

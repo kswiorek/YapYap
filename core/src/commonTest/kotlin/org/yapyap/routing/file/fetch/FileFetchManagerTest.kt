@@ -14,16 +14,15 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.file.FileCoverage
-import org.yapyap.routing.file.FileDescriptorInfo
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.FilePlaintextSource
-import org.yapyap.routing.file.FileReadResult
-import org.yapyap.routing.file.FileRefusalReason
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.FileRefusalReason
+import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
@@ -60,11 +59,11 @@ class FileFetchManagerTest {
     }
 
     private class FakePlaintext(
-        val info: FileDescriptorInfo?,
+        val info: FileManifest?,
         val bytes: ByteArray,
     ) : FilePlaintextSource {
         var reads = 0
-        override suspend fun describe(fileId: FileId): FileDescriptorInfo? = info
+        override suspend fun describe(fileId: FileId): FileManifest? = info
         override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult {
             reads++
             if (info == null) return FileReadResult.NotHeld
@@ -77,12 +76,12 @@ class FileFetchManagerTest {
     private class FakeGate(
         var canServe: Boolean = true,
         var offerVerdict: FileOfferVerdict = FileOfferVerdict.Accept,
-    ) : FileIngestPort {
+    ) : FakeFilePorts {
         var ingestedBytes = 0L
         var ingestCalls = 0
         var checkOfferCalls = 0
         var totalBytes: Long = 0L
-        override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict {
+        override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict {
             checkOfferCalls++
             totalBytes = offer.totalBytes
             // Realistic block-list gate: reject when hashes don't match the id
@@ -108,7 +107,7 @@ class FileFetchManagerTest {
         devices: DeviceDirectory,
         transport: RecordingWebRtcTransport,
         plaintext: FilePlaintextSource,
-        gate: FileIngestPort,
+        gate: FakeFilePorts,
         routerConfig: RouterConfig = RouterConfig(),
         chunkSize: Int = 32 * 1024,
         events: MutableSharedFlow<FileEvent> = MutableSharedFlow(extraBufferCapacity = 64),
@@ -117,9 +116,10 @@ class FileFetchManagerTest {
         devices = devices,
         transport = transport,
         plaintext = plaintext,
-        gate = gate,
+        ingest = gate,
+        serveGate = gate,
         routerConfig = MutableStateFlow(routerConfig),
-        chunkSize = MutableStateFlow(chunkSize),
+        frameBytes = MutableStateFlow(chunkSize),
         events = events,
     )
 
@@ -161,7 +161,7 @@ class FileFetchManagerTest {
         val aliceTransport = RecordingWebRtcTransport()
         val bobTransport = RecordingWebRtcTransport()
         val data = ByteArray(64 * 1024) { it.toByte() }
-        val info = FileDescriptorInfo(fileId, data.size.toLong(), 1024 * 1024, emptyList(), "big.bin", null)
+        val info = FileManifest(fileId, data.size.toLong(), 1024 * 1024, emptyList(), "big.bin", null)
         val holderGate = FakeGate(canServe = false)
         val holder = manager(
             aliceDevice,
@@ -211,7 +211,7 @@ class FileFetchManagerTest {
         val bobTransport = RecordingWebRtcTransport()
         val data = ByteArray(64 * 1024) { it.toByte() }
         // Holder serves bytes, but the requester's gate rejects the block list.
-        val info = FileDescriptorInfo(fileId, data.size.toLong(), 1024 * 1024, listOf(ByteArray(32) { 9 }), "big.bin", null)
+        val info = FileManifest(fileId, data.size.toLong(), 1024 * 1024, listOf(ByteArray(32) { 9 }), "big.bin", null)
         val holder = manager(
             aliceDevice,
             FakeDevices(mapOf(bobDevice to bobAccount)),
@@ -248,7 +248,7 @@ class FileFetchManagerTest {
         val aliceTransport = RecordingWebRtcTransport()
         val bobTransport = RecordingWebRtcTransport()
         val data = ByteArray(256 * 1024) { it.toByte() }
-        val info = FileDescriptorInfo(fileId, data.size.toLong(), 64 * 1024, emptyList(), "big.bin", null)
+        val info = FileManifest(fileId, data.size.toLong(), 64 * 1024, emptyList(), "big.bin", null)
         val holder = manager(
             aliceDevice,
             FakeDevices(mapOf(bobDevice to bobAccount)),
@@ -258,8 +258,8 @@ class FileFetchManagerTest {
         )
         // Requester gate that accepts but never advances (slow disk): holder parks
         // at the window and the test then drops the session.
-        val requesterGate = object : FileIngestPort by FakeGate() {
-            override suspend fun checkOffer(offer: FileOfferInfo) = FileOfferVerdict.Accept
+        val requesterGate = object : FakeFilePorts by FakeGate() {
+            override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
             override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
                 FileIngestResult.Defer
         }
@@ -326,7 +326,7 @@ class FileFetchManagerTest {
         val window = 64L * 1024L
         val chunk = 8 * 1024
         val data = ByteArray(256 * 1024) { it.toByte() }
-        val info = FileDescriptorInfo(fileId, data.size.toLong(), 64 * 1024, emptyList(), "big.bin", null)
+        val info = FileManifest(fileId, data.size.toLong(), 64 * 1024, emptyList(), "big.bin", null)
         val plaintext = FakePlaintext(info, data)
         val holder = manager(
             aliceDevice,
@@ -338,8 +338,8 @@ class FileFetchManagerTest {
             chunkSize = chunk,
         )
         // Slow disk: accept the OFFER but never report progress (Defer every DATA).
-        val requesterGate = object : FileIngestPort by FakeGate() {
-            override suspend fun checkOffer(offer: FileOfferInfo) = FileOfferVerdict.Accept
+        val requesterGate = object : FakeFilePorts by FakeGate() {
+            override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
             override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
                 FileIngestResult.Defer
         }
@@ -390,7 +390,7 @@ class FileFetchManagerTest {
         val aliceTransport = RecordingWebRtcTransport()
         val bobTransport = RecordingWebRtcTransport()
         val data = ByteArray(32 * 1024) { it.toByte() }
-        val info = FileDescriptorInfo(fileId, data.size.toLong(), 64 * 1024, emptyList(), "big.bin", null)
+        val info = FileManifest(fileId, data.size.toLong(), 64 * 1024, emptyList(), "big.bin", null)
         val holder = manager(
             aliceDevice,
             FakeDevices(mapOf(bobDevice to bobAccount)),

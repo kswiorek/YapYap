@@ -33,11 +33,6 @@ import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.dag.VerificationStateChange
 import org.yapyap.orchestrator.file.FileImportSource
 import org.yapyap.orchestrator.file.FileStore
-import org.yapyap.orchestrator.file.FileTransfer
-import org.yapyap.orchestrator.file.FileTransferClass
-import org.yapyap.orchestrator.file.FileTransferDirection
-import org.yapyap.orchestrator.file.FileTransferStatus
-import org.yapyap.orchestrator.file.FileTransferStore
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.CausalHoldRepository
 import org.yapyap.orchestrator.store.MessageCursor
@@ -50,17 +45,19 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.MessageCarrier
+import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.concurrent.Volatile
-import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 internal class DefaultMessagingService(
     private val dagEngine: DagEngine,
-    private val router: Router,
+    private val messageCarrier: MessageCarrier,
+    syncCarrier: SyncCarrier,
+    private val fileCarrier: FileCarrier,
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
@@ -70,15 +67,13 @@ internal class DefaultMessagingService(
     private val maxTextBytes: StateFlow<Int>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
     private val fileStore: FileStore,
-    private val fileTransfers: FileTransferStore,
-    private val routerConfig: StateFlow<RouterConfig>,
-    private val clock: Clock = Clock.System,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
 
-    private val deliveryTracker = DeliveryTracker(router, messageRepository, deliveryRepository, localIdentity)
+    private val deliveryTracker =
+        DeliveryTracker(messageCarrier, syncCarrier, messageRepository, deliveryRepository, localIdentity)
     private var deliveryJobs: List<Job> = emptyList()
     override val deliveryUpdates: Flow<MessageDelivery> = deliveryTracker.updates
 
@@ -145,7 +140,7 @@ internal class DefaultMessagingService(
             }
         }
         typingSubscriptionJob = scope.launch {
-            router.typingIndicators.collect { event ->
+            messageCarrier.typingIndicators.collect { event ->
                 runCatching { onTypingIndicatorReceived(event) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
@@ -213,7 +208,7 @@ internal class DefaultMessagingService(
             val members = roomRepository.membersOfRoom(roomId)
             if (members.isNotEmpty()) {
                 try {
-                    router.sendTypingIndicator(members, roomId, interval)
+                    messageCarrier.sendTypingIndicator(members, roomId, interval)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -355,27 +350,11 @@ internal class DefaultMessagingService(
         notifyWindowsNewItem(IngestResult.Inserted(payload), item)
 
         // Small files ride the direct push alongside the message; large files are
-        // pull-only (the requesting device fetches when it decides, Phase F).
-        val now = clock.now()
+        // pull-only (the requesting device fetches when it decides).
         for (descriptor in imported) {
-            val klass =
-                if (descriptor.totalBytes <= SMALL_FILE_MAX_BYTES) FileTransferClass.SMALL else FileTransferClass.LARGE
+            if (descriptor.totalBytes > SMALL_FILE_MAX_BYTES) continue
             for (member in members) {
-                fileTransfers.upsert(
-                    FileTransfer(
-                        fileId = descriptor.fileId,
-                        peerAccountId = member,
-                        direction = FileTransferDirection.SEND,
-                        klass = klass,
-                        status = FileTransferStatus.IN_FLIGHT,
-                        createdAt = now,
-                        updatedAt = now,
-                        expiresAt = now + routerConfig.value.fileTransferTtl,
-                    ),
-                )
-                if (klass == FileTransferClass.SMALL) {
-                    router.fileCarrier.pushFile(descriptor.fileId, member)
-                }
+                fileCarrier.pushFile(descriptor.fileId, member)
             }
         }
 
@@ -399,7 +378,7 @@ internal class DefaultMessagingService(
         val reports = coroutineScope {
             members.map { member ->
                 async {
-                    member to router.sendMessage(member, payload)
+                    member to messageCarrier.sendMessage(member, payload)
                 }
             }.awaitAll()
         }

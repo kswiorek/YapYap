@@ -23,14 +23,14 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLog
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
 import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
 import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileStore
-import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
 import org.yapyap.orchestrator.file.FileReceiveStatus
-import org.yapyap.orchestrator.file.FileServiceConfig
+import org.yapyap.orchestrator.file.FileRequestControl
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
@@ -52,9 +52,10 @@ import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InMemorySyncAttemptStore
+import org.yapyap.routing.router.NoFileReceiveEnds
+import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
-import org.yapyap.routing.router.engineFileIngestPort
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -148,9 +149,11 @@ class FileSmallPushTwoRouterTest {
         val bobProtection = protection(sessionManager(bobIdentity), bobSigner)
 
         val files = JvmFileAccess()
-        val fileConfig = FileServiceConfig(
-            fileCheckpointBytes = 16L * 1024L,
-            fileCheckpointInterval = 200.milliseconds,
+        val fileConfig = MutableStateFlow(
+            OrchestratorConfig(
+                fileCheckpointBytes = 16L * 1024L,
+                fileCheckpointInterval = 200.milliseconds,
+            ),
         )
         val chunkSize = 32 * 1024
 
@@ -174,7 +177,17 @@ class FileSmallPushTwoRouterTest {
         files.createDirectories(bobIncomingDir)
         val bobFileStore = DefaultFileStore(bobDescriptors, crypto, files, bobStoreDir, fileConfig)
 
-        val bobIngest = DelegatingFileIngestPort()
+        val bobEngine = DefaultFileReceiveEngine(
+            receives = bobReceives,
+            messages = bobMessages,
+            crypto = crypto,
+            files = files,
+            storeDirectory = bobStoreDir,
+            incomingDirectory = bobIncomingDir,
+            config = fileConfig,
+            fileStore = bobFileStore,
+            clock = clock,
+        )
 
         val aliceRouter = DefaultRouter(
             torTransport = aliceTor,
@@ -193,13 +206,19 @@ class FileSmallPushTwoRouterTest {
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
             peerAvailabilityStore = FakePeerAvailabilityStore(),
-            fileIngestPort = RefusingFileIngestPort(),
-            fileIncomingStore = InMemoryFileIncomingTransferStore(),
-            filePushStore = InMemoryFilePushStore(),
-            fileRelayStore = InMemoryFileRelayStore(),
-            fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
-            plaintextSource = DefaultFilePlaintextSource(aliceDescriptors, files, crypto),
-            fileChunkSize = MutableStateFlow(chunkSize),
+            filePorts = FileRoutingPorts(
+                ingest = RefusingFilePorts(),
+                requests = RefusingFilePorts(),
+                serveGate = RefusingFilePorts(),
+                plaintext = DefaultFilePlaintextSource(aliceDescriptors, aliceFileStore, files, crypto),
+                receiveEnds = NoFileReceiveEnds,
+                incoming = InMemoryFileIncomingTransferStore(),
+                pushes = InMemoryFilePushStore(),
+                relay = InMemoryFileRelayStore(),
+                requestAttempts = InMemoryFileRequestAttemptStore(),
+                chunkSizeBytes = MutableStateFlow(chunkSize),
+                fetchFrameBytes = MutableStateFlow(chunkSize),
+            ),
         )
         val bobRouter = DefaultRouter(
             torTransport = bobTor,
@@ -218,38 +237,30 @@ class FileSmallPushTwoRouterTest {
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
             peerAvailabilityStore = FakePeerAvailabilityStore(),
-            fileIngestPort = bobIngest,
-            fileIncomingStore = InMemoryFileIncomingTransferStore(),
-            filePushStore = InMemoryFilePushStore(),
-            fileRelayStore = InMemoryFileRelayStore(),
-            fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
-            plaintextSource = DefaultFilePlaintextSource(bobDescriptors, files, crypto),
-            fileChunkSize = MutableStateFlow(chunkSize),
+            filePorts = FileRoutingPorts(
+                ingest = bobEngine,
+                requests = RefusingFilePorts(),
+                serveGate = RefusingFilePorts(),
+                plaintext = DefaultFilePlaintextSource(bobDescriptors, bobFileStore, files, crypto),
+                receiveEnds = bobEngine,
+                incoming = InMemoryFileIncomingTransferStore(),
+                pushes = InMemoryFilePushStore(),
+                relay = InMemoryFileRelayStore(),
+                requestAttempts = InMemoryFileRequestAttemptStore(),
+                chunkSizeBytes = MutableStateFlow(chunkSize),
+                fetchFrameBytes = MutableStateFlow(chunkSize),
+            ),
         )
+        // Bob only reads receive state here; accept and decline are not exercised.
         val bobFiles = DefaultFileTransferService(
-            bobReceives,
-            bobDescriptors,
-            files,
-            DefaultPendingFileRequestStore(bobDb),
-            bobMessages,
-            bobRouter,
-            clock,
-        )
-        val bobEngine = DefaultFileReceiveEngine(
             receives = bobReceives,
             descriptors = bobDescriptors,
-            messages = bobMessages,
-            crypto = crypto,
             files = files,
-            storeDirectory = bobStoreDir,
-            incomingDirectory = bobIncomingDir,
-            config = fileConfig,
-            fileStore = bobFileStore,
-            carrier = bobRouter.fileCarrier,
-            routerConfig = MutableStateFlow(RouterConfig()),
-            clock = clock,
+            requests = object : FileRequestControl {
+                override suspend fun acceptFile(fileId: org.yapyap.protocol.FileId) = error("not used")
+                override suspend fun declineFile(fileId: org.yapyap.protocol.FileId) = error("not used")
+            },
         )
-        bobIngest.delegate = engineFileIngestPort(bobEngine)
 
         try {
             aliceRouter.start()
@@ -293,7 +304,7 @@ class FileSmallPushTwoRouterTest {
                 )
                 val fileId = descriptor.fileId
 
-                aliceRouter.fileCarrier.pushFile(fileId, bobAccount)
+                aliceRouter.files.pushFile(fileId, bobAccount)
                 val maybeSnapshot = withTimeout(60.seconds) {
                     var latest = bobFiles.receiveState(fileId)
                     while (latest?.status != FileReceiveStatus.READY) {

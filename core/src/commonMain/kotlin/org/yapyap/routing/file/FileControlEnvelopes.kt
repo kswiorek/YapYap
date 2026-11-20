@@ -42,22 +42,3 @@ internal suspend fun buildFileControlEnvelope(
         payload = envelope.encode(),
     )
 }
-
-/** Scaffolding for tests without a receive engine: declines everything cleanly. */
-internal class RefusingFileIngestPort : FileIngestPort {
-    override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict =
-        FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE)
-
-    override suspend fun ingest(fileId: org.yapyap.protocol.FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult =
-        FileIngestResult.Refused
-
-    override suspend fun heldCoverage(fileId: org.yapyap.protocol.FileId): FileCoverage? = null
-
-    override suspend fun requestCandidates(fileId: org.yapyap.protocol.FileId): List<org.yapyap.protocol.AccountId> =
-        emptyList()
-
-    override suspend fun canServe(fileId: org.yapyap.protocol.FileId, requester: org.yapyap.protocol.AccountId): Boolean =
-        false
-
-    override suspend fun requestTotalBytes(fileId: org.yapyap.protocol.FileId): Long? = null
-}

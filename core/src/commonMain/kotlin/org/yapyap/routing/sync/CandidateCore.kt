@@ -1,7 +1,12 @@
 package org.yapyap.routing.sync
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
@@ -88,8 +93,8 @@ internal interface CandidateStrategy<K> {
     /** Bookkeeping after [built] left through the outbox (e.g. persisting a request ref). */
     suspend fun afterEnqueue(id: K, built: BuiltAttempt)
 
-    /** True when the last attempt is still queued (waiting for a link, or for its answer). */
-    suspend fun isAttemptPending(id: K): Boolean
+    /** Whether the last attempt for [id] is still out, and if not, whether its device went silent. */
+    suspend fun attemptState(id: K): AttemptState
 
     /** Maps an outbox outcome back to the asked-for id, or null when it is not ours. */
     suspend fun resolveOutcome(outcome: OutboxOutcome): K?
@@ -103,6 +108,18 @@ internal interface CandidateStrategy<K> {
      * UNAVAILABLE.
      */
     suspend fun onExhausted(id: K): Boolean = false
+}
+
+/** Where a candidate request's last attempt stands, as its strategy sees it. */
+internal sealed interface AttemptState {
+    /** Still out: queued for a link, or waiting for its answer. */
+    data object Pending : AttemptState
+
+    /** Nothing out: the next candidate may be asked. */
+    data object None : AttemptState
+
+    /** The answer [device] promised never came: ask it again only after the other candidates. */
+    data class Unanswered(val device: PeerId) : AttemptState
 }
 
 /**
@@ -258,10 +275,15 @@ internal class CandidateRequestCore<K>(
 
     private suspend fun processDueRow(row: CandidateRow<K>, now: Instant) {
         val nextAttemptAt = now + computeBackoff(row.attempts).seconds
-        if (strategy.isAttemptPending(row.id)) {
-            // The last attempt is still in the outbox (waiting for a link, or for its answer).
-            strategy.attempts.postpone(row.id, nextAttemptAt)
-            return
+        when (val state = strategy.attemptState(row.id)) {
+            AttemptState.Pending -> {
+                // The last attempt is still out (waiting for a link, or for its answer).
+                strategy.attempts.postpone(row.id, nextAttemptAt)
+                return
+            }
+
+            is AttemptState.Unanswered -> noteSilent(row.id, state.device)
+            AttemptState.None -> Unit
         }
 
         val candidateDevices = candidateDevices(strategy.candidateAccounts(row.id))

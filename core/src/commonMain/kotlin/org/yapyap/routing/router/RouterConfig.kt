@@ -17,7 +17,6 @@ internal data class RouterConfig(
     val webRtcRetryDelay: Duration = 10.seconds,
     val standbyRetryDelay: Duration = 1.hours,
     val retryLoopMaxIdlePoll: Duration = 60.seconds,
-    val outboxMaxSizeBytes: Long = 1024 * 1024 * 10,
     val dedupRetention: Duration = 30.days,
     /** A peer must have sent us traffic within this window for proactive session pre-warming. */
     val proactiveSessionFreshness: Duration = 60.seconds,
@@ -127,9 +126,8 @@ internal data class RouterConfig(
     val minRelayScore: Double = 0.1,
     /**
      * File-transfer lifetime (design §15): OFFER markers, relay reservations and transfer
-     * rows live this long. Must stay below the ratchet superseded-session retention so a
-     * sealed OFFER half replayed at the TTL edge still decrypts
-     * (`fileTransferTtl < supersededSessionRetention`, 2 days < 3 days).
+     * rows live this long. Must stay below crypto's superseded-session retention (checked in
+     * `wiring/ConfigInvariants`).
      */
     val fileTransferTtl: Duration = 2.days,
     /** The pusher's in-flight window: pending chunk rows per transfer (≈3.5 MB of outbox). */
@@ -150,46 +148,34 @@ internal data class RouterConfig(
      */
     val fileRequestWaitTimeout: Duration = 90.seconds,
     /**
-     * Chunk-phase deposit signal (design §6.3, plan step 19): a transfer with rows in
-     * flight and no chunk ACK at all for this long deposits its remainder at the
-     * policy-selected relays. Only the *absence* of every ACK counts — one slow or
-     * retried chunk never triggers it. Must stay well below [fileStallTimeout] so the
-     * push machinery acts before the receiver's gap trigger re-requests.
+     * Chunk-phase deposit signal (design §6.3): a transfer with rows in flight and no chunk ACK
+     * at all for this long deposits its remainder at the policy-selected relays. Only the
+     * absence of every ACK counts; one slow or retried chunk never triggers it. Must stay below
+     * the orchestrator's stall timeout (checked in `wiring/ConfigInvariants`), so the push acts
+     * before the receiver re-requests.
      */
     val chunkAckTimeout: Duration = 45.seconds,
     /**
-     * Receiver gap trigger (design §8, plan step 19): an IN_FLIGHT receive whose
-     * contiguous prefix P does not advance for this long goes STALLED and the REQUEST
-     * path re-opens. Owned by the orchestrator's request coordinator, configured here
-     * per design §15 (same layer-split TBD as the router-service split).
-     */
-    val fileStallTimeout: Duration = 10.minutes,
-    /**
-     * Large-fetch session budget (design §15, step 22): a large request opens a
+     * Large-fetch session budget (design §15): a large request opens a
      * WebRTC session through `ProactiveSessionOpener.awaitSession` with this timeout.
      * Matches the generic session-await budget: signaling round-trips take seconds.
      */
     val fileSessionOpenTimeout: Duration = 45.seconds,
     /**
-     * Large-fetch credit window (design §6.6, §15, step 21): the holder may run at
+     * Large-fetch credit window (design §6.6, §15): the holder may run at
      * most this far past the last PROGRESS before pausing for the receiver. Bounds
      * a slow disk so frames never pile up in memory; the channel's `bufferedAmount`
      * low threshold bounds the sender side.
      */
     val fileStreamWindowBytes: Long = 32L * 1024L * 1024L,
     /**
-     * This device's store-and-forward pledge for file relay ciphertext (design §15).
-     * Admission and whole-transfer LRU eviction in the file relay store are accounted
-     * against it; our own outbox rows are never part of it.
-     *
-     * TODO (with the router-service split): the config layering here is still a mess —
-     * `FileServiceConfig` is not part of `RuntimeConfig` (so it never reaches the
-     * settings file) while the orchestrator already carries two sub-configs, and the
-     * message relay-cache budget (`outboxMaxSizeBytes`) vs this file share are split
-     * ad hoc instead of from one pledge in wiring. Unify the pledge split with the
-     * router-service refactor; see the docs note with that TODO.
+     * This device's store-and-forward pledge (design §15): the bytes it holds for other
+     * devices' traffic, split between the file relay store and the message relay cache by
+     * [fileRelayShare]. Our own outbox rows are never part of it.
      */
     val relayStoragePledgeBytes: Long = 100L * 1024L * 1024L,
+    /** Fraction of [relayStoragePledgeBytes] that relayed files may use; relayed messages get the rest. */
+    val fileRelayShare: Double = 0.8,
 ) {
     init {
         require(binaryEnvelopeLifetime > Duration.ZERO) { "binaryEnvelopeLifetime must be > 0" }
@@ -200,7 +186,6 @@ internal data class RouterConfig(
         require(standbyRetryDelay > Duration.ZERO) { "standbyRetryDelay must be > 0" }
         require(retryLoopMaxIdlePoll > Duration.ZERO) { "retryLoopMaxIdlePoll must be > 0" }
         require(ackLifetime > Duration.ZERO) { "ackLifetime must be > 0" }
-        require(outboxMaxSizeBytes > 0) { "outboxMaxSizeBytes must be > 0" }
         require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshness must be > 0" }
         require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelay must be > 0" }
         require(onionRefreshRetryDelay > Duration.ZERO) { "onionRefreshRetryDelay must be > 0" }
@@ -235,11 +220,19 @@ internal data class RouterConfig(
         require(fileRequestAttemptTimeout > Duration.ZERO) { "fileRequestAttemptTimeout must be > 0" }
         require(fileRequestWaitTimeout > Duration.ZERO) { "fileRequestWaitTimeout must be > 0" }
         require(chunkAckTimeout > Duration.ZERO) { "chunkAckTimeout must be > 0" }
-        require(fileStallTimeout > chunkAckTimeout) { "fileStallTimeout must be > chunkAckTimeout" }
         require(fileSessionOpenTimeout > Duration.ZERO) { "fileSessionOpenTimeout must be > 0" }
         require(fileStreamWindowBytes > 0) { "fileStreamWindowBytes must be > 0" }
         require(relayStoragePledgeBytes > 0) { "relayStoragePledgeBytes must be > 0" }
+        require(fileRelayShare > 0.0 && fileRelayShare < 1.0) { "fileRelayShare must be in (0, 1)" }
     }
+
+    /** Bytes of relayed file ciphertext this device admits ([fileRelayShare] of the pledge). */
+    val fileRelayBudgetBytes: Long
+        get() = (relayStoragePledgeBytes * fileRelayShare).toLong()
+
+    /** Bytes of relayed messages this device keeps in its outbox (the rest of the pledge). */
+    val messageRelayBudgetBytes: Long
+        get() = relayStoragePledgeBytes - fileRelayBudgetBytes
 
     fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelay

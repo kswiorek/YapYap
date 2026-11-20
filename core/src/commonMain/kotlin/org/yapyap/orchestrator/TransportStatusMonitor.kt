@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.Presence
 
 /**
  * The node's [LocalTransportStatus], lifted from the router's [Router.localLinkStatus].
@@ -18,7 +18,7 @@ import org.yapyap.routing.router.Router
  * UX); bootstrap percentages alone don't log, only a new kind or problem.
  */
 internal class TransportStatusMonitor(
-    private val router: Router,
+    private val presence: Presence,
 ) {
     private val _status = MutableStateFlow(INITIAL_TRANSPORT_STATUS)
     val status: StateFlow<LocalTransportStatus> = _status.asStateFlow()
@@ -27,7 +27,7 @@ internal class TransportStatusMonitor(
 
     fun start(scope: CoroutineScope) {
         job = scope.launch {
-            router.localLinkStatus.map { it.toTransportStatus() }.collect { status ->
+            presence.localLinkStatus.map { it.toTransportStatus() }.collect { status ->
                 val previous = _status.value
                 if (status == previous) return@collect
                 _status.value = status

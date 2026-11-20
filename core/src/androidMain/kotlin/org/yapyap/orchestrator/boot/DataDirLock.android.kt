@@ -19,7 +19,7 @@ internal actual fun acquireDataDirLock(directory: Path): DataDirLock? {
         }
         runCatching {
             raf.setLength(0)
-            raf.writeBytes("${androidProcessPid()}\n")
+            raf.writeBytes("${Process.myPid()}\n")
         }
         object : DataDirLock {
             override fun close() {
@@ -40,13 +40,4 @@ internal actual fun readDataDirLockHolder(directory: Path): Long? = runCatching 
     }
 }.getOrNull()
 
-internal actual fun currentProcessPid(): Long = androidProcessPid()
-
-/**
- * `Process.myPid()` on device; the android.jar stub throws in local JVM unit tests, so
- * fall back to `ProcessHandle` there (lazy, so API 24-25 devices never load that class).
- * Both sides of the lock protocol use this one helper, so holder records stay consistent
- * wherever they are written and read.
- */
-private fun androidProcessPid(): Long =
-    runCatching { Process.myPid().toLong() }.getOrElse { ProcessHandle.current().pid() }
+internal actual fun currentProcessPid(): Long = Process.myPid().toLong()

@@ -52,7 +52,7 @@ completed file lives in the permanent attachment store (§10).
 Grounding facts that shape everything below:
 
 - Chunking is forced everywhere: the WebRTC backend carries at most ~250 KiB per envelope
-  (`WebRtcBackendConfig.maxPayloadBytes`), Tor at most 4 MB. The chunk size is **derived** (≈220 KiB after
+  (`WebRtcBackendConfig.maxPayloadBytes`), Tor at most 4 MB. The chunk size is **derived** (≈249 KiB after
   envelope framing) by the composition root, never independently configured (§15); each transfer snapshots the
   current derived value at creation (§2).
 - **No new ARQ is built.** Both transports are reliable per frame (WebRTC data channels are SCTP, configured
@@ -361,7 +361,7 @@ already owns (see §17, rejected alternatives).
 ### 6.2 The chunk phase (small path)
 
 Chunks are individual outbox rows (tagged FILE, id = `transferId`) — per-chunk retry, dedup and restart
-survival come free. A window (`maxInFlightChunks`) bounds pending rows: each row holds a ~220 KiB blob, so a
+survival come free. A window (`maxInFlightChunks`) bounds pending rows: each row holds a ~249 KiB blob, so a
 window of 16 ≈ 3.5 MB of outbox per transfer.
 
 Outbox extensions required: the new tag kind, and `packetId` on `OutboxOutcome` so the engine maps a chunk

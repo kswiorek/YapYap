@@ -16,9 +16,12 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.DeliverySubject
 import org.yapyap.routing.router.PingFrontiers
-import org.yapyap.testfixtures.*
 import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
+import org.yapyap.testfixtures.InMemoryMessageDeliveryRepository
+import org.yapyap.testfixtures.NoopMessageCarrier
+import org.yapyap.testfixtures.NoopSyncCarrier
+import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -31,18 +34,23 @@ class DeliveryTrackerTest {
     private val localDevice = PeerId("tracker-local-device")
     private val roomId = RoomId(Uuid.random())
 
-    private class DrivenRouter : NoopRouter() {
+    private class DrivenRouter {
         val deliveryFlow = MutableSharedFlow<Delivery>(extraBufferCapacity = 16)
         val pingFlow = MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 16)
-        override val deliveries: Flow<Delivery> = deliveryFlow
-        override val pingPayloads: Flow<PingFrontiers> = pingFlow
+        val messages = object : NoopMessageCarrier() {
+            override val deliveries: Flow<Delivery> = deliveryFlow
+        }
+        val syncs = object : NoopSyncCarrier() {
+            override val pingPayloads: Flow<PingFrontiers> = pingFlow
+        }
     }
 
     private val router = DrivenRouter()
     private val messages = FakeMessageRepository()
     private val deliveries = InMemoryMessageDeliveryRepository(messages)
     private val tracker = DeliveryTracker(
-        router,
+        router.messages,
+        router.syncs,
         messages,
         deliveries,
         FakeIdentityResolver(localAccount, localDevice),

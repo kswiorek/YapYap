@@ -62,6 +62,9 @@ internal class ConfigStore(
     private val _fileChunkSizeBytes = MutableStateFlow(FileLimits.from(RuntimeConfig()).chunkSizeBytes)
     val fileChunkSizeBytes: StateFlow<Int> = _fileChunkSizeBytes.asStateFlow()
 
+    private val _fileFetchFrameBytes = MutableStateFlow(FileLimits.from(RuntimeConfig()).fetchFrameBytes)
+    val fileFetchFrameBytes: StateFlow<Int> = _fileFetchFrameBytes.asStateFlow()
+
     private val _userOverrides = MutableStateFlow<Overrides>(emptyMap())
     private val _networkOverrides = MutableStateFlow<Overrides>(emptyMap())
 
@@ -103,14 +106,9 @@ internal class ConfigStore(
         if (field.source != FieldSource.USER)
             return@withLock UpdateResult.Failure("Setting '$id' is not user-editable")
 
-        val next = if (value == null) {
-            _userOverrides.value - id
-        } else {
-            when (val result = field.write(RuntimeConfig(), value)) {
-                is WriteResult.Invalid -> return@withLock UpdateResult.Failure(result.reason)
-                is WriteResult.Ok -> _userOverrides.value + (id to value)
-            }
-        }
+        val next = if (value == null) _userOverrides.value - id else _userOverrides.value + (id to value)
+        refusalOf(id, _userOverrides.value + _networkOverrides.value, next + _networkOverrides.value)
+            ?.let { return@withLock UpdateResult.Failure(it) }
 
         writeFile(userSettingsFile, next.toTomlText())
         _userOverrides.value = next
@@ -157,7 +155,9 @@ internal class ConfigStore(
         _maxTextMessageBytes.value = limits.maxTextMessageBytes
         _cryptoLimits.value = limits.crypto
         _transportLimits.value = limits.transport
-        _fileChunkSizeBytes.value = FileLimits.from(effective).chunkSizeBytes
+        val fileLimits = FileLimits.from(effective)
+        _fileChunkSizeBytes.value = fileLimits.chunkSizeBytes
+        _fileFetchFrameBytes.value = fileLimits.fetchFrameBytes
     }
 
     private fun readText(file: Path): String? {

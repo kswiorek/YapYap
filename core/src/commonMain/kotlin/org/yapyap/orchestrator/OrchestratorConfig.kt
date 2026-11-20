@@ -1,7 +1,9 @@
 package org.yapyap.orchestrator
 
 import kotlinx.serialization.Serializable
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -15,6 +17,32 @@ internal data class OrchestratorConfig(
     val syncGracePeriod: Duration = 60.seconds,
     /** Delay before a freshly triggered file request is first attempted (lets a pushed OFFER land). */
     val fileRequestFirstAttemptDelay: Duration = 60.seconds,
+    /** How often the file request coordinator sweeps due requests and stalled receives. */
+    val fileSweepInterval: Duration = 30.seconds,
+    /**
+     * Receiver gap trigger (design §8): an IN_FLIGHT receive whose contiguous prefix does not
+     * advance for this long goes STALLED and the request path re-opens.
+     */
+    val fileStallTimeout: Duration = 10.minutes,
+    /**
+     * How long a receive no message references is kept before it is deleted (design invariant 25):
+     * a pushed or relayed file can arrive before the message that references it.
+     */
+    val unreferencedFileRetention: Duration = 2.days,
+    /** "Keep a copy" default threshold: at or below, a picked file is copied into the store; above, referenced. */
+    val copyIntoStoreMaxBytes: Long = SMALL_FILE_MAX_BYTES,
+    /** Quota over the store's copies; references are never deleted by retention. */
+    val storeQuotaBytes: Long = 1024L * 1024L * 1024L,
+    /** Staging bound (design §8): chunks beyond the prefix that cannot extend it are deferred past this. */
+    val maxStagedBytes: Long = 32L * 1024L * 1024L,
+    /** Block mismatches before a receive fails (design §8). */
+    val fileHashRetryLimit: Int = 3,
+    /** Large files at or below this are fetched automatically (design §8). */
+    val autoDownloadMaxBytes: Long = 250L * 1024L * 1024L,
+    /** Checkpoint cadence (design §8): one append, fsync and prefix commit per this many bytes, */
+    val fileCheckpointBytes: Long = 8L * 1024L * 1024L,
+    /** or per this long, whichever comes first. */
+    val fileCheckpointInterval: Duration = 2.seconds,
     /** Roster re-read cadence for the identity service (silent lastSeen aging emits nothing). */
     val identityRefreshInterval: Duration = 60.seconds,
     /** Max messages returned per sync response (responder-side page size). */
@@ -36,14 +64,8 @@ internal data class OrchestratorConfig(
     /**
      * Newcomer onboarding session budget (AWAITING_INTRO + SYNCING wall-clock):
      * how long the newcomer waits for the sponsor intro and the follow-up
-     * global-room sync before burning the secret (TIMED_OUT). Deliberately much
-     * longer than the router's bootstrap envelope TTL
-     * ([org.yapyap.routing.router.RouterConfig.bootstrapIntroLifetime]) — Tor circuit setup, onion
-     * descriptor publication/HSDir propagation, and a human paste-and-scan round
-     * trip routinely exceed a few minutes on real networks, while the envelope
-     * TTL still bounds replayability. The outbox keeps re-sending the
-     * intro until its own TTL lapses; the session budget covers the whole
-     * human + network round trip.
+     * global-room sync before burning the secret (TIMED_OUT). Must be longer than
+     * the router's bootstrap envelope TTL (checked in `wiring/ConfigInvariants`).
      */
     val onboardingSessionLifetime: Duration = 40.minutes,
 ) {
@@ -52,6 +74,17 @@ internal data class OrchestratorConfig(
         require(typingIndicatorInterval > Duration.ZERO) { "typingIndicatorInterval must be > 0" }
         require(syncGracePeriod >= Duration.ZERO) { "syncGracePeriodSeconds must be >= 0" }
         require(fileRequestFirstAttemptDelay >= Duration.ZERO) { "fileRequestFirstAttemptDelay must be >= 0" }
+        require(fileSweepInterval > Duration.ZERO) { "fileSweepInterval must be > 0" }
+        require(fileStallTimeout > Duration.ZERO) { "fileStallTimeout must be > 0" }
+        require(unreferencedFileRetention > Duration.ZERO) { "unreferencedFileRetention must be > 0" }
+        require(copyIntoStoreMaxBytes >= 0) { "copyIntoStoreMaxBytes must be >= 0" }
+        require(storeQuotaBytes > 0) { "storeQuotaBytes must be > 0" }
+        require(maxStagedBytes > 0) { "maxStagedBytes must be > 0" }
+        require(fileHashRetryLimit > 0) { "fileHashRetryLimit must be > 0" }
+        require(autoDownloadMaxBytes >= 0) { "autoDownloadMaxBytes must be >= 0" }
+        require(fileCheckpointBytes > 0) { "fileCheckpointBytes must be > 0" }
+        require(fileCheckpointInterval > Duration.ZERO) { "fileCheckpointInterval must be > 0" }
+        require(maxStagedBytes >= fileCheckpointBytes) { "maxStagedBytes must hold a checkpoint's worth" }
         require(identityRefreshInterval > Duration.ZERO) { "identityRefreshInterval must be > 0" }
         require(syncMaxMessages > 0) { "syncMaxMessages must be > 0" }
         require(syncMaxKnownIds > 0) { "syncMaxKnownIds must be > 0" }

@@ -21,7 +21,7 @@ import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.file.FileRoutingPorts
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.PrintingAppLogger
@@ -144,13 +144,19 @@ class DefaultRouterLiveIntegrationTest {
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
-                fileIngestPort = RefusingFileIngestPort(),
-                fileIncomingStore = InMemoryFileIncomingTransferStore(),
-                filePushStore = InMemoryFilePushStore(),
-                fileRelayStore = InMemoryFileRelayStore(),
-                fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
-                plaintextSource = FakeFilePlaintextSource(),
-                fileChunkSize = MutableStateFlow(220 * 1024),
+                filePorts = FileRoutingPorts(
+                    ingest = RefusingFilePorts(),
+                    requests = RefusingFilePorts(),
+                    serveGate = RefusingFilePorts(),
+                    plaintext = FakeFilePlaintextSource(),
+                    receiveEnds = NoFileReceiveEnds,
+                    incoming = InMemoryFileIncomingTransferStore(),
+                    pushes = InMemoryFilePushStore(),
+                    relay = InMemoryFileRelayStore(),
+                    requestAttempts = InMemoryFileRequestAttemptStore(),
+                    chunkSizeBytes = MutableStateFlow(220 * 1024),
+                    fetchFrameBytes = MutableStateFlow(220 * 1024),
+                ),
             )
         val bobRouter =
             DefaultRouter(
@@ -170,13 +176,19 @@ class DefaultRouterLiveIntegrationTest {
                 syncPayloadProvider = FakeSyncPayloadProvider(),
                 frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
                 peerAvailabilityStore = FakePeerAvailabilityStore(),
-                fileIngestPort = RefusingFileIngestPort(),
-                fileIncomingStore = InMemoryFileIncomingTransferStore(),
-                filePushStore = InMemoryFilePushStore(),
-                fileRelayStore = InMemoryFileRelayStore(),
-                fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
-                plaintextSource = FakeFilePlaintextSource(),
-                fileChunkSize = MutableStateFlow(220 * 1024),
+                filePorts = FileRoutingPorts(
+                    ingest = RefusingFilePorts(),
+                    requests = RefusingFilePorts(),
+                    serveGate = RefusingFilePorts(),
+                    plaintext = FakeFilePlaintextSource(),
+                    receiveEnds = NoFileReceiveEnds,
+                    incoming = InMemoryFileIncomingTransferStore(),
+                    pushes = InMemoryFilePushStore(),
+                    relay = InMemoryFileRelayStore(),
+                    requestAttempts = InMemoryFileRequestAttemptStore(),
+                    chunkSizeBytes = MutableStateFlow(220 * 1024),
+                    fetchFrameBytes = MutableStateFlow(220 * 1024),
+                ),
             )
 
         try {
@@ -187,8 +199,8 @@ class DefaultRouterLiveIntegrationTest {
             // the FakeClock the outbox never retries — wait until both onions
             // are actually dialable, as a real peer would be.
             withTimeout(5.minutes) {
-                aliceRouter.localLinkStatus.first { it == LocalLinkStatus.Online }
-                bobRouter.localLinkStatus.first { it == LocalLinkStatus.Online }
+                aliceRouter.presence.localLinkStatus.first { it == LocalLinkStatus.Online }
+                bobRouter.presence.localLinkStatus.first { it == LocalLinkStatus.Online }
             }
 
             aliceTorMap[bobPeer] = bobIdentity.resolveTorEndpointForDevice(bobPeer)!!
@@ -201,10 +213,10 @@ class DefaultRouterLiveIntegrationTest {
                     coroutineScope {
                         val waitMsg =
                             async {
-                                bobRouter.incomingMessages.first()
+                                bobRouter.messages.incomingMessages.first()
                             }
                         delay(300L.milliseconds)
-                        aliceRouter.sendMessage(bobAccount, outbound)
+                        aliceRouter.messages.sendMessage(bobAccount, outbound)
                         waitMsg.await()
                     }
                 }

@@ -11,11 +11,11 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.MessageCarrier
 import kotlin.coroutines.cancellation.CancellationException
 
 internal class DefaultInboundMessagePipeline(
-    private val router: Router,
+    private val messageCarrier: MessageCarrier,
     private val dagEngine: DagEngine,
 ) : InboundMessagePipeline {
 
@@ -27,7 +27,7 @@ internal class DefaultInboundMessagePipeline(
     override fun start(scope: CoroutineScope) {
         check(job == null) { "Inbound pipeline already started" }
         job = scope.launch {
-            router.incomingMessages.collect { payload ->
+            messageCarrier.incomingMessages.collect { payload ->
                 runCatching {
                     val result = dagEngine.ingest(payload)
                     if (result != null) {

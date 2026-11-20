@@ -4,6 +4,8 @@ import app.cash.sqldelight.ColumnAdapter
 import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -26,7 +28,7 @@ import kotlin.uuid.Uuid
  * DB call onto one thread matches SQLite's single-writer model and avoids `SQLITE_BUSY`/corruption
  * when operations are issued concurrently from many coroutines.
  */
-internal val databaseDispatcher: CoroutineDispatcher = ioDispatcher.limitedParallelism(1)
+internal val databaseDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1)
 
 internal interface DriverFactory {
     fun createDriver(): SqlDriver
@@ -184,16 +186,6 @@ internal class DatabaseFactory(
                     target_deviceAdapter = PeerIdAdapter(),
                     via_relayAdapter = PeerIdAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
-                    expires_atAdapter = InstantEpochSecondsAdapter,
-                ),
-                file_transfersAdapter = File_transfers.Adapter(
-                    file_idAdapter = FileIdAdapter(),
-                    peer_account_idAdapter = AccountIdAdapter(),
-                    directionAdapter = EnumColumnAdapter(),
-                    transfer_classAdapter = EnumColumnAdapter(),
-                    statusAdapter = EnumColumnAdapter(),
-                    created_atAdapter = InstantEpochSecondsAdapter,
-                    updated_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_file_requestsAdapter = Pending_file_requests.Adapter(

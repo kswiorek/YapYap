@@ -63,6 +63,12 @@ internal interface Node {
     /** Starts every component in dependency order, reporting [BootProgress]; returns when the node is ready. */
     suspend fun start(onProgress: (BootProgress) -> Unit)
 
+    /**
+     * Pings every known peer now, advertising presence and exchanging frontiers. Call after
+     * [start] returns, once the ping consumers are subscribed.
+     */
+    suspend fun announceOnline()
+
     suspend fun stop()
 }
 

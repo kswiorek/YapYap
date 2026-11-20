@@ -19,6 +19,12 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -104,7 +110,7 @@ class FileRequestProcessorTest {
         val processor = FileRequestProcessor(
             ctx = ctx,
             attempts = attempts,
-            gate = gate,
+            requests = gate,
             outboxProcessor = stack.outboxProcessor,
             peerPolicy = policy,
             maxIdlePoll = MutableStateFlow(1.seconds),
@@ -236,7 +242,7 @@ class FileRequestProcessorTest {
         val processor = FileRequestProcessor(
             ctx = ctx,
             attempts = attempts,
-            gate = FakeFileIngest(listOf(holderAccount)),
+            requests = FakeFileIngest(listOf(holderAccount)),
             outboxProcessor = stack.outboxProcessor,
             peerPolicy = fixed,
             maxIdlePoll = MutableStateFlow(1.seconds),
@@ -278,10 +284,10 @@ class FileRequestProcessorTest {
 
     private class FakeFileIngest(
         private val candidates: List<AccountId>,
-    ) : FileIngestPort {
+    ) : FakeFilePorts {
         var coverage: FileCoverage? = FileCoverage(0L, emptyList())
         var canServe = true
-        override suspend fun checkOffer(offer: FileOfferInfo) = FileOfferVerdict.Accept
+        override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
         override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
             FileIngestResult.Duplicate
 

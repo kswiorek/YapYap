@@ -10,6 +10,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.uuid.Uuid
 
+/**
+ * The data-dir lock on the JVM. Runs here rather than in common tests: Android local unit tests
+ * see a stubbed `android.os.Process`, so the Android actual is only exercised on a device.
+ */
 class DataDirLockTest {
 
     @Test

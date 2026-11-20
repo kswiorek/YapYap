@@ -67,6 +67,20 @@ internal data class FileEnvelope(
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'S'.code.toByte(), 'F'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 
+        /**
+         * Bytes added by [encode] around [payload] (worst case): MAGIC(4) + VERSION(1)
+         * + transferId(16) + source(2+64) + target(2+64) + createdAt(8) + nonce(4+24) + scheme(1)
+         * + signature(1+4+64) + payload length prefix(4) = 263.
+         */
+        const val ENCODED_OVERHEAD_BYTES: Int = 263
+
+        /**
+         * The largest payload a file envelope can carry inside a [BinaryEnvelope] of
+         * [binaryEnvelopeBytes]: both envelopes' worst-case framing subtracted.
+         */
+        fun maxPayloadBytes(binaryEnvelopeBytes: Int): Int =
+            binaryEnvelopeBytes - BinaryEnvelope.ENCODED_HEADER_BYTES - ENCODED_OVERHEAD_BYTES
+
         fun decode(bytes: ByteArray): FileEnvelope {
             val reader = ByteReader(bytes)
             val magic = reader.readBytes(MAGIC.size)
@@ -311,6 +325,9 @@ internal sealed interface FilePayload {
         }
 
         companion object {
+            /** Bytes [encode] adds around the ciphertext: kind(1) + chunkIndex(4) + length prefix(4). */
+            const val ENCODED_OVERHEAD_BYTES: Int = 9
+
             fun decode(bytes: ByteArray): EncryptedChunk {
                 val reader = ByteReader(bytes)
                 require(FileEnvelopeKind.fromWireValue(reader.readByte()) == FileEnvelopeKind.CHUNK) {
@@ -810,6 +827,9 @@ internal sealed interface FileFetchFrame {
         }
 
         companion object {
+            /** Bytes [encode] adds around the file bytes: kind(1). */
+            const val ENCODED_OVERHEAD_BYTES: Int = 1
+
             fun decode(bytes: ByteArray): Data {
                 require(bytes.isNotEmpty()) { "Empty fetch frame" }
                 require(FileFetchKind.fromWireValue(bytes[0]) == FileFetchKind.DATA) {

@@ -27,7 +27,12 @@ import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
@@ -36,7 +41,6 @@ import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -60,10 +64,10 @@ class FileInboundServeTest {
     private val fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     private val now = epochSeconds(10_000L)
 
-    private class FakeIngest(var canServe: Boolean = true) : FileIngestPort {
+    private class FakeIngest(var canServe: Boolean = true) : FakeFilePorts {
         var coverage: FileCoverage? = FileCoverage(0L, emptyList())
         val servedFor = mutableListOf<Pair<FileId, AccountId>>()
-        override suspend fun checkOffer(offer: FileOfferInfo) = FileOfferVerdict.Accept
+        override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
         override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) = FileIngestResult.Duplicate
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
@@ -101,10 +105,11 @@ class FileInboundServeTest {
         override suspend fun protectSignal(
             input: WebRtcSignal,
             context: EnvelopeProtectContext,
-        ): WebRtcSignalEnvelope = TODO("not used")
-        override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal = TODO("not used")
+        ): WebRtcSignalEnvelope = error("not used")
+
+        override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal = error("not used")
         override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
-            TODO("not used")
+            error("not used")
 
         override suspend fun openFile(envelope: FileEnvelope) = OpenedFileEnvelope(
             transferId = envelope.transferId,
@@ -120,36 +125,39 @@ class FileInboundServeTest {
             chunkIndex: Int,
             key: ByteArray,
             chunk: FilePayload.EncryptedChunk,
-        ): ByteArray = TODO("not used")
+        ): ByteArray = error("not used")
 
         override suspend fun encryptFileChunk(
             transferId: TransferId,
             chunkIndex: Int,
             key: ByteArray,
             plaintext: ByteArray,
-        ): ByteArray = TODO("not used")
+        ): ByteArray = error("not used")
 
         override suspend fun sealFileOffer(
             offer: FilePayload.SealedOffer,
             target: PeerId,
-        ): ByteArray = TODO("not used")
+        ): ByteArray = error("not used")
 
         override suspend fun openFileOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
-            TODO("not used")
+            error("not used")
 
-        override fun generateFileTransferKey(): ByteArray = TODO("not used")
+        override fun generateFileTransferKey(): ByteArray = error("not used")
         override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
-            TODO("not used")
-        override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = TODO("not used")
+            error("not used")
+
+        override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = error("not used")
         override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
-            TODO("not used")
-        override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = TODO("not used")
+            error("not used")
+
+        override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = error("not used")
         override suspend fun protectBootstrap(
             input: BootstrapPayload,
             context: EnvelopeProtectContext,
             sharedSecret: ByteArray?,
-        ): BootstrapEnvelope = TODO("not used")
-        override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload = TODO("not used")
+        ): BootstrapEnvelope = error("not used")
+
+        override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload = error("not used")
         override suspend fun isBootstrapSessionActive(): Boolean = false
     }
 
@@ -190,12 +198,12 @@ class FileInboundServeTest {
             ctx = ctx,
             incoming = FakeIncoming(),
             ingest = ingest,
-            carrier = NoopFileCarrier(),
+            serveGate = ingest,
             pusher = pusher,
             relay = InMemoryFileRelayStore(),
             onCoverageAck = { _, _, _ -> },
             onTransferComplete = {},
-            onTransferCancelled = {},
+            onTransferCancelled = { _, _ -> },
             onOfferReceived = {},
             onRelayStored = {},
         )

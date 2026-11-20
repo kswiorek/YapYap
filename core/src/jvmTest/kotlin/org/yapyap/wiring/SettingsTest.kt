@@ -51,6 +51,16 @@ class SettingsTest {
     }
 
     @Test
+    fun everyUserNumberSetting_roundTripsAndReachesTheConfig() {
+        for (field in FIELDS.filterIsInstance<NumberField>().filter { it.source == FieldSource.USER }) {
+            val newValue = defaultNumber(field) + 1
+            val overrides: Overrides = mapOf(field.id to ConfigValue.Number(newValue))
+            assertEquals(overrides, Toml.parseToTomlTable(overrides.toTomlText()).toOverrides(), field.id)
+            assertEquals(ConfigValue.Number(newValue), field.read(derive(overrides)), field.id)
+        }
+    }
+
+    @Test
     fun write_rejectsInvalidValue() {
         val field = userNumberField()
         assertIs<WriteResult.Invalid>(field.write(RuntimeConfig(), ConfigValue.Period(1.seconds)))

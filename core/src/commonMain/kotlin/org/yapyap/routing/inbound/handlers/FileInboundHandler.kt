@@ -9,17 +9,17 @@ import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.ChunkRange
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
 import org.yapyap.routing.file.FilePushOps
 import org.yapyap.routing.file.buildFileControlEnvelope
+import org.yapyap.routing.file.port.FileIngestPort
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FileServeGate
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
@@ -40,7 +40,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * Local target: the OFFER/CHUNK/REQUEST serve path. Foreign target: this device is a
  * relay holding a deposit (design §7) — signature-checked at the door, stored as
  * ciphertext, forwarded only when whole. The relay path never touches the ingest
- * port, the pusher or the carrier: routing-only, no orchestrator leak.
+ * port or the pusher: routing-only, no orchestrator leak.
  *
  * Chunk discipline (design §3.5): a CHUNK for an unknown or unprocessed `transferId` is
  * never ACKed and never stored — at a target or at a relay — answered DECLINED.
@@ -49,12 +49,12 @@ internal class FileInboundHandler(
     private val ctx: RoutingContext,
     private val incoming: FileIncomingTransferStore,
     private val ingest: FileIngestPort,
-    private val carrier: FileCarrier,
+    private val serveGate: FileServeGate,
     private val pusher: FilePushOps,
     private val relay: FileRelayStore,
     private val onCoverageAck: suspend (transferId: TransferId, contiguousChunks: Int, missing: List<ChunkRange>) -> Unit,
     private val onTransferComplete: suspend (transferId: TransferId) -> Unit,
-    private val onTransferCancelled: suspend (transferId: TransferId) -> Unit,
+    private val onTransferCancelled: suspend (transferId: TransferId, reason: FileCancelReason) -> Unit,
     private val onOfferReceived: suspend (fileId: FileId) -> Unit,
     /** The door stored a deposit chunk/OFFER: the relay forwarder may have work. */
     private val onRelayStored: () -> Unit,
@@ -101,7 +101,7 @@ internal class FileInboundHandler(
                     incoming.delete(fileEnvelope.transferId)
                     InboundHandleResult.Success(sourceAuthenticated = true)
                 } else {
-                    onTransferCancelled(fileEnvelope.transferId)
+                    onTransferCancelled(fileEnvelope.transferId, payload.reason)
                     InboundHandleResult.Success(sourceAuthenticated = true)
                 }
             }
@@ -127,7 +127,7 @@ internal class FileInboundHandler(
             return inboundResultForProtectionFailure(e)
         }
         val verdict = ingest.checkOffer(
-            FileOfferInfo(
+            FileManifest(
                 fileId = sealed.fileId,
                 totalBytes = payload.totalBytes,
                 blockSize = sealed.blockSize,
@@ -216,13 +216,6 @@ internal class FileInboundHandler(
             )
         ) {
             is FileIngestResult.Staged -> {
-                carrier.emit(
-                    FileEvent.IncomingProgress(
-                        fileId = row.fileId,
-                        contiguousBytes = result.contiguousBytes,
-                        totalBytes = result.totalBytes,
-                    ),
-                )
                 // Progress ACK back to the transfer's pusher (own chunk indices, capped).
                 // Best-effort like the transport ACK: untagged, so no outbox outcome.
                 val contiguous = if (result.contiguousBytes == 0L) {
@@ -273,7 +266,7 @@ internal class FileInboundHandler(
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         } ?: return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         val allowed = try {
-            ingest.canServe(payload.fileId, requester)
+            serveGate.canServe(payload.fileId, requester)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -314,7 +307,7 @@ internal class FileInboundHandler(
     // original sender's signature, store the ciphertext, forward only when whole.
     // DECLINED for a dead transferId or an out-of-range index so the sender cleans up
     // at once instead of retrying into a dead store. Never touches the ingest port,
-    // the pusher (authoring side) or the carrier — the relay path is routing-only.
+    // the pusher (authoring side) — the relay path is routing-only.
 
     private suspend fun handleRelay(env: BinaryEnvelope, fileEnvelope: FileEnvelope): InboundHandleResult {
         val opened = try {
@@ -431,14 +424,14 @@ internal class FileInboundHandler(
     }
 
     /**
-     * Admission against `relayStoragePledgeBytes`: evict whole transfers oldest-first
+     * Admission against `fileRelayBudgetBytes`: evict whole transfers oldest-first
      * until the reservation fits (RESERVED transfers mid-deposit are not exempt — an
      * evicted sender learns it through the door DECLINED on its next chunk, §7.2).
      * False when nothing fits: the sender is DECLINED at the door and tries the next
      * relay or re-offers later.
      */
     private suspend fun admit(transferId: TransferId, reserved: Long): Boolean {
-        val pledge = ctx.routerConfig.value.relayStoragePledgeBytes
+        val pledge = ctx.routerConfig.value.fileRelayBudgetBytes
         var used = relay.reservedBytes()
         if (used + reserved <= pledge) return true
         var candidates = relay.evictionCandidates(16)

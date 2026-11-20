@@ -4,8 +4,18 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.yapyap.protocol.*
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
@@ -87,7 +97,7 @@ class DefaultRouterContractTest {
         router.start()
 
         val payload = sampleTextPayload()
-        val result = router.sendMessage(targetAccount, payload)
+        val result = router.messages.sendMessage(targetAccount, payload)
 
         assertEquals(0, result.devicesTotal)
         assertEquals(0, result.devicesQueued)
@@ -110,7 +120,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(tor = tor, identity = identity)
         router.start()
 
-        val result = router.sendMessage(ownAccount, sampleTextPayload())
+        val result = router.messages.sendMessage(ownAccount, sampleTextPayload())
 
         // Quiet steady state for single-device users — covered by the pull path, never a failure.
         assertEquals(0, result.devicesTotal)
@@ -132,7 +142,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(identity = identity)
 
         assertFailsWith<IllegalStateException> {
-            router.sendMessage(account, sampleTextPayload())
+            router.messages.sendMessage(account, sampleTextPayload())
         }
         Unit
     }
@@ -163,7 +173,7 @@ class DefaultRouterContractTest {
             )
 
         router.start()
-        val result = router.sendMessage(account, sampleTextPayload())
+        val result = router.messages.sendMessage(account, sampleTextPayload())
 
         assertEquals(2, result.devicesTotal)
         assertEquals(2, result.devicesQueued)
@@ -194,7 +204,7 @@ class DefaultRouterContractTest {
         val router = defaultRouterUnderTest(tor = tor, identity = identity)
         router.start()
 
-        val result = router.sendMessage(account, sampleTextPayload())
+        val result = router.messages.sendMessage(account, sampleTextPayload())
 
         assertEquals(1, result.devicesTotal)
         assertEquals(1, result.devicesQueued)

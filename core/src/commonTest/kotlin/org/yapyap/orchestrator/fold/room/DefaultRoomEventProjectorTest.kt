@@ -4,10 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -25,7 +22,6 @@ import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -33,31 +29,22 @@ import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.routing.file.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
-import org.yapyap.routing.router.BootstrapPacketEvent
-import org.yapyap.routing.router.Delivery
-import org.yapyap.routing.router.PingFrontiers
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.sync.FakeInboundMessagePipeline
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.InMemoryIdentityStore
-import org.yapyap.testfixtures.NoopFileCarrier
+import org.yapyap.testfixtures.NoopMessageCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Duration
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
@@ -189,53 +176,13 @@ private class FakeGlobalEventProjector : GlobalEventProjector {
     override suspend fun seedProvisionalMember(accountId: AccountId) = Unit
 }
 
-private class FakeRouter : Router {
+private class FakeRouter : NoopMessageCarrier() {
     val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
-    override val incomingMessages: Flow<MessagePayload> = MutableSharedFlow()
-    override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
-    override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
-    override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
 
-    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
-
-    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
-        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
-    override val deliveries: Flow<Delivery> = emptyFlow()
-    override val fileCarrier: FileCarrier = NoopFileCarrier()
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
-    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
-    override suspend fun abortFileFetch(fileId: FileId) = Unit
-
-    override suspend fun start() = Unit
-    override suspend fun stop() = Unit
-    override fun isRunning(): Boolean = true
-    override suspend fun announceOnline() = Unit
-    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
-        org.yapyap.protocol.TorEndpoint("local.onion", 80)
-
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
-        emptyMap()
-    override suspend fun sendMessage(
-        target: AccountId,
-        payload: MessagePayload,
-    ): AccountPushReport {
+    override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
         sent.add(target to payload)
-        return AccountPushReport(devicesTotal = 1, devicesQueued = 1, devicesDeferred = 0, devicesFailed = 0)
+        return super.sendMessage(target, payload)
     }
-
-    override suspend fun sendTypingIndicator(
-        targets: Collection<AccountId>,
-        roomId: RoomId,
-        interval: Duration,
-    ) = Unit
-
-    override suspend fun sendBootstrap(
-        payload: BootstrapPayload,
-        target: PeerId,
-        targetEndpoint: TorEndpoint?,
-        sharedSecret: ByteArray?,
-    ) = Uuid.random()
 }
 
 private class Harness {
@@ -254,7 +201,7 @@ private class Harness {
         messageRepository = messageRepo,
         roomRepository = roomRepo,
         identityReader = identityRepo,
-        router = router,
+        messageCarrier = router,
     )
     private var tick = 1000L
 

@@ -32,14 +32,17 @@ import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
+import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.sync.SyncPayloadProvider
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.NoopRouter
+import org.yapyap.testfixtures.NoopMessageCarrier
+import org.yapyap.testfixtures.NoopSyncCarrier
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -162,22 +165,26 @@ internal class RecordingSyncPayloadProvider(
 }
 
 /** Router stand-in for orchestrator-side sync tests: records what the coordinator asks of it. */
-internal class RecordingSyncRouter : NoopRouter() {
+internal class RecordingSyncRouter {
     val started = mutableListOf<Pair<Uuid, Instant>>()
     val reopened = mutableListOf<Pair<Uuid, AccountId>>()
     val sent = mutableListOf<Pair<AccountId, MessagePayload>>()
 
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
-        started += syncId to firstAttemptAt
+    val syncs: SyncCarrier = object : NoopSyncCarrier() {
+        override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
+            started += syncId to firstAttemptAt
+        }
+
+        override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
+            reopened += syncId to account
+        }
     }
 
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
-        reopened += syncId to account
-    }
-
-    override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
-        sent += target to payload
-        return super.sendMessage(target, payload)
+    val messages: MessageCarrier = object : NoopMessageCarrier() {
+        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+            sent += target to payload
+            return super.sendMessage(target, payload)
+        }
     }
 }
 

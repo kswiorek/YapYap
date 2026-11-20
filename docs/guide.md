@@ -69,6 +69,9 @@ lose the boundary that matters most here: who knows about devices and packets, a
 ### Router — "get this payload there"
 
 - Speaks **devices and envelopes**: `PeerId`, `BinaryEnvelope`, packet ids.
+- `Router` is only a lifecycle plus one service per concern: `messages` (`MessageCarrier`), `syncs` (`SyncCarrier`),
+  `bootstrap` (`BootstrapCarrier`), `presence` (`Presence`) and `files` (`FileCarrier`). An orchestrator component
+  takes the services it uses, never the whole router.
 - Fans a payload out to every device of the target account, protects it (via protection), queues it in the
   outbox, picks a link, retries, deposits relay copies, and handles ACK/NACK and dedup.
 - Keeps links alive, sends pings, tracks peer availability, and exposes presence to the orchestrator **per
@@ -81,7 +84,7 @@ lose the boundary that matters most here: who knows about devices and packets, a
   branches on a room, never looks at the DAG or membership, and never decides what content to send. When it needs
   content it does not own (the frontiers it
   advertises in a ping), it asks through an interface it declares itself, implemented by the orchestrator.
-- Folds transport health into its own `LocalLinkStatus` (`Router.localLinkStatus`); transport types stop at the
+- Folds transport health into its own `LocalLinkStatus` (`Presence.localLinkStatus`); transport types stop at the
   router.
 - Beside the outbox it owns a direct channel path: large files are pulled over per-fetch WebRTC data channels (fetch
   frames straight between the transport channel and the file code, no envelopes, no outbox rows, no
@@ -174,7 +177,9 @@ read-only interfaces that the *reading* layer declares (the router's `DeviceDire
 | `sync_attempts`, `sync_declined_devices`                                                                                                        | routing        | the sync retry processor                                                                                                                                                                                        |
 | `device_routes`                                                                                                                                 | routing        | the router: endpoints it proved, reliability, last seen (a proven endpoint overrides the declared one in `devices`)                                                                                             |
 | `outbox`, `dedup`                                                                                                                               | routing        | the router                                                                                                                                                                                                      |
-| `file_descriptors`, `file_transfers`, `file_receives`, `file_receive_chunks`, `pending_file_requests`                                           | orchestrator   | the file service (`orchestrator/file`):        file/account-grain send, receive and request state per [`file/design.md`](file/design.md) §13 (schema lands with implementation)                                |
+| `file_descriptors`                                                                                                                              | orchestrator   | the file store (`FileStore`): imports, finished receives (`adopt`), lost sources, quota                                                                                                                         |
+| `file_receives`, `file_receive_chunks`                                                                                                          | orchestrator   | the receive engine; others change a receive only through its verbs (`FileReceiveControl`)                                                                                                                       |
+| `pending_file_requests`                                                                                                                         | orchestrator   | the file request coordinator, including the user's accept and decline (`FileRequestControl`)                                                                                                                    |
 | `file_pushes`, `file_incoming_transfers`, `file_relay_transfers`, `file_relay_chunks`, `file_request_attempts`, `file_request_declined_devices` | routing        | the file pusher, the inbound file handler, the file relay store and the file request processor: transferId-grain state per [`file/design.md`](file/design.md) §6–§8                                             |
 | `spaces`                                                                                                                                        | not in use yet | —                                                                                                                                                                                                               |
 
@@ -251,7 +256,7 @@ never a loss.
   accounts may hold it, and what may be served to whom (`pending_syncs`, the serve gate). The router owns **asking**:
   which candidate device, when, and carrying the request and reply. It reads the content through
   `SyncPayloadProvider`, an interface it declares and the orchestrator implements, and the orchestrator hands
-  it each sync with `Router.startSync`. Only candidate devices with an open link are asked; with none, their
+  it each sync with `SyncCarrier.startSync`. Only candidate devices with an open link are asked; with none, their
   links are nudged and the sync is asked the moment one comes up. Each attempt is one sync request sent
   through the outbox with a short lifetime (`syncAttemptTimeout`). A `DECLINED` NACK rules that device out for
   the sync; expiry or any other NACK only moves it behind the other candidates, and the next one is asked at

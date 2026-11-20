@@ -21,7 +21,7 @@ import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.file.FileRoutingPorts
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -153,13 +153,19 @@ class UnknownDevicePolicyTest {
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
             peerAvailabilityStore = availabilityStore,
-            fileIngestPort = RefusingFileIngestPort(),
-            fileIncomingStore = InMemoryFileIncomingTransferStore(),
-            filePushStore = InMemoryFilePushStore(),
-            fileRelayStore = InMemoryFileRelayStore(),
-            fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
-            plaintextSource = FakeFilePlaintextSource(),
-            fileChunkSize = MutableStateFlow(220 * 1024),
+            filePorts = FileRoutingPorts(
+                ingest = RefusingFilePorts(),
+                requests = RefusingFilePorts(),
+                serveGate = RefusingFilePorts(),
+                plaintext = FakeFilePlaintextSource(),
+                receiveEnds = NoFileReceiveEnds,
+                incoming = InMemoryFileIncomingTransferStore(),
+                pushes = InMemoryFilePushStore(),
+                relay = InMemoryFileRelayStore(),
+                requestAttempts = InMemoryFileRequestAttemptStore(),
+                chunkSizeBytes = MutableStateFlow(220 * 1024),
+                fetchFrameBytes = MutableStateFlow(220 * 1024),
+            ),
         )
         router.start()
 

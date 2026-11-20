@@ -21,8 +21,9 @@ import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
+import org.yapyap.routing.router.BootstrapCarrier
 import org.yapyap.routing.router.DeliverySubject
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.MessageCarrier
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -40,7 +41,8 @@ import kotlin.uuid.Uuid
  * [OnboardingState] flow on the orchestrator).
  */
 internal class DefaultOnboardingProvider(
-    private val router: Router,
+    private val messageCarrier: MessageCarrier,
+    private val bootstrapCarrier: BootstrapCarrier,
     private val sessionStore: BootstrapSessionStore,
     private val syncCoordinator: SyncCoordinator,
     private val identityReader: IdentityReader,
@@ -85,7 +87,7 @@ internal class DefaultOnboardingProvider(
         // Subscribe before any intro can arrive; on a restart mid-onboarding an intro could
         // race this boot.
         collectJob = owner.launch {
-            router.bootstrapPackets.collect { event ->
+            bootstrapCarrier.bootstrapPackets.collect { event ->
                 val intro = event.payload as? Intro ?: return@collect
                 onBootstrapIntro(intro)
             }
@@ -136,7 +138,7 @@ internal class DefaultOnboardingProvider(
         }
         if (deliveryJob?.isActive == true) return
         deliveryJob = owner.launch {
-            router.deliveries.collect { delivery ->
+            messageCarrier.deliveries.collect { delivery ->
                 val delivered = (delivery.subject as? DeliverySubject.Bootstrap)?.packetId ?: return@collect
                 if (delivered != awaitedRequest) return@collect
                 awaitedRequest = null

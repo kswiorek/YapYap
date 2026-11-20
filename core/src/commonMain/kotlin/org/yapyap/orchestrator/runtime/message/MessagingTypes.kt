@@ -53,7 +53,11 @@ public data class PickedFile(
     val fileName: String,
     val mimeType: String?,
     val source: PickedFileSource,
-    val keepCopy: Boolean = true,
+    /**
+     * Copy the file into the app's store (it survives the original moving) or only reference it.
+     * Null leaves it to the "keep a copy" size threshold in settings.
+     */
+    val keepCopy: Boolean? = null,
 )
 
 /** Where the bytes of a [PickedFile] live. */

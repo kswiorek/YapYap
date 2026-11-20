@@ -16,9 +16,10 @@ import kotlin.test.assertNull
 /**
  * Turns a store created at today's schema back into a version-5 store: undoes 5.sqm (the
  * router's device_routes split out of devices) by recreating the version-5 devices shape,
- * and undoes 6.sqm (file placeholders -> attachment index) by restoring the placeholders.
+ * and undoes 6.sqm through [revertFileMigration].
  */
 internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
+    revertFileMigration(driver)
     listOf(
         "DROP TABLE device_routes",
         "DROP INDEX devices_account_idx",
@@ -41,56 +42,6 @@ internal fun revertToVersionFive(driver: app.cash.sqldelight.db.SqlDriver) {
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )""",
         "CREATE INDEX devices_account_idx ON devices(account_id)",
-        // 14.sqm undone: the file relay store goes (fresh schema creates it).
-        "DROP INDEX IF EXISTS file_relay_chunks_transfer_idx",
-        "DROP TABLE IF EXISTS file_relay_chunks",
-        "DROP TABLE IF EXISTS file_relay_transfers",
-        // 13.sqm undone: the pending file requests go (fresh schema creates them).
-        "DROP TABLE IF EXISTS pending_file_requests",
-        // 12.sqm undone: the file request attempts go (fresh schema creates them).
-        "DROP TABLE IF EXISTS file_request_declined_devices",
-        "DROP INDEX IF EXISTS file_request_attempts_due_idx",
-        "DROP TABLE IF EXISTS file_request_attempts",
-        // 11.sqm undone: the send/serve rows go (fresh schema creates them).
-        "DROP TABLE IF EXISTS file_transfers",
-        // 10.sqm undone: the push rows go (fresh schema creates them).
-        "DROP INDEX IF EXISTS file_pushes_file_target_idx",
-        "DROP TABLE IF EXISTS file_pushes",
-        // 9.sqm undone: the receive state and staging go (fresh schema creates them).
-        "DROP INDEX IF EXISTS file_receive_chunks_file_idx",
-        "DROP TABLE IF EXISTS file_receive_chunks",
-        "DROP TABLE IF EXISTS file_receives",
-        // 8.sqm undone: the incoming-transfer rows go (fresh schema creates them).
-        "DROP INDEX IF EXISTS file_incoming_transfers_file_idx",
-        "DROP TABLE IF EXISTS file_incoming_transfers",
-        // 7.sqm undone: the permanent store index goes (fresh schema creates it).
-        "DROP TABLE IF EXISTS file_descriptors",
-        // 6.sqm undone: attachment index goes, old placeholders come back (empty).
-        "DROP INDEX IF EXISTS message_attachments_file_idx",
-        "DROP TABLE IF EXISTS message_attachments",
-        """CREATE TABLE file_transfers (
-            transfer_id TEXT NOT NULL PRIMARY KEY,
-            message_id TEXT NOT NULL,
-            status TEXT NOT NULL,
-            file_name_hint TEXT,
-            mime_type TEXT,
-            total_bytes INTEGER NOT NULL,
-            chunk_size_bytes INTEGER NOT NULL,
-            chunk_count INTEGER NOT NULL,
-            object_hash BLOB NOT NULL,
-            highest_contiguous_chunk INTEGER NOT NULL DEFAULT -1,
-            local_file_path TEXT NOT NULL,
-            FOREIGN KEY (message_id) REFERENCES messages(message_id)
-        )""",
-        """CREATE TABLE file_chunk_tracker (
-            transfer_id TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            PRIMARY KEY (transfer_id, chunk_index),
-            FOREIGN KEY (transfer_id) REFERENCES file_transfers(transfer_id)
-        )""",
-        "CREATE INDEX file_transfers_message_idx ON file_transfers(message_id)",
-        "CREATE INDEX file_chunk_tracker_status_idx ON file_chunk_tracker(status)",
         "PRAGMA user_version = 5",
     ).forEach { driver.execute(null, it, 0) }
 }

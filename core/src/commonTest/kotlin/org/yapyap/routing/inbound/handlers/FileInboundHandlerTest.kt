@@ -26,15 +26,13 @@ import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileCoverage
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.FileRefusalReason
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
+import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
 import org.yapyap.routing.router.InMemoryFileRelayStore
@@ -58,36 +56,14 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.uuid.Uuid
 
-internal class RecordingFileCarrier : FileCarrier {
-    val events = mutableListOf<FileEvent>()
-    override val fileEvents: kotlinx.coroutines.flow.Flow<FileEvent>
-        get() = error("RecordingFileCarrier exposes recorded events instead")
-
-    override suspend fun pushFile(fileId: FileId, target: org.yapyap.protocol.AccountId): Unit =
-        error("not used in inbound handler tests")
-
-    override suspend fun cancelFile(fileId: FileId, target: org.yapyap.protocol.AccountId): Unit =
-        error("not used in inbound handler tests")
-
-    override suspend fun fileReady(fileId: FileId): Unit =
-        error("not used in inbound handler tests")
-
-    override suspend fun cancelIncoming(fileId: FileId, reason: org.yapyap.protocol.envelopes.FileCancelReason): Unit =
-        error("not used in inbound handler tests")
-
-    override suspend fun emit(event: FileEvent) {
-        events += event
-    }
-}
-
 internal class ScriptedFileIngestPort(
     var offerVerdict: FileOfferVerdict = FileOfferVerdict.Accept,
     var ingestResult: FileIngestResult = FileIngestResult.Staged(0, 0),
-) : FileIngestPort {
-    val offers = mutableListOf<FileOfferInfo>()
+) : FakeFilePorts {
+    val offers = mutableListOf<FileManifest>()
     val ingests = mutableListOf<Triple<FileId, Long, ByteArray>>()
 
-    override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict {
+    override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict {
         offers += offer
         return offerVerdict
     }
@@ -117,7 +93,6 @@ class FileInboundHandlerTest {
         val senderProtection: SignedAndEncryptedFileProtection,
         val incoming: FileIncomingTransferStore,
         val ingest: ScriptedFileIngestPort,
-        val carrier: RecordingFileCarrier,
         val localId: PeerId,
         val remoteId: PeerId,
         val clock: FakeClock,
@@ -180,7 +155,6 @@ class FileInboundHandlerTest {
             transportLimits = MutableStateFlow(testTransportLimits()),
         )
         val incoming = InMemoryFileIncomingTransferStore()
-        val carrier = RecordingFileCarrier()
         val coverageAcks = mutableListOf<Triple<TransferId, Int, List<org.yapyap.protocol.envelopes.ChunkRange>>>()
         val completed = mutableListOf<TransferId>()
         val cancelled = mutableListOf<TransferId>()
@@ -189,19 +163,18 @@ class FileInboundHandlerTest {
                 ctx,
                 incoming,
                 ingest,
-                carrier,
+                ingest,
                 pusher = NoopFilePushOps(),
                 relay = InMemoryFileRelayStore(),
                 onCoverageAck = { transferId, contiguous, missing -> coverageAcks += Triple(transferId, contiguous, missing) },
                 onTransferComplete = { completed += it },
-                onTransferCancelled = { cancelled += it },
+                onTransferCancelled = { transferId, _ -> cancelled += transferId },
                 onOfferReceived = {},
                 onRelayStored = {},
             ),
             senderProtection = senderProtection,
             incoming = incoming,
             ingest = ingest,
-            carrier = carrier,
             localId = local.deviceId,
             remoteId = senderPeer.device.deviceId,
             clock = clock,
@@ -355,9 +328,6 @@ class FileInboundHandlerTest {
         assertEquals(fileId, id)
         assertEquals(0L, offset)
         assertContentEquals(plaintext, bytes)
-        val progress = h.carrier.events.filterIsInstance<FileEvent.IncomingProgress>().single()
-        assertEquals(fileId, progress.fileId)
-        assertEquals(440L * 1024, progress.contiguousBytes)
         // A coverage ACK goes back to the transfer's pusher (own chunk indices).
         val ackReply = success.sideEffects.filterIsInstance<InboundSideEffect.EnqueueDirect>().single()
         val ackEnvelope = FileEnvelope.decode(ackReply.envelope.payload)
@@ -567,8 +537,5 @@ class FileInboundHandlerTest {
         val result = h.handler.handle(env)
         val rejected = assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
-        // A declined REQUEST is normal traffic (the requester moves on), not a failure:
-        // nothing is emitted and no serve starts.
-        assertTrue(h.carrier.events.none { it is FileEvent.Failed && it.fileId == fileId })
     }
 }

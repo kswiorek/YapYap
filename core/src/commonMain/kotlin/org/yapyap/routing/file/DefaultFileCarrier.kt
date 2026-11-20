@@ -12,11 +12,14 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.routing.file.port.FileCarrier
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileReceiveEnd
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileIncomingTransferStore
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /** Pusher side of [FileCarrier]: the per-device push machinery owns this contract. */
 internal interface FilePushOps {
@@ -45,8 +48,9 @@ internal class DefaultFileCarrier(
     private val routerConfig: StateFlow<RouterConfig>,
     private val pushOps: FilePushOps,
     events: MutableSharedFlow<FileEvent>,
+    private val startRequest: suspend (FileId, Instant) -> Unit,
+    private val abortFetch: suspend (FileId) -> Unit,
 ) : FileCarrier {
-    private val events = events
     override val fileEvents: Flow<FileEvent> = events.asSharedFlow()
 
     override suspend fun pushFile(fileId: FileId, target: AccountId) =
@@ -55,67 +59,46 @@ internal class DefaultFileCarrier(
     override suspend fun cancelFile(fileId: FileId, target: AccountId) =
         pushOps.cancelFile(fileId, target)
 
-    override suspend fun fileReady(fileId: FileId) {
+    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) =
+        startRequest(fileId, firstAttemptAt)
+
+    override suspend fun abortFileFetch(fileId: FileId) = abortFetch(fileId)
+
+    /** Answers a receive the engine ended: COMPLETE when ready, CANCEL when it stopped. */
+    suspend fun onReceiveEnd(end: FileReceiveEnd) = when (end) {
+        is FileReceiveEnd.Ready ->
+            endIncoming(end.fileId, FilePayload.Complete, "File READY: COMPLETE sent to transfer author")
+
+        is FileReceiveEnd.Cancelled -> endIncoming(
+            end.fileId,
+            FilePayload.Cancel(end.reason, reasonText = null),
+            "File receive stopped: CANCEL sent to transfer author",
+        )
+    }
+
+    /** Sends [payload] to every live transfer author of [fileId] and drops their incoming rows. */
+    private suspend fun endIncoming(fileId: FileId, payload: FilePayload, message: String) {
         val now = clock.now()
         val expiresAt = now + routerConfig.value.fileTransferTtl
-        val rows = incoming.findByFile(fileId)
-        for (row in rows) {
-            val envelope = buildFileControlEnvelope(
-                protection = protection,
-                transferId = row.transferId,
-                source = localDeviceId,
-                target = row.authorDevice,
-                createdAt = now,
-                expiresAt = expiresAt,
-                payload = FilePayload.Complete,
+        for (row in incoming.findByFile(fileId)) {
+            enqueue(
+                buildFileControlEnvelope(
+                    protection = protection,
+                    transferId = row.transferId,
+                    source = localDeviceId,
+                    target = row.authorDevice,
+                    createdAt = now,
+                    expiresAt = expiresAt,
+                    payload = payload,
+                ),
             )
-            enqueue(envelope)
             AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.OUTBOX_MESSAGE_QUEUED,
-                message = "File READY: COMPLETE sent to transfer author",
-                fields = mapOf(
-                    "fileId" to fileId,
-                    "transferId" to row.transferId,
-                    "author" to row.authorDevice,
-                ),
+                message = message,
+                fields = mapOf("fileId" to fileId, "transferId" to row.transferId, "author" to row.authorDevice),
             )
         }
         incoming.deleteByFile(fileId)
-        emit(FileEvent.Ready(fileId))
-    }
-
-    override suspend fun cancelIncoming(fileId: FileId, reason: FileCancelReason) {
-        val now = clock.now()
-        val expiresAt = now + routerConfig.value.fileTransferTtl
-        val rows = incoming.findByFile(fileId)
-        for (row in rows) {
-            val envelope = buildFileControlEnvelope(
-                protection = protection,
-                transferId = row.transferId,
-                source = localDeviceId,
-                target = row.authorDevice,
-                createdAt = now,
-                expiresAt = expiresAt,
-                payload = FilePayload.Cancel(reason, reasonText = null),
-            )
-            enqueue(envelope)
-            AppLog.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_MESSAGE_QUEUED,
-                message = "File receive failed: CANCEL sent to transfer author",
-                fields = mapOf(
-                    "fileId" to fileId,
-                    "transferId" to row.transferId,
-                    "author" to row.authorDevice,
-                    "reason" to reason,
-                ),
-            )
-        }
-        incoming.deleteByFile(fileId)
-    }
-
-    override suspend fun emit(event: FileEvent) {
-        events.emit(event)
     }
 }

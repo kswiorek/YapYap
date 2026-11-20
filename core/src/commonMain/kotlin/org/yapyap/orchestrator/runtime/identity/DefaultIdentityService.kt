@@ -14,7 +14,7 @@ import org.yapyap.orchestrator.identity.IdentityReader
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.routing.router.AccountReach
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.Presence
 
 /**
  * Read-only GUI roster over the chain-derived identity tables: accounts with
@@ -30,7 +30,7 @@ import org.yapyap.routing.router.Router
  */
 internal class DefaultIdentityService(
     private val identityReader: IdentityReader,
-    private val router: Router,
+    private val presence: Presence,
     private val projector: GlobalEventProjector,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
 ) : IdentityService {
@@ -50,7 +50,7 @@ internal class DefaultIdentityService(
         collectJob = scope.launch {
             refresh()
             launch {
-                router.onlineAccounts.collect { online ->
+                presence.onlineAccounts.collect { online ->
                     _onlineAccounts.value = online
                     refresh()
                 }
@@ -75,14 +75,14 @@ internal class DefaultIdentityService(
 
     override suspend fun account(accountId: AccountId): AccountView? {
         val row = identityReader.getAllAccounts().firstOrNull { it.accountId == accountId } ?: return null
-        val reach = router.accountReach(listOf(accountId))[accountId]
+        val reach = presence.accountReach(listOf(accountId))[accountId]
         return viewOf(row, _onlineAccounts.value, reach)
     }
 
     private suspend fun refresh() {
         val online = _onlineAccounts.value
         val rows = identityReader.getAllAccounts()
-        val reach = router.accountReach(rows.map { it.accountId })
+        val reach = presence.accountReach(rows.map { it.accountId })
         val views = rows
             .map { row -> viewOf(row, online, reach[row.accountId]) }
             .sortedWith(compareBy({ it.displayName }, { it.accountId.id }))
@@ -102,7 +102,7 @@ internal class DefaultIdentityService(
                     torEndpoint = when {
                         it.status == IdentityStatus.BANNED -> null
                         // This device's own endpoint is what Tor published, not the declared one.
-                        it.isLocal -> runCatching { router.localTorEndpoint() }.getOrDefault(it.declaredEndpoint)
+                        it.isLocal -> runCatching { presence.localTorEndpoint() }.getOrDefault(it.declaredEndpoint)
                         else -> it.declaredEndpoint
                     },
                     deviceType = it.deviceType,

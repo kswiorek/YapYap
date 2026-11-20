@@ -4,6 +4,7 @@ import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
@@ -22,7 +23,6 @@ import kotlinx.coroutines.withTimeout
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.persistence.ioDispatcher
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.tor.TorIncomingFrame
@@ -82,7 +82,7 @@ internal class LoopbackTorBackend(
 
         // ktor's selector loop blocks its thread in select(): never on Default (several
         // loopback instances in one process would starve it).
-        val selector = SelectorManager(ioDispatcher)
+        val selector = SelectorManager(Dispatchers.IO)
         selectorManager = selector
 
         val listener = aSocket(selector).tcp().bind(LOOPBACK_HOST, 0)

@@ -1,14 +1,27 @@
 package org.yapyap.orchestrator.runtime.file
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemTemporaryDirectory
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.orchestrator.OrchestratorConfig
+import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
+import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
+import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
+import org.yapyap.orchestrator.file.DefaultFileStore
 import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
 import org.yapyap.orchestrator.file.FileReceiveRow
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.PendingFileRequestStatus
 import org.yapyap.orchestrator.file.io.JvmFileAccess
+import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.persistence.openMemoryDatabase
@@ -18,8 +31,9 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.NoopRouter
+import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,8 +43,9 @@ import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
 
 /**
- * Step 22, runtime facade: the large-file accept/decline decision is local
- * (DECLINED, re-openable) and never touches the wire by itself.
+ * The runtime facade: the large-file accept/decline decision is local (DECLINED, re-openable)
+ * and never touches the wire by itself. Accept and decline run through the real coordinator and
+ * receive engine, the only writers of the tables they change.
  */
 class FileTransferServiceTest {
 
@@ -49,7 +64,8 @@ class FileTransferServiceTest {
         val messageId: Uuid,
     )
 
-    private class RecordingFacadeRouter : NoopRouter() {
+    private class RecordingFacadeRouter : NoopFileCarrier() {
+        val files: FileCarrier get() = this
         val started = mutableListOf<Pair<FileId, kotlin.time.Instant>>()
         val aborted = mutableListOf<FileId>()
 
@@ -71,17 +87,46 @@ class FileTransferServiceTest {
         val messages = DefaultMessageRepository(db)
         val rooms = DefaultRoomRepository(db)
         val router = RecordingFacadeRouter()
+        val files = JvmFileAccess()
+        val work = Path(SystemTemporaryDirectory.toString(), "yapyap-facade-${Uuid.random()}")
+        val config = MutableStateFlow(OrchestratorConfig())
+        val crypto = DefaultCryptoProvider()
+        val storeDir = Path(work.toString(), "store")
+        val engine = DefaultFileReceiveEngine(
+            receives = receives,
+            messages = messages,
+            crypto = crypto,
+            files = files,
+            storeDirectory = storeDir,
+            incomingDirectory = Path(work.toString(), "incoming"),
+            config = config,
+            fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config, clock),
+            clock = clock,
+        )
+        val coordinator = DefaultFileRequestCoordinator(
+            pending = pending,
+            receives = receives,
+            control = engine,
+            messages = messages,
+            fileCarrier = router.files,
+            pipeline = NoIngest,
+            receiveEvents = emptyFlow(),
+            config = config,
+            clock = clock,
+        )
         val service = DefaultFileTransferService(
             receives = receives,
             descriptors = descriptors,
-            files = JvmFileAccess(),
-            pending = pending,
-            messages = messages,
-            router = router,
-            clock = clock,
+            files = files,
+            requests = coordinator,
         )
         val mid = Uuid.random()
         return Harness(service, receives, pending, messages, rooms, router, mid)
+    }
+
+    private object NoIngest : InboundMessagePipeline {
+        override val ingestResults: Flow<IngestResult> = emptyFlow()
+        override fun start(scope: CoroutineScope) = Unit
     }
 
     private suspend fun Harness.storeMessage(payload: MessagePayload.Text) {
@@ -92,7 +137,6 @@ class FileTransferServiceTest {
             ancestryComplete = true,
             verificationState = VerificationState.VERIFIED
         )
-        messages.insertAttachment(payload.messageId, fileId)
     }
 
     @Test

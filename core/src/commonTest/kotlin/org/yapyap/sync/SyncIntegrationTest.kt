@@ -8,7 +8,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
@@ -22,23 +21,18 @@ import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.file.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
-import org.yapyap.routing.router.BootstrapPacketEvent
-import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.InMemorySyncAttemptStore
-import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.TypingIndicatorEvent
+import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncRetryProcessor
 import org.yapyap.testfixtures.FakeCausalHoldRepository
@@ -47,7 +41,8 @@ import org.yapyap.testfixtures.FakeIdentityResolver
 import org.yapyap.testfixtures.FakeMessageRepository
 import org.yapyap.testfixtures.FakeRoomRepository
 import org.yapyap.testfixtures.FakeSignatureProvider
-import org.yapyap.testfixtures.NoopFileCarrier
+import org.yapyap.testfixtures.NoopMessageCarrier
+import org.yapyap.testfixtures.NoopSyncCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -97,7 +92,7 @@ class SyncIntegrationTest {
         clock = localTime,
     )
     private val router = RecordingRouter()
-    private val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+    private val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
     private val pendingRepo = FakePendingSyncRepository(
         frontierOf = { room -> localMessageRepo.findRoomFrontier(room).map { it.payload.messageId } },
     )
@@ -106,7 +101,8 @@ class SyncIntegrationTest {
         roomRepository = localRoomRepo,
         messageRepository = localMessageRepo,
         pendingSyncRepository = pendingRepo,
-        router = router,
+        messageCarrier = router.messages,
+        syncCarrier = router.syncs,
         roomChanges = emptyFlow(),
         identityChanges = emptyFlow(),
         clock = localTime,
@@ -439,63 +435,25 @@ class SyncIntegrationTest {
 }
 
 /** Minimal [Router] that records outgoing sends and can emit inbound messages into the pipeline. */
-private class RecordingRouter : Router {
+private class RecordingRouter {
     private val _incomingMessages = MutableSharedFlow<MessagePayload>(replay = 64, extraBufferCapacity = 64)
-    override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
-
-    override val typingIndicators: Flow<TypingIndicatorEvent> = MutableSharedFlow()
-
-    override val bootstrapPackets: Flow<BootstrapPacketEvent> = MutableSharedFlow()
-
-    override val pingPayloads: Flow<PingFrontiers> = MutableSharedFlow()
-
-    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
-
-    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
-        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
-    override val deliveries: Flow<Delivery> = emptyFlow()
-    override val fileCarrier: FileCarrier = NoopFileCarrier()
-
-    /** Where [startSync] goes: the test's local sync retry processor. */
-    var onStartSync: suspend (Uuid, Instant) -> Unit = { _, _ -> }
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = onStartSync(syncId, firstAttemptAt)
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
-    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
-    override suspend fun abortFileFetch(fileId: FileId) = Unit
-
     val sent = mutableListOf<MessagePayload>()
 
-    override suspend fun start() = Unit
-    override suspend fun stop() = Unit
-    override fun isRunning(): Boolean = true
-    override suspend fun announceOnline() = Unit
-    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
-        org.yapyap.protocol.TorEndpoint("local.onion", 80)
+    /** Where [SyncCarrier.startSync] goes: the test's local sync retry processor. */
+    var onStartSync: suspend (Uuid, Instant) -> Unit = { _, _ -> }
 
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
-        emptyMap()
+    val messages: MessageCarrier = object : NoopMessageCarrier() {
+        override val incomingMessages: Flow<MessagePayload> = _incomingMessages.asSharedFlow()
 
-    override suspend fun sendMessage(
-        target: AccountId,
-        payload: MessagePayload,
-    ): AccountPushReport {
-        sent.add(payload)
-        return AccountPushReport(
-            devicesTotal = 1,
-            devicesQueued = 1,
-            devicesDeferred = 0,
-            devicesFailed = 0,
-        )
+        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+            sent.add(payload)
+            return super.sendMessage(target, payload)
+        }
     }
 
-    override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) = Unit
-
-    override suspend fun sendBootstrap(
-        payload: BootstrapPayload,
-        target: PeerId,
-        targetEndpoint: TorEndpoint?,
-        sharedSecret: ByteArray?,
-    ) = Uuid.random()
+    val syncs: SyncCarrier = object : NoopSyncCarrier() {
+        override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = onStartSync(syncId, firstAttemptAt)
+    }
 
     suspend fun emitIncoming(payload: MessagePayload) {
         _incomingMessages.emit(payload)

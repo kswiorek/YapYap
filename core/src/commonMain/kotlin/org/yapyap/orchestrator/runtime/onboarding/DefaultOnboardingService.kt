@@ -14,7 +14,8 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.envelopes.Invite
 import org.yapyap.protocol.identity.AccountIdentity
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.BootstrapCarrier
+import org.yapyap.routing.router.Presence
 
 /**
  * Sponsor-side onboarding service (GUI-facing QR scan → sponsor flow). Stateless: the scanned
@@ -28,7 +29,8 @@ import org.yapyap.routing.router.Router
  */
 internal class DefaultOnboardingService(
     private val provider: OnboardingProvider,
-    private val router: Router,
+    private val bootstrapCarrier: BootstrapCarrier,
+    private val presence: Presence,
     private val localIdentity: LocalIdentity,
     private val identityReader: IdentityReader,
     private val messageRepository: MessageRepository,
@@ -83,8 +85,8 @@ internal class DefaultOnboardingService(
 
         val sponsorAccount = localIdentity.getLocalAccountIdentity()
         val sponsorDevice = localIdentity.getLocalDeviceIdentity()
-        val torEndpoint = router.localTorEndpoint()
-        router.sendBootstrap(
+        val torEndpoint = presence.localTorEndpoint()
+        bootstrapCarrier.sendBootstrap(
             Intro(
                 account = sponsorAccount,
                 device = sponsorDevice,

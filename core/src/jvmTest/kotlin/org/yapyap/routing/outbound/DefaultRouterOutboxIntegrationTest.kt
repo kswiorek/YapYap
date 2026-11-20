@@ -67,7 +67,7 @@ class DefaultRouterOutboxIntegrationTest {
         val router = routerWithRealOutbox(tor, outbox)
 
         router.start()
-        router.sendMessage(account, sampleTextPayload())
+        router.messages.sendMessage(account, sampleTextPayload())
         // Single dispatch path: the row is due immediately and the loop dispatches it.
         withTimeout(10.seconds) { tor.awaitMessageSendCount(1) }
 

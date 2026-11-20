@@ -20,10 +20,7 @@ internal data class PendingFileRequest(
     val updatedAt: Instant,
 )
 
-/**
- * Owner of `pending_file_requests` (guide §4). Generated `fileTransferQueries` stay here:
- * same owner (`orchestrator/file`) as the sibling `file_transfers` table.
- */
+/** Owner of `pending_file_requests` (guide §4). */
 internal interface PendingFileRequestStore {
     /** Inserts or re-arms [fileId] as PENDING (a new message re-arms UNAVAILABLE). */
     suspend fun upsertPending(fileId: FileId, nextAttemptAt: Instant, now: Instant): Unit
@@ -37,7 +34,7 @@ internal class DefaultPendingFileRequestStore(
     database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : PendingFileRequestStore {
-    private val queries = database.fileTransferQueries
+    private val queries = database.pendingFileRequestQueries
 
     override suspend fun upsertPending(fileId: FileId, nextAttemptAt: Instant, now: Instant): Unit =
         withContext(dbDispatcher) {

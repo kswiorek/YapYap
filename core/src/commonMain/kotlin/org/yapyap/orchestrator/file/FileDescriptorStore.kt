@@ -18,12 +18,17 @@ internal fun decodeBlockHashes(blob: ByteArray): List<ByteArray> {
     return List(blob.size / 32) { i -> blob.copyOfRange(i * 32, (i + 1) * 32) }
 }
 
-/**
- * Owner of `file_descriptors` (guide §4). Generated `fileQueries` stay here.
- */
-internal interface FileDescriptorStore {
-    suspend fun upsert(descriptor: FileDescriptor)
+/** Read-only view of `file_descriptors`, for everyone but its writer, the [FileStore]. */
+internal interface FileDescriptorReader {
     suspend fun findById(fileId: FileId): FileDescriptor?
+}
+
+/**
+ * Owner of `file_descriptors` (guide §4). Generated `fileQueries` stay here. Only the [FileStore]
+ * holds this interface; everyone else reads through [FileDescriptorReader].
+ */
+internal interface FileDescriptorStore : FileDescriptorReader {
+    suspend fun upsert(descriptor: FileDescriptor)
     suspend fun deleteById(fileId: FileId)
     suspend fun setStatus(fileId: FileId, status: FileDescriptorStatus)
     suspend fun copyDescriptorsOldestFirst(): List<FileDescriptor>

@@ -1,11 +1,12 @@
 package org.yapyap.protection.envelope
 
+import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
-import org.yapyap.protection.service.EnvelopeProtectContext
 
 /**
  * Small-path file protection (design §4): per-transfer symmetric chunk AEAD plus
@@ -43,6 +44,11 @@ internal interface FileProtection {
         key: ByteArray,
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray
+
+    companion object {
+        /** Bytes [encryptChunk] adds to a chunk's plaintext (the AEAD IV and tag). */
+        const val CHUNK_OVERHEAD_BYTES: Int = DefaultCryptoProvider.AEAD_OVERHEAD_BYTES
+    }
 
     /** Ratchet-seals an OFFER's sealed half to the target device (the key's only carrier). */
     suspend fun sealOffer(offer: FilePayload.SealedOffer, target: PeerId): ByteArray

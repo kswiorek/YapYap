@@ -17,13 +17,14 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.orchestrator.fold.room.RoomStateChange
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.PendingSyncRepository
+import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.MessageCarrier
+import org.yapyap.routing.router.SyncCarrier
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -47,7 +48,8 @@ internal class DefaultSyncCoordinator(
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
     private val pendingSyncRepository: PendingSyncRepository,
-    private val router: Router,
+    private val messageCarrier: MessageCarrier,
+    private val syncCarrier: SyncCarrier,
     /** Room-fold commits: every change re-appends the room's members to its live rows. */
     private val roomChanges: Flow<RoomStateChange>,
     /** Global-fold commits: any identity change re-appends the global members to GLOBAL's rows. */
@@ -71,7 +73,7 @@ internal class DefaultSyncCoordinator(
         // (idempotent: a sync it already tracks keeps its attempt state).
         jobs += scope.launch {
             val now = clock.now()
-            pendingSyncRepository.allSyncIds().forEach { router.startSync(it, now) }
+            pendingSyncRepository.allSyncIds().forEach { syncCarrier.startSync(it, now) }
         }
         jobs += scope.launch {
             pipeline.ingestResults.collect { result ->
@@ -82,7 +84,7 @@ internal class DefaultSyncCoordinator(
             }
         }
         jobs += scope.launch {
-            router.pingPayloads.collect { ping ->
+            syncCarrier.pingPayloads.collect { ping ->
                 ping.roomFrontiers.forEach { (roomId, tips) ->
                     // One room failing must not end this collector: every later ping's
                     // frontiers would go unsynced until restart.
@@ -146,7 +148,7 @@ internal class DefaultSyncCoordinator(
         if (senderAccount == null) return
         // A ping about the room is the sender's assertion that its projection has us in the
         // room, contradicting any earlier decline (docs/room events.md §6): it may be asked again.
-        pendingSyncRepository.syncIdsInRoom(roomId).forEach { router.reopenSync(it, senderAccount) }
+        pendingSyncRepository.syncIdsInRoom(roomId).forEach { syncCarrier.reopenSync(it, senderAccount) }
         rePushRemoval(roomId, senderAccount)
     }
 
@@ -176,7 +178,7 @@ internal class DefaultSyncCoordinator(
         if (!sendNow) return
         // Store-and-forward carries this past the target's offline window (relay
         // deposits); beyond relay retention the next ping re-triggers.
-        router.sendMessage(account, node)
+        messageCarrier.sendMessage(account, node)
         AppLog.debug(
             component = LogComponent.ORCHESTRATOR,
             event = LogEvent.PING_HANDLED,
@@ -307,6 +309,6 @@ internal class DefaultSyncCoordinator(
             targetMessageId = targetMessageId,
             candidateAccounts = candidates,
         )
-        router.startSync(syncId, firstAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod)
+        syncCarrier.startSync(syncId, firstAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod)
     }
 }

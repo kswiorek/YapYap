@@ -1,12 +1,18 @@
 package org.yapyap.orchestrator.file
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.persistence.openMemoryDatabase
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -45,7 +51,7 @@ class FileStoreJvmTest {
         val storeDir = Path(work.toString(), "store")
         val store = DefaultFileStore(
             DefaultFileDescriptorStore(db), crypto, files, storeDir,
-            FileServiceConfig(), TickClock(),
+            MutableStateFlow(OrchestratorConfig()), TickClock(),
         )
         val original = writeSource(work, "photo.bin", ByteArray(100_000) { (it % 251).toByte() })
         val descriptor = store.import(FileImportSource.PathSource(original), "photo.bin", null, keepCopy = true)
@@ -53,9 +59,9 @@ class FileStoreJvmTest {
         files.delete(original)
         val resolved = assertNotNull(store.resolve(descriptor.fileId))
         assertTrue(files.exists(Path(resolved.path)))
-        val source = DefaultFilePlaintextSource(DefaultFileDescriptorStore(db), files, crypto)
+        val source = DefaultFilePlaintextSource(DefaultFileDescriptorStore(db), store, files, crypto)
         val got = source.read(descriptor.fileId, 0, 4096)
-        check(got is org.yapyap.routing.file.FileReadResult.Ok)
+        check(got is org.yapyap.routing.file.port.FileReadResult.Ok)
         assertEquals(4096, got.bytes.size)
     }
 
@@ -65,7 +71,8 @@ class FileStoreJvmTest {
         val work = tempDir("yapyap-store-ref")
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
-        val store = DefaultFileStore(descriptors, crypto, files, storeDir, FileServiceConfig(), TickClock())
+        val store =
+            DefaultFileStore(descriptors, crypto, files, storeDir, MutableStateFlow(OrchestratorConfig()), TickClock())
         val bytes = ByteArray(2_000_000) { (it * 7).toByte() }
         val original = writeSource(work, "orig.bin", bytes)
         val descriptor = store.import(FileImportSource.PathSource(original), "orig.bin", null, keepCopy = false)
@@ -77,9 +84,9 @@ class FileStoreJvmTest {
             raf.seek(editAt)
             raf.write(0xFF)
         }
-        val source = DefaultFilePlaintextSource(descriptors, files, crypto)
+        val source = DefaultFilePlaintextSource(descriptors, store, files, crypto)
         val res = source.read(descriptor.fileId, editAt - 100, 4096)
-        check(res is org.yapyap.routing.file.FileReadResult.SourceLost) {
+        check(res is org.yapyap.routing.file.port.FileReadResult.SourceLost) {
             "expected SourceLost but was $res"
         }
         assertEquals(FileDescriptorStatus.SOURCE_LOST, assertNotNull(store.resolve(descriptor.fileId)).status)
@@ -90,7 +97,7 @@ class FileStoreJvmTest {
         val db = openMemoryDatabase().database
         val work = tempDir("yapyap-store-quota")
         val storeDir = Path(work.toString(), "store")
-        val config = FileServiceConfig(storeQuotaBytes = 2_500_000L)
+        val config = MutableStateFlow(OrchestratorConfig(storeQuotaBytes = 2_500_000L))
         val descriptors = DefaultFileDescriptorStore(db)
         val store = DefaultFileStore(descriptors, crypto, files, storeDir, config, TickClock())
         // Reference file: must survive quota pressure.

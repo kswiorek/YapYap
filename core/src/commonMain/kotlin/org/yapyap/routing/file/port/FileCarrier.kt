@@ -1,11 +1,15 @@
-package org.yapyap.routing.file
+package org.yapyap.routing.file.port
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.FileCancelReason
+import kotlin.time.Instant
 
-/** Account-level file events for the orchestrator (design §12): devices never cross the seam. */
+/**
+ * What routing knows about files, account-level for the orchestrator (design §12): sends, serves
+ * and requests. Devices never cross the seam. Receive progress, readiness and receive failures
+ * belong to the receive engine, which reports them itself.
+ */
 internal sealed interface FileEvent {
     /** Push progress on one (file, target account) send. */
     data class OutgoingProgress(
@@ -15,20 +19,10 @@ internal sealed interface FileEvent {
         val totalBytes: Long,
     ) : FileEvent
 
-    /** Receive progress on one file (contiguous prefix P). */
-    data class IncomingProgress(
-        val fileId: FileId,
-        val contiguousBytes: Long,
-        val totalBytes: Long,
-    ) : FileEvent
-
-    /** A received file completed and verified; the permanent store holds it. */
-    data class Ready(val fileId: FileId) : FileEvent
-
-    /** A send or receive ended without delivery (never auto-retried by the receiver). */
+    /** A send ended without delivery to [target]. */
     data class Failed(
         val fileId: FileId,
-        val target: AccountId?,
+        val target: AccountId,
         val reason: FileFailureReason,
     ) : FileEvent
 
@@ -42,8 +36,7 @@ internal sealed interface FileEvent {
     data class RequestUnavailable(val fileId: FileId) : FileEvent
 
     /**
-     * We started serving [fileId] to [requester]'s account (serve-on-REQUEST): the
-     * orchestrator records the SERVE row. Follows [OutgoingProgress] for accounting.
+     * We started serving [fileId] to [requester]'s account (serve-on-REQUEST or a fetch).
      */
     data class ServeStarted(
         val fileId: FileId,
@@ -66,10 +59,22 @@ internal sealed interface FileEvent {
 }
 
 internal enum class FileFailureReason {
+    /** The target refused the file, including for lack of space (design §8). */
     DECLINED,
+
+    /** This device ran out of space. */
     NO_SPACE,
+
+    /** The transfer lifetime ran out before delivery. */
     EXPIRED,
+
+    /** The user cancelled. */
     CANCELLED,
+
+    /** The transfer ended without a COMPLETE: the outcome at the target is unknown (design §6.1, §14). */
+    ENDED,
+
+    /** This device could not go on (the file unreadable, verification failed). */
     FAILED,
 }
 
@@ -79,7 +84,7 @@ internal enum class FileFailureReason {
  * signals per transfer. Source devices may appear in events as facts, never as addresses.
  */
 internal interface FileCarrier {
-    /** Hot event flow: progress, readiness and terminal failures, account-level only. */
+    /** Hot event flow: send progress and outcomes, serves and request outcomes, account-level only. */
     val fileEvents: Flow<FileEvent>
 
     /** Start pushing [fileId] to every device of [target] (small path; a large fetch is pull-only). */
@@ -89,17 +94,17 @@ internal interface FileCarrier {
     suspend fun cancelFile(fileId: FileId, target: AccountId)
 
     /**
-     * Our receive of [fileId] is READY: send COMPLETE to every live transfer author (from the
-     * incoming-transfer rows), drop those rows, and emit [FileEvent.Ready].
+     * Starts asking candidate devices for [fileId] (idempotent), first at [firstAttemptAt]. What to
+     * ask for and which accounts may hold it come from the [FileRequestSource]; routing asks one
+     * candidate at a time until an OFFER (small) or FETCH_OK (large) arrives or every candidate
+     * declines.
      */
-    suspend fun fileReady(fileId: FileId)
+    suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
 
     /**
-     * Our receive of [fileId] failed cleanly (hash limit, ENOSPC): send CANCEL to every live
-     * transfer author and drop those rows so senders stop into a quiet end.
+     * Aborts our live large-file fetch of [fileId] (ABORT and channel close, in-memory state
+     * dropped). Idempotent: unknown files are a no-op. The receiver's gap trigger and the user
+     * cancel both land here; the small path needs nothing (its gap trigger cancels no transfer).
      */
-    suspend fun cancelIncoming(fileId: FileId, reason: FileCancelReason)
-
-    /** Contribute an event to [fileEvents] (receive-side progress and failures). */
-    suspend fun emit(event: FileEvent)
+    suspend fun abortFileFetch(fileId: FileId)
 }

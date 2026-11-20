@@ -1,26 +1,27 @@
 package org.yapyap.wiring
 
+import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.FileFetchFrame
+import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.router.TransportLimits
 
 /**
- * Derived file-transfer limits, chained from the transport backend configs like
- * [MessageLimits] — never independently configured. Each transfer snapshots the current
- * derived value at creation (design §2, §15).
+ * File-transfer sizes, derived from the transport backend configs like [MessageLimits], never
+ * configured on their own. Each layer states its own framing next to its code
+ * ([FileEnvelope.maxPayloadBytes], [FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES],
+ * [FileProtection.CHUNK_OVERHEAD_BYTES], [FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES]); this only
+ * chains them. A transfer snapshots [chunkSizeBytes] when it is created; receivers are
+ * chunking-agnostic (design §8), so a change never breaks transfers in flight.
  */
 internal data class FileLimits(
-    /** Plaintext bytes per transfer chunk: fits either transport with framing margin. */
+    /** Plaintext bytes per small-path chunk: one chunk's envelope fits through either transport. */
     val chunkSizeBytes: Int,
+    /** File bytes per large-path DATA frame on a WebRTC file channel. */
+    val fetchFrameBytes: Int,
 ) {
     companion object {
-        /**
-         * Reserve against the smaller transport's frame for envelope framing, AEAD overhead
-         * and signatures, with wide margin. The exact value is not consensus-critical:
-         * receivers are chunking-agnostic (design §8), so mixed chunkings coexist.
-         * With defaults (250 KiB WebRTC) this is ≈220 KiB (design §6.2).
-         */
-        const val CHUNK_RESERVE_BYTES: Int = 30 * 1024
-
-        /** Smallest chunk a transfer is ever cut into. */
+        /** Smallest chunk or frame worth transferring; a transport too small for it fails at startup. */
         const val MIN_CHUNK_SIZE_BYTES: Int = 64 * 1024
 
         fun from(config: RuntimeConfig): FileLimits = from(
@@ -30,10 +31,21 @@ internal data class FileLimits(
             ),
         )
 
+        /** Throws [IllegalArgumentException] when [transport] is too small to carry file chunks. */
         fun from(transport: TransportLimits): FileLimits {
-            val chunkSize = minOf(transport.torMaxPayloadBytes, transport.webRtcMaxPayloadBytes) -
-                CHUNK_RESERVE_BYTES
-            return FileLimits(maxOf(chunkSize, MIN_CHUNK_SIZE_BYTES))
+            val chunkSize = FileEnvelope.maxPayloadBytes(transport.maxRoutableBytes) -
+                    FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES -
+                    FileProtection.CHUNK_OVERHEAD_BYTES
+            val fetchFrame = transport.webRtcMaxPayloadBytes - FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES
+            require(chunkSize >= MIN_CHUNK_SIZE_BYTES) {
+                "Transport frames (${transport.maxRoutableBytes} bytes) leave $chunkSize bytes per file chunk; " +
+                        "at least $MIN_CHUNK_SIZE_BYTES are needed"
+            }
+            require(fetchFrame >= MIN_CHUNK_SIZE_BYTES) {
+                "WebRTC frames (${transport.webRtcMaxPayloadBytes} bytes) leave $fetchFrame bytes per fetch frame; " +
+                        "at least $MIN_CHUNK_SIZE_BYTES are needed"
+            }
+            return FileLimits(chunkSizeBytes = chunkSize, fetchFrameBytes = fetchFrame)
         }
     }
 }

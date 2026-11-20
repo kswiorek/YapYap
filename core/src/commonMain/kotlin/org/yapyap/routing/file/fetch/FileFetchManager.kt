@@ -10,24 +10,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import org.yapyap.logging.AppLog
-import org.yapyap.logging.LogComponent
-import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import org.yapyap.protocol.envelopes.FileFetchDeclineReason
 import org.yapyap.protocol.envelopes.FileFetchFrame
-import org.yapyap.protocol.envelopes.FileFetchKind
 import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.FilePlaintextSource
-import org.yapyap.routing.file.FileReadResult
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileIngestPort
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.FileServeGate
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
@@ -79,9 +75,11 @@ internal class FileFetchManager(
     private val devices: DeviceDirectory,
     private val transport: WebRtcTransport,
     private val plaintext: FilePlaintextSource,
-    private val gate: FileIngestPort,
+    private val ingest: FileIngestPort,
+    private val serveGate: FileServeGate,
     private val routerConfig: StateFlow<RouterConfig>,
-    private val chunkSize: StateFlow<Int>,
+    /** File bytes per DATA frame. */
+    private val frameBytes: StateFlow<Int>,
     private val events: MutableSharedFlow<FileEvent>,
 ) {
     private val lock = Mutex()
@@ -232,7 +230,7 @@ internal class FileFetchManager(
             return
         }
         val allowed = try {
-            gate.canServe(frame.fileId, account)
+            serveGate.canServe(frame.fileId, account)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -295,7 +293,7 @@ internal class FileFetchManager(
 
     private suspend fun serveLoop(
         key: FetchKey,
-        info: org.yapyap.routing.file.FileDescriptorInfo,
+        info: FileManifest,
         fromOffset: Long,
         window: Long,
     ) {
@@ -318,7 +316,7 @@ internal class FileFetchManager(
                 delay(50.milliseconds)
                 continue
             }
-            val maxBytes = minOf(chunkSize.value.toLong(), info.totalBytes - offset).toInt().coerceAtLeast(1)
+            val maxBytes = minOf(frameBytes.value.toLong(), info.totalBytes - offset).toInt().coerceAtLeast(1)
             when (val read = readAt(info.fileId, offset, maxBytes)) {
                 is FileReadResult.Ok -> {
                     if (read.bytes.isEmpty()) {
@@ -365,8 +363,8 @@ internal class FileFetchManager(
         // the block list is checked against our fileId before a byte is accepted
         // (design §2): checkOffer refuses INVALID_OFFER when it does not hash.
         val verdict = try {
-            gate.checkOffer(
-                FileOfferInfo(
+            ingest.checkOffer(
+                FileManifest(
                     fileId = state.fileId,
                     totalBytes = frame.totalBytes,
                     blockSize = frame.blockSize,
@@ -378,7 +376,7 @@ internal class FileFetchManager(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            FileOfferVerdict.Refuse(org.yapyap.routing.file.FileRefusalReason.INVALID_OFFER)
+            FileOfferVerdict.Refuse(org.yapyap.routing.file.port.FileRefusalReason.INVALID_OFFER)
         }
         when (verdict) {
             is FileOfferVerdict.Accept -> {
@@ -443,7 +441,7 @@ internal class FileFetchManager(
         val total = state.totalBytes ?: return
         if (state.nextOffset >= total) return
         val result = try {
-            gate.ingest(state.fileId, state.nextOffset, frame.bytes)
+            ingest.ingest(state.fileId, state.nextOffset, frame.bytes)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

@@ -32,31 +32,28 @@ class ArchitectureTest {
         // The router reads the local identity through crypto's read-only view (LocalIdentity).
         "routing" to listOf("transport", "protection", "protocol", "crypto.identity"),
         // The orchestrator talks to the router through its API and vocabulary, and implements the
-        // ports the router declares for it (directory, sync content, ping frontiers, file ports).
+        // ports the router declares for it (directory, sync content, ping frontiers, `routing/file/port`).
         "orchestrator" to listOf(
             "routing.router",
             "routing.directory",
             "routing.sync.SyncPayloadProvider",
             "routing.ping.FrontierSnapshotProvider",
-            "routing.file.FilePlaintextSource",
-            "routing.file.FileReadResult",
-            "routing.file.FileCarrier",
-            "routing.file.FileCoverage",
-            "routing.file.FileDescriptorInfo",
-            "routing.file.FileEvent",
-            "routing.file.FileFailureReason",
-            "routing.file.FileIngestPort",
-            "routing.file.FileIngestResult",
-            "routing.file.FileOfferInfo",
-            "routing.file.FileOfferVerdict",
-            "routing.file.FileRefusalReason",
-            "routing.router.RouterConfig",
+            "routing.file.port",
             "crypto",
             "protocol",
         ),
         // Importable from every layer, so they must not import any layer back.
         "config" to listOf("protocol"),
         "persistence" to listOf("protocol"),
+    )
+
+    /**
+     * Imports a layer may not use even though an allowed prefix covers them. A layer reads only
+     * its own config; relations between two layers' values live in `wiring/ConfigInvariants`.
+     */
+    private val denied: Map<String, List<String>> = mapOf(
+        "orchestrator" to listOf("routing.router.RouterConfig", "crypto.e2ee.CryptoSessionConfig"),
+        "routing" to listOf("crypto.e2ee.CryptoSessionConfig"),
     )
 
     private val everywhere = listOf("logging", "config", "persistence")
@@ -80,7 +77,7 @@ class ArchitectureTest {
         "fileIncomingQueries" to "routing.store",
         "filePushQueries" to "routing.store",
         "fileRelayQueries" to "routing.store",
-        "fileTransferQueries" to "orchestrator.file",
+        "pendingFileRequestQueries" to "orchestrator.file",
         "fileRequestAttemptQueries" to "routing.store",
     )
 
@@ -115,9 +112,12 @@ class ArchitectureTest {
             for (import in Regex("""^import\s+org\.yapyap\.([\w.*]+)""", RegexOption.MULTILINE).findAll(text)) {
                 val name = import.groupValues[1]
                 val target = name.substringBefore('.')
-                if (target == layer || freeFor(layer).any { matches(name, it) }) continue
+                val isDenied = denied[layer].orEmpty().any { matches(name, it) }
+                if (!isDenied && (target == layer || freeFor(layer).any { matches(name, it) })) continue
                 // An import "org.yapyap.orchestrator" from "orchestrator.x" is in-layer; anything else is checked.
-                if (allowed.getValue(layer).any { matches(name, it) || matches(name.removeSuffix(".*"), it) }) continue
+                if (!isDenied && allowed.getValue(layer)
+                        .any { matches(name, it) || matches(name.removeSuffix(".*"), it) }
+                ) continue
                 val key = "${relative(file)} -> $name"
                 if (key in knownDebt) debtSeen += key else violations += key
             }

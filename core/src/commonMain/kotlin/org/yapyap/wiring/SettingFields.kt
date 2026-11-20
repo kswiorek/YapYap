@@ -1,7 +1,17 @@
 package org.yapyap.wiring
 
-import net.peanuuutz.tomlkt.*
-import org.yapyap.config.*
+import net.peanuuutz.tomlkt.Toml
+import net.peanuuutz.tomlkt.TomlTable
+import net.peanuuutz.tomlkt.getLiteralOrNull
+import net.peanuuutz.tomlkt.getTableOrNull
+import net.peanuuutz.tomlkt.toBoolean
+import net.peanuuutz.tomlkt.toLong
+import org.yapyap.config.ConfigValue
+import org.yapyap.config.NumberSetting
+import org.yapyap.config.PeriodSetting
+import org.yapyap.config.Setting
+import org.yapyap.config.TextSetting
+import org.yapyap.config.ToggleSetting
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -206,25 +216,72 @@ private val ConfigValue.raw: Any
 // Generic derivation / projection, driven by the registry.
 // ---------------------------------------------------------------------------
 
-internal fun derive(overrides: Overrides): RuntimeConfig =
-    FIELDS.fold(RuntimeConfig()) { cfg, field ->
-        val override = overrides[field.id] ?: return@fold cfg
-        when (val result = field.write(cfg, override)) {
-            is WriteResult.Ok -> result.cfg
-            is WriteResult.Invalid -> {
-                AppLog.warn(
-                    component = LogComponent.CONFIG,
-                    event = LogEvent.CONFIG_INVALID_OVERRIDE,
-                    message = "Invalid override for ${field.id}: ${result.reason}",
-                    fields = mapOf("override" to override),
-                )
-                cfg
+/** The config [derive] built, and each override it could not apply, with the reason. */
+internal data class Derivation(
+    val config: RuntimeConfig,
+    val rejected: Map<String, String>,
+)
+
+/**
+ * Applies [overrides] onto the defaults, keeping the config valid at every step: an override is
+ * applied only when its field accepts the value and the result keeps [ConfigInvariants]. Rejected
+ * overrides are retried after each pass, so two related overrides land whatever their order in
+ * [FIELDS]; whatever still can't land is reported in [Derivation.rejected].
+ */
+internal fun deriveChecked(overrides: Overrides, fields: List<Field> = FIELDS): Derivation {
+    var config = RuntimeConfig()
+    val pending = fields.filter { it.id in overrides }.toMutableList()
+    val rejected = mutableMapOf<String, String>()
+    do {
+        var progressed = false
+        rejected.clear()
+        for (field in pending.toList()) {
+            val reason = when (val result = field.write(config, overrides.getValue(field.id))) {
+                is WriteResult.Invalid -> result.reason
+                is WriteResult.Ok -> {
+                    val violations = ConfigInvariants.violations(result.cfg)
+                    if (violations.isEmpty()) {
+                        config = result.cfg
+                        pending -= field
+                        progressed = true
+                        null
+                    } else {
+                        violations.joinToString("; ")
+                    }
+                }
             }
+            if (reason != null) rejected[field.id] = reason
         }
+    } while (progressed && pending.isNotEmpty())
+    return Derivation(config, rejected.toMap())
+}
+
+/**
+ * Why changing the overrides from [current] to [next] is refused, or null when it is allowed: the
+ * changed setting [id] can't land, or the change stops another override from landing.
+ */
+internal fun refusalOf(id: String, current: Overrides, next: Overrides, fields: List<Field> = FIELDS): String? {
+    val before = deriveChecked(current, fields).rejected
+    val broken = deriveChecked(next, fields).rejected.filterKeys { it == id || it !in before }
+    return broken.takeIf { it.isNotEmpty() }?.entries?.joinToString("; ") { (key, reason) -> "$key: $reason" }
+}
+
+/** [deriveChecked], logging each override it had to drop. */
+internal fun derive(overrides: Overrides): RuntimeConfig {
+    val derivation = deriveChecked(overrides)
+    for ((id, reason) in derivation.rejected) {
+        AppLog.warn(
+            component = LogComponent.CONFIG,
+            event = LogEvent.CONFIG_INVALID_OVERRIDE,
+            message = "Invalid override for $id: $reason",
+            fields = mapOf("override" to overrides[id]),
+        )
     }
+    return derivation.config
+}
 
 internal fun buildSettings(overrides: Overrides): List<Setting> {
-    val effective = derive(overrides)
+    val effective = deriveChecked(overrides).config
     return FIELDS.map { field -> field.setting(field.read(effective)) }
 }
 

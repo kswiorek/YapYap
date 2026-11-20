@@ -10,7 +10,8 @@ import org.yapyap.protocol.DeviceType
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.envelopes.RecoveryRequest
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.BootstrapCarrier
+import org.yapyap.routing.router.Presence
 
 /**
  * Standing recovery responder: relays authenticated [RecoveryRequest]s as chain AddDevices and
@@ -22,7 +23,8 @@ import org.yapyap.routing.router.Router
  * the responder only sends the intro afterwards.
  */
 internal class DefaultRecoveryResponder(
-    private val router: Router,
+    private val bootstrapCarrier: BootstrapCarrier,
+    private val presence: Presence,
     private val identityReader: IdentityReader,
     private val messageRepository: MessageRepository,
     private val localDeviceType: DeviceType,
@@ -33,7 +35,7 @@ internal class DefaultRecoveryResponder(
 
     override fun start(scope: CoroutineScope) {
         collectJob = scope.launch {
-            router.bootstrapPackets.collect { event ->
+            bootstrapCarrier.bootstrapPackets.collect { event ->
                 val request = event.payload as? RecoveryRequest ?: return@collect
                 onRecoveryRequest(request)
             }
@@ -53,9 +55,9 @@ internal class DefaultRecoveryResponder(
             ?: error("responder has no local account")
         val ownDevice = identityReader.getLocalDeviceIdentity()
             ?: error("responder has no local device")
-        val torEndpoint = router.localTorEndpoint()
+        val torEndpoint = presence.localTorEndpoint()
             ?: error("responder has no tor endpoint")
-        router.sendBootstrap(
+        bootstrapCarrier.sendBootstrap(
             Intro(
                 account = ownAccount,
                 device = ownDevice,

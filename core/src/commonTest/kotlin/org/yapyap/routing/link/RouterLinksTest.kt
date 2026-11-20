@@ -6,7 +6,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.yapyap.protection.sampleTextPayload
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -153,7 +157,7 @@ class RouterLinksTest {
         val router = router(tor)
         router.start()
         try {
-            router.sendMessage(account, sampleTextPayload())
+            router.messages.sendMessage(account, sampleTextPayload())
             withTimeout(5.seconds) { while (remoteTor !in tor.openSessionCalls) yield() }
             delay(300.milliseconds)
             assertEquals(0, tor.sendsExcludingHeartbeat().size, "no link yet: nothing dialed by the outbox")

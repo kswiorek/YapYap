@@ -6,8 +6,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -17,79 +15,32 @@ import org.yapyap.orchestrator.fold.global.IdentityStateChange
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
 import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.AccountReach
-import org.yapyap.routing.router.BootstrapPacketEvent
-import org.yapyap.routing.router.Delivery
-import org.yapyap.routing.router.PingFrontiers
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.InMemoryIdentityStore
-import org.yapyap.testfixtures.NoopFileCarrier
+import org.yapyap.testfixtures.NoopPresence
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
-private class FakeRouter : Router {
+private class FakeRouter : NoopPresence() {
     val onlineAccountsFlow = MutableStateFlow<Set<AccountId>>(emptySet())
     override val onlineAccounts: Flow<Set<AccountId>> = onlineAccountsFlow
-
-    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
-        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
-    override val deliveries: Flow<Delivery> = emptyFlow()
-    override val fileCarrier: FileCarrier = NoopFileCarrier()
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
-    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
-    override suspend fun abortFileFetch(fileId: FileId) = Unit
-    override val incomingMessages: Flow<MessagePayload> = emptyFlow()
-    override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
-    override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
-    override val bootstrapPackets: Flow<BootstrapPacketEvent> = emptyFlow()
-    override suspend fun start() = Unit
-    override suspend fun stop() = Unit
-    override fun isRunning(): Boolean = true
-    override suspend fun announceOnline() = Unit
-    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
-        org.yapyap.protocol.TorEndpoint("local.onion", 80)
 
     val reach = mutableMapOf<AccountId, AccountReach>()
     override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach> =
         accounts.associateWith { reach[it] ?: AccountReach(lastSeen = null) }
-    override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport =
-        error("not used")
-
-    override suspend fun sendTypingIndicator(
-        targets: Collection<AccountId>,
-        roomId: RoomId,
-        interval: Duration,
-    ) = Unit
-
-    override suspend fun sendBootstrap(
-        payload: BootstrapPayload,
-        target: PeerId,
-        targetEndpoint: TorEndpoint?,
-        sharedSecret: ByteArray?,
-    ) = Uuid.random()
 }
 
 private class FakeProjector : GlobalEventProjector {

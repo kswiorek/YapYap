@@ -1,28 +1,23 @@
 package org.yapyap.orchestrator.runtime.file
 
 import kotlinx.io.files.Path
+import org.yapyap.orchestrator.file.FileDescriptorReader
 import org.yapyap.orchestrator.file.FileDescriptorStatus
-import org.yapyap.orchestrator.file.FileDescriptorStore
-import org.yapyap.orchestrator.file.FileReceiveRow
+import org.yapyap.orchestrator.file.FileReceiveReader
 import org.yapyap.orchestrator.file.FileReceiveStatus
-import org.yapyap.orchestrator.file.FileReceiveStore
-import org.yapyap.orchestrator.file.PendingFileRequestStore
+import org.yapyap.orchestrator.file.FileRequestControl
 import org.yapyap.orchestrator.file.io.FileAccess
-import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.router.Router
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Clock
 
+/**
+ * The GUI's view of received files: reads of the receive and descriptor tables, and the user's
+ * accept and decline, which the request coordinator carries out.
+ */
 internal class DefaultFileTransferService(
-    private val receives: FileReceiveStore,
-    private val descriptors: FileDescriptorStore,
+    private val receives: FileReceiveReader,
+    private val descriptors: FileDescriptorReader,
     private val files: FileAccess,
-    private val pending: PendingFileRequestStore,
-    private val messages: MessageRepository,
-    private val router: Router,
-    private val clock: Clock = Clock.System,
+    private val requests: FileRequestControl,
 ) : FileTransferService {
     override suspend fun receiveState(fileId: FileId): FileReceiveSnapshot? {
         val row = receives.find(fileId) ?: return null
@@ -44,75 +39,7 @@ internal class DefaultFileTransferService(
         return path
     }
 
-    override suspend fun acceptFile(fileId: FileId) {
-        val now = clock.now()
-        val row = runCatching { receives.find(fileId) }.getOrNull()
-        if (row != null && row.status == FileReceiveStatus.READY) return
-        // A local DECLINED (or FAILED/CANCELLED/EVICTED) row blocks the fetch's
-        // checkOffer (never auto-resurrected): remove it so FETCH_OK can create
-        // the IN_FLIGHT row, then start the request at once.
-        if (row != null && row.status != FileReceiveStatus.IN_FLIGHT && row.status != FileReceiveStatus.STALLED) {
-            runCatching { receives.delete(fileId) }
-        }
-        runCatching { pending.upsertPending(fileId, now, now) }
-        runCatching { router.startFileRequest(fileId, now) }
-    }
+    override suspend fun acceptFile(fileId: FileId) = requests.acceptFile(fileId)
 
-    override suspend fun declineFile(fileId: FileId) {
-        val now = clock.now()
-        runCatching { router.abortFileFetch(fileId) }
-        runCatching { pending.drop(fileId) }
-        val row = runCatching { receives.find(fileId) }.getOrNull()
-        if (row != null) {
-            if (row.status != FileReceiveStatus.READY) {
-                runCatching { receives.updateStatus(fileId, FileReceiveStatus.DECLINED, now) }
-            }
-            return
-        }
-        // No row yet (large file above the auto-download limit the coordinator
-        // never saw): record DECLINED from the message attachment so nothing
-        // auto-fetches it later. Paths are placeholders — DECLINED rows are
-        // inert (refused before any path is touched) until accept deletes them.
-        val attachment = findAttachment(fileId) ?: return
-        runCatching {
-            receives.upsert(
-                FileReceiveRow(
-                    fileId = fileId,
-                    status = FileReceiveStatus.DECLINED,
-                    totalBytes = attachment.totalBytes,
-                    contiguousBytes = 0L,
-                    blockSize = null,
-                    blockHashes = null,
-                    fileName = attachment.fileName,
-                    mimeType = attachment.mimeType,
-                    hashMismatches = 0,
-                    partPath = "",
-                    finalPath = "",
-                    originMessageId = null,
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
-        }
-    }
-
-    private suspend fun findAttachment(fileId: FileId): MessagePayload.Attachment? {
-        val messageIds = try {
-            messages.findMessageIdsByFileId(fileId)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            return null
-        }
-        for (messageId in messageIds) {
-            val stored = try {
-                messages.findById(messageId)
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                null
-            } ?: continue
-            val text = stored.payload as? MessagePayload.Text ?: continue
-            text.attachments.firstOrNull { it.fileId == fileId }?.let { return it }
-        }
-        return null
-    }
+    override suspend fun declineFile(fileId: FileId) = requests.declineFile(fileId)
 }

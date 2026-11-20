@@ -32,13 +32,12 @@ import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
 import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
+import org.yapyap.orchestrator.file.DefaultFileRequestSource
 import org.yapyap.orchestrator.file.DefaultFileStore
-import org.yapyap.orchestrator.file.DefaultFileTransferStore
 import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
 import org.yapyap.orchestrator.file.FileDescriptorStore
 import org.yapyap.orchestrator.file.FileImportSource
 import org.yapyap.orchestrator.file.FileReceiveStatus
-import org.yapyap.orchestrator.file.FileServiceConfig
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
@@ -64,6 +63,7 @@ import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
 import org.yapyap.routing.router.FakeSyncPayloadProvider
@@ -155,7 +155,7 @@ class FileLargeFetchTwoRouterTest {
         localTor: RecordingTorTransport,
         localWebRtc: RecordingWebRtcTransport,
         clock: FakeClock,
-        fileConfig: FileServiceConfig,
+        orchestratorConfig: OrchestratorConfig,
         routerConfig: RouterConfig,
         tag: String,
     ): Node {
@@ -163,7 +163,6 @@ class FileLargeFetchTwoRouterTest {
         val db = openMemoryDatabase().database
         val receives = DefaultFileReceiveStore(db)
         val descriptors = DefaultFileDescriptorStore(db)
-        val transfers = DefaultFileTransferStore(db)
         val messages = DefaultMessageRepository(db)
         val rooms = DefaultRoomRepository(db)
         val pending = DefaultPendingFileRequestStore(db)
@@ -174,7 +173,8 @@ class FileLargeFetchTwoRouterTest {
         val incomingDir = Path(work.toString(), "incoming")
         files.createDirectories(storeDir)
         files.createDirectories(incomingDir)
-        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, fileConfig)
+        val config = MutableStateFlow(orchestratorConfig)
+        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config)
         val chunkSize = MutableStateFlow(32 * 1024)
 
         fun sessionManager(identity: org.yapyap.routing.router.E2eeIdentityResolverForRouter) =
@@ -208,7 +208,25 @@ class FileLargeFetchTwoRouterTest {
             bootstrapProtection = BootstrapProtection(crypto) { null },
         )
         val packetOutbox = TrackingPacketOutbox()
-        val ingestPort = DelegatingFileIngestPort()
+        val engine = DefaultFileReceiveEngine(
+            receives = receives,
+            messages = messages,
+            crypto = crypto,
+            files = files,
+            storeDirectory = storeDir,
+            incomingDirectory = incomingDir,
+            config = config,
+            fileStore = fileStore,
+            clock = clock,
+        )
+        val requestSource = DefaultFileRequestSource(
+            messages = messages,
+            rooms = rooms,
+            receives = receives,
+            descriptors = descriptors,
+            localIdentity = identity,
+            coverage = engine,
+        )
         val router = DefaultRouter(
             torTransport = localTor,
             webRtcTransport = localWebRtc,
@@ -226,53 +244,37 @@ class FileLargeFetchTwoRouterTest {
             syncPayloadProvider = FakeSyncPayloadProvider(),
             frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
             peerAvailabilityStore = FakePeerAvailabilityStore(),
-            fileIngestPort = ingestPort,
-            fileIncomingStore = InMemoryFileIncomingTransferStore(),
-            filePushStore = InMemoryFilePushStore(),
-            fileRelayStore = InMemoryFileRelayStore(),
-            fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
-            plaintextSource = DefaultFilePlaintextSource(descriptors, files, crypto),
-            fileChunkSize = chunkSize,
-        )
-        val engine = DefaultFileReceiveEngine(
-            receives = receives,
-            descriptors = descriptors,
-            messages = messages,
-            crypto = crypto,
-            files = files,
-            storeDirectory = storeDir,
-            incomingDirectory = incomingDir,
-            config = fileConfig,
-            fileStore = fileStore,
-            carrier = router.fileCarrier,
-            routerConfig = MutableStateFlow(routerConfig),
-            clock = clock,
+            filePorts = FileRoutingPorts(
+                ingest = engine,
+                requests = requestSource,
+                serveGate = requestSource,
+                plaintext = DefaultFilePlaintextSource(descriptors, fileStore, files, crypto),
+                receiveEnds = engine,
+                incoming = InMemoryFileIncomingTransferStore(),
+                pushes = InMemoryFilePushStore(),
+                relay = InMemoryFileRelayStore(),
+                requestAttempts = InMemoryFileRequestAttemptStore(),
+                chunkSizeBytes = chunkSize,
+                fetchFrameBytes = chunkSize,
+            ),
         )
         val pipeline = FakePipeline()
         val coordinator = DefaultFileRequestCoordinator(
             pending = pending,
             receives = receives,
-            transfers = transfers,
+            control = engine,
             messages = messages,
-            rooms = rooms,
-            descriptors = descriptors,
-            localIdentity = identity,
-            router = router,
+            fileCarrier = router.files,
             pipeline = pipeline,
-            engine = engine,
-            config = MutableStateFlow(OrchestratorConfig()),
-            routerConfig = MutableStateFlow(routerConfig),
-            fileConfig = fileConfig,
+            receiveEvents = engine.receiveEvents,
+            config = config,
             clock = clock,
-        ).also { ingestPort.delegate = it }
+        )
         val facade = DefaultFileTransferService(
             receives = receives,
             descriptors = descriptors,
             files = files,
-            pending = pending,
-            messages = messages,
-            router = router,
-            clock = clock,
+            requests = coordinator,
         )
         return Node(
             router, coordinator, engine, facade, db, receives, descriptors, messages, rooms, pending,
@@ -385,7 +387,7 @@ class FileLargeFetchTwoRouterTest {
         val alicePeer = buildTestPeerIdentity(crypto, "file-large-alice")
         val bobPeer = buildTestPeerIdentity(crypto, "file-large-bob")
         val clock = FakeClock(now)
-        val fileConfig = FileServiceConfig(
+        val fileConfig = OrchestratorConfig(
             fileCheckpointBytes = 16L * 1024L,
             fileCheckpointInterval = 200.milliseconds,
         )
@@ -400,7 +402,7 @@ class FileLargeFetchTwoRouterTest {
             peersByAccount = mapOf(bobAccount to listOf(bobPeer.device.deviceId)),
             torByPeer = mutableMapOf(bobPeer.device.deviceId to bobTor.advertisedEndpoint),
             localTor = aliceTor, localWebRtc = aliceWebRtc, clock = clock,
-            fileConfig = fileConfig, routerConfig = routerConfig, tag = "alice",
+            orchestratorConfig = fileConfig, routerConfig = routerConfig, tag = "alice",
         )
         val bob = buildNode(
             localPeer = bobPeer,
@@ -408,7 +410,7 @@ class FileLargeFetchTwoRouterTest {
             peersByAccount = mapOf(aliceAccount to listOf(alicePeer.device.deviceId)),
             torByPeer = mutableMapOf(alicePeer.device.deviceId to aliceTor.advertisedEndpoint),
             localTor = bobTor, localWebRtc = bobWebRtc, clock = clock,
-            fileConfig = bobFileConfig, routerConfig = routerConfig, tag = "bob",
+            orchestratorConfig = bobFileConfig, routerConfig = routerConfig, tag = "bob",
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val mesh = Mesh(
@@ -474,7 +476,6 @@ class FileLargeFetchTwoRouterTest {
                 payload, isOrphaned = false, ancestryComplete = true,
                 verificationState = VerificationState.VERIFIED,
             )
-            node.messages.insertAttachment(mid, descriptor.fileId)
         }
         // Holder serves the requester's account; requester resolves the holder.
         alice.rooms.upsertMember(roomId, bobAccount, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
@@ -679,7 +680,7 @@ class FileLargeFetchTwoRouterTest {
             val payload = mesh.publishLargeFile()
             mesh.bob.pipeline.emit(org.yapyap.orchestrator.dag.IngestResult.Inserted(payload))
             val seen = mutableListOf<FileEvent>()
-            val collect = launch { mesh.bob.router.fileCarrier.fileEvents.collect { seen += it } }
+            val collect = launch { mesh.bob.router.files.fileEvents.collect { seen += it } }
             withTimeout(20.seconds) {
                 while (seen.none { it is FileEvent.NoDirectConnection }) delay(100)
             }

@@ -35,7 +35,7 @@ internal data class FileRelayTransfer(
     /** The OFFER's inner FileEnvelope bytes verbatim (signature intact), replayed on forward. */
     val offerPayload: ByteArray,
     val status: FileRelayStatus,
-    /** Covered-suffix bytes reserved against `RouterConfig.relayStoragePledgeBytes` at admission. */
+    /** Covered-suffix bytes reserved against `RouterConfig.fileRelayBudgetBytes` at admission. */
     val reservedBytes: Long,
     val markerPacketId: Uuid?,
     val createdAt: Instant,

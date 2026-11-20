@@ -1,185 +1,21 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.file.FileCarrier
-import kotlin.time.Duration
-import kotlin.time.Instant
-import kotlin.uuid.Uuid
+import org.yapyap.routing.file.port.FileCarrier
 
+/**
+ * The routing layer's lifecycle and its services, one per concern. Orchestrator components take
+ * the service they use, never the whole router.
+ */
 internal interface Router {
-    val incomingMessages: Flow<MessagePayload>
+    val messages: MessageCarrier
+    val syncs: SyncCarrier
+    val bootstrap: BootstrapCarrier
+    val presence: Presence
 
-    /**
-     * Hot stream of typing indicators received from peers, resolved to the author's account.
-     * Room state aggregation and idle-timeout are handled upstream (orchestrator).
-     */
-    val typingIndicators: Flow<TypingIndicatorEvent>
-
-    /**
-     * Hot stream of inbound pings, resolved to the sender's account (null when
-     * the device is unknown). One element per received ping — probes and
-     * replies alike, since both carry the sender's latest frontiers.
-     */
-    val pingPayloads: Flow<PingFrontiers>
-
-    /**
-     * Hot stream of authenticated bootstrap-family packets (one flow per packet type — payload
-     * variants dispatch consumer-side, like [incomingMessages]). Each event has passed its kind's
-     * authentication (AEAD intro gate / account-signature recovery check); consuming is an
-     * orchestrator concern: INTRO → newcomer onboarding provider, RECOVERY_REQUEST → recovery responder.
-     */
-    val bootstrapPackets: Flow<BootstrapPacketEvent>
-
-    /**
-     * Live set of accounts with at least one currently-online device.
-     * Account-level by design: device-level presence (PeerId-keyed) stays
-     * inside the router — consumers never learn which device carries an
-     * account. The local account is not a member (self-presence is not peer
-     * presence); callers that display the local account treat it as online.
-     */
-    val onlineAccounts: Flow<Set<AccountId>>
-
-    /**
-     * This device's own connectivity, folded from the transports' health (network, Tor bootstrap,
-     * onion publication, automatic recovery). Device-local; the orchestrator lifts it to the public
-     * transport status. Transport types stop here.
-     */
-    val localLinkStatus: StateFlow<LocalLinkStatus>
-
-    /**
-     * Account-level file operations and events (design §12): the orchestrator pushes and
-     * cancels by account and observes progress/readiness; routing fans out per device.
-     */
-    val fileCarrier: FileCarrier
+    /** Account-level file operations and events (design §12); routing fans out per device. */
+    val files: FileCarrier
 
     suspend fun start()
     suspend fun stop()
     fun isRunning(): Boolean
-
-    /**
-     * Immediately pings every known peer, advertising our presence and exchanging
-     * frontier snapshots so listeners can trigger frontier syncs.
-     *
-     * The orchestrator calls this once, after the subsystems that consume [pingPayloads] (e.g. the
-     * sync coordinator) are running, rather than having it fire inside [start]. Idempotent and
-     * best-effort: failures to individual peers are swallowed. Returns once the pings are handed to
-     * the transport.
-     */
-    suspend fun announceOnline()
-
-    /**
-     * Our own onion endpoint, as Tor published it on [start]. The orchestrator puts it in invites,
-     * intros and its own AddDevice — the one place it handles an address (bootstrap). Throws before [start].
-     */
-    fun localTorEndpoint(): TorEndpoint
-
-    /**
-     * What the router knows about reaching each of [accounts], for display only (the roster's
-     * "last seen"). Reported per account, never per device; routing decisions stay inside the router.
-     */
-    suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach>
-
-    /**
-     * Pushes [payload] to every device of [target]. Transport selection is owned by the
-     * outbox retry loop, per attempt — there is no per-send override.
-     *
-     * The returned report is a latency snapshot, not a delivery verdict: the message
-     * is already durable in the sender's DAG, and the peer's pull path (ping frontiers
-     * + sync) delivers even when every count is zero. The local device is never a
-     * target (own-account sends reach the account's other devices only); an
-     * own-account send with no other devices is a normal, quiet outcome.
-     */
-    suspend fun sendMessage(
-        target: AccountId,
-        payload: MessagePayload,
-    ): AccountPushReport
-
-    /**
-     * Signal that the local user is typing in [roomId] to [targets] (room members).
-     * [interval] is the send cadence the caller will keep announcing with; it is stamped
-     * into the payload so receivers can idle-timeout at ~2x. Fire-and-forget: indicators are
-     * only delivered to peers with an open WebRTC session and are never queued or persisted.
-     * Session opening for recently-reachable peers is a side effect of this call.
-     */
-    suspend fun sendTypingIndicator(
-        targets: Collection<AccountId>,
-        roomId: RoomId,
-        interval: Duration,
-    )
-
-    /**
-     * Send a bootstrap-family packet: protect inside the router, queue through the outbox with
-     * a short lifetime, cleared on the peer's ACK.
-     *
-     * @param targetEndpoint out-of-band endpoint override for targets with no local devices row.
-     * @param sharedSecret sender's in-memory one-time secret, required for INTRO (used once,
-     *   never persisted). Null for RECOVERY_REQUEST.
-     * @return the queued packet's id, as later reported in [deliveries] ([DeliverySubject.Bootstrap]).
-     */
-    suspend fun sendBootstrap(
-        payload: BootstrapPayload,
-        target: PeerId,
-        targetEndpoint: TorEndpoint? = null,
-        sharedSecret: ByteArray? = null,
-    ): Uuid
-
-    /**
-     * Starts asking candidate devices for pending sync [syncId] (idempotent), first at
-     * [firstAttemptAt]. What to ask for and which accounts may answer come from the
-     * [org.yapyap.routing.sync.SyncPayloadProvider]; the router asks until that reports the
-     * sync satisfied or gone.
-     */
-    suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant)
-
-    /**
-     * Starts asking candidate devices for pending file [fileId] (idempotent), first at
-     * [firstAttemptAt]. What to ask for and which accounts may hold it come from the
-     * [org.yapyap.routing.file.FileIngestPort] (held coverage, candidates, total bytes for
-     * the small/large path choice); the router asks one candidate at a time until an
-     * OFFER (small) or FETCH_OK (large) arrives or every candidate declines.
-     *
-     * // TODO: split Router into per-task services (messages, syncs, typing, files) behind
-     * // narrow ports like FileCarrier instead of growing this interface (Phase D discussion).
-     * // Config goes with it: FileServiceConfig is not part of RuntimeConfig (so it never
-     * // reaches the settings file) while the orchestrator already carries two sub-configs,
-     * // and relayStoragePledgeBytes sits ad hoc in RouterConfig instead of one pledge split
-     * // in wiring between the message relay-cache share and the file relay-store share.
-     * // Unify the pledge split with this service split (Phase E discussion).
-     */
-    suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
-
-    /**
-     * Aborts our live large-file fetch of [fileId] (ABORT + channel close, in-memory
-     * state dropped). Idempotent: unknown files are a no-op. The receiver's gap
-     * trigger and the user cancel both land here; the small path needs nothing
-     * (its gap trigger cancels no transfer by design).
-     */
-    suspend fun abortFileFetch(fileId: FileId)
-
-    /**
-     * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's
-     * room): if every candidate device has declined, that account's devices are asked again.
-     */
-    suspend fun reopenSync(syncId: Uuid, account: AccountId)
-
-    /**
-     * Push-path ACKs, resolved to the acknowledging account: a message pushed by [sendMessage]
-     * (or served in a sync reply) was processed by one of that account's devices, or a
-     * bootstrap packet from [sendBootstrap] reached its target (account null: the target may
-     * have no account here yet, as with a recovery request's target before its intro).
-     *
-     * Hot and best-effort: only an ACK is reported, and the absence of one proves nothing —
-     * messages also arrive through relays and the pull path, which never ACK to the sender.
-     * One event per acknowledging device, so an account may be reported more than once.
-     */
-    val deliveries: Flow<Delivery>
-
 }

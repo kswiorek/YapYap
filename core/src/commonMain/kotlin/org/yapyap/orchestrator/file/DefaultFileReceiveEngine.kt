@@ -1,8 +1,13 @@
 package org.yapyap.orchestrator.file
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -12,6 +17,7 @@ import org.yapyap.crypto.primitives.Sha256Hasher
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileId
@@ -19,17 +25,19 @@ import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.ByteRange
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileCoverage
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileFailureReason
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.file.FileRefusalReason
-import org.yapyap.routing.router.RouterConfig
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.port.FileIngestPort
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FileReceiveEnd
+import org.yapyap.routing.file.port.FileReceiveEnds
+import org.yapyap.routing.file.port.FileRefusalReason
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 private data class RunningHash(val blockIndex: Int, val hasher: Sha256Hasher)
 
@@ -49,18 +57,25 @@ private data class RunningHash(val blockIndex: Int, val hasher: Sha256Hasher)
  */
 internal class DefaultFileReceiveEngine(
     private val receives: FileReceiveStore,
-    private val descriptors: FileDescriptorStore,
     private val messages: MessageRepository,
     private val crypto: CryptoProvider,
     private val files: FileAccess,
     private val storeDirectory: Path,
     private val incomingDirectory: Path,
-    private val config: FileServiceConfig,
+    private val config: StateFlow<OrchestratorConfig>,
     private val fileStore: FileStore,
-    private val carrier: FileCarrier,
-    private val routerConfig: StateFlow<RouterConfig>,
     private val clock: Clock = Clock.System,
-) : FileIngestEngine {
+) : FileIngestPort, FileCoverageReader, FileReceiveEnds, FileReceiveControl {
+    private val events = MutableSharedFlow<FileReceiveEvent>(extraBufferCapacity = 64)
+
+    /** Progress, readiness and failures of the files this engine receives. */
+    val receiveEvents: Flow<FileReceiveEvent> = events.asSharedFlow()
+
+    // Unlimited and single-consumer: routing answers every end, even one reported before it starts.
+    private val ends = Channel<FileReceiveEnd>(Channel.UNLIMITED)
+
+    override val receiveEnds: Flow<FileReceiveEnd> = ends.receiveAsFlow()
+
     private val lock = Mutex()
     private val runningHashes = mutableMapOf<FileId, RunningHash>()
 
@@ -68,22 +83,22 @@ internal class DefaultFileReceiveEngine(
         scope.launch { recover(clock.now()) }
         scope.launch {
             while (true) {
-                delay(config.fileCheckpointInterval)
+                delay(config.value.fileCheckpointInterval)
                 runCatching { checkpoint() }
                 runCatching { sweep() }
             }
         }
     }
 
-    // -- Ingest side (invoked through the coordinator, which owns the port) --------
+    // -- FileIngestPort -----------------------------------------------------------
 
-    override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict = lock.withLock {
+    override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict = lock.withLock {
         val now = clock.now()
         val existing = try {
             receives.find(offer.fileId)
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            return FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE)
+            return FileOfferVerdict.Defer
         }
         if (existing != null) {
             return when (existing.status) {
@@ -147,11 +162,11 @@ internal class DefaultFileReceiveEngine(
             AppLog.error(
                 component = LogComponent.ORCHESTRATOR,
                 event = LogEvent.MESSAGE_DECODE_FAILED,
-                message = "Failed to reserve receive state; refusing OFFER",
+                message = "Failed to reserve receive state; deferring OFFER",
                 throwable = e,
                 fields = mapOf("fileId" to offer.fileId),
             )
-            return FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE)
+            return FileOfferVerdict.Defer
         }
         FileOfferVerdict.Accept
     }
@@ -164,7 +179,7 @@ internal class DefaultFileReceiveEngine(
                 receives.find(fileId)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                return FileIngestResult.Refused
+                return FileIngestResult.Defer
             } ?: return FileIngestResult.Refused
             when (row.status) {
                 FileReceiveStatus.READY -> return FileIngestResult.Duplicate
@@ -186,7 +201,7 @@ internal class DefaultFileReceiveEngine(
                 receives.stagedByFile(fileId)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                return FileIngestResult.Refused
+                return FileIngestResult.Defer
             }
             val uncovered = subtractUncovered(maxOf(byteOffset, row.contiguousBytes), end, byteOffset, plaintext, staged)
             if (uncovered.isEmpty()) return FileIngestResult.Duplicate
@@ -195,9 +210,9 @@ internal class DefaultFileReceiveEngine(
                     receives.stagedBytes(fileId)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    return FileIngestResult.Refused
+                    return FileIngestResult.Defer
                 }
-                if (stagedTotal + uncovered.sumOf { it.second.size.toLong() } > config.maxStagedBytes) {
+                if (stagedTotal + uncovered.sumOf { it.second.size.toLong() } > config.value.maxStagedBytes) {
                     return FileIngestResult.Defer
                 }
             }
@@ -210,9 +225,9 @@ internal class DefaultFileReceiveEngine(
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                return FileIngestResult.Refused
+                return FileIngestResult.Defer
             }
-            if (staged.sumOf { it.length } + uncovered.sumOf { it.second.size.toLong() } >= config.fileCheckpointBytes) {
+            if (staged.sumOf { it.length } + uncovered.sumOf { it.second.size.toLong() } >= config.value.fileCheckpointBytes) {
                 checkpointLocked(now)
             }
             val current = try {
@@ -221,6 +236,7 @@ internal class DefaultFileReceiveEngine(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 null
             } ?: row
+            events.emit(FileReceiveEvent.Progress(fileId, current.contiguousBytes, current.totalBytes))
             FileIngestResult.Staged(current.contiguousBytes, current.totalBytes)
         }
     }
@@ -260,6 +276,65 @@ internal class DefaultFileReceiveEngine(
         }
         FileCoverage(row.contiguousBytes, missing)
     }
+
+    // -- FileReceiveControl ---------------------------------------------------------
+
+    override suspend fun markStalled(fileId: FileId, idleSince: Instant, now: Instant): Boolean = lock.withLock {
+        val row = receives.find(fileId) ?: return false
+        // Re-read under the lock: a completion or progress since the caller looked wins.
+        if (row.status != FileReceiveStatus.IN_FLIGHT || row.updatedAt >= idleSince) return false
+        receives.updateStatus(fileId, FileReceiveStatus.STALLED, now)
+        true
+    }
+
+    override suspend fun declineUnseen(attachment: MessagePayload.Attachment, originMessageId: Uuid, now: Instant) =
+        lock.withLock {
+            if (receives.find(attachment.fileId) == null) receives.upsert(declinedRow(attachment, originMessageId, now))
+        }
+
+    override suspend fun decline(fileId: FileId, attachment: MessagePayload.Attachment?, now: Instant) = lock.withLock {
+        val row = receives.find(fileId)
+        when {
+            row == null -> attachment?.let { receives.upsert(declinedRow(it, originMessageId = null, now)) }
+            row.status != FileReceiveStatus.READY -> receives.updateStatus(fileId, FileReceiveStatus.DECLINED, now)
+        }
+        Unit
+    }
+
+    override suspend fun reopen(fileId: FileId): Boolean = lock.withLock {
+        val row = receives.find(fileId) ?: return true
+        when (row.status) {
+            FileReceiveStatus.READY -> false
+            FileReceiveStatus.PENDING, FileReceiveStatus.IN_FLIGHT, FileReceiveStatus.STALLED -> true
+            FileReceiveStatus.FAILED, FileReceiveStatus.DECLINED, FileReceiveStatus.CANCELLED, FileReceiveStatus.EVICTED -> {
+                receives.delete(fileId)
+                runningHashes.remove(fileId)
+                true
+            }
+        }
+    }
+
+    /**
+     * A DECLINED row for a file with no bytes on disk: the paths are placeholders until an OFFER or
+     * FETCH_OK creates the real row, and a DECLINED row is refused before any path is touched.
+     */
+    private fun declinedRow(attachment: MessagePayload.Attachment, originMessageId: Uuid?, now: Instant) =
+        FileReceiveRow(
+            fileId = attachment.fileId,
+            status = FileReceiveStatus.DECLINED,
+            totalBytes = attachment.totalBytes,
+            contiguousBytes = 0L,
+            blockSize = null,
+            blockHashes = null,
+            fileName = attachment.fileName,
+            mimeType = attachment.mimeType,
+            hashMismatches = 0,
+            partPath = "",
+            finalPath = "",
+            originMessageId = originMessageId,
+            createdAt = now,
+            updatedAt = now,
+        )
 
     // -- Checkpoints, restart, retention --------------------------------------------
 
@@ -327,10 +402,10 @@ internal class DefaultFileReceiveEngine(
                     runCatching { receives.updateOrigin(row.fileId, referencing.first(), now) }
                     continue
                 }
-                if (row.createdAt + routerConfig.value.fileTransferTtl <= now) {
+                if (row.createdAt + config.value.unreferencedFileRetention <= now) {
                     runCatching { files.delete(Path(row.finalPath)) }
                     runCatching { files.delete(Path(row.partPath)) }
-                    runCatching { descriptors.deleteById(row.fileId) }
+                    runCatching { fileStore.forget(row.fileId) }
                     runCatching { receives.delete(row.fileId) }
                     AppLog.info(
                         component = LogComponent.ORCHESTRATOR,
@@ -438,7 +513,7 @@ internal class DefaultFileReceiveEngine(
             val blockStart = mismatchAt * blockSize.toLong()
             runCatching { receives.deleteStagedFrom(row.fileId, blockStart) }
             val mismatches = row.hashMismatches + 1
-            if (mismatches > config.fileHashRetryLimit) {
+            if (mismatches > config.value.fileHashRetryLimit) {
                 runCatching {
                     receives.updateProgress(row.fileId, blockStart, mismatches, FileReceiveStatus.FAILED, now)
                 }
@@ -447,7 +522,7 @@ internal class DefaultFileReceiveEngine(
                 runCatching {
                     receives.updateProgress(row.fileId, blockStart, mismatches, FileReceiveStatus.STALLED, now)
                 }
-                runCatching { carrier.cancelIncoming(row.fileId, FileCancelReason.ABORT) }
+                ends.trySend(FileReceiveEnd.Cancelled(row.fileId, FileCancelReason.ABORT))
             }
             return
         }
@@ -531,7 +606,7 @@ internal class DefaultFileReceiveEngine(
             createdAt = now,
         )
         try {
-            descriptors.upsert(descriptor)
+            fileStore.adopt(descriptor)
             receives.deleteStagedByFile(row.fileId)
             receives.updateStatus(row.fileId, FileReceiveStatus.READY, now)
             runningHashes.remove(row.fileId)
@@ -547,24 +622,16 @@ internal class DefaultFileReceiveEngine(
             return
         }
         runCatching { fileStore.enforceQuota() }
-        try {
-            carrier.fileReady(row.fileId)
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLog.error(
-                component = LogComponent.ORCHESTRATOR,
-                event = LogEvent.MESSAGE_DECODE_FAILED,
-                message = "COMPLETE fan-out failed after READY; will retry on restart",
-                throwable = e,
-                fields = mapOf("fileId" to row.fileId),
-            )
-        }
+        events.emit(FileReceiveEvent.Ready(row.fileId))
+        ends.trySend(FileReceiveEnd.Ready(row.fileId))
     }
 
     private suspend fun failReceive(row: FileReceiveRow, reason: FileFailureReason, now: Instant) {
         runCatching { receives.updateStatus(row.fileId, FileReceiveStatus.FAILED, now) }
-        runCatching { carrier.cancelIncoming(row.fileId, FileCancelReason.ABORT) }
-        runCatching { carrier.emit(FileEvent.Failed(row.fileId, target = null, reason = reason)) }
+        val cancelReason =
+            if (reason == FileFailureReason.NO_SPACE) FileCancelReason.NO_SPACE else FileCancelReason.ABORT
+        ends.trySend(FileReceiveEnd.Cancelled(row.fileId, cancelReason))
+        events.emit(FileReceiveEvent.Failed(row.fileId, reason))
     }
 
     private suspend fun ensurePart(row: FileReceiveRow) {
@@ -645,7 +712,8 @@ internal class DefaultFileReceiveEngine(
             emptyList()
         }
         for (row in ready) {
-            runCatching { carrier.fileReady(row.fileId) }
+            ends.trySend(FileReceiveEnd.Ready(row.fileId))
+            events.emit(FileReceiveEvent.Ready(row.fileId))
         }
     }
 

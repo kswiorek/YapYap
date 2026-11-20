@@ -11,7 +11,7 @@ import kotlin.uuid.Uuid
 /**
  * Receive state, `fileId`-scoped (design §14): PENDING → IN_FLIGHT (`.part` reserved) →
  * READY (coverage complete, last block verified, renamed); IN_FLIGHT → STALLED on a block
- * mismatch below [FileServiceConfig.fileHashRetryLimit], FAILED at the limit or on ENOSPC;
+ * mismatch below [OrchestratorConfig.fileHashRetryLimit][org.yapyap.orchestrator.OrchestratorConfig.fileHashRetryLimit], FAILED at the limit or on ENOSPC;
  * PENDING → DECLINED (no space, or a large file this device did not fetch — local,
  * re-openable); IN_FLIGHT → STALLED on the gap trigger; READY → EVICTED on quota LRU.
  */
@@ -68,16 +68,26 @@ internal data class StagedRange(
     }
 }
 
-/** Owner of `file_receives` + `file_receive_chunks` (guide §4). Generated queries stay here. */
-internal interface FileReceiveStore {
-    suspend fun upsert(row: FileReceiveRow)
+/** Read-only view of `file_receives`, for everyone but its writer, the receive engine. */
+internal interface FileReceiveReader {
     suspend fun find(fileId: FileId): FileReceiveRow?
+
+    /** Receives not yet READY and not terminal (PENDING, IN_FLIGHT, STALLED). */
+    suspend fun active(): List<FileReceiveRow>
+}
+
+/**
+ * Owner of `file_receives` + `file_receive_chunks` (guide §4). Generated queries stay here. Only the
+ * receive engine holds this interface; everyone else reads through [FileReceiveReader] and changes a
+ * receive through the engine's [FileReceiveControl].
+ */
+internal interface FileReceiveStore : FileReceiveReader {
+    suspend fun upsert(row: FileReceiveRow)
     suspend fun updateProgress(fileId: FileId, contiguousBytes: Long, mismatches: Int, status: FileReceiveStatus, now: Instant)
     suspend fun updateBlockList(fileId: FileId, blockSize: Int, blockHashes: List<ByteArray>, fileName: String?, mimeType: String?, now: Instant)
     suspend fun updateStatus(fileId: FileId, status: FileReceiveStatus, now: Instant)
     suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
     suspend fun delete(fileId: FileId)
-    suspend fun active(): List<FileReceiveRow>
     suspend fun ready(): List<FileReceiveRow>
 
     suspend fun stageChunk(fileId: FileId, range: StagedRange)

@@ -1,10 +1,13 @@
 package org.yapyap.orchestrator.file
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.FileAccess
-import org.yapyap.persistence.ioDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.blockSizeFor
 import kotlin.time.Clock
@@ -27,12 +30,19 @@ internal interface FileStore {
         source: FileImportSource,
         fileName: String,
         mimeType: String?,
-        keepCopy: Boolean,
+        /** Copy into the store, or reference the source; null applies `copyIntoStoreMaxBytes`. */
+        keepCopy: Boolean?,
     ): FileDescriptor
 
     suspend fun resolve(fileId: FileId): FileDescriptor?
 
     suspend fun markSourceLost(fileId: FileId)
+
+    /** Takes a finished receive into the store: [descriptor] names the verified copy at its final path. */
+    suspend fun adopt(descriptor: FileDescriptor)
+
+    /** Forgets [fileId]'s descriptor (an unreferenced receive past its retention). */
+    suspend fun forget(fileId: FileId)
 
     /** Enforce the copy quota now (used after a receive lands in the permanent store). */
     suspend fun enforceQuota()
@@ -43,20 +53,20 @@ internal class DefaultFileStore(
     private val crypto: CryptoProvider,
     private val files: FileAccess,
     private val storeDirectory: Path,
-    private val config: FileServiceConfig,
+    private val config: StateFlow<OrchestratorConfig>,
     private val clock: Clock = Clock.System,
 ) : FileStore {
     override suspend fun import(
         source: FileImportSource,
         fileName: String,
         mimeType: String?,
-        keepCopy: Boolean,
-    ): FileDescriptor = withContext(ioDispatcher) {
+        keepCopy: Boolean?,
+    ): FileDescriptor = withContext(Dispatchers.IO) {
         require(fileName.isNotBlank()) { "fileName must not be blank" }
         val totalBytes = sourceSize(source)
             ?: throw IllegalArgumentException("import source is missing")
         val blockSize = blockSizeFor(totalBytes)
-        val copy = keepCopy
+        val copy = keepCopy ?: (totalBytes <= config.value.copyIntoStoreMaxBytes)
 
         if (!copy) {
             val hashes = hashSource(source, totalBytes, blockSize, writeTo = null)
@@ -126,6 +136,10 @@ internal class DefaultFileStore(
     override suspend fun markSourceLost(fileId: FileId) {
         descriptors.setStatus(fileId, FileDescriptorStatus.SOURCE_LOST)
     }
+
+    override suspend fun adopt(descriptor: FileDescriptor) = descriptors.upsert(descriptor)
+
+    override suspend fun forget(fileId: FileId) = descriptors.deleteById(fileId)
 
     override suspend fun enforceQuota() = enforceQuota(newFileId = null)
 
@@ -201,9 +215,9 @@ internal class DefaultFileStore(
      */
     private suspend fun enforceQuota(newFileId: org.yapyap.protocol.FileId? = null) {
         var total = descriptors.copyBytesTotal()
-        if (total <= config.storeQuotaBytes) return
+        if (total <= config.value.storeQuotaBytes) return
         for (victim in descriptors.copyDescriptorsOldestFirst()) {
-            if (total <= config.storeQuotaBytes) break
+            if (total <= config.value.storeQuotaBytes) break
             // Never evict the file just imported when it alone exceeds quota.
             if (victim.fileId == newFileId) continue
             // Eviction removes the descriptor and deletes the stored bytes.

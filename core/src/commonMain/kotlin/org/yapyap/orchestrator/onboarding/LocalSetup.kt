@@ -16,7 +16,8 @@ import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.envelopes.accountSignedDeviceBindingBytes
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.BootstrapCarrier
+import org.yapyap.routing.router.Presence
 
 /**
  * First-run setup, split around node assembly: [LocalSetupPreparer] provisions the local
@@ -90,7 +91,8 @@ internal class LocalSetup(
     private val cryptoProvider: CryptoProvider,
     private val onboardingProvider: OnboardingProvider,
     private val globalEventProjector: GlobalEventProjector,
-    internal val router: Router,
+    private val presence: Presence,
+    private val bootstrapCarrier: BootstrapCarrier,
     private val localDeviceType: DeviceType,
 ) {
     /**
@@ -105,7 +107,7 @@ internal class LocalSetup(
 
     /** Runs the path's network side and produces what the user needs to continue it. */
     suspend fun complete(prepared: PreparedSetup): SetupResult {
-        val tor = router.localTorEndpoint()
+        val tor = presence.localTorEndpoint()
         return when (prepared) {
             is PreparedSetup.Genesis -> {
                 // Genesis: append AddAccount (DAG root, prevId == null — owner by definition, §3)
@@ -158,7 +160,7 @@ internal class LocalSetup(
                     sharedSecret = secret,
                     accountSignature = signDeviceBinding(prepared.account, prepared.device, tor),
                 )
-                val requestId = router.sendBootstrap(
+                val requestId = bootstrapCarrier.sendBootstrap(
                     request,
                     target = prepared.bootstrapEndpoint.peerId,
                     targetEndpoint = prepared.bootstrapEndpoint.torEndpoint,

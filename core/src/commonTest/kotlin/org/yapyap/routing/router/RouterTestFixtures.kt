@@ -62,13 +62,20 @@ import org.yapyap.protocol.identity.SignedPreKeyId
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.FileDescriptorInfo
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FilePlaintextSource
 import org.yapyap.routing.file.FilePushOps
-import org.yapyap.routing.file.FileReadResult
-import org.yapyap.routing.file.RefusingFileIngestPort
+import org.yapyap.routing.file.FileRoutingPorts
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileIngestPort
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.FileReceiveEnd
+import org.yapyap.routing.file.port.FileReceiveEnds
+import org.yapyap.routing.file.port.FileRefusalReason
+import org.yapyap.routing.file.port.FileRequestSource
+import org.yapyap.routing.file.port.FileServeGate
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
@@ -518,10 +525,10 @@ internal class InMemoryFileRelayStore : FileRelayStore {
 
 /** Scriptable [FilePlaintextSource] for pusher tests. */
 internal class FakeFilePlaintextSource(
-    var describeImpl: (FileId) -> FileDescriptorInfo? = { null },
+    var describeImpl: (FileId) -> FileManifest? = { null },
     var readImpl: (FileId, Long, Int) -> FileReadResult = { _, _, _ -> FileReadResult.NotHeld },
 ) : FilePlaintextSource {
-    override suspend fun describe(fileId: FileId): FileDescriptorInfo? = describeImpl(fileId)
+    override suspend fun describe(fileId: FileId): FileManifest? = describeImpl(fileId)
 
     override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult =
         readImpl(fileId, offset, maxBytes)
@@ -633,18 +640,23 @@ internal class InMemoryFileRequestAttemptStore : FileRequestAttemptStore {
     )
 }
 
-/**
- * [FileIngestPort] backed by a real receive engine, for push-path tests that never
- * exercise the request side (coverage/gate report "nothing held / no serving").
- */
-internal fun engineFileIngestPort(
-    engine: org.yapyap.orchestrator.file.DefaultFileReceiveEngine,
-): FileIngestPort = object : FileIngestPort {
-    override suspend fun checkOffer(offer: FileOfferInfo) = engine.checkOffer(offer)
-    override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
-        engine.ingest(fileId, byteOffset, plaintext)
+/** All three file ports in one test double, so a fake can be passed for each. */
+internal interface FakeFilePorts : FileIngestPort, FileRequestSource, FileServeGate
 
-    override suspend fun heldCoverage(fileId: FileId) = engine.heldCoverage(fileId)
+/** A receive engine that never ends a receive. */
+internal object NoFileReceiveEnds : FileReceiveEnds {
+    override val receiveEnds: kotlinx.coroutines.flow.Flow<FileReceiveEnd> = kotlinx.coroutines.flow.emptyFlow()
+}
+
+/** File ports for tests without a receive engine: declines everything cleanly. */
+internal class RefusingFilePorts : FakeFilePorts {
+    override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict =
+        FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE)
+
+    override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult =
+        FileIngestResult.Refused
+
+    override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
     override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = false
     override suspend fun requestTotalBytes(fileId: FileId): Long? = null
@@ -1163,7 +1175,7 @@ internal fun e2eeRouterUnderTest(
     clock: Clock = FakeClock(epochSeconds(10_000L)),
     routerConfig: RouterConfig = RouterConfig(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
-    fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
+    filePorts: FakeFilePorts = RefusingFilePorts(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
     filePushStore: FilePushStore = InMemoryFilePushStore(),
     fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
@@ -1185,16 +1197,22 @@ internal fun e2eeRouterUnderTest(
         routerConfig = MutableStateFlow(routerConfig),
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncAttemptStore = InMemorySyncAttemptStore(),
-        fileRequestAttemptStore = fileRequestAttemptStore,
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
-        fileIngestPort = fileIngestPort,
-        fileIncomingStore = fileIncomingStore,
-        filePushStore = filePushStore,
-        fileRelayStore = fileRelayStore,
-        plaintextSource = plaintextSource,
-        fileChunkSize = fileChunkSize,
+        filePorts = FileRoutingPorts(
+            ingest = filePorts,
+            requests = filePorts,
+            serveGate = filePorts,
+            plaintext = plaintextSource,
+            receiveEnds = NoFileReceiveEnds,
+            incoming = fileIncomingStore,
+            pushes = filePushStore,
+            relay = fileRelayStore,
+            requestAttempts = fileRequestAttemptStore,
+            chunkSizeBytes = fileChunkSize,
+            fetchFrameBytes = fileChunkSize,
+        ),
     )
 
 internal fun outboxProcessorUnderTest(
@@ -1244,7 +1262,7 @@ internal fun defaultRouterUnderTest(
     routerConfig: RouterConfig = RouterConfig(),
     envelopeProtectionService: EnvelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
     syncPayloadProvider: SyncPayloadProvider = FakeSyncPayloadProvider(),
-    fileIngestPort: FileIngestPort = RefusingFileIngestPort(),
+    filePorts: FakeFilePorts = RefusingFilePorts(),
     fileIncomingStore: FileIncomingTransferStore = InMemoryFileIncomingTransferStore(),
     filePushStore: FilePushStore = InMemoryFilePushStore(),
     fileRelayStore: FileRelayStore = InMemoryFileRelayStore(),
@@ -1266,14 +1284,20 @@ internal fun defaultRouterUnderTest(
         routerConfig = MutableStateFlow(routerConfig),
         transportLimits = MutableStateFlow(testTransportLimits()),
         syncAttemptStore = InMemorySyncAttemptStore(),
-        fileRequestAttemptStore = fileRequestAttemptStore,
         syncPayloadProvider = syncPayloadProvider,
         frontierSnapshotProvider = FakeFrontierSnapshotProvider(),
         peerAvailabilityStore = FakePeerAvailabilityStore(),
-        fileIngestPort = fileIngestPort,
-        fileIncomingStore = fileIncomingStore,
-        filePushStore = filePushStore,
-        fileRelayStore = fileRelayStore,
-        plaintextSource = plaintextSource,
-        fileChunkSize = fileChunkSize,
+        filePorts = FileRoutingPorts(
+            ingest = filePorts,
+            requests = filePorts,
+            serveGate = filePorts,
+            plaintext = plaintextSource,
+            receiveEnds = NoFileReceiveEnds,
+            incoming = fileIncomingStore,
+            pushes = filePushStore,
+            relay = fileRelayStore,
+            requestAttempts = fileRequestAttemptStore,
+            chunkSizeBytes = fileChunkSize,
+            fetchFrameBytes = fileChunkSize,
+        ),
     )

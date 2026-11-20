@@ -31,11 +31,9 @@ import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.NoopFileCarrier
-import org.yapyap.testfixtures.NoopRouter
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -64,13 +62,14 @@ class FileRequestCoordinatorTest {
     private class Harness(
         val pending: PendingFileRequestStore,
         val receives: FileReceiveStore,
-        val transfers: FileTransferStore,
         val descriptors: FileDescriptorStore,
         val messages: FakeMessageRepository,
         val rooms: FakeRoomRepository,
         val router: RecordingFileRouter,
         val pipeline: FakePipeline,
         val coordinator: DefaultFileRequestCoordinator,
+        val receiveEvents: MutableSharedFlow<FileReceiveEvent>,
+        val source: DefaultFileRequestSource,
     )
 
     private fun harness(
@@ -82,7 +81,6 @@ class FileRequestCoordinatorTest {
         // the test scheduler (the production default is a single-threaded IO dispatcher).
         val io = UnconfinedTestDispatcher()
         val receives = DefaultFileReceiveStore(db, io)
-        val transfers = DefaultFileTransferStore(db, io)
         val descriptors = DefaultFileDescriptorStore(db, io)
         val messages = FakeMessageRepository()
         val rooms = FakeRoomRepository(memberships)
@@ -92,11 +90,10 @@ class FileRequestCoordinatorTest {
         val work = Path(SystemTemporaryDirectory.toString(), "yapyap-coordtest-${Uuid.random()}")
         files.createDirectories(work)
         val crypto = DefaultCryptoProvider()
-        val config = FileServiceConfig()
+        val config = MutableStateFlow(OrchestratorConfig())
         val store = DefaultFileStore(descriptors, crypto, files, Path(work.toString(), "store"), config, clock)
         val engine = DefaultFileReceiveEngine(
             receives = receives,
-            descriptors = descriptors,
             messages = messages,
             crypto = crypto,
             files = files,
@@ -104,29 +101,31 @@ class FileRequestCoordinatorTest {
             incomingDirectory = Path(work.toString(), "incoming"),
             config = config,
             fileStore = store,
-            carrier = router.fileCarrier,
-            routerConfig = MutableStateFlow(RouterConfig()),
             clock = clock,
         )
+        val source = DefaultFileRequestSource(
+            messages = messages,
+            rooms = rooms,
+            receives = receives,
+            descriptors = descriptors,
+            localIdentity = FakeLocalIdentity(ownAccount),
+            coverage = engine,
+        )
+        val receiveEvents = MutableSharedFlow<FileReceiveEvent>(extraBufferCapacity = 16)
         val coordinator = DefaultFileRequestCoordinator(
             pending = DefaultPendingFileRequestStore(db, io),
             receives = receives,
-            transfers = transfers,
+            control = engine,
             messages = messages,
-            rooms = rooms,
-            descriptors = descriptors,
-            localIdentity = FakeLocalIdentity(ownAccount),
-            router = router,
+            fileCarrier = router.files,
             pipeline = pipeline,
-            engine = engine,
-            config = MutableStateFlow(OrchestratorConfig()),
-            routerConfig = MutableStateFlow(RouterConfig()),
-            fileConfig = FileServiceConfig(),
+            receiveEvents = receiveEvents,
+            config = config,
             clock = clock,
         )
         return Harness(
-            DefaultPendingFileRequestStore(db, io), receives, transfers, descriptors,
-            messages, rooms, router, pipeline, coordinator,
+            DefaultPendingFileRequestStore(db, io), receives, descriptors,
+            messages, rooms, router, pipeline, coordinator, receiveEvents, source,
         )
     }
 
@@ -244,13 +243,13 @@ class FileRequestCoordinatorTest {
     @Test
     fun requestTotalBytes_prefersAttachmentFallsBackToRow() = runTest {
         val h = harness()
-        assertNull(h.coordinator.requestTotalBytes(fileId))
+        assertNull(h.source.requestTotalBytes(fileId))
         val mid = Uuid.random()
         val big = MessagePayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
         val payload = textMessage(mid, senderAccount).copy(attachments = listOf(big))
         h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
-        assertEquals(100L * 1024 * 1024, h.coordinator.requestTotalBytes(fileId))
+        assertEquals(100L * 1024 * 1024, h.source.requestTotalBytes(fileId))
     }
 
     @Test
@@ -266,7 +265,7 @@ class FileRequestCoordinatorTest {
         assertNull(h.pending.find(fileId))
 
         h.pending.upsertPending(fileId, now, now)
-        h.router.events.emit(FileEvent.Ready(fileId))
+        h.receiveEvents.emit(FileReceiveEvent.Ready(fileId))
         advanceTimeBy(1.seconds)
         runCurrent()
         assertNull(h.pending.find(fileId))
@@ -409,8 +408,8 @@ class FileRequestCoordinatorTest {
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
 
-        assertTrue(h.coordinator.canServe(fileId, senderAccount))
-        assertFalse(h.coordinator.canServe(fileId, strangerAccount), "never-member is refused")
+        assertTrue(h.source.canServe(fileId, senderAccount))
+        assertFalse(h.source.canServe(fileId, strangerAccount), "never-member is refused")
     }
 
     @Test
@@ -429,14 +428,14 @@ class FileRequestCoordinatorTest {
 
         // Era file (ancestor of the removal node): visible.
         h.messages.attachments[fileId] = listOf(eraMessage)
-        assertTrue(h.coordinator.canServe(fileId, senderAccount))
+        assertTrue(h.source.canServe(fileId, senderAccount))
         // Post-removal file: not visible.
         h.messages.attachments[fileId] = listOf(afterMessage)
-        assertFalse(h.coordinator.canServe(fileId, senderAccount))
+        assertFalse(h.source.canServe(fileId, senderAccount))
         // The removal node itself names a message: visible.
         h.messages.rows[removal] = StoredMessage(textMessage(removal, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(removal)
-        assertTrue(h.coordinator.canServe(fileId, senderAccount))
+        assertTrue(h.source.canServe(fileId, senderAccount))
     }
 
     @Test
@@ -448,9 +447,14 @@ class FileRequestCoordinatorTest {
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
         // Fetch serves any size through the same per-account gate.
-        assertTrue(h.coordinator.canServe(fileId, senderAccount))
+        assertTrue(h.source.canServe(fileId, senderAccount))
 
-        assertFalse(h.coordinator.canServe(FileId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), senderAccount))
+        assertFalse(
+            h.source.canServe(
+                FileId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                senderAccount
+            )
+        )
     }
 
     @Test
@@ -462,44 +466,7 @@ class FileRequestCoordinatorTest {
         h.messages.rows[m1] = StoredMessage(textMessage(m1, senderAccount), isOrphaned = false)
         h.messages.rows[m2] = StoredMessage(textMessage(m2, other), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(m1, m2)
-        assertEquals(listOf(senderAccount, other, ownAccount), h.coordinator.requestCandidates(fileId))
-    }
-
-    @Test
-    fun outgoingComplete_marksSendCompleted() = runTest {
-        val h = harness()
-        h.transfers.upsert(
-            FileTransfer(
-                fileId = fileId, peerAccountId = senderAccount,
-                direction = FileTransferDirection.SEND, klass = FileTransferClass.SMALL,
-                status = FileTransferStatus.IN_FLIGHT, createdAt = now, updatedAt = now,
-                expiresAt = now + 2_000_000.seconds,
-            )
-        )
-        h.coordinator.start(this)
-        advanceTimeBy(1.seconds)
-        runCurrent()
-        h.router.events.emit(FileEvent.OutgoingComplete(fileId, senderAccount))
-        advanceTimeBy(1.seconds)
-        runCurrent()
-        assertEquals(FileTransferStatus.COMPLETED, h.transfers.find(fileId, senderAccount)?.status)
-        h.coordinator.stop()
-    }
-
-    @Test
-    fun serveStarted_upsertsServeRow() = runTest {
-        val h = harness()
-        h.coordinator.start(this)
-        advanceTimeBy(1.seconds)
-        runCurrent()
-        h.router.events.emit(FileEvent.ServeStarted(fileId, senderAccount))
-        advanceTimeBy(1.seconds)
-        runCurrent()
-        val row = h.transfers.find(fileId, senderAccount)
-        assertNotNull(row)
-        assertEquals(FileTransferDirection.SERVE, row.direction)
-        assertEquals(FileTransferStatus.IN_FLIGHT, row.status)
-        h.coordinator.stop()
+        assertEquals(listOf(senderAccount, other, ownAccount), h.source.requestCandidates(fileId))
     }
 
     @Test
@@ -516,7 +483,7 @@ class FileRequestCoordinatorTest {
         )
         h.receives.stageChunk(fileId, StagedRange(100L, 50L, ByteArray(50)))
         h.receives.stageChunk(fileId, StagedRange(200L, 50L, ByteArray(50)))
-        val coverage = assertNotNull(h.coordinator.heldCoverage(fileId))
+        val coverage = assertNotNull(h.source.heldCoverage(fileId))
         assertEquals(100L, coverage.contiguousBytes)
         assertEquals(1, coverage.missingRanges.size)
         assertEquals(150L, coverage.missingRanges.single().startBytes)
@@ -540,11 +507,9 @@ class FileRequestCoordinatorTest {
         val startedFiles: MutableList<Pair<FileId, kotlin.time.Instant>> = mutableListOf(),
         val abortedFiles: MutableList<FileId> = mutableListOf(),
         val events: MutableSharedFlow<FileEvent> = MutableSharedFlow(extraBufferCapacity = 64),
-    ) : NoopRouter() {
-        override val fileCarrier: org.yapyap.routing.file.FileCarrier =
-            object : org.yapyap.routing.file.FileCarrier by NoopFileCarrier() {
-                override val fileEvents: Flow<FileEvent> = events
-            }
+    ) : NoopFileCarrier() {
+        val files: org.yapyap.routing.file.port.FileCarrier get() = this
+        override val fileEvents: Flow<FileEvent> = events
 
         override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: kotlin.time.Instant) {
             startedFiles += fileId to firstAttemptAt
@@ -557,12 +522,12 @@ class FileRequestCoordinatorTest {
 
     private class FakeLocalIdentity(private val account: AccountId) : LocalIdentity {
         override suspend fun getLocalDeviceIdentity(): org.yapyap.protocol.identity.DeviceIdentity =
-            TODO("not used")
+            error("not used")
 
         override suspend fun getLocalAccountIdentity(): org.yapyap.protocol.identity.AccountIdentity =
-            TODO("not used")
+            error("not used")
 
-        override suspend fun getLocalDeviceId(): PeerId = TODO("not used")
+        override suspend fun getLocalDeviceId(): PeerId = error("not used")
         override suspend fun getLocalAccountId(): AccountId = account
     }
 
@@ -581,26 +546,43 @@ class FileRequestCoordinatorTest {
         val attachments = mutableMapOf<FileId, List<Uuid>>()
         val parents = mutableMapOf<Uuid, List<Uuid>>()
 
-        override suspend fun insert(payload: MessagePayload, isOrphaned: Boolean, ancestryComplete: Boolean, verificationState: org.yapyap.orchestrator.dag.VerificationState) = TODO("not used")
-        override suspend fun insertAttachment(messageId: Uuid, fileId: FileId) { TODO("not used") }
+        override suspend fun insert(
+            payload: MessagePayload,
+            isOrphaned: Boolean,
+            ancestryComplete: Boolean,
+            verificationState: org.yapyap.orchestrator.dag.VerificationState
+        ) = error("not used")
         override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> = attachments[fileId].orEmpty()
-        override suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId> = TODO("not used")
         override suspend fun findById(messageId: Uuid): StoredMessage? = rows[messageId]
-        override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> = TODO("not used")
+        override suspend fun findRoomFrontier(roomId: RoomId): List<StoredMessage> = error("not used")
         override suspend fun findParents(messageId: Uuid): List<Uuid> = parents[messageId].orEmpty()
-        override suspend fun insertParent(messageId: Uuid, parentId: Uuid) = TODO("not used")
-        override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> = TODO("not used")
-        override suspend fun findMessagesInRoomPageDesc(roomId: RoomId, limit: Int, cursor: MessageCursor?): List<StoredMessage> = TODO("not used")
-        override suspend fun renderableMessagesInRoom(roomId: RoomId, limit: Int, cursor: MessageCursor?): List<StoredMessage> = TODO("not used")
-        override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean = TODO("not used")
-        override suspend fun findAllInRoom(roomId: RoomId): List<StoredMessage> = TODO("not used")
-        override suspend fun findFoldableInRoom(roomId: RoomId): List<StoredMessage> = TODO("not used")
-        override suspend fun hasMessages(roomId: RoomId): Boolean = TODO("not used")
-        override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) = TODO("not used")
-        override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) = TODO("not used")
-        override suspend fun updateVerificationState(messageId: Uuid, state: org.yapyap.orchestrator.dag.VerificationState) = TODO("not used")
-        override suspend fun findPendingByAuthor(deviceId: PeerId): List<StoredMessage> = TODO("not used")
-        override suspend fun findAllPending(): List<StoredMessage> = TODO("not used")
+        override suspend fun insertParent(messageId: Uuid, parentId: Uuid) = error("not used")
+        override suspend fun findChildrenInRoom(parentId: Uuid, roomId: RoomId): List<StoredMessage> = error("not used")
+        override suspend fun findMessagesInRoomPageDesc(
+            roomId: RoomId,
+            limit: Int,
+            cursor: MessageCursor?
+        ): List<StoredMessage> = error("not used")
+
+        override suspend fun renderableMessagesInRoom(
+            roomId: RoomId,
+            limit: Int,
+            cursor: MessageCursor?
+        ): List<StoredMessage> = error("not used")
+
+        override suspend fun isRenderable(roomId: RoomId, messageId: Uuid): Boolean = error("not used")
+        override suspend fun findAllInRoom(roomId: RoomId): List<StoredMessage> = error("not used")
+        override suspend fun findFoldableInRoom(roomId: RoomId): List<StoredMessage> = error("not used")
+        override suspend fun hasMessages(roomId: RoomId): Boolean = error("not used")
+        override suspend fun updateOrphanedFlag(messageId: Uuid, isOrphaned: Boolean) = error("not used")
+        override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) = error("not used")
+        override suspend fun updateVerificationState(
+            messageId: Uuid,
+            state: org.yapyap.orchestrator.dag.VerificationState
+        ) = error("not used")
+
+        override suspend fun findPendingByAuthor(deviceId: PeerId): List<StoredMessage> = error("not used")
+        override suspend fun findAllPending(): List<StoredMessage> = error("not used")
     }
 
     private class FakeRoomRepository(
@@ -609,21 +591,30 @@ class FileRequestCoordinatorTest {
         val members: MutableMap<Pair<RoomId, AccountId>, Member> = memberships.toMutableMap()
         data class Member(val status: RoomMemberStatus, val removalNodeId: Uuid?)
 
-        override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> = TODO("not used")
-        override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMember> = TODO("not used")
+        override suspend fun membersOfRoom(roomId: RoomId): List<AccountId> = error("not used")
+        override suspend fun memberStatusesOfRoom(roomId: RoomId): List<RoomMember> = error("not used")
         override suspend fun memberRowOf(roomId: RoomId, accountId: AccountId): RoomMember? =
             members[roomId to accountId]?.let {
                 RoomMember(accountId, RoomMemberRole.MEMBER, it.status, it.removalNodeId)
             }
 
-        override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = TODO("not used")
-        override suspend fun roomsOfAccount(accountId: AccountId): List<RoomId> = TODO("not used")
-        override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = TODO("not used")
-        override suspend fun upsertMember(roomId: RoomId, accountId: AccountId, role: RoomMemberRole, status: RoomMemberStatus, removalNodeId: Uuid?) = TODO("not used")
-        override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = TODO("not used")
-        override suspend fun allChatRoomIds(): List<RoomId> = TODO("not used")
-        override suspend fun roomOf(roomId: RoomId): Room? = TODO("not used")
-        override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) = TODO("not used")
-        override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) = TODO("not used")
+        override suspend fun roomsOfPeer(peerId: PeerId): List<RoomId> = error("not used")
+        override suspend fun roomsOfAccount(accountId: AccountId): List<RoomId> = error("not used")
+        override suspend fun ensureRoomExists(roomId: RoomId, type: RoomType, name: String) = error("not used")
+        override suspend fun upsertMember(
+            roomId: RoomId,
+            accountId: AccountId,
+            role: RoomMemberRole,
+            status: RoomMemberStatus,
+            removalNodeId: Uuid?
+        ) = error("not used")
+
+        override suspend fun removeMember(roomId: RoomId, accountId: AccountId) = error("not used")
+        override suspend fun allChatRoomIds(): List<RoomId> = error("not used")
+        override suspend fun roomOf(roomId: RoomId): Room? = error("not used")
+        override suspend fun mergeRoomFromGenesis(roomId: RoomId, name: String, type: RoomType, spaceId: String?) =
+            error("not used")
+
+        override suspend fun removeRoomMembersNotIn(roomId: RoomId, keep: Collection<AccountId>) = error("not used")
     }
 }

@@ -149,7 +149,7 @@ internal class DefaultOrchestrator(
         // not-yet-ready peer can take minutes on real Tor and must never gate boot
         // completion (the periodic ping loop re-announces anyway). Owned by the
         // lifecycle, not the composition root (guide §5: wiring contains no launch).
-        current.scope.launch { runCatching { node.setup.router.announceOnline() } }
+        current.scope.launch { runCatching { node.announceOnline() } }
         return node
     }
 

@@ -49,13 +49,8 @@ internal interface MessageRepository {
         verificationState: VerificationState
     ): Boolean
 
-    /** Attachment index (DAG-owned serve-gate index): one row per (message, file). */
-    suspend fun insertAttachment(messageId: Uuid, fileId: FileId)
-
     /** Read-only lookup for the serve gate: messageIds referencing [fileId]. */
     suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid>
-
-    suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId>
 
     suspend fun findById(messageId: Uuid): StoredMessage?
 
@@ -180,20 +175,9 @@ internal class DefaultMessageRepository(
         }
     }
 
-    override suspend fun insertAttachment(messageId: Uuid, fileId: FileId) {
-        withContext(dbDispatcher) {
-            queries.insertMessageAttachment(message_id = messageId, file_id = fileId)
-        }
-    }
-
     override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> =
         withContext(dbDispatcher) {
             queries.selectMessageIdsByFileId(fileId).executeAsList()
-        }
-
-    override suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId> =
-        withContext(dbDispatcher) {
-            queries.selectFileIdsByMessageId(messageId).executeAsList()
         }
 
     private fun insertAttachmentRows(

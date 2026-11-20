@@ -1,65 +1,45 @@
 package org.yapyap.orchestrator.file
 
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.AppendHandle
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.file.io.JvmFileAccess
-import org.yapyap.orchestrator.file.io.PositionedHandle
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.envelopes.FileCancelReason
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileFailureReason
-import org.yapyap.routing.file.FileIngestResult
-import org.yapyap.routing.file.FileOfferInfo
-import org.yapyap.routing.file.FileOfferVerdict
-import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FileReceiveEnd
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.days
 import kotlin.uuid.Uuid
 
-private class RecordingFileCarrier : FileCarrier {
-    val events = mutableListOf<FileEvent>()
-    val readyCalls = mutableListOf<FileId>()
-    val cancels = mutableListOf<Pair<FileId, FileCancelReason>>()
-
-    override val fileEvents: kotlinx.coroutines.flow.Flow<FileEvent>
-        get() = error("recorded instead")
-
-    override suspend fun pushFile(fileId: FileId, target: AccountId): Unit =
-        error("not used in receive engine tests")
-
-    override suspend fun cancelFile(fileId: FileId, target: AccountId): Unit =
-        error("not used in receive engine tests")
-
-    override suspend fun fileReady(fileId: FileId) {
-        readyCalls += fileId
-    }
-
-    override suspend fun cancelIncoming(fileId: FileId, reason: FileCancelReason) {
-        cancels += fileId to reason
-    }
-
-    override suspend fun emit(event: FileEvent) {
-        events += event
-    }
+/** The receives the engine ended, as routing would collect them. */
+private class RecordedEnds {
+    val all = mutableListOf<FileReceiveEnd>()
+    val readyCalls: List<FileId> get() = all.filterIsInstance<FileReceiveEnd.Ready>().map { it.fileId }
+    val cancels: List<Pair<FileId, FileCancelReason>>
+        get() = all.filterIsInstance<FileReceiveEnd.Cancelled>().map { it.fileId to it.reason }
 }
 
 private class FailingWriteAccess(
@@ -90,7 +70,7 @@ class FileReceiveEngineJvmTest {
         val engine: DefaultFileReceiveEngine,
         val receives: FileReceiveStore,
         val descriptors: FileDescriptorStore,
-        val carrier: RecordingFileCarrier,
+        val ends: RecordedEnds,
         val files: FileAccess,
         val clock: FakeClock,
         val incomingDir: Path,
@@ -104,8 +84,8 @@ class FileReceiveEngineJvmTest {
         val storeDir: Path,
     )
 
-    private fun harness(
-        config: FileServiceConfig = FileServiceConfig(),
+    private fun TestScope.harness(
+        config: OrchestratorConfig = OrchestratorConfig(),
         clock: FakeClock = FakeClock(epochSeconds(10_000L)),
         files: FileAccess = JvmFileAccess(),
         backend: Backend? = null,
@@ -125,22 +105,20 @@ class FileReceiveEngineJvmTest {
         }
         val receives = DefaultFileReceiveStore(b.db)
         val descriptors = DefaultFileDescriptorStore(b.db)
-        val carrier = RecordingFileCarrier()
+        val ends = RecordedEnds()
         val engine = DefaultFileReceiveEngine(
             receives = receives,
-            descriptors = descriptors,
             messages = DefaultMessageRepository(b.db),
             crypto = crypto,
             files = files,
             storeDirectory = b.storeDir,
             incomingDirectory = b.incomingDir,
-            config = config,
-            fileStore = DefaultFileStore(descriptors, crypto, files, b.storeDir, config, clock),
-            carrier = carrier,
-            routerConfig = MutableStateFlow(RouterConfig()),
+            config = MutableStateFlow(config),
+            fileStore = DefaultFileStore(descriptors, crypto, files, b.storeDir, MutableStateFlow(config), clock),
             clock = clock,
         )
-        return Harness(engine, receives, descriptors, carrier, files, clock, b.incomingDir, b.storeDir, b)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { engine.receiveEnds.collect { ends.all += it } }
+        return Harness(engine, receives, descriptors, ends, files, clock, b.incomingDir, b.storeDir, b)
     }
 
     private suspend fun sampleFile(totalBytes: Long): Triple<FileId, Int, List<ByteArray>> {
@@ -156,7 +134,7 @@ class FileReceiveEngineJvmTest {
         ByteArray(totalBytes.toInt()) { (it * 7).toByte() }
 
     private fun offerFor(h: Harness, fileId: FileId, totalBytes: Long, blockSize: Int, hashes: List<ByteArray>) =
-        FileOfferInfo(
+        FileManifest(
             fileId = fileId,
             totalBytes = totalBytes,
             blockSize = blockSize,
@@ -205,7 +183,7 @@ class FileReceiveEngineJvmTest {
         assertNotNull(row)
         assertEquals(FileReceiveStatus.READY, row.status)
         assertEquals(total, row.contiguousBytes)
-        assertEquals(listOf(fileId), h.carrier.readyCalls)
+        assertEquals(listOf(fileId), h.ends.readyCalls)
         val descriptor = h.descriptors.findById(fileId)
         assertNotNull(descriptor)
         assertEquals(FileDescriptorStatus.HELD, descriptor.status)
@@ -224,7 +202,7 @@ class FileReceiveEngineJvmTest {
 
     @Test
     fun racingTransfer_hitsStagingBoundAndDefers() = runTest {
-        val config = FileServiceConfig(maxStagedBytes = 1500, fileCheckpointBytes = 1024)
+        val config = OrchestratorConfig(maxStagedBytes = 1500, fileCheckpointBytes = 1024)
         val h = harness(config = config)
         val total = 4L * 1024
         val (fileId, blockSize, hashes) = sampleFile(total)
@@ -270,7 +248,7 @@ class FileReceiveEngineJvmTest {
         assertNotNull(row)
         assertEquals(FileReceiveStatus.READY, row.status)
         assertEquals(total, row.contiguousBytes)
-        assertEquals(listOf(fileId), h2.carrier.readyCalls)
+        assertEquals(listOf(fileId), h2.ends.readyCalls)
     }
 
     @Test
@@ -324,7 +302,7 @@ class FileReceiveEngineJvmTest {
         assertEquals(FileReceiveStatus.STALLED, stalled.status)
         assertEquals(2L * 1024 * 1024, stalled.contiguousBytes)
         assertEquals(1, stalled.hashMismatches)
-        assertEquals(1, h.carrier.cancels.size)
+        assertEquals(1, h.ends.cancels.size)
         // Earlier blocks survived on disk.
         val prefix = h.files.openPositionedReader(
             Path(stalled.partPath),
@@ -344,7 +322,55 @@ class FileReceiveEngineJvmTest {
         h.engine.ingest(fileId, 2L * 1024 * 1024, bytes.copyOfRange(2 * 1024 * 1024, total.toInt()))
         h.engine.checkpoint()
         assertEquals(FileReceiveStatus.READY, h.receives.find(fileId)?.status)
-        assertEquals(listOf(fileId), h.carrier.readyCalls)
+        assertEquals(listOf(fileId), h.ends.readyCalls)
+    }
+
+    @Test
+    fun engine_reportsProgressAndReadyOnItsOwnFlow() = runTest {
+        val h = harness()
+        val total = 4L * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        val events = mutableListOf<FileReceiveEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { h.engine.receiveEvents.collect { events += it } }
+
+        h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes))
+        h.engine.ingest(fileId, 0, bytes)
+        h.engine.checkpoint()
+
+        assertTrue(events.first() is FileReceiveEvent.Progress, "events: $events")
+        assertEquals(listOf(FileReceiveEvent.Ready(fileId)), events.filterIsInstance<FileReceiveEvent.Ready>())
+    }
+
+    @Test
+    fun gapTrigger_stallsAnIdleReceive() = runTest {
+        val h = harness()
+        val total = 4L * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes))
+
+        val later = h.clock.now() + 1.days
+        assertTrue(h.engine.markStalled(fileId, idleSince = later, now = later))
+        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
+    }
+
+    @Test
+    fun gapTrigger_racingACompletion_leavesTheFileReady() = runTest {
+        val h = harness()
+        val total = 4L * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes))
+        // The sweep saw the receive IN_FLIGHT and idle...
+        val sweptRow = assertNotNull(h.receives.find(fileId))
+        assertEquals(FileReceiveStatus.IN_FLIGHT, sweptRow.status)
+        // ...then the last bytes landed and the file completed before it acted.
+        h.engine.ingest(fileId, 0, bytesFor(total))
+        h.engine.checkpoint()
+        assertEquals(FileReceiveStatus.READY, h.receives.find(fileId)?.status)
+
+        val later = h.clock.now() + 1.days
+        assertFalse(h.engine.markStalled(fileId, idleSince = later, now = later))
+        assertEquals(FileReceiveStatus.READY, h.receives.find(fileId)?.status)
     }
 
     @Test
@@ -354,6 +380,8 @@ class FileReceiveEngineJvmTest {
         val total = 4L * 1024
         val (fileId, blockSize, hashes) = sampleFile(total)
         val bytes = bytesFor(total)
+        val events = mutableListOf<FileReceiveEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { h.engine.receiveEvents.collect { events += it } }
 
         h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes))
         h.engine.ingest(fileId, 0, bytes.copyOfRange(0, total.toInt()))
@@ -362,8 +390,8 @@ class FileReceiveEngineJvmTest {
         val row = h.receives.find(fileId)
         assertNotNull(row)
         assertEquals(FileReceiveStatus.FAILED, row.status)
-        assertEquals(1, h.carrier.cancels.size)
-        val failed = h.carrier.events.filterIsInstance<FileEvent.Failed>().single()
+        assertEquals(listOf(fileId to FileCancelReason.NO_SPACE), h.ends.cancels)
+        val failed = events.filterIsInstance<FileReceiveEvent.Failed>().single()
         assertEquals(fileId, failed.fileId)
         assertEquals(FileFailureReason.NO_SPACE, failed.reason)
     }

@@ -7,7 +7,11 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.FakeMessageRepository
@@ -45,7 +49,8 @@ class DefaultSyncCoordinatorTest {
             roomRepository = roomRepo,
             messageRepository = messageRepo,
             pendingSyncRepository = pendingRepo,
-            router = router,
+            messageCarrier = router.messages,
+            syncCarrier = router.syncs,
             roomChanges = emptyFlow(),
             identityChanges = emptyFlow(),
             clock = clock,

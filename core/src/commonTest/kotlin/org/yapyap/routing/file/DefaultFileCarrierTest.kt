@@ -11,14 +11,21 @@ import org.yapyap.crypto.e2ee.managerForPeer
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.FakeIdentityResolverForProtection
-import org.yapyap.protection.envelope.*
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.PlaintextMessageProtection
+import org.yapyap.protection.envelope.PlaintextSystemProtection
+import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileReceiveEnd
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileIncomingStatus
@@ -86,6 +93,8 @@ class DefaultFileCarrierTest {
             routerConfig = MutableStateFlow(RouterConfig()),
             pushOps = org.yapyap.routing.router.NoopFilePushOps(),
             events = MutableSharedFlow(extraBufferCapacity = 64),
+            startRequest = { _, _ -> },
+            abortFetch = {},
         )
         return Harness(carrier, service, incoming, sent, localPeer.device.deviceId)
     }
@@ -108,7 +117,7 @@ class DefaultFileCarrierTest {
     )
 
     @Test
-    fun fileReady_completesEveryAuthorDropsRowsAndEmitsReady() = runTest {
+    fun readyEnd_completesEveryAuthorAndDropsRows() = runTest {
         val h = harness()
         val authorA = PeerId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         val authorB = PeerId("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -119,7 +128,7 @@ class DefaultFileCarrierTest {
         val events = mutableListOf<FileEvent>()
         backgroundScope.launch { h.carrier.fileEvents.collect { events += it } }
         runCurrent()
-        h.carrier.fileReady(fileId)
+        h.carrier.onReceiveEnd(FileReceiveEnd.Ready(fileId))
         runCurrent()
 
         assertEquals(2, h.sent.size, "one COMPLETE per live transfer author")
@@ -131,31 +140,32 @@ class DefaultFileCarrierTest {
         }
         assertTrue(h.incoming.findByFile(fileId).isEmpty(), "rows are dropped on COMPLETE")
         assertEquals(1, h.incoming.findByFile(otherFileId).size, "other files untouched")
-        assertEquals<List<FileEvent>>(listOf(FileEvent.Ready(fileId)), events)
+        assertEquals(emptyList(), events, "readiness is the receive engine's to report")
     }
 
     @Test
-    fun fileReady_withoutRows_emitsReadyWithoutSending() = runTest {
+    fun readyEnd_withoutRows_sendsNothing() = runTest {
         val h = harness()
         val events = mutableListOf<FileEvent>()
         backgroundScope.launch { h.carrier.fileEvents.collect { events += it } }
         runCurrent()
-        h.carrier.fileReady(fileId)
+        h.carrier.onReceiveEnd(FileReceiveEnd.Ready(fileId))
         runCurrent()
         assertTrue(h.sent.isEmpty())
-        assertEquals<List<FileEvent>>(listOf(FileEvent.Ready(fileId)), events)
+        assertEquals(emptyList(), events)
     }
 
     @Test
-    fun emit_forwardsToFlow() = runTest {
+    fun cancelledEnd_cancelsEveryAuthorWithItsReason() = runTest {
         val h = harness()
-        val progress = FileEvent.IncomingProgress(fileId, 100L, 1000L)
-        val events = mutableListOf<FileEvent>()
-        backgroundScope.launch { h.carrier.fileEvents.collect { events += it } }
-        runCurrent()
-        h.carrier.emit(progress)
-        runCurrent()
-        assertEquals<List<FileEvent>>(listOf(progress), events)
+        val author = PeerId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        h.incoming.insert(row(fileId, author))
+
+        h.carrier.onReceiveEnd(FileReceiveEnd.Cancelled(fileId, FileCancelReason.NO_SPACE))
+
+        val cancel = assertIs<FilePayload.Cancel>(FileEnvelope.decode(h.sent.single().payload).decodePayload())
+        assertEquals(FileCancelReason.NO_SPACE, cancel.reason)
+        assertTrue(h.incoming.findByFile(fileId).isEmpty())
     }
 
     @Test
@@ -181,6 +191,8 @@ class DefaultFileCarrierTest {
                 ): Boolean = false
             },
             events = MutableSharedFlow(extraBufferCapacity = 64),
+            startRequest = { _, _ -> },
+            abortFetch = {},
         )
         val target = AccountId("target-account")
         carrier.pushFile(fileId, target)

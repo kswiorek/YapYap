@@ -1,17 +1,29 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -32,10 +44,10 @@ class DefaultRouterE2eeIntegrationTest {
             it.bobRouter.start()
 
             val received = coroutineScope {
-                val waitInbound = async { it.bobRouter.incomingMessages.first() }
+                val waitInbound = async { it.bobRouter.messages.incomingMessages.first() }
                 delay(200.milliseconds)
 
-                val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound)
+                val sendResult = it.aliceRouter.messages.sendMessage(it.bobAccount, outbound)
                 assertEquals(1, sendResult.devicesTotal)
                 assertEquals(1, sendResult.devicesQueued)
 
@@ -62,7 +74,7 @@ class DefaultRouterE2eeIntegrationTest {
         fixture.use {
             it.aliceRouter.start()
 
-            val sendResult = it.aliceRouter.sendMessage(it.bobAccount, outbound)
+            val sendResult = it.aliceRouter.messages.sendMessage(it.bobAccount, outbound)
             assertEquals(1, sendResult.devicesQueued)
             withTimeout(10.seconds) { it.aliceTor.awaitMessageSendCount(1) }
             assertEquals(1, it.aliceTor.sendsExcludingHeartbeat().size)
@@ -74,7 +86,7 @@ class DefaultRouterE2eeIntegrationTest {
             it.deliverAliceToBob(binaryEnvelope)
 
             val received = withTimeout(5.seconds) {
-                it.bobRouter.incomingMessages.first()
+                it.bobRouter.messages.incomingMessages.first()
             }
             val text = assertIs<MessagePayload.Text>(received)
             assertEquals(outbound.text, text.text)

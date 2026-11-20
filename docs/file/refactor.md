@@ -70,9 +70,70 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
   migrated past schema 5, and payload version 3 makes old messages unreadable, so every test data directory is
   reset anyway.
 
+## For whoever executes this plan
+
+Phase R1 is **done** (see its "As landed" notes). Start at R2.1 and go in the order of "Order and parallelism".
+Read this section in full before every step.
+
+### Where things are now (after R1)
+
+| Concern                       | File(s)                                                                                                                                                                                                                                                                                      |
+|-------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Router lifecycle and services | `routing/router/Router.kt`, `MessageCarrier.kt`, `SyncCarrier.kt`, `BootstrapCarrier.kt`, `Presence.kt`; implemented as objects inside `DefaultRouter`                                                                                                                                       |
+| Router's file assembly        | `routing/file/FileRouting.kt` (`FileRouting`, `FileRoutingPorts`)                                                                                                                                                                                                                            |
+| Ports the orchestrator sees   | `routing/file/port/*` (`FileCarrier`, `FileEvent`, `FileFailureReason`, `FileIngestPort`, `FileRequestSource`, `FileServeGate`, `FilePlaintextSource`, `FileReceiveEnds`, `FileManifest`)                                                                                                    |
+| Push                          | `routing/file/FilePusher.kt` (rewritten in R3.1)                                                                                                                                                                                                                                             |
+| Relay                         | `routing/file/relay/FileRelayForwarder.kt`, relay door inside `routing/inbound/handlers/FileInboundHandler.kt` (rewritten in R3.2/R3.3)                                                                                                                                                      |
+| Requests                      | `routing/file/FileRequestProcessor.kt` (`FileRequestStrategy`, `FileLargeRequestLoop`), core in `routing/sync/CandidateCore.kt`                                                                                                                                                              |
+| Fetch                         | `routing/file/fetch/FileFetchManager.kt` (rewritten in R5.4)                                                                                                                                                                                                                                 |
+| Receive engine                | `orchestrator/file/DefaultFileReceiveEngine.kt` (implements `FileIngestPort`, `FileCoverageReader`, `FileReceiveEnds`, `FileReceiveControl`; split in R4.1)                                                                                                                                  |
+| Request trigger               | `orchestrator/file/FileRequestCoordinator.kt` (implements `FileRequestControl`)                                                                                                                                                                                                              |
+| Request source and serve gate | `orchestrator/file/DefaultFileRequestSource.kt`                                                                                                                                                                                                                                              |
+| Store                         | `orchestrator/file/FileStore.kt`, `FileDescriptorStore.kt` (reads: `FileDescriptorReader`)                                                                                                                                                                                                   |
+| Receive rows                  | `orchestrator/file/FileReceiveStore.kt` (reads: `FileReceiveReader`)                                                                                                                                                                                                                         |
+| GUI facade                    | `orchestrator/runtime/file/DefaultFileTransferService.kt`                                                                                                                                                                                                                                    |
+| Config                        | `orchestrator/OrchestratorConfig.kt`, `routing/router/RouterConfig.kt`, `wiring/ConfigInvariants.kt`, `wiring/FileLimits.kt`, settings in `wiring/Settings.kt`                                                                                                                               |
+| Wiring                        | `wiring/NodeGraph.kt`                                                                                                                                                                                                                                                                        |
+| Schema                        | `persistence/*.sq` and the single `persistence/6.sqm`; checked by `persistence/FileMigrationJvmTest`                                                                                                                                                                                         |
+| Test doubles                  | `commonTest/.../testfixtures/NoopRouter.kt` (`NoopMessageCarrier`, `NoopSyncCarrier`, `NoopBootstrapCarrier`, `NoopPresence`, `NoopRouter`), `NoopFileCarrier.kt`; `routing/router/RouterTestFixtures.kt` (`FakeFilePorts`, `RefusingFilePorts`, `NoFileReceiveEnds`, in-memory file stores) |
+
+All paths are under `core/src/commonMain/kotlin/org/yapyap/` unless they start with a test source set.
+
+### The loop for every step
+
+1. Read the step, the design sections it names, and every file it names, in full. Do not start editing until
+   you can say which classes are deleted, which are created, and who calls what afterwards.
+2. Write the step's tests first, against the new interfaces. They must fail (or not compile) for the right reason.
+3. Make the change. Delete what the step replaces in the same change.
+4. Check each touched file with the IDE lint (`mcp__idea__lint_files`, errors first, then warnings in the files
+   you touched). It is much faster than Gradle.
+5. Run `./gradlew :core:jvmTest` and, when `commonMain` changed, `./gradlew :core:compileDebugKotlinAndroid`.
+   Both must pass. Run the full suite, not a filtered one.
+6. Tick the step's "Done when" list item by item, running the `grep` it gives where it gives one.
+7. Add an "As landed" note to the step when anything differs from the text, with the reason.
+8. Commit only when the user asks.
+
+### Hard rules (a step that breaks one is not done)
+
+- **No new migration file.** Schema changes edit the table's `.sq` and `6.sqm` together; `FileMigrationJvmTest`
+  must stay green (it compares the two).
+- **No `runCatching` around a suspend call, no `catch (e: Exception)` returning a default.** Inside a loop that
+  must survive, catch, rethrow `CancellationException`, and log. Everywhere else let it propagate.
+- **No `lateinit`, no `launch`/`collect` in wiring**, no post-construction setters. A component subscribes to its
+  inputs in its own `start()`/`runIn(scope)`.
+- **One writer per table** (guide §4). If a step needs another component to change a row, add a verb to the owner.
+- **Orchestrator code never imports routing internals.** Only `routing.router` and `routing.file.port`
+  (checked by `ArchitectureTest`). Never add to its allowlist or to `knownDebt`; restructure instead.
+- **No fully qualified names inline** (`org.yapyap.x.Y(...)` inside code). Import it.
+- **Do not change** `protocol` wire formats, the public API (`PublicApiSurfaceTest`) or the transport code,
+  unless the step says so.
+- **Do not weaken a test to make it pass.** If an existing test asserts old behaviour the step changes on purpose,
+  change the assertion and say so in the "As landed" note.
+- **Ask the user** instead of guessing when the step and the code disagree in a way the step doesn't cover.
+
 ---
 
-## Phase R1 — Seams (config, ports, wiring)
+## Phase R1 — Seams (config, ports, wiring) — done
 
 ### Step R1.0 — One file migration (`persistence`)
 
@@ -140,9 +201,10 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
     - **Settings registry:** add user entries for `autoDownloadMaxBytes`, `copyIntoStoreMaxBytes`,
       `storeQuotaBytes` and the pledge. (Step 23 of `plan.md` then only documents them.)
     - Remove the config TODOs from `Router.kt` and `RouterConfig.kt`.
+  - `PickedFile.keepCopy` becomes nullable: null applies `copyIntoStoreMaxBytes` (the threshold was never read).
 - **Tests:** each invariant rejects a violating config at load and as a settings change; `FileLimits` with default
-  transports gives
-  ≈220 KiB, and with a tiny transport fails; settings round-trip for the new keys.
+  transports gives ≈249 KiB (the 250 KiB WebRTC frame less 475 bytes of framing), and with a tiny transport
+  fails; settings round-trip for the new keys.
 - **Done when:**
     - no orchestrator code imports `RouterConfig`;
     - every relation between two layers' config values is in `ConfigInvariants`;
@@ -221,6 +283,21 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
   no-ops.
 - **Done when:** no `lateinit` remains in file code or wiring, and `Router` has no file, sync or message methods
   of its own.
+- **As landed:**
+    - The router's file machinery is assembled in `routing/file/FileRouting`, which `DefaultRouter` builds from its
+      shared pieces (routing context, outbox, session opener, peer policy). Wiring passes only `FileRoutingPorts`
+      (the stores and orchestrator ports). Building the assembly in wiring would mean pulling the router's
+      internals out with it; R3 can revisit this once the push engine replaces the pusher.
+    - The cycle is gone by splitting the coordinator. `DefaultFileRequestSource` implements `FileRequestSource` and
+      `FileServeGate` (reads only, built before the router). The coordinator keeps the trigger loop and takes
+      `FileCarrier`. The engine reports ended receives on a routing-declared port, `FileReceiveEnds` (a buffered,
+      single-consumer flow the router collects), instead of calling `fileReady`/`cancelIncoming`, which left
+      `FileCarrier`.
+    - `FileRequestStrategy`'s `lateinit core` became `CandidateStrategy.attemptState(): AttemptState`
+      (`Pending` / `None` / `Unanswered(device)`); the core records the silent device itself.
+    - `Node.announceOnline()` replaces reaching through `node.setup.router`; `LocalSetup` takes `Presence` and
+      `BootstrapCarrier`.
+    - `DataDirLockTest` moved to `jvmTest` (Android local unit tests stub `android.os.Process`).
 
 ### Step R1.5 — One writer per file table (`orchestrator/file`, `orchestrator/runtime`)
 
@@ -238,75 +315,221 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
       `findFileIdsByMessageId`. Tests seed through the real `insert`.
 - **Tests:** the gap trigger racing a completion leaves the file READY (design §19 gap-trigger row).
 - **Done when:** guide §4's file rows name exactly one writer each, and the code matches.
+- **As landed:** the routing row of guide §4 still lists several writers (the carrier also drops incoming rows when
+  it answers an ended receive); R3.2 settles it. The `evicted` verb is left to R4.2, which is the first step that
+  writes EVICTED. `FileStore` also gained `forget` (the unreferenced-receive cleanup's descriptor delete).
 
 ---
 
 ## Phase R2 — Shared pieces
 
-### Step R2.1 — One visibility rule (`orchestrator/sync`, `orchestrator/file`)
+### Step R2.1 — One visibility rule (`orchestrator/sync`, `orchestrator/file`, `orchestrator/store`)
 
-- **Changes:**
-    - Extract the sync serve gate's membership rule into one component,
-      `RoomVisibility.isVisible(messageId, account)`. ACTIVE sees the room; REMOVED sees the ancestor closure
-      of its removal node.
-    - Implement the closure with a recursive CTE (like `selectIsRenderable`), not a bounded BFS.
-    - `DefaultSyncPayloadProvider` and the file serve gate both use it. Delete the copy in
-      `FileRequestCoordinator` and its 512-step cap.
-- **Tests:** one parity suite runs the same cases against sync serving and the file gate; a removed member's
-  file deeper than 512 ancestors is served.
-- **Settled (design §9):** the gate stays as designed. A message that references a file shares it with
-  everyone who can see that message, its author included. Write that sentence into §9 so it reads as
-  intended, not as a gap.
+**Goal:** one function decides "may account A see message M", used by both sync serving and the file serve
+gate, with no depth cap.
 
-### Step R2.2 — The candidate core, generalised (`routing/candidate`)
+- **Read first:** `orchestrator/sync/DefaultSyncPayloadProvider.kt` (the membership gate, around the
+  `memberRowOf` / `removalNodeId` code), `orchestrator/file/DefaultFileRequestSource.kt` (`isVisibleTo`, a BFS
+  capped at 512 steps), `orchestrator/store/RoomRepository.kt` (`RoomMember`), and the recursive CTE in
+  `persistence/Message.sq` used by `selectIsRenderable` (copy its shape).
+- **Create** `orchestrator/sync/RoomVisibility.kt`:
+  ```kotlin
+  /** Who may see a message: the one rule sync serving and the file serve gate share. */
+  internal interface RoomVisibility {
+      /** True when [account] may see [messageId]: ACTIVE in its room, or REMOVED and the message is
+       *  the removal node or one of its ancestors. False for unknown messages and non-members. */
+      suspend fun isVisible(messageId: Uuid, account: AccountId): Boolean
+  }
+  internal class DefaultRoomVisibility(messages: MessageRepository, rooms: RoomRepository) : RoomVisibility
+  ```
+- **Add one query** to `Message.sq` (no schema change, so no `6.sqm` edit):
+  ```sql
+  isAncestorOrSelf:
+  WITH RECURSIVE ancestors(id) AS (
+      SELECT :removalNode
+      UNION
+      SELECT parent_id FROM message_parents JOIN ancestors ON message_parents.message_id = ancestors.id
+  )
+  SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = :messageId);
+  ```
+  Expose it as `MessageRepository.isAncestorOrSelf(messageId, of: removalNode): Boolean` (implement it in
+  `DefaultMessageRepository` and in `testfixtures/Repositories.kt` `FakeMessageRepository` with a plain graph walk).
+- **Rule:** `memberRowOf(room, account)`; ACTIVE → true; REMOVED with a `removalNodeId` →
+  `isAncestorOrSelf(messageId, removalNodeId)`; anything else → false. Do not catch exceptions; let them
+  propagate.
+- **Use it:**
+    - `DefaultSyncPayloadProvider`: replace its inline membership check with `RoomVisibility` (keep the
+      behaviour: what it served before it serves now).
+    - `DefaultFileRequestSource.canServe`: for each message id from `findMessageIdsByFileId`, return true on the
+      first `isVisible`. Delete `isVisibleTo` and the BFS.
+    - Wire one `DefaultRoomVisibility` in `NodeGraph` and pass it to both.
+- **Tests** (`commonTest/.../orchestrator/sync/RoomVisibilityTest.kt`, real repositories on in-memory SQLite):
+    - ACTIVE member sees any message of the room; a non-member sees nothing; an unknown message is false.
+    - REMOVED member sees the removal node and its ancestors, not messages after it.
+    - A chain of 1000 messages: the REMOVED member sees the first one (the old BFS stopped at 512).
+    - Parity: the same fixture through `DefaultSyncPayloadProvider` serving and `DefaultFileRequestSource.canServe`
+      gives the same yes/no for every case.
+- **Design:** in `design.md` §9, after the serve-gate rule, add: "A message that references a file shares it
+  with everyone who can see that message, its author included. This is intended."
+- **Done when:**
+    - `grep -rn "512" core/src/commonMain/kotlin/org/yapyap/orchestrator` finds nothing related to visibility;
+    - `isVisibleTo` no longer exists;
+    - both callers take `RoomVisibility`.
 
-- **Changes:**
-    - Move `CandidateCore` out of `routing/sync` into `routing/candidate`.
-    - The core takes interfaces (an attempt sender, a peer policy), not `OutboxProcessor` and `SyncPeerPolicy`.
-    - Make **WAITING a core state**: an attempt's success may say "await the reply for `t`", replacing the
-      `isAttemptPending` side effects and the public `noteSilent`.
-    - Make **the attempt executor pluggable**. One executor enqueues an outbox packet (sync, small REQUEST).
-      The other runs a suspending attempt (a large fetch) concurrently per row, with a bounded concurrency,
-      and records the attempt *before* the long call.
-    - The large file request runs on this core. Delete `FileLargeRequestLoop` and its copied backoff.
-    - Separate small and large rows in SQL (a `class` column on the attempt row), so neither class's due query
-      hides the other and the loop never spins.
-    - **Restore step 15's pure-refactor promise.** A satisfied or gone sync is dropped before candidate
-      selection again. Add the test the original step lacked.
+### Step R2.2 — The candidate core, generalised (`routing/candidate`, `routing/sync`, `routing/file`)
+
+**Goal:** one asking loop for sync, small file requests and large file fetches. Today the large path has its
+own copy (`FileLargeRequestLoop`) with copied backoff, and small and large rows hide each other in one due query.
+
+- **Read first:** `routing/sync/CandidateCore.kt` (`CandidateStrategy`, `CandidateAttemptStore`, `CandidateRow`,
+  `BuiltAttempt`, `AttemptState`, `CandidateRequestCore`), `routing/sync/SyncRetryProcessor.kt`,
+  `routing/file/FileRequestProcessor.kt` (`FileRequestStrategy`, `FileLargeRequestLoop`), `FileRequestAttempt.sq`,
+  `routing/store/FileRequestAttemptStore.kt`, and design §9.
+- **Move** `CandidateCore.kt` to package `routing/candidate` (file `routing/candidate/CandidateCore.kt`). Update
+  imports; no behaviour change from the move itself.
+- **Narrow the core's dependencies.** `CandidateRequestCore` takes:
+    - `executor: AttemptExecutor<K>` instead of `OutboxProcessor`;
+    - `peerPolicy: SyncPeerPolicy` (already an interface; keep it);
+- **Pluggable executor.** Add to `CandidateCore.kt`:
+  ```kotlin
+  /** How one attempt leaves: queued through the outbox, or run as a suspending call. */
+  internal sealed interface AttemptExecutor<K> {
+      /** Queue [BuiltAttempt] through the outbox; the outcome comes back via onAttemptOutcome. */
+      class Outbox<K>(val outbox: OutboxProcessor) : AttemptExecutor<K>
+      /** Run the attempt as a call (a large fetch). At most [maxConcurrent] run at once; the core
+       *  records the attempt (recordAttempt) before calling, so a crash mid-call never re-asks at once. */
+      class Call<K>(val maxConcurrent: Int, val run: suspend (id: K, device: PeerId) -> CallOutcome) : AttemptExecutor<K>
+  }
+  internal sealed interface CallOutcome {
+      data object Satisfied : CallOutcome          // drop the row
+      data object Declined : CallOutcome           // addDeclined(device), ask the next one
+      data object Unanswered : CallOutcome         // noteSilent(device), backoff
+      data object NoDirectConnection : CallOutcome // keep PENDING, backoff (design §6.6)
+  }
+  ```
+  With `Call`, the core launches each attempt in its own child job (bounded by a `Semaphore(maxConcurrent)`)
+  and never blocks the due loop on it; a row with a running call is skipped by the due loop (keep an in-memory
+  `running: MutableSet<K>` guarded by a mutex).
+- **WAITING becomes a core state.** Replace `AttemptState` with a richer success: `onSuccess(id, device)`
+  returns `SuccessAction`:
+  ```kotlin
+  internal sealed interface SuccessAction {
+      data object Done : SuccessAction                       // drop the row (sync)
+      data class AwaitUntil(val until: Instant) : SuccessAction // file REQUEST ACK: WAITING for the OFFER
+  }
+  ```
+  The core persists WAITING through two new `CandidateAttemptStore` methods, `setWaiting(id, device, until)` and
+  `clearWaiting(id)`; when `until` passes with no `drop`, the core itself calls `noteSilent(id, device)` and asks
+  the next candidate. Delete `AttemptState.Unanswered` and the WAITING logic in
+  `FileRequestStrategy.attemptState`; `attemptState` returns only `Pending`/`None` (queued in the outbox or not).
+  Make `noteSilent` private.
+- **Drop before choosing a candidate.** Add `suspend fun isWanted(id: K): Boolean` to `CandidateStrategy`. The
+  core calls it first in `processDueRow`; false → `attempts.drop(id)` and return. Sync implements it as
+  `syncs.syncRequest(id) != null`; small files as `requests.heldCoverage(id) != null`; large files the same.
+  This restores what the step-15 refactor broke: a satisfied sync whose candidates all lack a link was never
+  dropped.
+- **Separate classes in SQL.** Add `request_class TEXT NOT NULL` (`SMALL` | `LARGE`) to `file_request_attempts`
+  in `FileRequestAttempt.sq` **and** `6.sqm`. `start(id, class, firstAttemptAt)` sets it (the caller knows the
+  class from `FileRequestSource.requestTotalBytes` vs `SMALL_FILE_MAX_BYTES`). `findDue(now, limit, class)` filters
+  by it. Two core instances run, one per class, each with its own due query. Delete the `isSmall`/`isLarge`
+  in-memory filters.
+- **Large path on the core.** A `FileFetchStrategy` (in `routing/file`) with `AttemptExecutor.Call`, whose `run`
+  opens the session (`sessionOpener.awaitSession(device, fileSessionOpenTimeout)`), calls
+  `FileFetchManager.fetch(...)` and maps the result to `CallOutcome`. Delete `FileLargeRequestLoop` and its backoff.
+  `maxConcurrent` comes from a new `RouterConfig.maxConcurrentFetches` (default 2, `> 0` in `init`).
 - **Tests:**
-    - `SyncRetryProcessorTest` unchanged and green;
-    - a satisfied sync with no linked candidate is dropped;
-    - ten due large rows don't hide a small one;
-    - two large fetches run at once;
-    - no due-loop iteration happens while a fetch runs.
+    - `SyncRetryProcessorTest` passes unchanged (only imports may change);
+    - a satisfied sync whose only candidate has no link is dropped on its next due pass;
+    - ten due LARGE rows and one due SMALL row: the SMALL REQUEST is enqueued in the first pass;
+    - two large fetches run at once (a `Call` that suspends on a `CompletableDeferred`; both start before either
+      completes);
+    - while a fetch runs, its row is not processed again (count `run` invocations);
+    - a REQUEST ACK sets WAITING; when it expires the next candidate is asked and the first is tried last.
+- **Done when:** `FileLargeRequestLoop` and `routing/sync/CandidateCore.kt` no longer exist;
+  `grep -rn "isSmall\|isLarge" routing/file`
+  finds nothing; `noteSilent` is private.
 
-### Step R2.3 — Outbox fixes (`routing/outbound`, `routing/store`, `Outbox.sq`)
+### Step R2.3 — Outbox fixes (`routing/outbound`, `routing/store`, `routing/inbound`, `Outbox.sq`)
 
-- **Changes:**
-    - **Fair due query.** Keep the blob-less due query, but exclude targets that are at their in-flight cap
-      in SQL, rather than applying a global `LIMIT` that lets one capped peer hide every other peer. The
-      `startable` check uses the same query.
-    - **Tag kinds by consumer:**
-        - `FILE_PUSH`: our transfers, routed to the pusher;
-        - `FILE_FORWARD`: relay forwards, routed to the relay forwarder;
-        - `FILE_REQUEST`: unchanged.
+**Goal:** the outbox treats file traffic fairly and predictably, each outcome has one consumer, and a failing
+handler never turns a retry into a silent duplicate.
 
-      Each outcome goes to exactly one consumer (guide §6).
-    - **Retry policy by packet role, not by tag.** The OFFER marker and REQUEST rows keep the standard message
-      retry (design §6.1); only chunk rows use the flat `fileChunkRetryDelay`. Mark chunk rows at enqueue (for example a
-      `retry_class` column) instead of decoding the envelope.
-    - **Remove `RelayBackupPolicy`.** Backup eligibility is already the row's `RelayBackup` value, set to
-      PENDING only on authoring markers. Revert the `OutboundMessenger` change.
-    - **Outcome handling never blocks the outcome collector.** The pusher and forwarder receive outcomes
-      through their own channel and do their encryption and inserts on their own scope.
-    - **Clear dedup when a handler throws** (guide §6, "never ACK before handling"). Today a handler
-      exception leaves the dedup row, and the retry is ACKed as a duplicate.
-- **Tests:**
-    - against the real SQL outbox, not `TrackingPacketOutbox`: 40 due messages for a capped peer don't hide
-      another peer's message;
-    - a text message behind a full chunk window goes first;
-    - the marker retries on the message schedule, and a chunk retries at the flat delay;
-    - a handler exception followed by a retry is handled, not ACKed.
+- **Read first:** `Outbox.sq` (`getDueIdsNonFile`, `getDueIdsFile`), `routing/store/DefaultPacketOutbox.kt`
+  (`dueIds`, around line 137), `routing/outbound/OutboxProcessor.kt` (claim loop around line 273, `startable`
+  around 326, retry delay around 370), `routing/policy/RelayBackupPolicy.kt`, `routing/store/PacketOutbox.kt`
+  (`OutboxTag.Kind`), `routing/inbound/InboundEnvelopeProcessor.kt` (`handle`, around line 226), and
+  `routing/file/FileRouting.kt` (`onOutboxOutcome`).
+- **1. Fair due query.** The per-target in-flight cap is applied in memory after a global `LIMIT`, so 40 due rows
+  for one capped peer hide every other peer.
+    - Add a `busyTargets: Collection<PeerId>` parameter to both due queries:
+      `AND target_device_id NOT IN :busyTargets`. SQLDelight expands collections; when the set is empty pass a
+      sentinel that matches nothing (SQLite rejects `IN ()`), e.g. `listOf(PeerId(""))`.
+    - `OutboxProcessor` computes `busyTargets` from `inFlight` (targets at `outboxMaxInFlightPerTarget`) under
+      `inFlightLock` and passes it to `PacketOutbox.dueIds`. `startable` uses the same call, so it can never say
+      "nothing to do" while another peer has due rows.
+- **2. One consumer per tag.** Split `OutboxTag.Kind.FILE` into `FILE_PUSH` (our transfers → pusher) and
+  `FILE_FORWARD` (relay forwards → relay forwarder). Keep `FILE_REQUEST`. Give the new kinds new codes (do not
+  reuse FILE's code for one of them, so a stale row can't be misrouted; old rows are gone anyway because data
+  directories are reset). The pusher enqueues `FILE_PUSH`, the forwarder `FILE_FORWARD`.
+  `FileRouting.onOutboxOutcome` routes each kind to exactly one of them; delete the "pusher ignores unknown ids,
+  forwarder drains its own" double delivery. The due-query split becomes "file kinds" (`FILE_PUSH`, `FILE_FORWARD`)
+  vs the rest.
+- **3. Retry by packet role.** Only chunk rows retry at the flat `fileChunkRetryDelay`; OFFER markers and REQUESTs
+  use the message schedule (design §6.1).
+    - Add `retry_class INTEGER NOT NULL DEFAULT 0` to `outbox` (0 = standard, 1 = flat). The outbox is not a file
+      table, so the change is an `ALTER TABLE outbox ADD COLUMN ...` statement **appended to `6.sqm`** plus the
+      column in `Outbox.sq`'s `CREATE TABLE`. Add `"outbox"` to the compared tables in `FileMigrationJvmTest` and an
+      `ALTER TABLE outbox DROP COLUMN retry_class` to `revertFileMigration`.
+    - `PacketOutbox.enqueue` gets `retryClass: RetryClass` (enum `STANDARD`, `FLAT`, default `STANDARD`).
+      `FileOutbox.enqueue` passes `FLAT` only for chunk envelopes (the pusher and forwarder know what they built;
+      never decode the envelope to find out).
+    - The retry branch in `OutboxProcessor` reads the row's class instead of the tag kind.
+- **4. Remove `RelayBackupPolicy`.** Whether a row backs up is already its `RelayBackup` value (PENDING only on
+  authoring markers and messages). Delete `routing/policy/RelayBackupPolicy.kt`, its uses in `OutboxProcessor` and
+  `OutboundMessenger`, and the `isOfferMarker` decoding. The retry branch backs up when the row's `RelayBackup`
+  is PENDING; check `git diff master -- routing/outbound/OutboundMessenger.kt` and restore master's behaviour there.
+- **5. Outcomes never block the collector.** `DefaultRouter.onOutboxOutcome` runs on the single outcome collector;
+  the pusher encrypts and inserts inside it. Give `FileRouting` a `Channel<OutboxOutcome>(UNLIMITED)`;
+  `onOutboxOutcome` only `trySend`s, and a loop started in `FileRouting.runIn` consumes it (catching and logging
+  per outcome, rethrowing `CancellationException`). (R3.1 replaces this with per-transfer actors.)
+- **6. Clear dedup when a handler throws.** In `InboundEnvelopeProcessor.handle`, wrap `handler.handle(inbound)`:
+  on `CancellationException` rethrow; on any other exception call
+  `ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)`, log `ENVELOPE_HANDLE_FAILED`, and rethrow.
+  Nothing is ACKed (an exception never reaches the disposition code).
+- **Tests** (against the real SQL outbox: `DefaultPacketOutbox` on `openMemoryDatabase()`, not `TrackingPacketOutbox`):
+    - 40 due messages for peer A (capped at 2 in flight) and 1 for peer B: B's message is claimed in the first pass;
+    - a text message queued behind 16 due chunk rows to the same peer is claimed first;
+    - an OFFER marker's second attempt is scheduled at the message retry delay, a chunk's at `fileChunkRetryDelay`;
+    - a `FILE_PUSH` outcome reaches only the pusher, a `FILE_FORWARD` outcome only the forwarder;
+    - a handler that throws on the first delivery and succeeds on the retry: the retry is handled and ACKed, not
+      treated as a duplicate;
+    - `FileMigrationJvmTest` still green with `outbox` compared.
+- **Done when:** `grep -rn "RelayBackupPolicy\|Kind.FILE\b" core/src` finds nothing; the retry branch has no tag check.
+
+### Step R2.4 — Each carrier reports its own deliveries (`routing/router`, `orchestrator/runtime/message`,
+
+`orchestrator/onboarding`)
+
+**Goal:** `MessageCarrier.deliveries` carries bootstrap ACKs too, so the onboarding provider depends on the message
+service only to see them. Each carrier reports the ACKs of what it sent. Independent of the other R2 steps.
+
+- **Read first:** `routing/router/MessageCarrier.kt`, `BootstrapCarrier.kt`, `RoutingTypes.kt` (`Delivery`,
+  `DeliverySubject`), `DefaultRouter.onOutboxOutcome` (the MESSAGE and BOOTSTRAP branches),
+  `orchestrator/runtime/message/DeliveryTracker.kt`, `orchestrator/onboarding/DefaultOnboardingProvider.kt`.
+- **Change:**
+    - `MessageCarrier.deliveries: Flow<MessageDelivery>` with
+      `data class MessageDelivery(val messageId: Uuid, val account: AccountId)`.
+    - `BootstrapCarrier.deliveries: Flow<BootstrapDelivery>` with
+      `data class BootstrapDelivery(val packetId: Uuid, val account: AccountId?)`.
+    - Delete `Delivery` and `DeliverySubject`. `DefaultRouter` keeps two flows and emits into the right one in
+      `onOutboxOutcome`.
+    - `DeliveryTracker` reads `MessageCarrier.deliveries`; `DefaultOnboardingProvider` reads
+      `BootstrapCarrier.deliveries` and no longer takes `MessageCarrier`. Update `NodeGraph`, the
+      `NoopMessageCarrier`/`NoopBootstrapCarrier` doubles, and the KDoc that points between the two carriers.
+- **Tests:** existing `DeliveryTrackerTest` and `DefaultOnboardingProviderTest` adapted to the new types; one router
+  test that a BOOTSTRAP ACK appears only on `bootstrap.deliveries` and a MESSAGE ACK only on `messages.deliveries`.
+- **Done when:** `grep -rn "DeliverySubject" core/src` finds nothing; `DefaultOnboardingProvider` has no
+  `MessageCarrier` parameter.
 
 ---
 
@@ -314,100 +537,193 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
 
 ### Step R3.1 — The push engine (`routing/file/push`)
 
-Replaces `FilePusher`.
+**Goal:** replace `routing/file/FilePusher.kt` (about 830 lines, shared mutable state, a window keyed on coverage)
+with a per-transfer actor engine whose window counts queued chunk rows. Needs R2.3 (tag `FILE_PUSH`, retry
+class, outcome channel).
 
-- **Shape:**
-    - **`FilePushEngine`:** one actor per live transfer (a coroutine fed by a channel). It owns that
-      transfer's marker → chunks → terminal lifecycle. All inputs for the transfer are messages to its actor:
-      outbox outcomes, coverage ACKs, COMPLETE, CANCEL, link events and the stall tick. That removes every
-      race on `next` and `contiguousAcked`.
-    - **Chunk source** is an interface with two implementations:
-        - plaintext: encrypt and sign through protection;
-        - stored envelope: the relay's DB store.
-
-      The relay forward (R3.3) runs on the same engine.
-    - **`FileSender`:** the thin, account-level fan-out, serve-with-supersede and cancel. It aggregates
-      per-device outcomes into per-account events (design §12):
-        - progress is the minimum across the account's devices;
-        - COMPLETED once any device of the account completes;
-        - a terminal state only when every device is terminal.
-    - **Send state is a query, not a copy.** `FileCarrier.sendState(fileId): Map<AccountId, FileSendState>`
-      aggregates `file_pushes` per account on demand. The routing table it reads is the durable truth, so it
-      survives restarts. This is what replaces the orchestrator's `file_transfers` table (R4.4).
-    - **`FileDepositPolicy`:** the gone-only signals of §6.3 (link closed, no link at claim, no chunk ACK at
-      all for `chunkAckTimeout`) and the **durable claim**. A `deposited_at` column on the source push row is
-      set with a conditional UPDATE, like `claimRelayBackup`, so a round happens once per transfer across
-      sweeps and restarts.
-- **Behaviour fixes (each with a test):**
-    - **Window.** It counts the transfer's queued chunk rows (design §6.2), not coverage. Coverage ACKs only
-      move the resume point and progress.
-    - **Coverage ACK at the receiver.** `chunk k is covered ⇔ (k+1)·chunkSize ≤ P` (or P = total). A
-      `Duplicate` also answers with a coverage ACK.
-    - **Restart.** Rebuild the pending set from the outbox rows still queued; don't delete and re-seal. The
-      marker is never re-sent under the same transferId: if an OFFER must be sent again, a fresh transfer
-      starts.
-    - **COMPLETE.** Any COMPLETE for (file, target) resolves the authoring row as COMPLETED and emits once;
-      only DEPOSIT rows are cancelled.
-    - **Authorisation.** ACK, COMPLETE and CANCEL are acted on only when `fileEnvelope.source` is the row's
-      counterpart.
-    - **A deferred seal re-arms** on the engine's own timer, not on the next `pushFile`.
-    - **Size guard.** `pushFile` refuses large files; the engine is never asked to push them.
-    - **Expiry and cleanup.** A sweep expires live rows past TTL and deletes terminal rows, together with their
-      key. The same sweep prunes expired incoming-transfer rows. Keys never outlive their transfer (invariant
-      5).
+- **Read first:** `FilePusher.kt` in full (it is the behaviour you are replacing; list every public method and
+  who calls it before deleting it), `FileRouting.kt`, `routing/store/FilePushStore.kt` + `FilePush.sq`,
+  `routing/file/FileControlEnvelopes.kt`, the CHUNK/ACK handling in `routing/inbound/handlers/FileInboundHandler.kt`,
+  design §3.3–§3.6, §5, §6.1–§6.4, §12, §14, invariants in §16.
+- **New package `routing/file/push`, files:**
+    - `PushInput.kt` — the actor's mailbox:
+      ```kotlin
+      internal sealed interface PushInput {
+          data class Outcome(val outcome: OutboxOutcome) : PushInput
+          data class CoverageAck(val contiguousChunks: Int, val missing: List<ChunkRange>) : PushInput
+          data object Complete : PushInput
+          data class Cancelled(val reason: FileCancelReason) : PushInput  // from the target
+          data object UserCancel : PushInput
+          data object LinkClosed : PushInput
+          data object Tick : PushInput                                     // stall/deposit/expiry check
+      }
+      ```
+    - `ChunkSource.kt` —
+      `interface ChunkSource { suspend fun offer(): BinaryEnvelope; suspend fun chunk(index: Int): ChunkResult }`
+      with `ChunkResult.Envelope(BinaryEnvelope)` / `ChunkResult.Deferred` (seal not possible now) /
+      `ChunkResult.SourceLost`. Implementations: `PlaintextChunkSource` (reads `FilePlaintextSource`, encrypts with
+      the row key through protection, builds the envelope with `buildFileControlEnvelope`-style code) and, in R3.3,
+      `StoredEnvelopeChunkSource`.
+    - `TransferActor.kt` — one coroutine per live `file_pushes` row, reading a `Channel<PushInput>(UNLIMITED)`.
+      State it owns (in memory, rebuilt on start): `queued: Set<Int>` (chunk indices with a row in the outbox),
+      `nextToQueue: Int`, `resumeFrom: Int` (from coverage), `lastAckAt: Instant`.
+      Rules:
+        - after the marker is ACKed, enqueue chunks while `queued.size < maxInFlightChunks` and
+          `nextToQueue < chunkCount`; a chunk leaves `queued` when its outcome arrives (ACK, terminal NACK, or expiry);
+        - a coverage ACK sets `resumeFrom = max(resumeFrom, contiguousChunks + 1)` and drops indices below it from
+          the "still to send" range; it never changes the window count;
+        - persist progress with `setProgress(transferId, nextToQueue, resumeFrom - 1)` (the columns keep their names;
+          only the window's meaning changes);
+        - terminal transitions write `setStatus` once and call `deleteByTag(FILE_PUSH, transferId)`.
+    - `FilePushEngine.kt` — owns the actor map (`Mutex`-guarded `Map<TransferId, TransferActor>`), routes inputs by
+      `transferId` (outcomes by `tag.id`), starts actors for `pushes.live()` on `runIn`, and runs one ticker that
+      sends `Tick` to every actor every `chunkAckTimeout / 3` (at least 5 s, as today).
+    - `FileSender.kt` — the account-level side, implementing `FilePushOps` (`pushFile`, `cancelFile`, `serveFile`):
+      fan-out to the account's devices, serve-with-supersede (a SERVE for (file, device) cancels a live push of the
+      same pair first), and the per-account event aggregation:
+        - `OutgoingProgress` = minimum covered bytes across the account's live device transfers;
+        - `OutgoingComplete` once, when the first device of the account completes;
+        - `Failed` only when every device transfer of the account is terminal and none completed, with the reason
+          of the last one (ENDED wins over EXPIRED when mixed).
+    - `FileDepositPolicy.kt` — the gone-only triggers (design §6.3): `LinkClosed` input, no link at claim time (from the
+      outbox's no-link outcome), and no chunk ACK for `chunkAckTimeout` while chunks are queued. A round
+      happens once per source transfer: add `deposited_at INTEGER` to `file_pushes` (`FilePush.sq` and `6.sqm`) and
+      claim it with `UPDATE file_pushes SET deposited_at = :now WHERE transfer_id = :id AND deposited_at IS NULL`;
+      only a claim that changed one row deposits.
+- **Send state.** Add to `FileCarrier`: `suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState>`, with
+  `FileSendState` (in `routing/file/port`)
+  `data class FileSendState(val status: FileSendStatus, val sentBytes: Long, val totalBytes: Long)`
+  and `enum class FileSendStatus { SENDING, COMPLETED, ENDED, EXPIRED, DECLINED, CANCELLED, FAILED }`. It is computed
+  from `file_pushes` (non-DEPOSIT rows) with the same aggregation rules as the events. No new table.
+- **Receiver-side fix (in `FileInboundHandler`, kept for R3.2 to move):** the coverage ACK says chunk `k` is covered
+  iff `(k + 1) * chunkSize <= P` or `P == totalBytes`; a `FileIngestResult.Duplicate` also answers with a coverage
+  ACK (today it answers nothing useful).
+- **Other fixes, each with a test:**
+    - restart rebuilds `queued` from outbox rows still tagged `FILE_PUSH` + transferId (`PacketOutbox` needs
+      `packetIdsByTag(tag)`; the chunk index is recoverable because the actor records `packetId → index` in a new
+      `file_push_chunks(transfer_id, chunk_index, packet_id)` table — add it to `FilePush.sq` and `6.sqm`, written
+      only by the engine); it never deletes and re-seals;
+    - an OFFER is never re-sent under the same transferId; if one must go again, `FileSender` starts a fresh transfer;
+    - any COMPLETE for (file, target device) resolves the authoring row COMPLETED and emits once; DEPOSIT rows of the
+      same source are then cancelled politely;
+    - ACK, COMPLETE and CANCEL are acted on only when `fileEnvelope.source` is the row's target device (or, for a
+      deposit, its relay); otherwise ignored (logged at debug);
+    - `ChunkResult.Deferred` re-arms on the actor's own `Tick`, not on the next `pushFile`;
+    - `pushFile` refuses files above `SMALL_FILE_MAX_BYTES` (log and return; no row);
+    - the ticker also expires live rows past `expires_at` (EXPIRED) and deletes terminal rows older than
+      `fileTransferTtl` together with their key (invariant 5).
+- **Wire:** `FileRouting` builds `FilePushEngine` + `FileSender` instead of `FilePusher`; `depositByMarkerPacket`
+  moves to `FileDepositPolicy`. Delete `FilePusher.kt` and its tests (`FilePusherTest`), replacing them with
+  `FilePushEngineTest`, `FileSenderTest`, `FileDepositPolicyTest`.
 - **Tests (realistic):**
-    - a 10 MB file over a direct link through two real routers with the default checkpoint config reaches
-      READY;
-    - a restart mid-push resumes without re-sealing;
-    - deposits happen once across sweeps and restarts;
-    - a deposit's COMPLETE before the direct one gives COMPLETED;
-    - a forged CANCEL from a relay is ignored;
-    - concurrent ACKs never send a chunk twice.
-
+    - a 10 MB file between two real routers (copy the setup of `FileSmallPushTwoRouterTest`) with default
+      `OrchestratorConfig` reaches READY — this is the case that deadlocks today;
+    - a restart mid-push (stop router, rebuild from the same stores, start) resumes without new seals (count
+      `encryptChunk` calls);
+    - deposits happen once across ten ticks and a restart;
+    - a deposit's COMPLETE before the direct one gives COMPLETED once;
+    - a CANCEL whose source is a relay is ignored;
+    - 50 concurrent coverage ACKs never enqueue a chunk index twice.
   These cover design §19's rows on mid-transfer restarts, deposit triggers, "stall → immediate deposit" and
   "late chunk after READY".
+- **Done when:** `FilePusher` does not exist; `grep -rn "contiguousAcked" routing/file/push` shows it is used only for
+  progress, never in the window check.
 
 ### Step R3.2 — The inbound handler, split (`routing/inbound/handlers`, `routing/file`)
 
-- **Changes:** `FileInboundHandler` becomes a thin dispatcher over three handlers:
-    - `FileTargetHandler`: local OFFER, CHUNK, ACK, COMPLETE and CANCEL;
-    - `FileRelayDoor`: foreign target, admission;
-    - `FileServeHandler`: REQUEST.
+**Goal:** `FileInboundHandler` (one class doing the target side, the relay door and serving) becomes a thin
+dispatcher, and `file_incoming_transfers` gets exactly one writer. Needs R3.1.
 
-  It talks to the push engine through one `FileTransferSignals` interface, not five lambdas, and no longer
-  needs `FileCarrier`.
-    - **Validate the OFFER's public half** on the local path as the relay door does: `chunkSize > 0`, total
-      bytes and start index in range.
-    - **Map handler exceptions to `Defer`.** R2.3 adds the processor-level safety net.
-- **Tests:** a re-sent OFFER for a known transferId is handled idempotently; a bad `chunkSize` is
-  PERMANENT; the stale `foreignTarget_isDeclined` test is removed.
+- **Read first:** `routing/inbound/handlers/FileInboundHandler.kt` in full,
+  `routing/store/FileIncomingTransferStore.kt`,
+  `routing/file/DefaultFileCarrier.kt` (`endIncoming` deletes incoming rows today: the second writer),
+  `FileRouting.kt`, design §3.5–§3.6, §7.1.
+- **One writer for `file_incoming_transfers`.** Create `routing/file/FileIncomingTransfers.kt`, the only holder of
+  `FileIncomingTransferStore`:
+  ```kotlin
+  /** Owner of file_incoming_transfers: the target side's per-transfer rows (keys included). */
+  internal class FileIncomingTransfers(private val store: FileIncomingTransferStore, private val clock: Clock) {
+      suspend fun find(transferId: TransferId): FileIncomingTransfer?
+      suspend fun accept(row: FileIncomingTransfer)                      // OFFER accepted
+      suspend fun end(transferId: TransferId)                            // CANCEL from the author, chunk refused
+      suspend fun endAllFor(fileId: FileId): List<FileIncomingTransfer>  // receive ended: returns the rows to answer
+      suspend fun expire(now: Instant): List<FileIncomingTransfer>       // the ticker's TTL sweep
+  }
+  ```
+  `DefaultFileCarrier.onReceiveEnd` calls `endAllFor` and answers the returned authors; it no longer holds the store.
+  Update guide §4's routing row so each routing file table names one writer.
+- **Split the handler** into three classes in `routing/inbound/handlers`:
+    - `FileTargetHandler` — envelopes whose inner target is this device: OFFER (open the sealed half, `checkOffer`,
+      `accept`), CHUNK (decrypt, `ingest`, coverage ACK), ACK / COMPLETE / CANCEL (to the push engine);
+    - `FileRelayDoor` — inner target is another device: admission and storage (R3.3 moves the forward);
+    - `FileServeHandler` — REQUEST: serve gate, then `FilePushOps.serveFile`.
+      `FileInboundHandler` keeps only decode-and-dispatch (inner target local or foreign; REQUEST vs the rest).
+- **Signals to the push engine through one interface**, replacing the five lambdas:
+  ```kotlin
+  internal interface FileTransferSignals {
+      suspend fun coverageAck(transferId: TransferId, from: PeerId, contiguousChunks: Int, missing: List<ChunkRange>)
+      suspend fun complete(transferId: TransferId, from: PeerId)
+      suspend fun cancelled(transferId: TransferId, from: PeerId, reason: FileCancelReason)
+  }
+  ```
+  `FilePushEngine` implements it (the `from` parameter is what R3.1's authorisation checks). `onOfferReceived`
+  becomes a call on the request processor through `FileRouting`, and `onRelayStored` goes away in R3.3.
+- **Validate the OFFER's public half** on the target path exactly as the relay door does: `chunkSizeBytes > 0`,
+  `totalBytes > 0`, `0 <= startIndex <= chunkCount`; violation → `Rejected(PERMANENT_INVALID)` (use the existing
+  NACK reason the door uses).
+- **Exceptions:** the handlers let exceptions propagate; R2.3's processor-level clear-dedup covers them. Expected
+  transient states return `Deferred` explicitly.
+- **Tests:** a re-sent OFFER for a known transferId is handled idempotently (one incoming row, ACKed); a
+  `chunkSizeBytes = 0` OFFER is rejected permanently; the stale `foreignTarget_isDeclined` test is deleted; a receive
+  end deletes the incoming rows and answers each author once.
+- **Done when:** only `FileIncomingTransfers` holds `FileIncomingTransferStore`
+  (`grep -rn "FileIncomingTransferStore" core/src/commonMain`
+  shows only the store, `FileIncomingTransfers`, `FileRoutingPorts` and wiring); `FileInboundHandler` is under 150
+  lines.
 
 ### Step R3.3 — The relay on the push engine (`routing/file/relay`)
 
-- **Changes:**
-    - Delete `FileRelayForwarder`. A whole relay transfer is forwarded by `FilePushEngine` with the
-      stored-envelope chunk source (design §6, §7.2.4). It uses tag `FILE_FORWARD` and never deposits.
-    - Admission, eviction and the forward's outbox cleanup happen in one `FileRelayStore` transaction. An
-      evicted or door-cancelled transfer also deletes its forward outbox rows.
-    - **Relay ACKs.** The relay ACKs each stored chunk with a coverage ACK, so the depositor's window (R3.1)
-      advances.
-    - **Idle reservation TTL** (design §7.2.3). Add `fileRelayIdleTtl` to `RouterConfig` (default 1 hour).
-        - A relay transfer that is not yet whole and has received no chunk for that long is dropped, and its
-          reserved quota is freed.
-        - Whole transfers keep the full `fileTransferTtl`.
-        - Measure it from `last_chunk_at`; `setStatus` stops touching that column.
-        - A depositor that comes back after the idle TTL gets DECLINED on its next chunk and ends that
-          deposit; the pull path covers the rest.
-    - **CANCEL authorisation.** A door CANCEL deletes the transfer only when the CANCEL comes from its
-      depositor.
-    - **Inner source check.** Confirm that the relay checks the inner source is known and not banned (design
-      §7.1); add the check if it is missing.
-- **Tests:** two-router-plus-relay test (sender → relay → target) with a 10 MB file, covering design §19:
-    - target offline;
-    - deposit, wholeness, forward, READY;
-    - two relays, both forward;
-    - eviction mid-deposit leads to DECLINED at the next chunk;
-    - a forwarding relay never re-deposits.
+**Goal:** a relay forwards a whole deposit with the same engine that pushes our own files, and admission,
+eviction and cleanup can never leave orphan rows. Needs R3.1 and R3.2.
+
+- **Read first:** `routing/file/relay/FileRelayForwarder.kt`, `routing/store/FileRelayStore.kt` + `FileRelay.sq`,
+  the relay door (now `FileRelayDoor`), design §6, §7.1–§7.2.4.
+- **Forward on the engine.** Delete `FileRelayForwarder`. When a relay transfer becomes WHOLE, `FileRelayDoor` asks
+  `FilePushEngine` to start a forward actor with `StoredEnvelopeChunkSource` (replays the stored OFFER payload and
+  chunk blobs verbatim, so the author's inner signature stays intact). Forward actors enqueue with tag
+  `FILE_FORWARD`, never run `FileDepositPolicy`, and on COMPLETE/terminal delete the relay transfer (forget after
+  delivery). They are rebuilt on restart from `file_relay_transfers` rows in FORWARDING/STREAMING.
+- **One transaction per state change** in `FileRelayStore` (use `database.transaction { }` inside the store):
+    - `admit(offer, reserveBytes, budget)`: evict oldest whole transfers until it fits, insert the new row, return the
+      evicted transfer ids — all in one transaction;
+    - `evict(transferId)` and `delete(transferId)` also delete that transfer's `FILE_FORWARD` outbox rows. The outbox
+      is another table owner, so the store returns the ids and `FileRelayDoor` calls `PacketOutbox.deleteByTag` right
+      after the commit; document the order (relay rows first, then outbox rows; a crash in between leaves outbox rows
+      whose outcome the engine ignores because no actor exists).
+- **Relay ACKs.** The door answers each stored chunk with a coverage ACK built from the chunks stored so far (same
+  rule as the target: contiguous stored chunks from `startIndex`), so the depositor's window advances.
+- **Idle reservation TTL** (design §7.2.3):
+    - add `fileRelayIdleTtl: Duration = 1.hours` to `RouterConfig` (`> 0` in `init`), and to `ConfigInvariants`:
+      `router.fileRelayIdleTtl < router.fileTransferTtl` is single-layer, so put it in `RouterConfig.init`;
+    - the engine's ticker drops relay transfers that are not WHOLE and whose `last_chunk_at + fileRelayIdleTtl <= now`,
+      freeing their reservation; whole transfers keep `expires_at`;
+    - `setStatus` must not touch `last_chunk_at` (today it does; fix the SQL in `FileRelay.sq`);
+    - a depositor's chunk for a dropped transfer gets DECLINED, which ends that deposit (R3.1 already treats a chunk
+      DECLINED as ENDED); the pull path covers the rest.
+- **CANCEL authorisation.** A CANCEL at the door deletes the transfer only when `fileEnvelope.source` is the
+  transfer's `source_device` (the depositor). Otherwise ignore it and still ACK.
+- **Inner source check** (design §7.1): before admission, the inner source must be a known device (`ctx.devices`) and
+  not banned/removed; otherwise `Rejected(DECLINED)`. Check whether the door does this today;
+  add it if not, with a test either way.
+- **Tests:** a three-router test (sender, relay, target; extend the two-router harness with a third node and a
+  pump that routes by envelope target) with a 10 MB file, covering design §19:
+    - target offline: the sender deposits, the relay becomes WHOLE, the target comes online, the relay forwards, READY;
+    - two relays both receive the deposit; both forward; the target reaches READY once and both relay copies are gone;
+    - eviction mid-deposit: the next chunk is DECLINED and the sender's deposit ends ENDED;
+    - a forwarding relay never deposits (no outbox row to a third relay);
+    - an idle partial transfer is dropped after `fileRelayIdleTtl` (fake clock) and its bytes are freed;
+    - a CANCEL from a non-depositor is ignored.
+- **Done when:** `FileRelayForwarder` does not exist; every multi-row relay change happens inside one store transaction.
 
 ---
 
@@ -416,6 +732,26 @@ Replaces `FilePusher`.
 ### Step R4.1 — Receive engine, split (`orchestrator/file/receive`)
 
 Replaces `DefaultFileReceiveEngine`.
+
+- **Read first:** `orchestrator/file/DefaultFileReceiveEngine.kt` in full (list every interface it implements:
+  `FileIngestPort`, `FileCoverageReader`, `FileReceiveEnds`, `FileReceiveControl`, plus `receiveEvents`, `start`,
+  `checkpoint`), `FileReceiveStore.kt` + the receive tables in `File.sq`, `FileStore.kt`, `io/FileAccess.kt`,
+  design §8, §13, §14, invariants 9–12 and 25.
+- **Package and classes** (`orchestrator/file/receive`):
+    - `Coverage.kt` — `object Coverage` with pure functions over `List<StagedSpan>`
+      (`data class StagedSpan(val start: Long, val length: Long)`): `uncovered(start, end, p, staged)`,
+      `extendsPrefix(p, staged, add)`, `drainPlan(p, staged): DrainPlan` (which rows append, which trim, new P),
+      `heldCoverage(p, staged, cap): FileCoverage`. No suspend, no I/O.
+    - `PartWriter.kt` — `class PartWriter(files: FileAccess, crypto: CryptoProvider)`: `append(path, at, bytes)`,
+      `blockHasher(path, blockStart)` rebuilt from disk on demand, `verify(blockIndex, expected): BlockCheck`
+      (`Verified` / `Mismatch(blockIndex)`). The running hash advances only after the DB commit of that drain.
+    - `ReceiveEngine.kt` — `class ReceiveEngine` implementing the same four interfaces as today plus
+      `receiveEvents`. One `Mutex` per file (`Map<FileId, Mutex>` guarded by a small global mutex), a separate
+      global `Mutex` only around the free-space reservation.
+    - `FileRetention.kt` — the unreferenced-receive sweep (reads `MessageRepository.findMessageIdsByFileId`, calls
+      engine verb `forgetUnreferenced(fileId)` and `FileStore.forget`); the engine no longer takes `MessageRepository`.
+      Delete `DefaultFileReceiveEngine.kt` and move its tests to `ReceiveEngineTest`, `CoverageTest`, `PartWriterTest`,
+      `FileRetentionTest`.
 
 - **Shape:**
     - **`Coverage`:** pure arithmetic with no I/O, unit-tested on its own:
@@ -458,6 +794,9 @@ Replaces `DefaultFileReceiveEngine`.
         - Derive `part_path` and `final_path` from the `fileId` and the store layout; drop the columns.
         - With no paths to fake, the DECLINED placeholder rows with empty paths go away.
         - `origin_message_id` becomes `TEXT AS Uuid`.
+      - Edit `File.sq` and `6.sqm` together; `FileMigrationJvmTest` checks they match. Paths come from one
+        function, `ReceivePaths(incomingDir, storeDir).part(fileId)` / `.final(fileId)`, used by the engine and
+        `FileStore`. The `declinedRow` helper in the engine then needs no placeholder paths.
     - **Staged-range queries** return offsets and lengths only. Blobs are loaded only at drain.
 - **Tests:**
     - a straddling mismatch recovers;
@@ -472,7 +811,22 @@ Replaces `DefaultFileReceiveEngine`.
 
   These cover design §19's checkpoint-crash, torn-drain, block-mismatch and unreferenced-receive rows.
 
+- **Done when:** `DefaultFileReceiveEngine.kt` does not exist; `ReceiveEngine` does not import `MessageRepository`;
+  `grep -n "partPath\|finalPath" core/src/commonMain` finds nothing outside `ReceivePaths`.
+
 ### Step R4.2 — Store, quota and eviction (`orchestrator/file`)
+
+- **Read first:** `orchestrator/file/FileStore.kt`, `FileDescriptorStore.kt` + `file_descriptors` in `File.sq`,
+  `io/FileAccess.kt` and its JVM/Android actuals, `ReceiveEngine` (R4.1), design §10, §13, invariant 11.
+- **Schema:** `last_access_at INTEGER NOT NULL` and `storage_kind TEXT NOT NULL` (`PATH` | `CONTENT_URI`) on
+  `file_descriptors`, in `File.sq` and `6.sqm`.
+- **New engine verb** on `FileReceiveControl`: `suspend fun evicted(fileId: FileId, now: Instant)` — READY → EVICTED
+  under the file lock, deletes the final file through `PartWriter`/`FileAccess`. `FileStore.enforceQuota` picks the
+  least recently accessed COPY descriptors and calls `evicted` for received files (and deletes the descriptor via
+  `forget`); it never runs inside a completion transaction (call it after `adopt` returns).
+  `FileReceiveControl.reopen` already treats EVICTED as terminal-and-reopenable.
+- **`touch(fileId)`** on `FileStore`: called by `DefaultFilePlaintextSource` on a successful read and by the facade's
+  `localFilePath`.
 
 - **Changes:**
     - **True LRU.** Add a `last_access_at` column, touched on serve and open.
@@ -491,32 +845,69 @@ Replaces `DefaultFileReceiveEngine`.
     - **`FileAccess` is suspend** and switches to the IO dispatcher internally, the way the stores use
       `dbDispatcher`. No blocking fsync on a router or node coroutine.
     - Delete the dead code: `updateBlockList`, `resolve`, `storePath()`, `openContentSource`,
-      `selectAllFileDescriptors`, `FileTransferStore.findByFile`, and `FileIds.*ForBytes` (moved to test
-      fixtures).
+      `selectAllFileDescriptors`, and `FileIds.*ForBytes` (moved to test fixtures). Check each is unused with
+      `grep` first; if one is used, ask before deleting.
 - **Tests:** quota eviction of a received file gives EVICTED, then a re-open fetches it (§19 quota row);
   re-importing a SOURCE_LOST file serves again; import of an existing REFERENCE with `keepCopy`.
 
+- **Done when:** a received file evicted by quota shows EVICTED and comes back after `acceptFile`; `FileAccess` has no
+  blocking public function; the dead code listed above is gone (`grep` each name).
+
 ### Step R4.3 — The coordinator and the GUI facade (`orchestrator/file`, `orchestrator/runtime/file`)
+
+- **Already done in R1.5:** the facade only calls verbs (`FileRequestControl.acceptFile`/`declineFile`, plus reads);
+  the DECLINED row is built only in the engine; `findFileAttachment` is the one attachment lookup. Do not redo these.
+- **Read first:** `orchestrator/file/FileRequestCoordinator.kt`, `ReceiveEngine` (R4.1), `wiring/NodeGraph.kt`
+  (`start`/`stop`), design §8 (gap trigger), §9 (trigger condition), §14.
 
 - **Changes:**
     - **The gap trigger counts time while this device runs** (design §8). It tracks the last P advance per
       file in memory, on a monotonic clock started at `start()`, and not against `updatedAt`.
+        - Use `kotlin.time.TimeSource.Monotonic` (inject a `TimeSource` for tests; `TestTimeSource` exists).
+        - Feed it from `receiveEvents` (`Progress` with a larger `contiguousBytes` resets that file's mark).
+        - On `start()`, every active receive gets a fresh mark, so a long sleep never fires the trigger at once.
+        - `markStalled` then takes no `idleSince` from `updatedAt`; pass the coordinator's own cutoff (change the verb's
+          KDoc accordingly; the engine still re-checks IN_FLIGHT under its lock).
     - **An accepted OFFER marks the pending request as covered by a progressing transfer,** so the grace
       period ends without a REQUEST while a push is progressing (design §9 trigger condition). A STALLED file
       re-opens it.
     - **A no-space refusal records DECLINED** through the engine (§14 PENDING → DECLINED), so the message
       trigger stops re-requesting.
     - **Lifecycle.** The coordinator and the engine keep their job handles; `NodeGraph.stop` stops them.
-    - **`DefaultFileTransferService` only calls verbs** (`accept`, `decline`, `receiveState`, `localFilePath`).
-      `declineFile` on an IN_FLIGHT receive aborts it and cleans up through the engine.
-    - Delete the duplicated `findAttachment` and DECLINED-row building in favour of one owner.
+      Also replace the coordinator's `runCatching { onFileEvent(...) }` and `runCatching { sweep(...) }` loops with
+      try/catch that rethrows `CancellationException` and logs (ground rules).
+    - **Errors propagate in `DefaultFileRequestSource`.** Remove its
+      `catch (e: Exception) { return emptyList()/false/null }`
+      blocks; routing's callers already handle exceptions (R2.3).
+    - `declineFile` on an IN_FLIGHT receive: the engine's `decline` verb also deletes the `.part` and staged rows and
+      sends CANCEL (DECLINED) through `FileReceiveEnds`.
 - **Tests:**
     - restarting after a long sleep doesn't fire the gap trigger at once;
     - a slow push past the grace period gets no REQUEST;
     - declining an in-flight file leaves no `.part`;
     - no-space is DECLINED and not re-requested.
+- **Done when:** no `runCatching` in `orchestrator/file`; `FileRequestCoordinator` never reads `updatedAt`.
 
 ### Step R4.4 — Sending moves out of messaging (`orchestrator/file`, `orchestrator/runtime/message`)
+
+- **Already done in R1:** `file_transfers`, `FileTransferStore` and its enums are gone; `PickedFile.keepCopy` is
+  nullable (null applies `copyIntoStoreMaxBytes`). Skip the bullet about them below.
+- **Read first:** `orchestrator/runtime/message/DefaultMessagingService.kt` (`sendMessage`, the import loop and the
+  push loop), `MessagingTypes.kt` (`Message`, `PickedFile`, `SendRefusal`, `SendMessageResult`), `FileStore.import`,
+  `PublicApiSurfaceTest` (this step changes public types: update the test's list deliberately and say so in the note),
+  design §10, §12. This step changes the GUI API, so read `docs/gui-api.md` and update it in the same change.
+- **Interface:**
+  ```kotlin
+  internal interface FileSendService {
+      /** Imports [files] and returns their attachments, or the refusal. Never throws for unreadable input. */
+      suspend fun prepare(files: List<PickedFile>, onProgress: (hashedBytes: Long, totalBytes: Long) -> Unit): PrepareResult
+      suspend fun release(attachments: List<MessagePayload.Attachment>)   // the append failed
+      suspend fun startPushes(attachments: List<MessagePayload.Attachment>, members: Collection<AccountId>)
+  }
+  sealed interface PrepareResult { data class Ready(val attachments: List<MessagePayload.Attachment>) : PrepareResult
+                                   data class Refused(val refusal: SendRefusal) : PrepareResult }
+  ```
+  `DefaultMessagingService` takes `FileSendService` instead of `FileStore` and `FileCarrier`.
 
 - **Changes:**
     - **A new `FileSendService` in `orchestrator/file`** owns import, classification and starting pushes.
@@ -548,12 +939,29 @@ Replaces `DefaultFileReceiveEngine`.
     - a send returns before hashing ends and the message appears once hashing finishes;
     - cancel mid-hash leaves no copy;
     - a partial copy from a killed send is cleaned at start.
+- **Done when:** `DefaultMessagingService` imports nothing from `orchestrator.file` except `FileSendService` and its
+  result types; `Message.attachments` does not exist; `docs/gui-api.md` describes the preparing state.
 
 ---
 
 ## Phase R5 — The large path
 
 ### Step R5.1 — Append at P (`routing/file/port`, `orchestrator/file/receive`)
+
+- **Needs:** R4.1 (`PartWriter`, `ReceiveEngine`). **Read first:** `routing/file/port/FileIngestPort.kt`,
+  `ReceiveEngine`, the requester side of `routing/file/fetch/FileFetchManager.kt` (`handleData`), design §6.6, §8.
+- **Signature:**
+  ```kotlin
+  suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult
+  sealed interface FileAppendResult {
+      data class Appended(val committedBytes: Long) : FileAppendResult   // P after this call (may be unchanged)
+      data object Ready : FileAppendResult
+      data class Mismatch(val blockIndex: Int) : FileAppendResult
+      data object NoSpace : FileAppendResult
+      data object Defer : FileAppendResult
+  }
+  ```
+  Put `FileAppendResult` in `FileIngestPort.kt`. `offset != P (uncommitted end)` throws `IllegalArgumentException`.
 
 - **Changes:**
     - **Add `FileIngestPort.append(fileId, offset, bytes)`** for the fetch. It returns:
@@ -568,7 +976,28 @@ Replaces `DefaultFileReceiveEngine`.
 - **Tests:** a fetch writes no `file_receive_chunks` rows; checkpoint by bytes and by time; mismatch reports
   the block.
 
+- **Done when:** `FileFetchManager` (or its R5.4 replacement) never calls `ingest`.
+
 ### Step R5.2 — Streaming plaintext source (`routing/file/port`, `orchestrator/file`)
+
+- **Read first:** `routing/file/port/FilePlaintextSource.kt`, `orchestrator/file/DefaultFilePlaintextSource.kt`, the
+  readers (`PlaintextChunkSource` from R3.1, the holder in `FileFetchManager`), `io/FileAccess.kt` (positioned reads),
+  design §9, invariant 22.
+- **Signature:**
+  ```kotlin
+  interface FilePlaintextSource {
+      suspend fun describe(fileId: FileId): FileManifest?
+      suspend fun open(fileId: FileId, fromOffset: Long): PlaintextStream?   // null: not held
+  }
+  interface PlaintextStream : AutoCloseable {
+      /** Up to [maxBytes] verified bytes from the current position; empty at EOF. */
+      suspend fun read(maxBytes: Int): PlaintextRead
+  }
+  sealed interface PlaintextRead { data class Bytes(val bytes: ByteArray) : PlaintextRead
+                                   data object Eof : PlaintextRead
+                                   data class SourceLost(val blockIndex: Int) : PlaintextRead }
+  ```
+  Delete `read(fileId, offset, maxBytes)` and `FileReadResult`. Buffer size: a constant 256 KiB in the implementation.
 
 - **Changes:**
     - **Replace the stateless `read(fileId, offset, maxBytes)`** with
@@ -593,7 +1022,15 @@ Replaces `DefaultFileReceiveEngine`.
     - a rotten block stops at that block;
     - a block changed between the two passes stops the serve.
 
+- **Done when:** `FileReadResult` does not exist; the test counting reads passes for a 1 GiB sparse file.
+
 ### Step R5.3 — Transport: ordered, reliable file channels (`transport/webrtc`, `jvmMain` backend)
+
+- **This step changes transport code** (allowed here only). **Read first:**
+  `transport/webrtc/transport/WebRtcTransport.kt`
+  and `DefaultWebRtcTransport.kt` (file-frame and channel parts), `jvmMain/.../JvmWebRtcBackend.kt`
+  (`emitIncomingData`, which launches a coroutine per frame — the reorder bug), the Android backend if present (apply
+  the same ordering fix), `routing/file/fetch/FileFetchLabels.kt`.
 
 - **Changes:**
     - **Ordered delivery from the backend.** `JvmWebRtcBackend` delivers each data channel's messages in
@@ -613,9 +1050,21 @@ Replaces `DefaultFileReceiveEngine`.
     - a file channel with an unreliable shared config is still reliable;
     - a stalled file consumer doesn't delay envelopes.
 
+- **Done when:** `grep -n "launch" JvmWebRtcBackend.kt` shows no per-message launch; routing has no channel label
+  strings.
+
 ### Step R5.4 — The fetch, one actor per channel (`routing/file/fetch`)
 
 Replaces `FileFetchManager`.
+
+- **Needs:** R2.2 (the core's `Call` executor runs fetches), R5.1, R5.2, R5.3. **Read first:** `FileFetchManager.kt` in
+  full, `FileFetchOutcome.kt`, `protocol` fetch frames, the `FileFetchStrategy` from R2.2, design §6.6, §3.5.
+- **Classes:** `FetchHolder` (one per incoming FETCH channel), `FetchRequester` (one per outgoing fetch),
+  `FileFetchService` (routes frames by `FileChannelId` to the actor, exposes
+  `suspend fun fetch(fileId, device): FetchResult` for R2.2's `Call`, and `abortFetch(fileId, reason)`).
+  `enum class FetchResult { SATISFIED, DECLINED, UNANSWERED, NO_DIRECT_CONNECTION, NO_SPACE, MISMATCH }`; map to
+  `CallOutcome` in `FileFetchStrategy` (`NO_SPACE` → satisfied-and-drop plus engine `decline`; `MISMATCH` → retry same
+  device first).
 
 - **Holder actor:**
     - receives FETCH and runs the serve gate (through `FileServeGate`, by the peer device's account; also
@@ -648,11 +1097,19 @@ Replaces `FileFetchManager`.
 
   These cover design §19's large-file rows.
 
+- **Done when:** `FileFetchManager.kt` does not exist; no `runCatching` in `routing/file/fetch`; the 64 MB test passes
+  with default config.
+
 ---
 
 ## Phase R6 — Protocol, protection, cleanup
 
 ### Step R6.1 — Protocol hardening (`protocol`)
+
+- **This step changes wire decoding (not encoding).** **Read first:** `protocol/envelopes/FileEnvelope.kt` (all
+  `decode` functions; `FileFetchFrame` lives at the end of it, with `Data.ENCODED_OVERHEAD_BYTES` that `FileLimits`
+  uses — keep that constant when moving), `protocol/ByteReaderWriter.kt` (`readByteArray(maxSize)` exists; use it),
+  `protocol/EnvelopeObservability.kt`, `protocol/FileIds.kt`.
 
 - **Changes:**
     - **Bound every decoded count and length before allocating:** REQUEST ranges, SealedOffer and `FETCH_OK`
@@ -669,6 +1126,12 @@ Replaces `FileFetchManager`.
   independently, not round-tripped (design §19).
 
 ### Step R6.2 — Protection (`protection`, `crypto/keys`)
+
+- **Read first:** `protection/envelope/FileProtection.kt` (keep `CHUNK_OVERHEAD_BYTES`; `FileLimits` uses it),
+  `SignedAndEncryptedFileProtection.kt`, `BaseProtection` (message path),
+  `protection/service/EnvelopeProtectionService.kt`,
+  every caller in `routing/file` (after R3 that is `PlaintextChunkSource`, `FileTargetHandler`, `FileServeHandler`,
+  `DefaultFileCarrier`).
 
 - **Changes:**
     - **A `TransferKey` type** (wraps the bytes, never prints) replaces raw `ByteArray` keys through
@@ -689,6 +1152,12 @@ Replaces `FileFetchManager`.
 
 ### Step R6.3 — Typing, logging, comments (all file packages)
 
+- **Read first:** `logging/LogComponent.kt`/`LogEvent.kt`. Known wrong events today: the receive engine logs under
+  `MESSAGE_DECODE_FAILED`/`MESSAGE_FETCHED`, the coordinator under `SYNC_PROCESS_FAILED`, the pusher/carrier under
+  `OUTBOX_MESSAGE_QUEUED`. Add `LogComponent.FILE` and events such as `FILE_OFFER_ACCEPTED`, `FILE_CHUNK_DEFERRED`,
+  `FILE_RECEIVE_READY`, `FILE_RECEIVE_FAILED`, `FILE_PUSH_ENDED`, `FILE_DEPOSITED`, `FILE_FETCH_FAILED`,
+  `FILE_TASK_FAILED` (loop safety nets), and replace every file-code log call.
+
 - **Changes:**
     - A `TransferId` column adapter replaces the hand-written hex conversions.
     - `OpenedFileEnvelope.source` and `target` become `PeerId`.
@@ -701,8 +1170,10 @@ Replaces `FileFetchManager`.
 ### Step R6.4 — Update the docs
 
 - **Changes:**
-    - **Guide:** update §2 (the service split), §4 (the file rows' single writers), §6 (tag kinds and retry
-      classes) and §8 (feature status).
+    - **Guide:** §2 (the service split) and §4's orchestrator rows were updated in R1; check them against the code,
+      finish §4's routing rows (R3.2 should have done it), and update §6 (tag kinds `FILE_PUSH`/`FILE_FORWARD`/
+      `FILE_REQUEST`
+      and retry classes) and §8 (feature status).
     - **Design:** apply the changes listed below.
     - **`plan.md`:** mark steps 1–22 as superseded in part by this plan and point steps 23–24 here.
 - **Done when:** the guide's and the design's rows match the code, and the full suite is green.
@@ -711,20 +1182,37 @@ Replaces `FileFetchManager`.
 
 ## Order and parallelism
 
-**The trunk is R1** (one migration, config, ports, events, Router split, single writers). Everything else
-builds on its seams. Land R1.0 → R1.5 in order; R1.4 is the largest change.
+**R1 is done.** Its seams are what every later step builds on.
 
-**After R1:**
+**Dependencies after R1:**
 
-- **R2.1, R2.2 and R2.3** are independent of each other.
-- **R3 (small path)** needs R2.3.
-- **R4 (receive side)** needs only R1.
-- **R5 (large path)** needs R2.2 and R4.1. R5.3 (transport) is independent and can start any time.
-- **R6.1 and R6.2** can run beside R3–R5. R6.3 and R6.4 come last.
+- R2.1, R2.2, R2.3 and R2.4 are independent of each other.
+- R3 (small path) needs R2.3; R3.2 needs R3.1; R3.3 needs R3.1 and R3.2.
+- R4 (receive side) needs only R1; R4.2–R4.4 need R4.1; R4.4 needs R3.1 (`sendState`).
+- R5 needs R2.2 and R4.1; R5.3 (transport) can go any time; R5.4 needs R5.1–R5.3.
+- R6.1 and R6.2 can go beside R3–R5. R6.3 and R6.4 come last.
 
-**If you want the critical bugs out first:** R6.1's decode bounds and R5.3's in-order delivery are
-self-contained and safe to land early. Everything else in the review's critical list is fixed by the rewrite
-it sits in.
+**One executor, one step at a time:** follow this sequence exactly. Each step lands green before the next starts.
+
+1. R2.1 — one visibility rule
+2. R2.4 — per-carrier deliveries
+3. R2.3 — outbox fixes
+4. R2.2 — candidate core
+5. R3.1 — push engine
+6. R3.2 — inbound handler split
+7. R3.3 — relay on the engine
+8. R4.1 — receive engine split
+9. R4.2 — store, quota, eviction
+10. R4.3 — coordinator and facade
+11. R4.4 — sending out of messaging
+12. R5.3 — ordered, reliable file channels
+13. R5.1 — append at P
+14. R5.2 — streaming plaintext source
+15. R5.4 — fetch actors
+16. R6.1 — protocol hardening
+17. R6.2 — protection
+18. R6.3 — typing, logging, comments
+19. R6.4 — docs
 
 ## Design changes
 

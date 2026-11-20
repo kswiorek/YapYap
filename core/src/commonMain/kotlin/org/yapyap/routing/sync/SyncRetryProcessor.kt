@@ -96,8 +96,8 @@ private class SyncCandidateStrategy(
 
     override suspend fun afterEnqueue(id: Uuid, built: BuiltAttempt) = Unit
 
-    override suspend fun isAttemptPending(id: Uuid): Boolean =
-        outboxProcessor.hasQueued(OutboxTag(OutboxTag.Kind.SYNC, id))
+    override suspend fun attemptState(id: Uuid): AttemptState =
+        if (outboxProcessor.hasQueued(OutboxTag(OutboxTag.Kind.SYNC, id))) AttemptState.Pending else AttemptState.None
 
     override suspend fun resolveOutcome(outcome: OutboxOutcome): Uuid? =
         outcome.tag.id.takeIf { outcome.tag.kind == OutboxTag.Kind.SYNC }

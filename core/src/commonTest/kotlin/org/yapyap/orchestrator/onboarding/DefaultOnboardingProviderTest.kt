@@ -4,7 +4,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -18,79 +17,38 @@ import org.yapyap.orchestrator.identity.IdentityStore
 import org.yapyap.orchestrator.sync.SyncCoordinator
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.Invite
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.BootstrapPacketEvent
 import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.DeliverySubject
-import org.yapyap.routing.router.PingFrontiers
-import org.yapyap.routing.router.Router
-import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryIdentityStore
 import org.yapyap.testfixtures.InMemoryKeyStore
-import org.yapyap.testfixtures.NoopFileCarrier
+import org.yapyap.testfixtures.NoopBootstrapCarrier
+import org.yapyap.testfixtures.NoopMessageCarrier
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 private class FakeOnboardingRouter(
-    override val bootstrapPackets: Flow<BootstrapPacketEvent>,
-    override val deliveries: Flow<Delivery> = emptyFlow(),
-    override val fileCarrier: FileCarrier = NoopFileCarrier(),
-) : Router {
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
-    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
-    override suspend fun abortFileFetch(fileId: FileId) = Unit
-    override val incomingMessages: Flow<MessagePayload> = emptyFlow()
-    override val typingIndicators: Flow<TypingIndicatorEvent> = emptyFlow()
-    override val pingPayloads: Flow<PingFrontiers> = emptyFlow()
-    override val onlineAccounts: Flow<Set<AccountId>> = emptyFlow()
-
-    override val localLinkStatus: StateFlow<org.yapyap.routing.router.LocalLinkStatus> =
-        MutableStateFlow(org.yapyap.routing.router.LocalLinkStatus.WarmingUp)
-    override suspend fun start() = Unit
-    override suspend fun stop() = Unit
-    override fun isRunning(): Boolean = true
-    override suspend fun announceOnline() = Unit
-    override fun localTorEndpoint(): org.yapyap.protocol.TorEndpoint =
-        org.yapyap.protocol.TorEndpoint("local.onion", 80)
-
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, org.yapyap.routing.router.AccountReach> =
-        emptyMap()
-    override suspend fun sendMessage(
-        target: AccountId,
-        payload: MessagePayload,
-    ): AccountPushReport = error("not used")
-
-    override suspend fun sendTypingIndicator(
-        targets: Collection<AccountId>,
-        roomId: RoomId,
-        interval: Duration,
-    ) = Unit
-
-    override suspend fun sendBootstrap(
-        payload: BootstrapPayload,
-        target: PeerId,
-        targetEndpoint: TorEndpoint?,
-        sharedSecret: ByteArray?,
-    ) = Uuid.random()
+    packets: Flow<BootstrapPacketEvent>,
+    deliveries: Flow<Delivery> = emptyFlow(),
+) {
+    val messages = object : NoopMessageCarrier() {
+        override val deliveries: Flow<Delivery> = deliveries
+    }
+    val bootstrap = object : NoopBootstrapCarrier() {
+        override val bootstrapPackets: Flow<BootstrapPacketEvent> = packets
+    }
 }
 
 private class NoopSyncCoordinator : SyncCoordinator {
@@ -135,9 +93,11 @@ class DefaultOnboardingProviderTest {
         config: OrchestratorConfig = OrchestratorConfig(),
         identityKeyRepository: IdentityStore = InMemoryIdentityStore(),
         deliveries: MutableSharedFlow<Delivery> = MutableSharedFlow(extraBufferCapacity = 16),
-    ): DefaultOnboardingProvider =
-        DefaultOnboardingProvider(
-            router = FakeOnboardingRouter(packets, deliveries),
+    ): DefaultOnboardingProvider {
+        val router = FakeOnboardingRouter(packets, deliveries)
+        return DefaultOnboardingProvider(
+            messageCarrier = router.messages,
+            bootstrapCarrier = router.bootstrap,
             sessionStore = sessionStore,
             syncCoordinator = NoopSyncCoordinator(),
             identityReader = identityKeyRepository,
@@ -146,6 +106,7 @@ class DefaultOnboardingProviderTest {
             clock = clock,
             config = MutableStateFlow(config),
         )
+    }
 
     @Test
     fun start_noSession_staysIdle() = runTest {

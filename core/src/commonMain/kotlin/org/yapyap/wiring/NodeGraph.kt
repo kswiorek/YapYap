@@ -29,10 +29,9 @@ import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
 import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
+import org.yapyap.orchestrator.file.DefaultFileRequestSource
 import org.yapyap.orchestrator.file.DefaultFileStore
-import org.yapyap.orchestrator.file.DefaultFileTransferStore
 import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
-import org.yapyap.orchestrator.file.FileServiceConfig
 import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
 import org.yapyap.orchestrator.fold.room.DefaultRoomEventProjector
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
@@ -56,7 +55,7 @@ import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.file.DelegatingFileIngestPort
+import org.yapyap.routing.file.FileRoutingPorts
 import org.yapyap.routing.maintenance.PacketStoreMaintenance
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.store.DefaultDeviceRouteStore
@@ -128,17 +127,36 @@ internal class NodeGraph(
     private val fileRequestAttemptStore = DefaultFileRequestAttemptStore(database)
     private val fileDescriptorStore = DefaultFileDescriptorStore(database)
     private val fileReceiveStore = DefaultFileReceiveStore(database)
-    private val fileTransferStore = DefaultFileTransferStore(database)
     private val fileAccess = platform.fileAccess()
-    private val fileServiceConfig = FileServiceConfig()
     private val fileStore = DefaultFileStore(
         descriptors = fileDescriptorStore,
         crypto = crypto,
         files = fileAccess,
         storeDirectory = layout.fileStoreDirectory,
-        config = fileServiceConfig,
+        config = config.orchestratorConfig,
     )
-    private val fileIngestPort = DelegatingFileIngestPort()
+
+    // File machinery the router runs against: the receive engine (ingest port, ended receives)
+    // and the request source (coverage, candidates, serve gate). Neither needs the router.
+    private val fileReceiveEngine = DefaultFileReceiveEngine(
+        receives = fileReceiveStore,
+        messages = messageRepository,
+        crypto = crypto,
+        files = fileAccess,
+        storeDirectory = layout.fileStoreDirectory,
+        incomingDirectory = layout.fileIncomingDirectory,
+        config = config.orchestratorConfig,
+        fileStore = fileStore,
+        clock = clock,
+    )
+    private val fileRequestSource = DefaultFileRequestSource(
+        messages = messageRepository,
+        rooms = roomRepository,
+        receives = fileReceiveStore,
+        descriptors = fileDescriptorStore,
+        localIdentity = localIdentity,
+        coverage = fileReceiveEngine,
+    )
 
     // Crypto and envelope protection
     private val cryptoSessionManager = DefaultCryptoSessionManager(
@@ -191,34 +209,23 @@ internal class NodeGraph(
             roomRepository = roomRepository,
         ),
         syncAttemptStore = DefaultSyncAttemptStore(database),
-        fileRequestAttemptStore = fileRequestAttemptStore,
         routerConfig = config.routerConfig,
         transportLimits = config.transportLimits,
         frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepository, localDeviceId),
         peerAvailabilityStore = deviceRoutes,
-        // Step 12: the receive engine implements the ingest port the handler calls.
-        fileIngestPort = fileIngestPort,
-        fileIncomingStore = fileIncomingStore,
-        filePushStore = filePushStore,
-        fileRelayStore = fileRelayStore,
-        plaintextSource = DefaultFilePlaintextSource(fileDescriptorStore, fileAccess, crypto),
-        fileChunkSize = config.fileChunkSizeBytes,
-    )
-
-    // Receive engine (step 12): ingest-side file handling; the coordinator fronts the port.
-    private val fileReceiveEngine = DefaultFileReceiveEngine(
-        receives = fileReceiveStore,
-        descriptors = fileDescriptorStore,
-        messages = messageRepository,
-        crypto = crypto,
-        files = fileAccess,
-        storeDirectory = layout.fileStoreDirectory,
-        incomingDirectory = layout.fileIncomingDirectory,
-        config = fileServiceConfig,
-        fileStore = fileStore,
-        carrier = router.fileCarrier,
-        routerConfig = config.routerConfig,
-        clock = clock,
+        filePorts = FileRoutingPorts(
+            ingest = fileReceiveEngine,
+            requests = fileRequestSource,
+            serveGate = fileRequestSource,
+            plaintext = DefaultFilePlaintextSource(fileDescriptorStore, fileStore, fileAccess, crypto),
+            receiveEnds = fileReceiveEngine,
+            incoming = fileIncomingStore,
+            pushes = filePushStore,
+            relay = fileRelayStore,
+            requestAttempts = fileRequestAttemptStore,
+            chunkSizeBytes = config.fileChunkSizeBytes,
+            fetchFrameBytes = config.fileFetchFrameBytes,
+        ),
     )
 
     // History, folds and sync
@@ -231,7 +238,7 @@ internal class NodeGraph(
         cryptoProvider = crypto,
         clock = clock,
     )
-    private val pipeline = DefaultInboundMessagePipeline(router, dagEngine)
+    private val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
 
     // Global control plane: sole writer of chain-derived identity columns. Owns the GLOBAL
     // room fold (boot + every ingest trigger) and the publish path used by the sponsor
@@ -244,7 +251,7 @@ internal class NodeGraph(
         identityWriter = identityStore,
         localIdentity = localIdentity,
         roomRepository = roomRepository,
-        router = router,
+        messageCarrier = router.messages,
         cryptoProvider = crypto,
     )
 
@@ -256,7 +263,7 @@ internal class NodeGraph(
         messageRepository = messageRepository,
         roomRepository = roomRepository,
         identityReader = identityStore,
-        router = router,
+        messageCarrier = router.messages,
     )
 
     private val syncCoordinator = DefaultSyncCoordinator(
@@ -264,39 +271,34 @@ internal class NodeGraph(
         roomRepository = roomRepository,
         messageRepository = messageRepository,
         pendingSyncRepository = pendingSyncRepository,
-        router = router,
+        messageCarrier = router.messages,
+        syncCarrier = router.syncs,
         roomChanges = roomEventProjector.stateChanges,
         identityChanges = globalEventProjector.stateChanges,
         orchestratorConfig = config.orchestratorConfig,
     )
 
-    // Request trigger + serve gate (step 16, fetch decisions in step 22): implements
-    // the ingest port the router's file handler calls, delegating ingest-side
-    // calls to the receive engine.
+    // File request trigger: when to ask for a file, through the router's file carrier.
     private val pendingFileRequestStore = DefaultPendingFileRequestStore(database)
     private val fileRequestCoordinator = DefaultFileRequestCoordinator(
         pending = pendingFileRequestStore,
         receives = fileReceiveStore,
-        transfers = fileTransferStore,
+        control = fileReceiveEngine,
         messages = messageRepository,
-        rooms = roomRepository,
-        descriptors = fileDescriptorStore,
-        localIdentity = localIdentity,
-        router = router,
+        fileCarrier = router.files,
         pipeline = pipeline,
-        engine = fileReceiveEngine,
+        receiveEvents = fileReceiveEngine.receiveEvents,
         config = config.orchestratorConfig,
-        routerConfig = config.routerConfig,
-        fileConfig = fileServiceConfig,
         clock = clock,
-    ).also { fileIngestPort.delegate = it }
+    )
 
     // Onboarding. Newcomer onboarding runs in every mode: headless relays have no runtime yet must
     // still be onboarded as newcomers. The recovery responder serves OTHER nodes' account-recovery
     // requests, also in every mode — an always-on relay is exactly the bootstrap endpoint a
     // recovering device points at.
     private val onboardingProvider = DefaultOnboardingProvider(
-        router = router,
+        messageCarrier = router.messages,
+        bootstrapCarrier = router.bootstrap,
         sessionStore = vault.bootstrapSessionStore,
         syncCoordinator = syncCoordinator,
         identityReader = identityStore,
@@ -306,14 +308,15 @@ internal class NodeGraph(
         config = config.orchestratorConfig,
     )
     private val recoveryResponder = DefaultRecoveryResponder(
-        router = router,
+        bootstrapCarrier = router.bootstrap,
+        presence = router.presence,
         identityReader = identityStore,
         messageRepository = messageRepository,
         localDeviceType = bootConfig.localDeviceType,
         projector = globalEventProjector,
     )
 
-    private val transportStatusMonitor = TransportStatusMonitor(router)
+    private val transportStatusMonitor = TransportStatusMonitor(router.presence)
     private val identityWatch = LocalIdentityWatch(
         identityChanges = globalEventProjector.stateChanges,
         onboardingState = onboardingProvider.state,
@@ -326,7 +329,8 @@ internal class NodeGraph(
         cryptoProvider = crypto,
         onboardingProvider = onboardingProvider,
         globalEventProjector = globalEventProjector,
-        router = router,
+        presence = router.presence,
+        bootstrapCarrier = router.bootstrap,
         localDeviceType = bootConfig.localDeviceType,
     )
 
@@ -351,13 +355,10 @@ internal class NodeGraph(
             roomRepository = roomRepository,
             localDeviceType = bootConfig.localDeviceType,
             fileStore = fileStore,
-            fileTransfers = fileTransferStore,
             fileReceives = fileReceiveStore,
             fileDescriptors = fileDescriptorStore,
-            pendingFileRequests = pendingFileRequestStore,
+            fileRequests = fileRequestCoordinator,
             fileAccess = fileAccess,
-            routerConfig = config.routerConfig,
-            clock = clock,
         )
 
     override val onboardingState: StateFlow<OnboardingState> get() = onboardingProvider.state
@@ -390,6 +391,8 @@ internal class NodeGraph(
         runtime?.start(scope)
         onProgress(BootProgress(BootPhase.READY, 0, 0))
     }
+
+    override suspend fun announceOnline() = router.syncs.announceOnline()
 
     override suspend fun stop() {
         runtime?.stop()

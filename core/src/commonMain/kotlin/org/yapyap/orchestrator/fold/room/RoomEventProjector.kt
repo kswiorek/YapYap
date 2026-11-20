@@ -1,9 +1,15 @@
 package org.yapyap.orchestrator.fold.room
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
@@ -16,15 +22,19 @@ import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.graph.ancestorClosures
 import org.yapyap.orchestrator.fold.graph.canonicalOrder
 import org.yapyap.orchestrator.fold.graph.childAdjacency
-import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.identity.IdentityReader
+import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.orchestrator.store.RoomRepository
-import org.yapyap.protocol.*
+import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.RoomMemberRole
+import org.yapyap.protocol.RoomMemberStatus
+import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.MessageCarrier
 import kotlin.uuid.Uuid
 
 /**
@@ -100,7 +110,7 @@ internal class DefaultRoomEventProjector(
     private val messageRepository: MessageRepository,
     private val roomRepository: RoomRepository,
     private val identityReader: IdentityReader,
-    private val router: Router,
+    private val messageCarrier: MessageCarrier,
 ) : RoomEventProjector {
 
     private val _stateChanges = MutableSharedFlow<RoomStateChange>(extraBufferCapacity = 64)
@@ -254,11 +264,11 @@ internal class DefaultRoomEventProjector(
             val sends = ArrayList<Deferred<*>>(nodes.size * members.size + 1)
             for (node in nodes) {
                 for (member in members) {
-                    sends.add(async { router.sendMessage(member, node) })
+                    sends.add(async { messageCarrier.sendMessage(member, node) })
                 }
             }
             if (courtesy != null) {
-                sends.add(async { router.sendMessage(courtesy.first, courtesy.second) })
+                sends.add(async { messageCarrier.sendMessage(courtesy.first, courtesy.second) })
             }
             sends.awaitAll()
         }

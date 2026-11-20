@@ -59,7 +59,7 @@ internal suspend fun maintainPeerSessions(
     }
 
     val pendingEpoch2Cutoff = now - sessionConfig.pendingEpoch2Retention
-    val supersededPruneCutoff = now - sessionConfig.supersededRetention
+    val supersededPruneCutoff = now - sessionConfig.supersededSessionRetention
     for (record in sessions) {
         if (record.sessionEpoch == 2 &&
             record.meta.status == SessionStatus.PENDING &&

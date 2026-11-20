@@ -21,6 +21,10 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.OutboxOutcome
@@ -478,11 +482,11 @@ internal class FilePusher(
                     } else {
                         // The transfer is gone at the target; quietly ENDED, never DECLINED (§3.6).
                         if (row.kind == FilePushKind.DEPOSIT) terminateSilent(row, FilePushStatus.ENDED)
-                        else terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+                        else terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
                     }
                 } else {
                     if (row.kind == FilePushKind.DEPOSIT) terminateSilent(row, FilePushStatus.ENDED)
-                    else terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+                    else terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
                 }
             }
 
@@ -558,7 +562,11 @@ internal class FilePusher(
     }
 
     /** The target aborted the transfer: end it quietly. */
-    suspend fun onTransferCancelled(transferId: TransferId) {
+    /**
+     * The target cancelled [transferId] with [reason]. A refusal, for lack of space or otherwise,
+     * reads as DECLINED (design §8); an abort ends the transfer with its outcome unknown.
+     */
+    suspend fun onTransferCancelled(transferId: TransferId, reason: FileCancelReason) {
         val row = try {
             pushes.find(transferId)
         } catch (e: CancellationException) {
@@ -567,12 +575,19 @@ internal class FilePusher(
             return
         } ?: return
         if (!row.status.isLive) return
-        terminate(row, FilePushStatus.CANCELLED, FileFailureReason.CANCELLED, accountOf(row.targetDevice))
+        when (reason) {
+            FileCancelReason.DECLINED,
+            FileCancelReason.NO_SPACE,
+                -> terminate(row, FilePushStatus.DECLINED, FileFailureReason.DECLINED, accountOf(row.targetDevice))
+
+            FileCancelReason.ABORT ->
+                terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
+        }
     }
 
     // -- Internals ---------------------------------------------------------------
 
-    private suspend fun createTransfer(info: FileDescriptorInfo, device: PeerId): FilePush {
+    private suspend fun createTransfer(info: FileManifest, device: PeerId): FilePush {
         val now = ctx.clock.now()
         val row = FilePush(
             transferId = TransferId(Uuid.random()),
@@ -600,10 +615,10 @@ internal class FilePusher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+            terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
             return
         } ?: run {
-            terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+            terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
             return
         }
         val sealed = try {
@@ -631,7 +646,7 @@ internal class FilePusher(
                 )
                 return
             }
-            terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+            terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
             return
         }
         val packetId = sendPacket(
@@ -689,13 +704,13 @@ internal class FilePusher(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+                terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
                 return false
             }
         ) {
-            is org.yapyap.routing.file.FileReadResult.Ok -> read.bytes
+            is org.yapyap.routing.file.port.FileReadResult.Ok -> read.bytes
             else -> {
-                terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+                terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
                 return false
             }
         }
@@ -710,7 +725,7 @@ internal class FilePusher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+            terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
             return false
         } ?: return false
         return packetId != null
@@ -759,7 +774,7 @@ internal class FilePusher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            terminate(row, FilePushStatus.ENDED, FileFailureReason.FAILED, accountOf(row.targetDevice))
+            terminate(row, FilePushStatus.ENDED, FileFailureReason.ENDED, accountOf(row.targetDevice))
             null
         }
     }
@@ -800,8 +815,9 @@ internal class FilePusher(
         } catch (_: Exception) {
         }
         // Deposits stay routing-internal (no orchestrator leak): the send they insure
-        // reports on its own direct transfer, never on a depot.
-        if (row.kind != FilePushKind.DEPOSIT) {
+        // reports on its own direct transfer, never on a depot. A device no longer in the
+        // directory has no account to report to.
+        if (row.kind != FilePushKind.DEPOSIT && target != null) {
             events.emit(FileEvent.Failed(row.fileId, target, reason))
         }
     }

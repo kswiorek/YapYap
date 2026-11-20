@@ -2,7 +2,11 @@ package org.yapyap.routing.router
 
 
 import kotlinx.coroutines.runBlocking
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.Intro
 import org.yapyap.protocol.identity.AccountIdentity
@@ -61,7 +65,7 @@ class BootstrapSenderTest {
         router.start()
 
         val payload = newcomerIntroPayload()
-        router.sendBootstrap(payload, target = newcomerDevice)
+        router.bootstrap.sendBootstrap(payload, target = newcomerDevice)
 
         assertEquals(1, outbox.enqueued.size)
         val env = outbox.enqueued.single()

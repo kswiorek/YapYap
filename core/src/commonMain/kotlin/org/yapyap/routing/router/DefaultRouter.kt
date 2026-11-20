@@ -24,29 +24,20 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.service.EnvelopeProtectionService
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.DefaultFileCarrier
-import org.yapyap.routing.file.FileCarrier
-import org.yapyap.routing.file.FileEvent
-import org.yapyap.routing.file.FileIngestPort
-import org.yapyap.routing.file.FileOutbox
-import org.yapyap.routing.file.FilePlaintextSource
-import org.yapyap.routing.file.FilePusher
-import org.yapyap.routing.file.FileRequestProcessor
-import org.yapyap.routing.file.relay.FileRelayForwarder
+import org.yapyap.routing.file.FileRouting
+import org.yapyap.routing.file.FileRoutingPorts
+import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
-import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.inbound.handlers.MessageInboundHandler
 import org.yapyap.routing.inbound.handlers.SignalInboundHandler
 import org.yapyap.routing.inbound.handlers.SystemInboundHandler
@@ -66,15 +57,10 @@ import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.store.FileIncomingTransferStore
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.routing.store.PacketOutbox
 import org.yapyap.routing.store.PeerAvailabilityStore
-import org.yapyap.routing.store.RelayBackup
 import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.routing.sync.SyncHandler
 import org.yapyap.routing.sync.SyncPayloadProvider
@@ -99,7 +85,6 @@ internal class DefaultRouter(
     val packetDeduplicator: PacketDeduplicator,
     val packetOutbox: PacketOutbox,
     val syncAttemptStore: SyncAttemptStore,
-    val fileRequestAttemptStore: FileRequestAttemptStore,
     val envelopeProtectionService: EnvelopeProtectionService,
     val clock: Clock = Clock.System,
     val routerConfig: StateFlow<RouterConfig>,
@@ -108,12 +93,7 @@ internal class DefaultRouter(
     val syncPayloadProvider: SyncPayloadProvider,
     val frontierSnapshotProvider: FrontierSnapshotProvider,
     val peerAvailabilityStore: PeerAvailabilityStore,
-    val fileIngestPort: FileIngestPort,
-    val fileIncomingStore: FileIncomingTransferStore,
-    val filePushStore: FilePushStore,
-    val fileRelayStore: FileRelayStore,
-    val plaintextSource: FilePlaintextSource,
-    val fileChunkSize: StateFlow<Int>,
+    filePorts: FileRoutingPorts,
 ) : Router {
 
 
@@ -168,7 +148,7 @@ internal class DefaultRouter(
                 // packet maps back to its authoring transfer for a one-round deposit.
                 // Chunks never reach here (policy) and DEPOSIT markers no-op inside
                 // (never chase a failing relay, §6.4).
-                PacketType.FILE -> filePusher.depositByMarkerPacket(envelope.packetId)
+                PacketType.FILE -> fileRouting.depositByMarkerPacket(envelope.packetId)
                 else -> 0
             }
         },
@@ -228,66 +208,18 @@ internal class DefaultRouter(
     )
     private val deliveryFlow = MutableSharedFlow<Delivery>(extraBufferCapacity = 64)
 
-    private val fileEventFlow = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
+    private val peerPolicy = DefaultSyncPeerPolicy(routingContext)
 
-    private val fileOutbox: FileOutbox = object : FileOutbox {
-        override suspend fun enqueue(envelope: BinaryEnvelope, tag: OutboxTag, relayBackup: RelayBackup) =
-            outboxProcessor.enqueueAndWake(envelope, clock.now(), relayBackup = relayBackup, tag = tag)
-
-        override suspend fun enqueueDirect(envelope: BinaryEnvelope) =
-            outboxProcessor.enqueueAndWake(envelope, clock.now())
-
-        override suspend fun deleteByTag(tag: OutboxTag) =
-            packetOutbox.deleteByTag(tag)
-
-        override suspend fun hasQueued(tag: OutboxTag) =
-            packetOutbox.hasTagged(tag)
-
-        override suspend fun isPacketQueued(packetId: Uuid) =
-            packetOutbox.getByPacketId(packetId) != null
-    }
-
-    private val filePusher = FilePusher(
+    private val fileRouting = FileRouting(
         ctx = routingContext,
-        plaintext = plaintextSource,
-        pushes = filePushStore,
-        outbox = fileOutbox,
-        events = fileEventFlow,
-        chunkSizeBytes = fileChunkSize,
+        ports = filePorts,
+        outboxProcessor = outboxProcessor,
+        packetOutbox = packetOutbox,
         relaySelection = relaySelectionPolicy,
-    )
-
-    // Relay-side forward driver (design §7, step 18): shares the file outbox with
-    // the authoring pusher; FILE outcomes for unknown push rows are its forwards.
-    private val relayForwarder = FileRelayForwarder(
-        ctx = routingContext,
-        relay = fileRelayStore,
-        outbox = fileOutbox,
-    )
-
-    // Large-path fetch (design §6.6, step 21): plain fetch protocol on dedicated
-    // file channels; no envelopes, no outbox. Passes frames straight between the
-    // transport channel and the fetch code.
-    internal val fileFetchManager = org.yapyap.routing.file.fetch.FileFetchManager(
-        localDeviceId = localDeviceId,
-        devices = devices,
-        transport = webRtcTransport,
-        plaintext = plaintextSource,
-        gate = fileIngestPort,
-        routerConfig = routerConfig,
-        chunkSize = fileChunkSize,
-        events = fileEventFlow,
-    )
-
-    override val fileCarrier: FileCarrier = DefaultFileCarrier(
-        localDeviceId = localDeviceId,
-        protection = envelopeProtectionService,
-        incoming = fileIncomingStore,
-        enqueue = { envelope -> outboxProcessor.enqueueAndWake(envelope, clock.now()) },
-        clock = clock,
-        routerConfig = routerConfig,
-        pushOps = filePusher,
-        events = fileEventFlow,
+        peerPolicy = peerPolicy,
+        sessionOpener = proactiveSessionOpener,
+        maxIdlePoll = retryLoopMaxIdlePollSeconds,
+        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
     )
 
     private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
@@ -296,27 +228,7 @@ internal class DefaultRouter(
         handlers = mapOf(
             PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
             PacketType.SIGNAL to SignalInboundHandler(routingContext),
-            PacketType.FILE to FileInboundHandler(
-                routingContext,
-                fileIncomingStore,
-                fileIngestPort,
-                fileCarrier,
-                filePusher,
-                fileRelayStore,
-                onCoverageAck = { transferId, contiguous, missing ->
-                    filePusher.onCoverageAck(transferId, contiguous, missing)
-                },
-                onTransferComplete = { transferId ->
-                    filePusher.onTransferComplete(transferId)
-                },
-                onTransferCancelled = { transferId ->
-                    filePusher.onTransferCancelled(transferId)
-                },
-                onOfferReceived = { fileId ->
-                    fileRequestProcessor.onOfferReceived(fileId)
-                },
-                onRelayStored = { relayForwarder.wake() },
-            ),
+            PacketType.FILE to fileRouting.inboundHandler,
             PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
             PacketType.BOOTSTRAP to BootstrapInboundHandler(
                 routingContext,
@@ -329,8 +241,6 @@ internal class DefaultRouter(
         pingProvider = pingProvider,
         onSyncDeclined = { syncId, deviceId -> syncProcessor.onDeclined(syncId, deviceId) },
     )
-
-    private val peerPolicy = DefaultSyncPeerPolicy(routingContext)
 
     /**
      * Keeps a Tor link open to every active peer, so sends, pings and replies ride an open
@@ -373,19 +283,6 @@ internal class DefaultRouter(
         onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
     )
 
-    private val fileRequestProcessor = FileRequestProcessor(
-        ctx = routingContext,
-        attempts = fileRequestAttemptStore,
-        gate = fileIngestPort,
-        outboxProcessor = outboxProcessor,
-        peerPolicy = peerPolicy,
-        maxIdlePoll = retryLoopMaxIdlePollSeconds,
-        events = fileEventFlow,
-        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
-        sessionOpener = proactiveSessionOpener,
-        fetchManager = fileFetchManager,
-    )
-
     private var started = false
     private var torEndpoint: TorEndpoint? = null
 
@@ -398,39 +295,93 @@ internal class DefaultRouter(
     private var outboxRetryJob: Job? = null
     private var outboxOutcomeJob: Job? = null
     private var syncRetryJob: Job? = null
-    private var fileRequestRetryJob: Job? = null
-    private var filePusherJob: Job? = null
-    private var relayForwardJob: Job? = null
-    private var fileFetchJob: Job? = null
+    private var fileJobs: List<Job> = emptyList()
 
-    override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
+    override val messages: MessageCarrier = object : MessageCarrier {
+        override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
+        override val deliveries: Flow<Delivery> = deliveryFlow.asSharedFlow()
+        override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
 
-    override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
+        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
+            check(started) { "Router must be started before sending messages" }
+            return outboundMessenger.sendMessage(target, payload)
+        }
 
-    override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
+        override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) {
+            check(started) { "Router must be started before sending typing indicators" }
+            typingIndicatorDispatcher.dispatch(targets, roomId, interval)
+        }
+    }
 
-    override val pingPayloads: Flow<PingFrontiers> = pingPayloadFlow.asSharedFlow()
+    override val syncs: SyncCarrier = object : SyncCarrier {
+        override val pingPayloads: Flow<PingFrontiers> = pingPayloadFlow.asSharedFlow()
 
-    // Account-level by design: the resolver maps each online device to its
-    // account here, so device-level presence never leaves the router. Unknown
-    // devices (no row yet) are dropped — absence asserts nothing. Intra-account
-    // device flaps re-emit the same set and are deduped below.
-    override val onlineAccounts: Flow<Set<AccountId>> =
-        peerAvailabilityRegistry.onlineDevices
-            .map { online -> online.mapNotNull { devices.getAccountIdForDevice(it) }.toSet() }
-            .distinctUntilChanged()
+        override suspend fun announceOnline() {
+            check(started) { "Router must be started before announcing online" }
+            // Peers without a link get one opened (now, not after their backoff); each successful
+            // open pings that peer.
+            torLinkKeeper.nudgeAll(resetBackoff = true)
+            // Best-effort: a transient send failure to one peer must not propagate out of the announce.
+            runCatching { pingProvider.ping() }
+        }
 
-    override val localLinkStatus: StateFlow<LocalLinkStatus> =
-        combine(torTransport.health, torTransport.publishState, torTransport.recovery, ::localLinkStatus)
-            .stateIn(
-                scope,
-                SharingStarted.Eagerly,
-                localLinkStatus(
-                    torTransport.health.value,
-                    torTransport.publishState.value,
-                    torTransport.recovery.value
-                ),
-            )
+        override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) =
+            syncProcessor.start(syncId, firstAttemptAt)
+
+        override suspend fun reopenSync(syncId: Uuid, account: AccountId) = syncProcessor.reopen(syncId, account)
+    }
+
+    override val bootstrap: BootstrapCarrier = object : BootstrapCarrier {
+        override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
+
+        override suspend fun sendBootstrap(
+            payload: BootstrapPayload,
+            target: PeerId,
+            targetEndpoint: TorEndpoint?,
+            sharedSecret: ByteArray?,
+        ): Uuid {
+            check(started) { "Router must be started before sending bootstrap intro" }
+            return bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
+        }
+    }
+
+    override val presence: Presence = object : Presence {
+        // Account-level by design: the resolver maps each online device to its account here, so
+        // device-level presence never leaves the router. Unknown devices (no row yet) are dropped;
+        // absence asserts nothing. Intra-account device flaps re-emit the same set and are deduped.
+        override val onlineAccounts: Flow<Set<AccountId>> =
+            peerAvailabilityRegistry.onlineDevices
+                .map { online -> online.mapNotNull { devices.getAccountIdForDevice(it) }.toSet() }
+                .distinctUntilChanged()
+
+        override val localLinkStatus: StateFlow<LocalLinkStatus> =
+            combine(torTransport.health, torTransport.publishState, torTransport.recovery, ::localLinkStatus)
+                .stateIn(
+                    scope,
+                    SharingStarted.Eagerly,
+                    localLinkStatus(
+                        torTransport.health.value,
+                        torTransport.publishState.value,
+                        torTransport.recovery.value,
+                    ),
+                )
+
+        override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach> {
+            val lastSeen = peerAvailabilityStore.availabilityForAll()
+                .filter { it.lastSeen != Instant.DISTANT_PAST }
+                .associate { it.deviceId to it.lastSeen }
+            return accounts.associateWith { account ->
+                AccountReach(
+                    lastSeen = devices.getAllPeerDevicesForAccount(account).mapNotNull { lastSeen[it] }.maxOrNull(),
+                )
+            }
+        }
+
+        override fun localTorEndpoint(): TorEndpoint =
+            checkNotNull(torEndpoint) { "Router not started: local Tor endpoint unknown" }
+    }
+
+    override val files: FileCarrier get() = fileRouting.fileCarrier
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
@@ -514,22 +465,11 @@ internal class DefaultRouter(
         }
         outboxRetryJob = outboxProcessor.runIn(scope)
 
-        // Reconcile push transfers with the outbox after a restart (drops stale rows,
-        // re-arms live ones); the outbox loop above dispatches what the pusher
-        // re-queues. The pusher's loop also runs the deposit-on-stall sweep (§6.3).
-        filePusherJob = filePusher.runIn(scope)
-
         syncRetryJob = syncProcessor.runIn(scope)
 
-        fileRequestRetryJob = fileRequestProcessor.runIn(scope)
-
-        // Relay forwards (whole deposits stream to their targets); the outbox loop
-        // above dispatches what the forwarder enqueues.
-        relayForwardJob = relayForwarder.runIn(scope)
-
-        // Large-path fetch channels (design §6.6, step 21): holder + requester
-        // sides share the transport's file channels; state dies with the channel.
-        fileFetchJob = fileFetchManager.runIn(scope)
+        // Push reconciliation after a restart, requests, relay forwards, fetch channels and the
+        // receive engine's ended receives; the outbox loop above dispatches what they queue.
+        fileJobs = fileRouting.runIn(scope)
 
         pingProvider.runIn(scope)
 
@@ -590,11 +530,7 @@ internal class DefaultRouter(
             outboxRetryJob,
             outboxOutcomeJob,
             syncRetryJob,
-            fileRequestRetryJob,
-            filePusherJob,
-            relayForwardJob,
-            fileFetchJob,
-        ).forEach { it.cancelAndJoin() }
+        ).plus(fileJobs).forEach { it.cancelAndJoin() }
 
         torIncomingJob = null
         webRtcIncomingEnvelopeJob = null
@@ -604,10 +540,7 @@ internal class DefaultRouter(
         outboxRetryJob = null
         outboxOutcomeJob = null
         syncRetryJob = null
-        fileRequestRetryJob = null
-        filePusherJob = null
-        relayForwardJob = null
-        fileFetchJob = null
+        fileJobs = emptyList()
         scope.cancel()
 
         AppLog.info(
@@ -620,73 +553,6 @@ internal class DefaultRouter(
     }
 
     override fun isRunning(): Boolean = started
-
-    override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach> {
-        val lastSeen = peerAvailabilityStore.availabilityForAll()
-            .filter { it.lastSeen != Instant.DISTANT_PAST }
-            .associate { it.deviceId to it.lastSeen }
-        return accounts.associateWith { account ->
-            AccountReach(lastSeen = devices.getAllPeerDevicesForAccount(account).mapNotNull { lastSeen[it] }
-                .maxOrNull())
-        }
-    }
-
-    override fun localTorEndpoint(): TorEndpoint =
-        checkNotNull(torEndpoint) { "Router not started: local Tor endpoint unknown" }
-
-    override suspend fun announceOnline() {
-        check(started) { "Router must be started before announcing online" }
-        // Peers without a link get one opened (now, not after their backoff); each successful
-        // open pings that peer.
-        torLinkKeeper.nudgeAll(resetBackoff = true)
-        // Best-effort: a transient send failure to one peer must not propagate out of the announce.
-        runCatching { pingProvider.ping() }
-    }
-
-    override suspend fun sendMessage(
-        target: AccountId,
-        payload: MessagePayload,
-    ): AccountPushReport {
-        check(started) { "Router must be started before sending messages" }
-        return outboundMessenger.sendMessage(target, payload)
-    }
-
-    override suspend fun sendTypingIndicator(
-        targets: Collection<AccountId>,
-        roomId: RoomId,
-        interval: Duration,
-    ) {
-        check(started) { "Router must be started before sending typing indicators" }
-        typingIndicatorDispatcher.dispatch(targets, roomId, interval)
-    }
-
-    override suspend fun sendBootstrap(
-        payload: BootstrapPayload,
-        target: PeerId,
-        targetEndpoint: TorEndpoint?,
-        sharedSecret: ByteArray?,
-    ): Uuid {
-        check(started) { "Router must be started before sending bootstrap intro" }
-        return bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
-    }
-
-    override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) {
-        syncProcessor.start(syncId, firstAttemptAt)
-    }
-
-    override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) {
-        fileRequestProcessor.start(fileId, firstAttemptAt)
-    }
-
-    override suspend fun abortFileFetch(fileId: FileId) {
-        fileFetchManager.abortFetch(fileId, org.yapyap.protocol.envelopes.FileFetchAbortReason.CANCELLED)
-    }
-
-    override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
-        syncProcessor.reopen(syncId, account)
-    }
-
-    override val deliveries: Flow<Delivery> = deliveryFlow.asSharedFlow()
 
     /** Routes each tagged outbox outcome to whoever waits on that tag. */
     private suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
@@ -705,16 +571,7 @@ internal class DefaultRouter(
 
             OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
 
-            OutboxTag.Kind.FILE_REQUEST -> fileRequestProcessor.onAttemptOutcome(outcome)
-
-            // Pusher-owned: OFFER/chunk ACKs advance the window, DECLINED and other
-            // terminals end the transfer, expiries re-arm live transfers. Relay
-            // forwards share the FILE tag: the pusher ignores unknown transfer ids
-            // and the forwarder below drains its own.
-            OutboxTag.Kind.FILE -> {
-                filePusher.onOutboxOutcome(outcome)
-                relayForwarder.onOutboxOutcome(outcome)
-            }
+            OutboxTag.Kind.FILE, OutboxTag.Kind.FILE_REQUEST -> fileRouting.onOutboxOutcome(outcome)
         }
     }
 }

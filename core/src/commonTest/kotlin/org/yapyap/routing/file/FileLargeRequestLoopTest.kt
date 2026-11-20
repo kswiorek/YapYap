@@ -17,8 +17,16 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.file.fetch.FileFetchManager
+import org.yapyap.routing.file.port.FileCoverage
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileReadResult
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
+import org.yapyap.routing.router.FakeFilePorts
 import org.yapyap.routing.router.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileRequestAttempt
@@ -65,10 +73,10 @@ class FileLargeRequestLoopTest {
         var coverage: FileCoverage? = FileCoverage(0L, emptyList()),
         var candidates: List<AccountId> = emptyList(),
         var canServe: Boolean = true,
-    ) : FileIngestPort {
+    ) : FakeFilePorts {
         var checkOffers = 0
         var ingestedBytes = 0L
-        override suspend fun checkOffer(offer: FileOfferInfo): FileOfferVerdict {
+        override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict {
             checkOffers++
             return FileOfferVerdict.Accept
         }
@@ -85,7 +93,7 @@ class FileLargeRequestLoopTest {
     }
 
     private class Plaintext(val bytes: ByteArray) : FilePlaintextSource {
-        fun info(name: String = "big.bin") = FileDescriptorInfo(
+        fun info(name: String = "big.bin") = FileManifest(
             fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
             totalBytes = bytes.size.toLong(),
             blockSize = 1024 * 1024,
@@ -94,7 +102,7 @@ class FileLargeRequestLoopTest {
             mimeType = "application/octet-stream",
         )
 
-        override suspend fun describe(fileId: FileId): FileDescriptorInfo? = info()
+        override suspend fun describe(fileId: FileId): FileManifest? = info()
 
         override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult {
             if (offset >= bytes.size) return FileReadResult.Ok(ByteArray(0), eof = true)
@@ -273,9 +281,10 @@ class FileLargeRequestLoopTest {
             devices = stack.ctx.devices,
             transport = stack.webRtc,
             plaintext = Plaintext(ByteArray(0)),
-            gate = requesterGate,
+            ingest = requesterGate,
+            serveGate = requesterGate,
             routerConfig = configFlow,
-            chunkSize = MutableStateFlow(32 * 1024),
+            frameBytes = MutableStateFlow(32 * 1024),
             events = events,
         )
         val registry = PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore())
@@ -283,7 +292,7 @@ class FileLargeRequestLoopTest {
         val processor = FileRequestProcessor(
             ctx = stack.ctx,
             attempts = attempts,
-            gate = requesterGate,
+            requests = requesterGate,
             outboxProcessor = stack.outboxProcessor,
             peerPolicy = DefaultSyncPeerPolicy(stack.ctx),
             maxIdlePoll = MutableStateFlow(50.milliseconds),
@@ -299,11 +308,10 @@ class FileLargeRequestLoopTest {
                 devices = MapDevices(mapOf(localDevice to holderAccount)),
                 transport = holderTransports.getValue(device),
                 plaintext = Plaintext(dataBytes),
-                gate = object : FileIngestPort by Gate(canServe = holderCanServe(device)) {
-                    override suspend fun requestTotalBytes(fileId: FileId): Long? = dataBytes.size.toLong()
-                },
+                ingest = Gate(canServe = holderCanServe(device)),
+                serveGate = Gate(canServe = holderCanServe(device)),
                 routerConfig = configFlow,
-                chunkSize = MutableStateFlow(32 * 1024),
+                frameBytes = MutableStateFlow(32 * 1024),
                 events = holderEvents,
             )
         }

@@ -1,16 +1,18 @@
 package org.yapyap.orchestrator.file
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.AppendHandle
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.file.io.JvmFileAccess
 import org.yapyap.orchestrator.file.io.PositionedHandle
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.blockSizeFor
-import org.yapyap.routing.file.FileReadResult
+import org.yapyap.routing.file.port.FileReadResult
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -64,7 +66,14 @@ class FilePlaintextSourceJvmTest {
         val work = tempDir("yapyap-plaintext-mid")
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
-        val store = DefaultFileStore(descriptors, crypto, access, storeDir, FileServiceConfig(), Clock.System)
+        val store = DefaultFileStore(
+            descriptors,
+            crypto,
+            access,
+            storeDir,
+            MutableStateFlow(OrchestratorConfig()),
+            Clock.System
+        )
         val bytes = ByteArray(3_000_000) { (it % 251).toByte() }
         val src = Path(work.toString(), "mid.bin")
         access.openAppendWriter(src, null).use {
@@ -72,7 +81,7 @@ class FilePlaintextSourceJvmTest {
             it.flushAndSync()
         }
         val descriptor = store.import(FileImportSource.PathSource(src), "mid.bin", null, keepCopy = true)
-        val source = DefaultFilePlaintextSource(descriptors, access, crypto)
+        val source = DefaultFilePlaintextSource(descriptors, store, access, crypto)
         // 1 MiB blocks here; start inside block 1 and span into block 2.
         val offset = 1_000_000L
         val res = source.read(descriptor.fileId, offset, 600_000)
@@ -88,7 +97,14 @@ class FilePlaintextSourceJvmTest {
         val work = tempDir("yapyap-plaintext-rot")
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
-        val store = DefaultFileStore(descriptors, crypto, access, storeDir, FileServiceConfig(), Clock.System)
+        val store = DefaultFileStore(
+            descriptors,
+            crypto,
+            access,
+            storeDir,
+            MutableStateFlow(OrchestratorConfig()),
+            Clock.System
+        )
         val bytes = ByteArray(3_000_000) { (it * 3).toByte() }
         val src = Path(work.toString(), "rot.bin")
         access.openAppendWriter(src, null).use {
@@ -105,7 +121,7 @@ class FilePlaintextSourceJvmTest {
             raf.write(0x01)
         }
         void(stored)
-        val source = DefaultFilePlaintextSource(descriptors, access, crypto)
+        val source = DefaultFilePlaintextSource(descriptors, store, access, crypto)
         val res = source.read(descriptor.fileId, 0, 2_500_000)
         check(res is FileReadResult.SourceLost) { "expected SourceLost but was $res" }
         assertEquals(1, res.blockIndex)
@@ -140,12 +156,19 @@ class FilePlaintextSourceJvmTest {
         }
         val blockSize = blockSizeFor(total)
         assertEquals(1024 * 1024, blockSize)
-        val store = DefaultFileStore(descriptors, crypto, recording, storeDir, FileServiceConfig(), Clock.System)
+        val store = DefaultFileStore(
+            descriptors,
+            crypto,
+            recording,
+            storeDir,
+            MutableStateFlow(OrchestratorConfig()),
+            Clock.System
+        )
         val descriptor = store.import(
             FileImportSource.PathSource(src), "big.bin", "application/octet-stream", keepCopy = false,
         )
         recording.resetCounters()
-        val source = DefaultFilePlaintextSource(descriptors, recording, crypto)
+        val source = DefaultFilePlaintextSource(descriptors, store, recording, crypto)
         val from = 100L * 1024L * 1024L
         val res = source.read(descriptor.fileId, from, 220 * 1024)
         check(res is FileReadResult.Ok)

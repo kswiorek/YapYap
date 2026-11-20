@@ -15,6 +15,7 @@ import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
@@ -28,6 +29,10 @@ import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileReadResult
 import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.FakeFilePlaintextSource
@@ -184,7 +189,7 @@ private fun harness(
     val service = protection
     val plaintext = FakeFilePlaintextSource()
     plaintext.describeImpl = { _ ->
-        FileDescriptorInfo(
+        FileManifest(
             fileId = fixtureFileId,
             totalBytes = totalBytes,
             blockSize = 1024 * 1024,
@@ -425,6 +430,57 @@ class FilePusherTest {
             ),
         )
         assertEquals(FilePushStatus.ENDED, h.pushes.find(transfer)?.status)
+    }
+
+    @Test
+    fun endedTransfer_isReportedAsEnded_neverFailed() = runTest {
+        val h = harness()
+        val seen = mutableListOf<FileEvent>()
+        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        runCurrent()
+        h.pusher.pushFile(fixtureFileId, fixtureAccount)
+        val transfer = h.transferIdsFor(peerA).single()
+        h.pusher.onOutboxOutcome(
+            OutboxOutcome.Nacked(
+                OutboxTag(OutboxTag.Kind.FILE, transfer.value),
+                peerA,
+                h.markerOf(transfer),
+                PacketNackReason.PERMANENT_PROTECTION_FAILED,
+            ),
+        )
+        runCurrent()
+        assertEquals(
+            listOf(FileFailureReason.ENDED),
+            seen.filterIsInstance<FileEvent.Failed>().map { it.reason },
+        )
+    }
+
+    @Test
+    fun targetCancel_keepsItsReason() = runTest {
+        val expected = mapOf(
+            FileCancelReason.DECLINED to (FilePushStatus.DECLINED to FileFailureReason.DECLINED),
+            FileCancelReason.NO_SPACE to (FilePushStatus.DECLINED to FileFailureReason.DECLINED),
+            FileCancelReason.ABORT to (FilePushStatus.ENDED to FileFailureReason.ENDED),
+        )
+        for ((cancelReason, outcome) in expected) {
+            val h = harness()
+            val seen = mutableListOf<FileEvent>()
+            val collector = launch { h.fileEvents.collect { seen += it } }
+            runCurrent()
+            h.pusher.pushFile(fixtureFileId, fixtureAccount)
+            val transfer = h.transferIdsFor(peerA).single()
+
+            h.pusher.onTransferCancelled(transfer, cancelReason)
+            runCurrent()
+
+            assertEquals(outcome.first, h.pushes.find(transfer)?.status, "$cancelReason")
+            assertEquals(
+                listOf(outcome.second),
+                seen.filterIsInstance<FileEvent.Failed>().map { it.reason },
+                "$cancelReason",
+            )
+            collector.cancel()
+        }
     }
 
     @Test

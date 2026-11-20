@@ -80,7 +80,7 @@ class BootstrapInboundIntegrationTest {
 
             // Subscribe before emitting: bootstrapPackets has no replay, so an early
             // emit would otherwise be lost and the wait would time out under load.
-            val firstEvent = async { router.bootstrapPackets.first() }
+            val firstEvent = async { router.bootstrap.bootstrapPackets.first() }
             // Let the collector suspend before the inbound races it.
             yield()
 

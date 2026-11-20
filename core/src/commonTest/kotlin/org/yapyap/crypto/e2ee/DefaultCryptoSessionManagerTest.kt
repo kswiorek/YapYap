@@ -478,7 +478,7 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 60.seconds,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -760,7 +760,7 @@ class DefaultCryptoSessionManagerTest {
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 24.hours,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val bobOpkStore = InMemoryOpkRepository(crypto)
         val alice =
@@ -931,7 +931,7 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 60.seconds,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -971,7 +971,7 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 24.hours,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1020,7 +1020,7 @@ class DefaultCryptoSessionManagerTest {
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 60.seconds,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1080,7 +1080,7 @@ class DefaultCryptoSessionManagerTest {
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 60.seconds,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1145,7 +1145,7 @@ class DefaultCryptoSessionManagerTest {
         val bobStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 60.seconds,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1215,7 +1215,7 @@ class DefaultCryptoSessionManagerTest {
         val aliceStore = MapBackedCryptoSessionStore()
         val config = CryptoSessionConfig(
             canonicalIdleSupersede = 24.hours,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
 
         val gen1 = CryptoSessionRecord(
@@ -1275,7 +1275,7 @@ class DefaultCryptoSessionManagerTest {
         val config = CryptoSessionConfig(
             pendingEpoch2Retention = 60.seconds,
             canonicalIdleSupersede = 24.hours,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,
@@ -1336,7 +1336,7 @@ class DefaultCryptoSessionManagerTest {
         val config = CryptoSessionConfig(
             offeredOpkRetention = 60.seconds,
             canonicalIdleSupersede = 24.hours,
-            supersededRetention = 60.seconds,
+            supersededSessionRetention = 60.seconds,
         )
         val alice = managerForPeer(
             crypto = crypto,

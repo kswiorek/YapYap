@@ -4,13 +4,13 @@ import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.protocol.FileId
-import org.yapyap.routing.file.FileDescriptorInfo
-import org.yapyap.routing.file.FilePlaintextSource
-import org.yapyap.routing.file.FileReadResult
+import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileReadResult
 
 /**
- * Block-checking plaintext source (step 9, design §9): both the pusher
- * (step 13) and the fetch (step 21) read through this port.
+ * Block-checking plaintext source (design §9): both the pusher and the fetch read through this
+ * port.
  *
  * Every touched block is hashed as it is read and compared to the descriptor's
  * block list before any of its bytes are handed out. A mismatch or a missing
@@ -18,14 +18,16 @@ import org.yapyap.routing.file.FileReadResult
  * read reports [FileReadResult.SourceLost].
  */
 internal class DefaultFilePlaintextSource(
-    private val descriptors: FileDescriptorStore,
+    private val descriptors: FileDescriptorReader,
+    /** Where a bad or missing block is reported: the descriptor goes SOURCE_LOST. */
+    private val store: FileStore,
     private val files: FileAccess,
     private val crypto: CryptoProvider,
 ) : FilePlaintextSource {
-    override suspend fun describe(fileId: FileId): FileDescriptorInfo? {
+    override suspend fun describe(fileId: FileId): FileManifest? {
         val descriptor = descriptors.findById(fileId) ?: return null
         if (descriptor.status != FileDescriptorStatus.HELD) return null
-        return FileDescriptorInfo(
+        return FileManifest(
             fileId = descriptor.fileId,
             totalBytes = descriptor.totalBytes,
             blockSize = descriptor.blockSize,
@@ -47,7 +49,7 @@ internal class DefaultFilePlaintextSource(
         if (want == 0) return FileReadResult.Ok(byteArrayOf(), eof = true)
 
         val reader = openReader(descriptor) ?: run {
-            descriptors.setStatus(fileId, FileDescriptorStatus.SOURCE_LOST)
+            store.markSourceLost(fileId)
             return FileReadResult.SourceLost(blockIndexFor(descriptor.blockSize, offset, descriptor.totalBytes))
         }
         try {
@@ -71,7 +73,7 @@ internal class DefaultFilePlaintextSource(
                         got += n
                     }
                     if (got <= 0) {
-                        descriptors.setStatus(fileId, FileDescriptorStatus.SOURCE_LOST)
+                        store.markSourceLost(fileId)
                         return FileReadResult.SourceLost(blockIndex)
                     }
                     hasher.update(buf, 0, got)
@@ -93,7 +95,7 @@ internal class DefaultFilePlaintextSource(
                 }
                 val digest = hasher.digest()
                 if (!digest.contentEquals(descriptor.blockHashes.getOrNull(blockIndex))) {
-                    descriptors.setStatus(fileId, FileDescriptorStatus.SOURCE_LOST)
+                    store.markSourceLost(fileId)
                     return FileReadResult.SourceLost(blockIndex)
                 }
             }

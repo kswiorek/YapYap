@@ -69,15 +69,8 @@ internal class FakeMessageRepository : MessageRepository {
         return true
     }
 
-    override suspend fun insertAttachment(messageId: Uuid, fileId: FileId) {
-        attachments.getOrPut(messageId) { mutableSetOf() }.add(fileId)
-    }
-
     override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> =
         attachments.filter { fileId in it.value }.map { it.key }
-
-    override suspend fun findFileIdsByMessageId(messageId: Uuid): List<FileId> =
-        attachments[messageId]?.toList() ?: emptyList()
 
     override suspend fun findById(messageId: Uuid): StoredMessage? = byId[messageId]
 

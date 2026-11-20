@@ -26,7 +26,6 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.FileOutbox
-import org.yapyap.routing.file.RefusingFileIngestPort
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
@@ -34,6 +33,7 @@ import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.NoopFilePushOps
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRelayStatus
@@ -41,7 +41,6 @@ import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.RelayBackup
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
-import org.yapyap.testfixtures.NoopFileCarrier
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -159,13 +158,13 @@ class FileRelayTest {
         val handler = FileInboundHandler(
             ctx = ctx,
             incoming = InMemoryFileIncomingTransferStore(),
-            ingest = RefusingFileIngestPort(),
-            carrier = NoopFileCarrier(),
+            ingest = RefusingFilePorts(),
+            serveGate = RefusingFilePorts(),
             pusher = NoopFilePushOps(),
             relay = relay,
             onCoverageAck = { _, _, _ -> },
             onTransferComplete = {},
-            onTransferCancelled = {},
+            onTransferCancelled = { _, _ -> },
             onOfferReceived = {},
             onRelayStored = { forwarder.wake() },
         )

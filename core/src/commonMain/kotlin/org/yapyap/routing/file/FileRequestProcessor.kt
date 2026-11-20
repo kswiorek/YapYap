@@ -22,6 +22,8 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.fetch.FileFetchManager
 import org.yapyap.routing.file.fetch.FileFetchOutcome
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SessionOutcome
@@ -30,6 +32,7 @@ import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRequestAttemptStore
 import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.sync.AttemptState
 import org.yapyap.routing.sync.BuiltAttempt
 import org.yapyap.routing.sync.CandidateAttemptStore
 import org.yapyap.routing.sync.CandidateRequestCore
@@ -61,7 +64,7 @@ import kotlin.uuid.Uuid
 internal class FileRequestProcessor(
     ctx: RoutingContext,
     private val attempts: FileRequestAttemptStore,
-    gate: FileIngestPort,
+    requests: FileRequestSource,
     outboxProcessor: OutboxProcessor,
     peerPolicy: SyncPeerPolicy,
     maxIdlePoll: StateFlow<Duration>,
@@ -71,7 +74,7 @@ internal class FileRequestProcessor(
     sessionOpener: ProactiveSessionOpener? = null,
     fetchManager: FileFetchManager? = null,
 ) {
-    private val strategy = FileRequestStrategy(ctx, attempts, gate, outboxProcessor, events)
+    private val strategy = FileRequestStrategy(ctx, attempts, requests, outboxProcessor, events)
     private val core = CandidateRequestCore(
         ctx = ctx,
         strategy = strategy,
@@ -81,13 +84,19 @@ internal class FileRequestProcessor(
         onNoLink = onNoLink,
     )
     private val largeLoop = if (sessionOpener != null && fetchManager != null) {
-        FileLargeRequestLoop(ctx, attempts, gate, peerPolicy, maxIdlePoll, events, onNoLink, sessionOpener, fetchManager)
+        FileLargeRequestLoop(
+            ctx,
+            attempts,
+            requests,
+            peerPolicy,
+            maxIdlePoll,
+            events,
+            onNoLink,
+            sessionOpener,
+            fetchManager
+        )
     } else {
         null
-    }
-
-    init {
-        strategy.core = core
     }
 
     fun runIn(scope: CoroutineScope): Job = scope.launch {
@@ -129,17 +138,10 @@ internal class FileRequestProcessor(
 internal class FileRequestStrategy(
     private val ctx: RoutingContext,
     private val store: FileRequestAttemptStore,
-    private val gate: FileIngestPort,
+    private val requests: FileRequestSource,
     private val outbox: OutboxProcessor,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
-    /**
-     * Back-reference for WAITING-timeout deprioritisation (see `isAttemptPending`).
-     * Assigned in the processor's init block, so the strategy is fully wired before
-     * the processor finishes constructing (no post-construction patching).
-     */
-    internal lateinit var core: CandidateRequestCore<FileId>
-
     private val dock = object : CandidateAttemptStore<FileId> {
         override suspend fun start(id: FileId, firstAttemptAt: Instant) = store.start(id, firstAttemptAt)
         override suspend fun drop(id: FileId) = store.drop(id)
@@ -162,19 +164,19 @@ internal class FileRequestStrategy(
 
     override val attempts: CandidateAttemptStore<FileId> = dock
 
-    override suspend fun candidateAccounts(id: FileId): List<AccountId> = gate.requestCandidates(id)
+    override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)
 
     override suspend fun idsWithCandidate(account: AccountId): List<FileId> {
         // Which tracked small files list this account as a candidate. Few live
         // requests; correctness over an index. Large files run their own loop.
         return store.allIds().filter { id ->
-            isSmall(id) && account in gate.requestCandidates(id)
+            isSmall(id) && account in requests.requestCandidates(id)
         }
     }
 
     private suspend fun isSmall(id: FileId): Boolean {
         val total = try {
-            gate.requestTotalBytes(id)
+            requests.requestTotalBytes(id)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -187,7 +189,7 @@ internal class FileRequestStrategy(
         // Nothing held yet is normal for a fresh request: ask from zero. A null means
         // the file needs no request (already READY) — the core drops the row. Seal
         // failures propagate: the core logs and re-arms on backoff.
-        val coverage = gate.heldCoverage(id) ?: return null
+        val coverage = requests.heldCoverage(id) ?: return null
         val transferId = TransferId(Uuid.random())
         val payload = FilePayload.Request(
             fileId = id,
@@ -223,21 +225,21 @@ internal class FileRequestStrategy(
         store.setRequestTransfer(id, TransferId(built.tag.id))
     }
 
-    override suspend fun isAttemptPending(id: FileId): Boolean {
-        val row = store.findById(id) ?: return false
+    override suspend fun attemptState(id: FileId): AttemptState {
+        val row = store.findById(id) ?: return AttemptState.None
         val until = row.waitingUntil
         val device = row.waitingDevice
         if (until != null && device != null) {
-            if (ctx.clock.now() < until) return true
+            if (ctx.clock.now() < until) return AttemptState.Pending
             // WAITING expired with no OFFER: deprioritize the holder behind the other
             // candidates (transient, never a refusal — // TODO: prefer this device again
             // after a hash mismatch, design §8) and ask the next one at once.
             store.clearWaiting(id)
-            if (::core.isInitialized) core.noteSilent(id, device)
-            return false
+            return AttemptState.Unanswered(device)
         }
-        val transferId = row.requestTransferId ?: return false
-        return outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE_REQUEST, transferId.value))
+        val transferId = row.requestTransferId ?: return AttemptState.None
+        val queued = outbox.hasQueued(OutboxTag(OutboxTag.Kind.FILE_REQUEST, transferId.value))
+        return if (queued) AttemptState.Pending else AttemptState.None
     }
 
     override suspend fun resolveOutcome(outcome: OutboxOutcome): FileId? {
@@ -274,7 +276,7 @@ internal class FileRequestStrategy(
 internal class FileLargeRequestLoop(
     private val ctx: RoutingContext,
     private val store: FileRequestAttemptStore,
-    private val gate: FileIngestPort,
+    private val requests: FileRequestSource,
     private val peerPolicy: SyncPeerPolicy,
     private val maxIdlePoll: StateFlow<Duration>,
     private val events: MutableSharedFlow<FileEvent>,
@@ -333,7 +335,7 @@ internal class FileLargeRequestLoop(
 
     private suspend fun processOne(fileId: FileId, attempts: Int, declined: Set<PeerId>, now: Instant) {
         val coverage = try {
-            gate.heldCoverage(fileId)
+            requests.heldCoverage(fileId)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -344,7 +346,7 @@ internal class FileLargeRequestLoop(
             return
         }
         val accounts = try {
-            gate.requestCandidates(fileId)
+            requests.requestCandidates(fileId)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -434,7 +436,7 @@ internal class FileLargeRequestLoop(
             null
         } ?: return
         val ids = try {
-            store.allIds().filter { id -> account in gate.requestCandidates(id) }
+            store.allIds().filter { id -> account in requests.requestCandidates(id) }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -445,7 +447,7 @@ internal class FileLargeRequestLoop(
 
     private suspend fun isLarge(fileId: FileId): Boolean {
         val total = try {
-            gate.requestTotalBytes(fileId)
+            requests.requestTotalBytes(fileId)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

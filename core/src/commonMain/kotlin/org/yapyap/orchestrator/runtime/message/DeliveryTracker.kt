@@ -16,8 +16,9 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.routing.router.Delivery
 import org.yapyap.routing.router.DeliverySubject
+import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.PingFrontiers
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.SyncCarrier
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -34,7 +35,8 @@ import kotlin.uuid.Uuid
  * deliver; it just isn't known to be delivered yet.
  */
 internal class DeliveryTracker(
-    private val router: Router,
+    private val messageCarrier: MessageCarrier,
+    private val syncCarrier: SyncCarrier,
     private val messageRepository: MessageRepository,
     private val deliveryRepository: MessageDeliveryRepository,
     private val localIdentity: LocalIdentity,
@@ -45,10 +47,10 @@ internal class DeliveryTracker(
 
     fun start(scope: CoroutineScope): List<Job> = listOf(
         scope.launch {
-            router.deliveries.collect { delivery -> guarded("push ACK") { onPushAck(delivery) } }
+            messageCarrier.deliveries.collect { delivery -> guarded("push ACK") { onPushAck(delivery) } }
         },
         scope.launch {
-            router.pingPayloads.collect { ping -> guarded("ping frontiers") { onFrontiers(ping) } }
+            syncCarrier.pingPayloads.collect { ping -> guarded("ping frontiers") { onFrontiers(ping) } }
         },
     )
 

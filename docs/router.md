@@ -1,7 +1,22 @@
 # Router decomposition guide
 
-This document tracks the incremental split of `DefaultRouter` into focused collaborators. The public `Router` API stays
-unchanged; only internal structure moves.
+This document tracks the split of `DefaultRouter` into focused collaborators.
+
+The public `Router` is a lifecycle (`start` / `stop` / `isRunning`) plus one service per concern, each a narrow
+interface in `routing/router` (files: `routing/file/port`):
+
+| Service            | Members                                                                                    |
+|--------------------|--------------------------------------------------------------------------------------------|
+| `MessageCarrier`   | `sendMessage`, `incomingMessages`, `deliveries`, `sendTypingIndicator`, `typingIndicators` |
+| `SyncCarrier`      | `startSync`, `reopenSync`, `pingPayloads`, `announceOnline`                                |
+| `BootstrapCarrier` | `sendBootstrap`, `bootstrapPackets`                                                        |
+| `Presence`         | `onlineAccounts`, `accountReach`, `localLinkStatus`, `localTorEndpoint`                    |
+| `FileCarrier`      | `pushFile`, `cancelFile`, `startFileRequest`, `abortFileFetch`, `fileEvents`               |
+
+Orchestrator components take only the services they use. The file machinery (pusher, relay forwarder, fetch,
+request processor, inbound FILE handler, carrier) is assembled in `routing/file/FileRouting`, against the stores and
+orchestrator ports wiring passes in as `FileRoutingPorts`; the router builds it and routes FILE packets and outcomes
+to it.
 
 ## Goal
 
@@ -44,7 +59,7 @@ routing/
 flowchart TB
     subgraph facade [DefaultRouter]
         lifecycle[start/stop + coroutine jobs]
-        API[sendMessage + incomingMessages]
+        API[services: messages, syncs, bootstrap, presence, files]
     end
 
     subgraph inbound [inbound]
@@ -160,7 +175,7 @@ Owns outbound message send:
   immediate dispatch
 - Outbound protection failure mapping in `routing/outbound/ProtectionRouting.kt`
 
-`DefaultRouter.sendMessage` delegates here after the started check.
+`DefaultRouter.messages.sendMessage` delegates here after the started check.
 
 ### Step 7: `WebRtcBootstrapSignaler`
 
@@ -176,8 +191,8 @@ Wired from `webRtcTransport.outgoingBootstrapSignals` collector in `DefaultRoute
 
 - implement `Router` lifecycle (`start` / `stop` / `isRunning`)
 - wire transport collectors to inbound/outbound collaborators
-- expose `incomingMessages` (owned by `MessageInboundHandler`)
-- delegate `sendMessage` to `OutboundMessenger`
+- expose the services, each delegating to its collaborators (`sendMessage` to `OutboundMessenger`, files to
+  `FileRouting`)
 
 ## Sprint alignment
 
