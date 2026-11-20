@@ -142,8 +142,9 @@ internal interface Router {
     /**
      * Starts asking candidate devices for pending file [fileId] (idempotent), first at
      * [firstAttemptAt]. What to ask for and which accounts may hold it come from the
-     * [org.yapyap.routing.file.FileIngestPort] (held coverage, candidates); the router
-     * asks one candidate at a time until an OFFER arrives or every candidate declines.
+     * [org.yapyap.routing.file.FileIngestPort] (held coverage, candidates, total bytes for
+     * the small/large path choice); the router asks one candidate at a time until an
+     * OFFER (small) or FETCH_OK (large) arrives or every candidate declines.
      *
      * // TODO: split Router into per-task services (messages, syncs, typing, files) behind
      * // narrow ports like FileCarrier instead of growing this interface (Phase D discussion).
@@ -154,6 +155,14 @@ internal interface Router {
      * // Unify the pledge split with this service split (Phase E discussion).
      */
     suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
+
+    /**
+     * Aborts our live large-file fetch of [fileId] (ABORT + channel close, in-memory
+     * state dropped). Idempotent: unknown files are a no-op. The receiver's gap
+     * trigger and the user cancel both land here; the small path needs nothing
+     * (its gap trigger cancels no transfer by design).
+     */
+    suspend fun abortFileFetch(fileId: FileId)
 
     /**
      * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's

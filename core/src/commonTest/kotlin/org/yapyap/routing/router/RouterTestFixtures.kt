@@ -647,6 +647,7 @@ internal fun engineFileIngestPort(
     override suspend fun heldCoverage(fileId: FileId) = engine.heldCoverage(fileId)
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
     override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = false
+    override suspend fun requestTotalBytes(fileId: FileId): Long? = null
 }
 
 /** In-memory [FileIncomingTransferStore], mirroring the SQL semantics. */

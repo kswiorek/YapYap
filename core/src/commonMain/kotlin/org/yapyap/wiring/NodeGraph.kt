@@ -270,10 +270,12 @@ internal class NodeGraph(
         orchestratorConfig = config.orchestratorConfig,
     )
 
-    // Request trigger + serve gate (step 16): implements the ingest port the router's file
-    // handler calls, delegating ingest-side calls to the receive engine.
+    // Request trigger + serve gate (step 16, fetch decisions in step 22): implements
+    // the ingest port the router's file handler calls, delegating ingest-side
+    // calls to the receive engine.
+    private val pendingFileRequestStore = DefaultPendingFileRequestStore(database)
     private val fileRequestCoordinator = DefaultFileRequestCoordinator(
-        pending = DefaultPendingFileRequestStore(database),
+        pending = pendingFileRequestStore,
         receives = fileReceiveStore,
         transfers = fileTransferStore,
         messages = messageRepository,
@@ -285,6 +287,7 @@ internal class NodeGraph(
         engine = fileReceiveEngine,
         config = config.orchestratorConfig,
         routerConfig = config.routerConfig,
+        fileConfig = fileServiceConfig,
         clock = clock,
     ).also { fileIngestPort.delegate = it }
 
@@ -351,6 +354,7 @@ internal class NodeGraph(
             fileTransfers = fileTransferStore,
             fileReceives = fileReceiveStore,
             fileDescriptors = fileDescriptorStore,
+            pendingFileRequests = pendingFileRequestStore,
             fileAccess = fileAccess,
             routerConfig = config.routerConfig,
             clock = clock,

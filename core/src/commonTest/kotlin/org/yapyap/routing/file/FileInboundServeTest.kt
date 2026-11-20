@@ -67,6 +67,7 @@ class FileInboundServeTest {
         override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) = FileIngestResult.Duplicate
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
+        override suspend fun requestTotalBytes(fileId: FileId): Long? = null
         override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean {
             servedFor += fileId to requester
             return canServe

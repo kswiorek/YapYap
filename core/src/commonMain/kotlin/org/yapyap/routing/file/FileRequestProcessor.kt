@@ -68,8 +68,8 @@ internal class FileRequestProcessor(
     private val events: MutableSharedFlow<FileEvent>,
     /** No candidate has an open link: whoever keeps links open may want to try these now. */
     onNoLink: suspend (PeerId) -> Unit = {},
-    private val sessionOpener: ProactiveSessionOpener? = null,
-    private val fetchManager: FileFetchManager? = null,
+    sessionOpener: ProactiveSessionOpener? = null,
+    fetchManager: FileFetchManager? = null,
 ) {
     private val strategy = FileRequestStrategy(ctx, attempts, gate, outboxProcessor, events)
     private val core = CandidateRequestCore(
@@ -288,9 +288,10 @@ internal class FileLargeRequestLoop(
         wakeSignal.tryEmit(Unit)
     }
 
-    suspend fun runIn(scope: CoroutineScope): Job {
+    fun runIn(scope: CoroutineScope): Job {
         scope.launch {
-            ctx.peerLinks.linkUps.collect {
+            ctx.peerLinks.linkUps.collect { up ->
+                runCatching { onLinkUp(up.peer) }
                 wake()
             }
         }
@@ -357,10 +358,21 @@ internal class FileLargeRequestLoop(
         } catch (_: Exception) {
             emptyList()
         }
+        // Resolve Tor endpoints up front (binds PeerLinks' device→endpoint map
+        // so link checks below see this run's links, not just previously bound ones).
+        for (device in candidates) {
+            runCatching { ctx.peerLinks.linksOf(device) }
+        }
         val nextDevice = peerPolicy.pickNextDevice(candidates, declined)
         if (nextDevice == null) {
-            // No sendable candidate (every device declined, or none linked):
-            // PENDING, not dead. Nudge links so an offline holder wakes us.
+            if (candidates.isNotEmpty() && candidates.all { it in declined }) {
+                // Every candidate refused: terminal until a user re-opens (design §14).
+                runCatching { events.emit(FileEvent.RequestUnavailable(fileId)) }
+                runCatching { store.drop(fileId) }
+                return
+            }
+            // No sendable candidate (none linked): PENDING, not dead. Nudge links
+            // so an offline holder wakes us when it comes online.
             candidates.filterNot { it in declined }.forEach { runCatching { onNoLink(it) } }
             runCatching { store.recordAttempt(fileId, now + backoff(attempts)) }
             return
@@ -410,6 +422,25 @@ internal class FileLargeRequestLoop(
             }
         }
         wake()
+    }
+
+    /** A link came up: ids this account can answer are asked now, whatever their backoff. */
+    private suspend fun onLinkUp(deviceId: PeerId) {
+        val account = try {
+            ctx.devices.getAccountIdForDevice(deviceId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return
+        val ids = try {
+            store.allIds().filter { id -> account in gate.requestCandidates(id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+        runCatching { store.advanceToNow(ids, ctx.clock.now()) }
     }
 
     private suspend fun isLarge(fileId: FileId): Boolean {

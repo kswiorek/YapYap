@@ -60,4 +60,5 @@ internal open class NoopRouter : Router {
     override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) = Unit
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) = Unit
     override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
+    override suspend fun abortFileFetch(fileId: FileId) = Unit
 }

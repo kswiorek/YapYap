@@ -18,8 +18,8 @@ public data class FileReceiveSnapshot(
 /**
  * GUI-facing file surface (design §12): the runtime stays the GUI's whole API. Sending
  * goes through [org.yapyap.orchestrator.runtime.message.MessagingService.sendMessage] with
- * picked files; this facade vends receive state and completed-file paths. Progress
- * reporting and the large-file accept/decline API land with the GUI surface (step 23).
+ * picked files; this facade vends receive state, completed-file paths and the large-file
+ * accept/decline decision. Progress reporting and open land with the GUI surface (step 23).
  */
 public interface FileTransferService {
     /** Durable receive state for [fileId], or null when this device never took part in it. */
@@ -27,4 +27,17 @@ public interface FileTransferService {
 
     /** Final store path when [fileId] is READY and held, else null. */
     public suspend fun localFilePath(fileId: FileId): Path?
+
+    /**
+     * Accepts a large file this device declined (above the auto-download limit):
+     * drops the local DECLINED row and starts the fetch. Re-openable: accepting an
+     * already-held or in-flight file is a no-op beyond (re)starting the request.
+     */
+    public suspend fun acceptFile(fileId: FileId)
+
+    /**
+     * Declines [fileId] locally: aborts a live fetch, drops the pending request and
+     * records DECLINED so nothing auto-fetches it later. Nothing goes on the wire.
+     */
+    public suspend fun declineFile(fileId: FileId)
 }

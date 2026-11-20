@@ -678,6 +678,10 @@ internal class DefaultRouter(
         fileRequestProcessor.start(fileId, firstAttemptAt)
     }
 
+    override suspend fun abortFileFetch(fileId: FileId) {
+        fileFetchManager.abortFetch(fileId, org.yapyap.protocol.envelopes.FileFetchAbortReason.CANCELLED)
+    }
+
     override suspend fun reopenSync(syncId: Uuid, account: AccountId) {
         syncProcessor.reopen(syncId, account)
     }

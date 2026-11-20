@@ -492,12 +492,16 @@ One fetch = one data channel between the requesting device and one holder.
    `ABORT { reason }` (a bad block at the source, no space, the gap trigger, a user cancel) and close.
 
 **Frames.** Each channel message is one frame: a type byte, then the body. `FETCH`, `FETCH_OK`,
-`FETCH_DECLINED`, `PROGRESS` and `ABORT` have a small codec in `protocol`; `DATA` is the type byte followed
+`FETCH_DECLINED`, `PROGRESS` and `ABORT` have a small codec in `protocol` (`FileFetchFrame`, wire values
+21–26, separate from the `FileEnvelope` kinds); `DATA` is the type byte followed
 by raw bytes. The `fileId` appears in `FETCH` in the clear inside the channel — DTLS covers it, and only the
-peer device ever sees the channel (§4).
+peer device ever sees the channel (§4). `FETCH_OK` also carries the holder's display metadata (`fileName`, `mimeType`)
+so the requester can index the receive row. One fetch runs on one data channel
+labeled `yapyap-file-<fetchId>` so concurrent fetches to one peer demultiplex.
 
-**A credit window.** The holder may run at most `fileStreamWindowBytes` (e.g. 32 MB) past the last `PROGRESS`,
-and also pauses on the channel's `bufferedAmount` low-threshold. Both are needed: the channel's buffer only
+**A credit window.** The holder may run at most `fileStreamWindowBytes` (32 MB) past the last `PROGRESS`,
+and also pauses on the channel's `bufferedAmount` low-threshold (pause above 2 MB buffered, resume at or
+below 1 MB). Both are needed: the channel's buffer only
 protects the sender, and `JvmWebRtcBackend` receives through an `onMessage` callback with no receive-side flow
 control. Without the window a receiver with a slow disk would pile frames up in memory, and blocking the
 callback instead would stall the envelope channel on the same connection.

@@ -58,4 +58,6 @@ internal class RefusingFileIngestPort : FileIngestPort {
 
     override suspend fun canServe(fileId: org.yapyap.protocol.FileId, requester: org.yapyap.protocol.AccountId): Boolean =
         false
+
+    override suspend fun requestTotalBytes(fileId: org.yapyap.protocol.FileId): Long? = null
 }

@@ -40,13 +40,16 @@ import kotlin.uuid.Uuid
  * addresses a device through this seam — candidates are accounts, serving is gated
  * per account like sync.
  *
- * Trigger (message ingest): a Text attachment referencing a small file with no READY
- * local copy and no progressing transfer opens a PENDING row (grace
- * `fileRequestFirstAttemptDelay`, deduped by fileId) and starts the router's asking
- * loop. STALLED (hash mismatch below the retry limit, or the gap trigger after
- * `fileStallTimeout` without prefix progress) and EXPIRED rows re-open;
- * DECLINED / CANCELLED / FAILED / EVICTED are never auto-resurrected — those need a
- * new message or a user re-open. Large files never trigger: they are pull-only (Phase F).
+ * Trigger (message ingest): a Text attachment referencing a file with no READY
+ * local copy and no progressing transfer opens a PENDING row and starts the
+ * router's asking loop. Small files wait out a grace period
+ * (`fileRequestFirstAttemptDelay`) for the pushed OFFER; large files at or
+ * below `autoDownloadMaxBytes` trigger at once (nothing is pushed); large
+ * files above it land DECLINED locally until the user accepts. STALLED (hash
+ * mismatch below the retry limit, or the gap trigger after `fileStallTimeout`
+ * without prefix progress) and EXPIRED rows re-open; DECLINED / CANCELLED /
+ * FAILED / EVICTED are never auto-resurrected — those need a new message or
+ * a user re-open.
  */
 internal class DefaultFileRequestCoordinator(
     private val pending: PendingFileRequestStore,
@@ -61,6 +64,7 @@ internal class DefaultFileRequestCoordinator(
     private val engine: FileIngestEngine,
     private val config: StateFlow<OrchestratorConfig>,
     private val routerConfig: StateFlow<RouterConfig>,
+    private val fileConfig: FileServiceConfig,
     private val clock: Clock = Clock.System,
 ) : FileIngestPort {
     private val jobs = mutableListOf<Job>()
@@ -153,7 +157,8 @@ internal class DefaultFileRequestCoordinator(
             null
         } ?: return false
         if (descriptor.status != FileDescriptorStatus.HELD) return false
-        if (descriptor.totalBytes > SMALL_FILE_MAX_BYTES) return false
+        // No size gate: small REQUESTs for large files are DECLINED downstream by
+        // the pusher (never served by transfer), while fetch serves any size here.
         val messageIds = try {
             messages.findMessageIdsByFileId(fileId)
         } catch (e: Exception) {
@@ -166,18 +171,38 @@ internal class DefaultFileRequestCoordinator(
         return false
     }
 
+    override suspend fun requestTotalBytes(fileId: FileId): Long? {
+        // Attachments first (works before any receive row exists), then the row.
+        findAttachment(fileId)?.let { return it.totalBytes }
+        return try {
+            receives.find(fileId)?.totalBytes
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
+        }
+    }
+
     // -- Trigger ----------------------------------------------------------------
 
     private suspend fun onIngest(payload: MessagePayload) {
         val text = payload as? MessagePayload.Text ?: return
         if (text.attachments.isEmpty()) return
         for (attachment in text.attachments) {
-            if (attachment.totalBytes > SMALL_FILE_MAX_BYTES) continue
-            maybeRequest(attachment.fileId)
+            if (attachment.totalBytes <= SMALL_FILE_MAX_BYTES) {
+                maybeRequest(attachment.fileId, immediate = false)
+            } else if (attachment.totalBytes <= fileConfig.autoDownloadMaxBytes) {
+                // Nothing is pushed for large files (§6.6), so there is no grace
+                // period: fetch at once.
+                maybeRequest(attachment.fileId, immediate = true)
+            } else {
+                // Above the auto-download limit: a local DECLINED until the user
+                // accepts (re-openable through the runtime facade).
+                markDeclined(attachment.fileId, text.messageId)
+            }
         }
     }
 
-    private suspend fun maybeRequest(fileId: FileId) {
+    private suspend fun maybeRequest(fileId: FileId, immediate: Boolean) {
         val now = clock.now()
         val row = try {
             receives.find(fileId)
@@ -194,7 +219,7 @@ internal class DefaultFileRequestCoordinator(
 
                 FileReceiveStatus.PENDING,
                 FileReceiveStatus.IN_FLIGHT,
-                -> return // a push is progressing (or about to); the grace period covers late OFFERs
+                    -> return // a push/fetch is progressing (or about to); small files also wait out the OFFER grace
 
                 FileReceiveStatus.FAILED,
                 FileReceiveStatus.DECLINED,
@@ -219,9 +244,72 @@ internal class DefaultFileRequestCoordinator(
         }
         if (existing?.status == PendingFileRequestStatus.PENDING) return
         // New trigger, or a new message/sync re-arming an UNAVAILABLE row.
-        val at = now + config.value.fileRequestFirstAttemptDelay
+        // Small files wait out the OFFER grace period first; large auto-downloads
+        // start at once.
+        val at = if (immediate) now else now + config.value.fileRequestFirstAttemptDelay
         pending.upsertPending(fileId, at, now)
         router.startFileRequest(fileId, at)
+    }
+
+    /**
+     * Records a local DECLINED for a large file above the auto-download limit:
+     * never fetched until the user accepts. Idempotent: an existing row (any
+     * status but READY) is left alone so an accept in flight is not clobbered.
+     */
+    private suspend fun markDeclined(fileId: FileId, originMessageId: Uuid) {
+        val now = clock.now()
+        val row = try {
+            receives.find(fileId)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
+        }
+        if (row != null) return
+        val attachment = findAttachment(fileId) ?: return
+        runCatching {
+            receives.upsert(
+                FileReceiveRow(
+                    fileId = fileId,
+                    status = FileReceiveStatus.DECLINED,
+                    totalBytes = attachment.totalBytes,
+                    contiguousBytes = 0L,
+                    blockSize = null,
+                    blockHashes = null,
+                    fileName = attachment.fileName,
+                    mimeType = attachment.mimeType,
+                    hashMismatches = 0,
+                    // No bytes on disk yet: paths are placeholders until the fetch's
+                    // FETCH_OK checkOffer upserts the real row. DECLINED rows are
+                    // inert (refused before any path is touched).
+                    partPath = "",
+                    finalPath = "",
+                    originMessageId = originMessageId,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    /** First attachment referencing [fileId] across its messages, or null. */
+    private suspend fun findAttachment(fileId: FileId): MessagePayload.Attachment? {
+        val messageIds = try {
+            messages.findMessageIdsByFileId(fileId)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return null
+        }
+        for (messageId in messageIds) {
+            val stored = try {
+                messages.findById(messageId)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                null
+            } ?: continue
+            val text = stored.payload as? MessagePayload.Text ?: continue
+            text.attachments.firstOrNull { it.fileId == fileId }?.let { return it }
+        }
+        return null
     }
 
     private suspend fun sweep(now: Instant) {
@@ -234,16 +322,18 @@ internal class DefaultFileRequestCoordinator(
         // Gap trigger (design §8, step 19): an IN_FLIGHT receive whose contiguous
         // prefix P has not advanced for fileStallTimeout goes STALLED — re-requestable,
         // never refused — and the STALLED branch below re-opens the REQUEST with held
-        // coverage. It cancels nothing: live incoming transfers keep merging whatever
-        // arrives, and a serve from an already-pushing device supersedes that push at
-        // the serving device. The timer counts only while this device runs (this sweep
+        // coverage. Small transfers are left alone to merge whatever arrives; a live
+        // large fetch is ended with an ABORT (§6.6) since a dead source cannot be
+        // superseded. The timer counts only while this device runs (this sweep
         // is the only writer, and it runs in the started scope).
         val stallAfter = routerConfig.value.fileStallTimeout
         for (row in receives.active()) {
             if (row.status == FileReceiveStatus.IN_FLIGHT &&
-                row.totalBytes <= SMALL_FILE_MAX_BYTES &&
                 now - row.updatedAt > stallAfter
             ) {
+                if (row.totalBytes > SMALL_FILE_MAX_BYTES) {
+                    runCatching { router.abortFileFetch(row.fileId) }
+                }
                 runCatching {
                     receives.updateStatus(row.fileId, FileReceiveStatus.STALLED, now)
                 }
@@ -251,7 +341,6 @@ internal class DefaultFileRequestCoordinator(
         }
         for (row in receives.active()) {
             if (row.status != FileReceiveStatus.STALLED) continue
-            if (row.totalBytes > SMALL_FILE_MAX_BYTES) continue
             if (pending.find(row.fileId)?.status == PendingFileRequestStatus.PENDING) {
                 router.startFileRequest(row.fileId, now)
                 continue
@@ -267,14 +356,30 @@ internal class DefaultFileRequestCoordinator(
             is FileEvent.Ready -> pending.drop(event.fileId)
             is FileEvent.RequestSatisfied -> pending.drop(event.fileId)
             is FileEvent.RequestUnavailable -> pending.setUnavailable(event.fileId, now)
+            is FileEvent.NoDirectConnection -> {
+                // Online-but-unconnectable (design §6.6): the routing loop keeps the
+                // request PENDING and retries when a candidate comes online, so there
+                // is no state to change here — the event is for the GUI surface.
+                AppLog.debug(
+                    component = LogComponent.ORCHESTRATOR,
+                    event = LogEvent.SYNC_PROCESS_FAILED,
+                    message = "Large fetch has no direct connection; request stays pending",
+                    fields = mapOf("fileId" to event.fileId),
+                )
+            }
             is FileEvent.ServeStarted -> {
                 if (transfers.find(event.fileId, event.requester) == null) {
+                    val total = requestTotalBytes(event.fileId)
                     transfers.upsert(
                         FileTransfer(
                             fileId = event.fileId,
                             peerAccountId = event.requester,
                             direction = FileTransferDirection.SERVE,
-                            klass = FileTransferClass.SMALL,
+                            klass = if (total != null && total > SMALL_FILE_MAX_BYTES) {
+                                FileTransferClass.LARGE
+                            } else {
+                                FileTransferClass.SMALL
+                            },
                             status = FileTransferStatus.IN_FLIGHT,
                             createdAt = now,
                             updatedAt = now,

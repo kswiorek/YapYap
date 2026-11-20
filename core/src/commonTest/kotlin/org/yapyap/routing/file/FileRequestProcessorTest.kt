@@ -288,6 +288,7 @@ class FileRequestProcessorTest {
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = candidates
         override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
+        override suspend fun requestTotalBytes(fileId: FileId): Long? = null
     }
 
     private class InMemoryFileRequestAttemptStore : org.yapyap.routing.store.FileRequestAttemptStore {

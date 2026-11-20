@@ -11,6 +11,7 @@ import org.yapyap.orchestrator.file.FileDescriptorStore
 import org.yapyap.orchestrator.file.FileReceiveStore
 import org.yapyap.orchestrator.file.FileStore
 import org.yapyap.orchestrator.file.FileTransferStore
+import org.yapyap.orchestrator.file.PendingFileRequestStore
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
@@ -90,6 +91,7 @@ internal class DefaultOrchestratorRuntime(
     fileTransfers: FileTransferStore,
     fileReceives: FileReceiveStore,
     fileDescriptors: FileDescriptorStore,
+    pendingFileRequests: PendingFileRequestStore,
     fileAccess: FileAccess,
     routerConfig: StateFlow<RouterConfig>,
     clock: Clock,
@@ -116,6 +118,10 @@ internal class DefaultOrchestratorRuntime(
         receives = fileReceives,
         descriptors = fileDescriptors,
         files = fileAccess,
+        pending = pendingFileRequests,
+        messages = messageRepository,
+        router = router,
+        clock = clock,
     )
 
     override val onboarding = DefaultOnboardingService(

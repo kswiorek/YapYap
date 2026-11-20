@@ -28,6 +28,7 @@ import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
 import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileStore
+import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.FileServiceConfig
 import org.yapyap.orchestrator.file.io.JvmFileAccess
@@ -196,7 +197,6 @@ class FileSmallPushLiveIntegrationTest {
         files.createDirectories(bobStoreDir)
         files.createDirectories(bobIncomingDir)
         val bobFileStore = DefaultFileStore(bobDescriptors, crypto, files, bobStoreDir, fileConfig)
-        val bobFiles = DefaultFileTransferService(bobReceives, bobDescriptors, files)
 
         val bobIngest = DelegatingFileIngestPort()
 
@@ -249,6 +249,15 @@ class FileSmallPushLiveIntegrationTest {
             fileRequestAttemptStore = InMemoryFileRequestAttemptStore(),
             plaintextSource = DefaultFilePlaintextSource(bobDescriptors, files, crypto),
             fileChunkSize = MutableStateFlow(chunkSize),
+        )
+        val bobFiles = DefaultFileTransferService(
+            bobReceives,
+            bobDescriptors,
+            files,
+            DefaultPendingFileRequestStore(bobDb),
+            bobMessages,
+            bobRouter,
+            clock,
         )
         val bobEngine = DefaultFileReceiveEngine(
             receives = bobReceives,

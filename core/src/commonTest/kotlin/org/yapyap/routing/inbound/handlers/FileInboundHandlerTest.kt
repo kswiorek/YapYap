@@ -102,6 +102,8 @@ internal class ScriptedFileIngestPort(
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
 
     override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = false
+
+    override suspend fun requestTotalBytes(fileId: FileId): Long? = null
 }
 
 class FileInboundHandlerTest {

@@ -31,4 +31,7 @@ internal class DelegatingFileIngestPort : FileIngestPort {
 
     override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean =
         delegate.canServe(fileId, requester)
+
+    override suspend fun requestTotalBytes(fileId: FileId): Long? =
+        delegate.requestTotalBytes(fileId)
 }

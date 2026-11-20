@@ -100,6 +100,7 @@ class FileFetchManagerTest {
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = FileCoverage(0L, emptyList())
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
         override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
+        override suspend fun requestTotalBytes(fileId: FileId): Long? = null
     }
 
     private fun manager(

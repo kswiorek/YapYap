@@ -83,6 +83,9 @@ lose the boundary that matters most here: who knows about devices and packets, a
   advertises in a ping), it asks through an interface it declares itself, implemented by the orchestrator.
 - Folds transport health into its own `LocalLinkStatus` (`Router.localLinkStatus`); transport types stop at the
   router.
+- Beside the outbox it owns a direct channel path: large files are pulled over per-fetch WebRTC data channels (fetch
+  frames straight between the transport channel and the file code, no envelopes, no outbox rows, no
+  routing rows — files now, AV later). The same per-account vocabulary applies; devices and channels stay inside.
 
 ### Transports — "move these bytes"
 
@@ -314,8 +317,10 @@ never a loss.
   self-bootstraps, so the remaining defer windows are round-trip-scale races the pull path covers.
 - The outbox has no processing round: each due entry is claimed (attempt and next retry recorded first) and sent
   on its own, so a slow send never delays what is queued behind it. In-flight sends are capped globally and per
-  target. Sends never open a connection: an entry whose peer has no open link waits for one. Bootstrap packets
-  with an explicit endpoint are the exception: Tor dials a stream for them on demand.
+  target. Sends never open a connection: an entry whose peer has no open link waits for one, with two exceptions.
+  Bootstrap packets with an explicit endpoint are the first: Tor dials a stream for them on demand. Large-file
+  fetches are the second: the requesting device opens a WebRTC session (signaled over Tor) and pulls the bytes
+  on a dedicated data channel, which never touches the outbox, the envelope pipeline or Tor payloads.
 - Unknown devices: an ACK/NACK from a device with no row is accepted only when it refers to a bootstrap packet
   in our outbox addressed to exactly that device (a recovering device can't verify its sponsor's signature yet;
   the unguessable packet id authenticates the reply). It is never answered. Accepted bootstrap ACKs are

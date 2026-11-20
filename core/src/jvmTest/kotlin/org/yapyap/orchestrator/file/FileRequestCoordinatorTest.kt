@@ -121,6 +121,7 @@ class FileRequestCoordinatorTest {
             engine = engine,
             config = MutableStateFlow(OrchestratorConfig()),
             routerConfig = MutableStateFlow(RouterConfig()),
+            fileConfig = FileServiceConfig(),
             clock = clock,
         )
         return Harness(
@@ -198,7 +199,7 @@ class FileRequestCoordinatorTest {
     }
 
     @Test
-    fun largeAttachment_isSkipped() = runTest {
+    fun largeAttachment_belowAutoDownload_triggersImmediately() = runTest {
         val h = harness()
         val mid = Uuid.random()
         val big = MessagePayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
@@ -211,9 +212,45 @@ class FileRequestCoordinatorTest {
         h.pipeline.emit(IngestResult.Inserted(payload))
         advanceTimeBy(1.seconds)
         runCurrent()
-        assertNull(h.pending.find(fileId))
-        assertTrue(h.router.startedFiles.isEmpty())
+        // Nothing is pushed for large files, so there is no grace period.
+        assertNotNull(h.pending.find(fileId))
+        assertEquals(1, h.router.startedFiles.size)
+        assertEquals(fileId, h.router.startedFiles.single().first)
+        assertEquals(now, h.router.startedFiles.single().second)
         h.coordinator.stop()
+    }
+
+    @Test
+    fun largeAttachment_aboveAutoDownload_landsDeclinedWithoutRequest() = runTest {
+        val h = harness()
+        val mid = Uuid.random()
+        val huge = MessagePayload.Attachment(fileId, "huge.bin", "application/octet-stream", 300L * 1024 * 1024)
+        val payload = textMessage(mid, senderAccount).copy(attachments = listOf(huge))
+        h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
+        h.messages.attachments[fileId] = listOf(mid)
+        h.coordinator.start(this)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        h.pipeline.emit(IngestResult.Inserted(payload))
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertNull(h.pending.find(fileId), "no request until the user accepts")
+        assertTrue(h.router.startedFiles.isEmpty())
+        assertEquals(FileReceiveStatus.DECLINED, h.receives.find(fileId)?.status)
+        assertEquals(300L * 1024 * 1024, h.receives.find(fileId)?.totalBytes)
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun requestTotalBytes_prefersAttachmentFallsBackToRow() = runTest {
+        val h = harness()
+        assertNull(h.coordinator.requestTotalBytes(fileId))
+        val mid = Uuid.random()
+        val big = MessagePayload.Attachment(fileId, "big.bin", null, 100L * 1024 * 1024)
+        val payload = textMessage(mid, senderAccount).copy(attachments = listOf(big))
+        h.messages.rows[mid] = StoredMessage(payload, isOrphaned = false)
+        h.messages.attachments[fileId] = listOf(mid)
+        assertEquals(100L * 1024 * 1024, h.coordinator.requestTotalBytes(fileId))
     }
 
     @Test
@@ -257,6 +294,41 @@ class FileRequestCoordinatorTest {
         runCurrent()
         assertEquals(PendingFileRequestStatus.PENDING, h.pending.find(fileId)?.status)
         assertTrue(h.router.startedFiles.isNotEmpty())
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun noDirectConnection_keepsPending() = runTest {
+        val h = harness()
+        h.pending.upsertPending(fileId, now, now)
+        h.coordinator.start(this)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        h.router.events.emit(FileEvent.NoDirectConnection(fileId))
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertNotNull(h.pending.find(fileId), "online-but-unconnectable stays pending for a later candidate")
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun largeGapTrigger_abortsFetchAndStalls() = runTest {
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 100L * 1024 * 1024,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "big.bin", mimeType = null, hashMismatches = 0,
+                partPath = "p", finalPath = "f", originMessageId = null,
+                createdAt = now, updatedAt = now - 601.seconds,
+            )
+        )
+        h.coordinator.start(this)
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
+        assertEquals(listOf(fileId), h.router.abortedFiles)
+        assertNotNull(h.pending.find(fileId), "stalled large receive re-opens the request")
         h.coordinator.stop()
     }
 
@@ -368,14 +440,15 @@ class FileRequestCoordinatorTest {
     }
 
     @Test
-    fun serveGate_rejectsLargeAndMissing() = runTest {
+    fun serveGate_allowsLargeFetch_refusesMissing() = runTest {
         val h = harness()
         upsertHeld(h, totalBytes = 100L * 1024 * 1024)
         val mid = Uuid.random()
         h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
         h.messages.attachments[fileId] = listOf(mid)
         h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
-        assertFalse(h.coordinator.canServe(fileId, senderAccount), "large files are pull-only")
+        // Fetch serves any size through the same per-account gate.
+        assertTrue(h.coordinator.canServe(fileId, senderAccount))
 
         assertFalse(h.coordinator.canServe(FileId("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), senderAccount))
     }
@@ -465,6 +538,7 @@ class FileRequestCoordinatorTest {
 
     private class RecordingFileRouter(
         val startedFiles: MutableList<Pair<FileId, kotlin.time.Instant>> = mutableListOf(),
+        val abortedFiles: MutableList<FileId> = mutableListOf(),
         val events: MutableSharedFlow<FileEvent> = MutableSharedFlow(extraBufferCapacity = 64),
     ) : NoopRouter() {
         override val fileCarrier: org.yapyap.routing.file.FileCarrier =
@@ -474,6 +548,10 @@ class FileRequestCoordinatorTest {
 
         override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: kotlin.time.Instant) {
             startedFiles += fileId to firstAttemptAt
+        }
+
+        override suspend fun abortFileFetch(fileId: FileId) {
+            abortedFiles += fileId
         }
     }
 
