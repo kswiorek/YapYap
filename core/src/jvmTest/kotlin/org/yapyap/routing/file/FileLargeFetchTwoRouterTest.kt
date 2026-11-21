@@ -29,7 +29,6 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
 import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
-import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
 import org.yapyap.orchestrator.file.DefaultFileRequestSource
@@ -39,6 +38,8 @@ import org.yapyap.orchestrator.file.FileDescriptorStore
 import org.yapyap.orchestrator.file.FileImportSource
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.io.JvmFileAccess
+import org.yapyap.orchestrator.file.receive.ReceiveEngine
+import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
@@ -82,6 +83,7 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.testfixtures.importHeld
 import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
@@ -131,7 +133,7 @@ class FileLargeFetchTwoRouterTest {
     private data class Node(
         val router: DefaultRouter,
         val coordinator: DefaultFileRequestCoordinator,
-        val engine: DefaultFileReceiveEngine,
+        val engine: ReceiveEngine,
         val facade: DefaultFileTransferService,
         val db: YapYapDatabase,
         val receives: DefaultFileReceiveStore,
@@ -148,7 +150,7 @@ class FileLargeFetchTwoRouterTest {
         val work: Path,
     )
 
-    private fun buildNode(
+    private suspend fun buildNode(
         localPeer: org.yapyap.crypto.e2ee.TestPeerIdentity,
         peers: Map<PeerId, org.yapyap.crypto.e2ee.TestPeerIdentity>,
         peersByAccount: Map<AccountId, List<PeerId>>,
@@ -209,13 +211,12 @@ class FileLargeFetchTwoRouterTest {
             bootstrapProtection = BootstrapProtection(crypto) { null },
         )
         val packetOutbox = TrackingPacketOutbox()
-        val engine = DefaultFileReceiveEngine(
+        val engine = ReceiveEngine(
             receives = receives,
-            messages = messages,
+            descriptors = descriptors,
             crypto = crypto,
             files = files,
-            storeDirectory = storeDir,
-            incomingDirectory = incomingDir,
+            paths = ReceivePaths(incomingDir, storeDir),
             config = config,
             fileStore = fileStore,
             clock = clock,
@@ -263,6 +264,7 @@ class FileLargeFetchTwoRouterTest {
         val coordinator = DefaultFileRequestCoordinator(
             pending = pending,
             receives = receives,
+            descriptors = descriptors,
             control = engine,
             messages = messages,
             fileCarrier = router.files,
@@ -276,6 +278,7 @@ class FileLargeFetchTwoRouterTest {
             descriptors = descriptors,
             files = files,
             requests = coordinator,
+            store = fileStore,
         )
         return Node(
             router, coordinator, engine, facade, db, receives, descriptors, messages, rooms, pending,
@@ -447,7 +450,7 @@ class FileLargeFetchTwoRouterTest {
             it.write(sourceBytes)
             it.flushAndSync()
         }
-        val descriptor = alice.fileStore.import(
+        val descriptor = alice.fileStore.importHeld(
             source = FileImportSource.PathSource(sourcePath),
             fileName = fileName,
             mimeType = mimeType,
@@ -498,7 +501,7 @@ class FileLargeFetchTwoRouterTest {
         return tags
     }
 
-    private fun readFinal(node: Node, fileId: org.yapyap.protocol.FileId, size: Int): ByteArray {
+    private suspend fun readFinal(node: Node, fileId: org.yapyap.protocol.FileId, size: Int): ByteArray {
         val path = Path(node.work.toString(), "store", fileId.value)
         return JvmFileAccess().openPositionedReader(path).use { reader ->
             val out = ByteArray(size)

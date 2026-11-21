@@ -13,6 +13,7 @@ import org.yapyap.orchestrator.file.io.PositionedHandle
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.blockSizeFor
 import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.testfixtures.importHeld
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -30,11 +31,11 @@ internal class RecordingAccess(private val delegate: FileAccess = JvmFileAccess(
         readCalls = 0
     }
 
-    override fun openPositionedReader(path: Path, startOffset: Long): PositionedHandle {
+    override suspend fun openPositionedReader(path: Path, startOffset: Long): PositionedHandle {
         val inner = delegate.openPositionedReader(path, startOffset)
         return object : PositionedHandle {
-            override fun size(): Long = inner.size()
-            override fun readAt(offset: Long, buf: ByteArray, bufOffset: Int, length: Int): Int {
+            override suspend fun size(): Long = inner.size()
+            override suspend fun readAt(offset: Long, buf: ByteArray, bufOffset: Int, length: Int): Int {
                 readCalls++
                 val absolute = startOffset + offset
                 if (absolute < minReadOffset) minReadOffset = absolute
@@ -45,14 +46,14 @@ internal class RecordingAccess(private val delegate: FileAccess = JvmFileAccess(
         }
     }
 
-    override fun openAppendWriter(path: Path, truncateToLength: Long?): AppendHandle =
+    override suspend fun openAppendWriter(path: Path, truncateToLength: Long?): AppendHandle =
         delegate.openAppendWriter(path, truncateToLength)
 }
 
 class FilePlaintextSourceJvmTest {
     private val crypto = DefaultCryptoProvider()
 
-    private fun tempDir(prefix: String): Path {
+    private suspend fun tempDir(prefix: String): Path {
         val access = JvmFileAccess()
         val dir = Path(SystemTemporaryDirectory.toString(), "$prefix-${Uuid.random()}")
         access.createDirectories(dir)
@@ -80,7 +81,7 @@ class FilePlaintextSourceJvmTest {
             it.write(bytes)
             it.flushAndSync()
         }
-        val descriptor = store.import(FileImportSource.PathSource(src), "mid.bin", null, keepCopy = true)
+        val descriptor = store.importHeld(FileImportSource.PathSource(src), "mid.bin", null, keepCopy = true)
         val source = DefaultFilePlaintextSource(descriptors, store, access, crypto)
         // 1 MiB blocks here; start inside block 1 and span into block 2.
         val offset = 1_000_000L
@@ -111,7 +112,7 @@ class FilePlaintextSourceJvmTest {
             it.write(bytes)
             it.flushAndSync()
         }
-        val descriptor = store.import(FileImportSource.PathSource(src), "rot.bin", null, keepCopy = true)
+        val descriptor = store.importHeld(FileImportSource.PathSource(src), "rot.bin", null, keepCopy = true)
         // Rot the stored copy inside block 1.
         val stored = Path(descriptor.path.ifEmpty { storeDir.toString() })
         val actualStored = if (descriptor.storage == FileStorage.COPY) Path(descriptor.path) else src
@@ -164,7 +165,7 @@ class FilePlaintextSourceJvmTest {
             MutableStateFlow(OrchestratorConfig()),
             Clock.System
         )
-        val descriptor = store.import(
+        val descriptor = store.importHeld(
             FileImportSource.PathSource(src), "big.bin", "application/octet-stream", keepCopy = false,
         )
         recording.resetCounters()

@@ -2,6 +2,7 @@ package org.yapyap.routing.file.port
 
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.ByteRange
 
 /**
@@ -30,6 +31,12 @@ internal interface FileRequestSource {
      * network value `SMALL_FILE_MAX_BYTES` (design §1).
      */
     suspend fun requestTotalBytes(fileId: FileId): Long?
+
+    /**
+     * After a block mismatch, the device that fed the bad block: the next REQUEST asks it first
+     * (design §8/§9). Null when there was no recent mismatch.
+     */
+    suspend fun preferDevice(fileId: FileId): PeerId?
 }
 
 /** Durable held coverage of one file: the contiguous prefix in bytes plus the missing ranges beyond it. */

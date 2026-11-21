@@ -71,6 +71,9 @@ internal class FileFetchStrategy(
 
     override suspend fun candidateAccounts(id: FileId): List<AccountId> = requests.requestCandidates(id)
 
+    // Same device first after a block mismatch (design §8/§9).
+    override suspend fun preferredDevice(id: FileId): PeerId? = requests.preferDevice(id)
+
     override suspend fun idsWithCandidate(account: AccountId): List<FileId> =
         store.idsOf(FileRequestClass.LARGE).filter { id -> account in requests.requestCandidates(id) }
 

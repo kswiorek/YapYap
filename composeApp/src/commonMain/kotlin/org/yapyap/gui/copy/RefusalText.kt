@@ -15,6 +15,9 @@ object RefusalText {
         SendRefusal.NotMember -> "You're no longer in this room."
         SendRefusal.TooLarge -> "That message is too long ($overBy bytes over)."
         SendRefusal.HistoryIncomplete -> "Still syncing — try again in a moment."
+        SendRefusal.FileUnreadable -> "That file can't be read anymore."
+        SendRefusal.NoSpace -> "Not enough free space to keep a copy of that file."
+        SendRefusal.SendFailed -> "Couldn't send that file. Try again."
     }
 
     fun createRoom(r: CreateRoomRefusal): String = when (r) {

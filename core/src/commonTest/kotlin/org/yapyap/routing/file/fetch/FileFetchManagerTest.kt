@@ -89,7 +89,12 @@ class FileFetchManagerTest {
             // unless the test explicitly passes Accept).
             return offerVerdict
         }
-        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
+        override suspend fun ingest(
+            fileId: FileId,
+            byteOffset: Long,
+            plaintext: ByteArray,
+            author: PeerId?,
+        ): FileIngestResult {
             ingestCalls++
             ingestedBytes += plaintext.size
             val contiguous = byteOffset + plaintext.size
@@ -97,6 +102,7 @@ class FileFetchManagerTest {
             return FileIngestResult.Staged(contiguous, total)
         }
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = FileCoverage(0L, emptyList())
+        override suspend fun preferDevice(fileId: FileId): PeerId? = null
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
         override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
         override suspend fun requestTotalBytes(fileId: FileId): Long? = null
@@ -260,7 +266,12 @@ class FileFetchManagerTest {
         // at the window and the test then drops the session.
         val requesterGate = object : FakeFilePorts by FakeGate() {
             override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
-            override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
+            override suspend fun ingest(
+                fileId: FileId,
+                byteOffset: Long,
+                plaintext: ByteArray,
+                author: PeerId?,
+            ) =
                 FileIngestResult.Defer
         }
         val requester = manager(
@@ -340,7 +351,12 @@ class FileFetchManagerTest {
         // Slow disk: accept the OFFER but never report progress (Defer every DATA).
         val requesterGate = object : FakeFilePorts by FakeGate() {
             override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
-            override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
+            override suspend fun ingest(
+                fileId: FileId,
+                byteOffset: Long,
+                plaintext: ByteArray,
+                author: PeerId?,
+            ) =
                 FileIngestResult.Defer
         }
         val requester = manager(

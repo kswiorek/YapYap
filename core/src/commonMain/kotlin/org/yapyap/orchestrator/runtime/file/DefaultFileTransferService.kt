@@ -6,6 +6,7 @@ import org.yapyap.orchestrator.file.FileDescriptorStatus
 import org.yapyap.orchestrator.file.FileReceiveReader
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.FileRequestControl
+import org.yapyap.orchestrator.file.FileStore
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.protocol.FileId
 
@@ -18,6 +19,7 @@ internal class DefaultFileTransferService(
     private val descriptors: FileDescriptorReader,
     private val files: FileAccess,
     private val requests: FileRequestControl,
+    private val store: FileStore,
 ) : FileTransferService {
     override suspend fun receiveState(fileId: FileId): FileReceiveSnapshot? {
         val row = receives.find(fileId) ?: return null
@@ -36,6 +38,7 @@ internal class DefaultFileTransferService(
         if (descriptor.status != FileDescriptorStatus.HELD) return null
         val path = Path(descriptor.path)
         if (files.fileSize(path) == null) return null
+        store.touch(fileId)
         return path
     }
 

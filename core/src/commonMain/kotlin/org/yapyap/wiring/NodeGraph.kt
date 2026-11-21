@@ -26,12 +26,15 @@ import org.yapyap.orchestrator.boot.ResetRequest
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
 import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
-import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
 import org.yapyap.orchestrator.file.DefaultFileRequestSource
+import org.yapyap.orchestrator.file.DefaultFileSendService
 import org.yapyap.orchestrator.file.DefaultFileStore
 import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
+import org.yapyap.orchestrator.file.receive.FileRetention
+import org.yapyap.orchestrator.file.receive.ReceiveEngine
+import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.fold.global.DefaultGlobalEventProjector
 import org.yapyap.orchestrator.fold.room.DefaultRoomEventProjector
 import org.yapyap.orchestrator.maintenance.MaintenanceScheduler
@@ -143,15 +146,30 @@ internal class NodeGraph(
         messages = messageRepository,
         rooms = roomRepository,
     )
-    private val fileReceiveEngine = DefaultFileReceiveEngine(
+    private val receivePaths = ReceivePaths(
+        incomingDir = layout.fileIncomingDirectory,
+        storeDir = layout.fileStoreDirectory,
+    )
+    private val fileReceiveEngine = ReceiveEngine(
         receives = fileReceiveStore,
-        messages = messageRepository,
+        descriptors = fileDescriptorStore,
         crypto = crypto,
         files = fileAccess,
-        storeDirectory = layout.fileStoreDirectory,
-        incomingDirectory = layout.fileIncomingDirectory,
+        paths = receivePaths,
         config = config.orchestratorConfig,
         fileStore = fileStore,
+        clock = clock,
+    )
+    private val fileRetention = FileRetention(
+        receives = fileReceiveStore,
+        descriptors = fileDescriptorStore,
+        messages = messageRepository,
+        engine = fileReceiveEngine,
+        fileStore = fileStore,
+        files = fileAccess,
+        paths = receivePaths,
+        receiveEvents = fileReceiveEngine.receiveEvents,
+        config = config.orchestratorConfig,
         clock = clock,
     )
     private val fileRequestSource = DefaultFileRequestSource(
@@ -288,6 +306,7 @@ internal class NodeGraph(
     private val fileRequestCoordinator = DefaultFileRequestCoordinator(
         pending = pendingFileRequestStore,
         receives = fileReceiveStore,
+        descriptors = fileDescriptorStore,
         control = fileReceiveEngine,
         messages = messageRepository,
         fileCarrier = router.files,
@@ -338,6 +357,16 @@ internal class NodeGraph(
         localDeviceType = bootConfig.localDeviceType,
     )
 
+    // File sends: import + classification + pushes, owned by the file service.
+    private val fileSendService = DefaultFileSendService(
+        fileStore = fileStore,
+        quota = fileRetention,
+        files = fileAccess,
+        storeDirectory = layout.fileStoreDirectory,
+        fileCarrier = router.files,
+        messages = messageRepository,
+    )
+
     override val runtime: DefaultOrchestratorRuntime? =
         if (bootConfig.mode != NodeMode.FULL_CLIENT) null else DefaultOrchestratorRuntime(
             dagEngine = dagEngine,
@@ -359,6 +388,7 @@ internal class NodeGraph(
             roomRepository = roomRepository,
             localDeviceType = bootConfig.localDeviceType,
             fileStore = fileStore,
+            fileSendService = fileSendService,
             fileReceives = fileReceiveStore,
             fileDescriptors = fileDescriptorStore,
             fileRequests = fileRequestCoordinator,
@@ -372,6 +402,9 @@ internal class NodeGraph(
     override suspend fun start(onProgress: (BootProgress) -> Unit) {
         onProgress(BootProgress(BootPhase.ROUTER, 0, 0))
         maintenance.start(scope)
+        // The receive engine recovers before routing accepts FILE envelopes: ingest defers until done.
+        fileReceiveEngine.start(scope)
+        fileRetention.start(scope)
         router.start()
         AppLog.info(
             component = LogComponent.ORCHESTRATOR,
@@ -380,7 +413,6 @@ internal class NodeGraph(
         )
         pipeline.start(scope)
         syncCoordinator.start(scope)
-        fileReceiveEngine.start(scope)
         fileRequestCoordinator.start(scope)
         globalEventProjector.start(scope)
         // Started after the global projector so the room boot sweep sees committed identity;
@@ -400,6 +432,9 @@ internal class NodeGraph(
 
     override suspend fun stop() {
         runtime?.stop()
+        fileRequestCoordinator.stop()
+        fileRetention.stop()
+        fileReceiveEngine.stop()
         router.stop()
     }
 }

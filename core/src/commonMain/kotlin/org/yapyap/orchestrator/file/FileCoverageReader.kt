@@ -1,6 +1,7 @@
 package org.yapyap.orchestrator.file
 
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
 import org.yapyap.routing.file.port.FileCoverage
 
 /**
@@ -9,8 +10,16 @@ import org.yapyap.routing.file.port.FileCoverage
  */
 internal interface FileCoverageReader {
     /**
-     * The contiguous prefix plus the capped missing ranges beyond it; null when the file is READY
-     * and needs no request.
+     * The contiguous prefix plus the capped missing ranges beyond it (from zero when no receive
+     * exists yet); null when the file needs no request: held, READY, or ended (DECLINED, FAILED,
+     * CANCELLED, EVICTED stay ended until the user re-opens them).
      */
     suspend fun heldCoverage(fileId: FileId): FileCoverage?
+
+    /**
+     * After a block mismatch, the device that fed the bad block: the next REQUEST asks it first
+     * (design §8/§9). Null when there was no recent mismatch or no recorded device fed it.
+     * In memory only: after a restart the candidate order applies.
+     */
+    suspend fun preferDevice(fileId: FileId): PeerId?
 }

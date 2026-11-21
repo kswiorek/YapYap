@@ -128,6 +128,12 @@ internal interface CandidateStrategy<K> {
     /** Accounts that may hold [id]'s target; mapped to devices (link-filtered) by the core. */
     suspend fun candidateAccounts(id: K): List<AccountId>
 
+    /**
+     * A device to ask before the others when it is among the candidates (same device first
+     * after a block mismatch, design §8/§9). Null keeps the account order.
+     */
+    suspend fun preferredDevice(id: K): PeerId? = null
+
     /** Ids [account] is a candidate for (link-up fast path). */
     suspend fun idsWithCandidate(account: AccountId): List<K>
 
@@ -396,7 +402,7 @@ internal class CandidateRequestCore<K>(
             AttemptState.None -> Unit
         }
 
-        val candidateDevices = candidateDevices(strategy.candidateAccounts(row.id))
+        val candidateDevices = preferFirst(candidateDevices(strategy.candidateAccounts(row.id)), row.id)
         val silent = unansweredLock.withLock { unanswered[row.id]?.toSet().orEmpty() }
         val nextDevice = peerPolicy.pickNextDevice(candidateDevices, row.declined, silent)
         if (nextDevice == null) {
@@ -558,6 +564,12 @@ internal class CandidateRequestCore<K>(
             is CallOutcome.Unanswered -> onUnanswered(row.id, nextDevice)
             is CallOutcome.NoDirectConnection -> Unit // keep PENDING, backoff already recorded
         }
+    }
+
+    private suspend fun preferFirst(devices: List<PeerId>, id: K): List<PeerId> {
+        val preferred = strategy.preferredDevice(id) ?: return devices
+        if (preferred !in devices) return devices
+        return listOf(preferred) + devices.filterNot { it == preferred }
     }
 
     private suspend fun candidateDevices(accounts: List<AccountId>): List<PeerId> =

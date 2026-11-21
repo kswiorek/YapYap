@@ -32,8 +32,20 @@ public interface MessagingService {
     public suspend fun deliveredTo(messageId: Uuid): Set<AccountId>
 
     /** Outbound: append to local DAG (refused up front on policy violations),
-     *  then fan out to room members. The message is durable once [SendMessageResult.Sent] returns. */
+     *  then fan out to room members. The message is durable once [SendMessageResult.Sent] returns.
+     *
+     *  With files the send is asynchronous (design §10): the count is checked and a
+     *  [SendMessageResult.Preparing] with a local send id returns at once; hashing runs
+     *  afterwards and the message lands when every `fileId` is known. Watch
+     *  [preparingSends] for hashing progress; [cancelPreparingSend] stops one.
+     */
     public suspend fun sendMessage(roomId: RoomId, message: Message): SendMessageResult
+
+    /** Sends with files still hashing: local send id → progress. Empty when nothing is preparing. */
+    public val preparingSends: StateFlow<Map<Uuid, PreparingSend>>
+
+    /** Stops the hash of [sendId] and deletes its partial copy. Idempotent. */
+    public suspend fun cancelPreparingSend(sendId: Uuid)
 
     /** Lookup of a single message by id, mapped to its GUI display item (null when unknown or not displayable). */
     public suspend fun getMessage(messageId: Uuid): MessageDisplayItem?

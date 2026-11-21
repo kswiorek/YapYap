@@ -10,6 +10,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.FileFetchAbortReason
@@ -23,6 +26,7 @@ import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.FileServeGate
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
@@ -376,7 +380,7 @@ internal class FileFetchManager(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            FileOfferVerdict.Refuse(org.yapyap.routing.file.port.FileRefusalReason.INVALID_OFFER)
+            FileOfferVerdict.Refuse(FileRefusalReason.INVALID_OFFER)
         }
         when (verdict) {
             is FileOfferVerdict.Accept -> {
@@ -441,7 +445,7 @@ internal class FileFetchManager(
         val total = state.totalBytes ?: return
         if (state.nextOffset >= total) return
         val result = try {
-            ingest.ingest(state.fileId, state.nextOffset, frame.bytes)
+            ingest.ingest(state.fileId, state.nextOffset, frame.bytes, author = key.peer)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -452,16 +456,16 @@ internal class FileFetchManager(
                 state.nextOffset = minOf(state.nextOffset + frame.bytes.size, total)
                 // PROGRESS names the durable checkpoint P (design §8): the ingest
                 // result carries the new P, sent once the fsync + commit are done.
-                runCatching {
-                    transport.sendFileFrame(
-                        key.peer,
-                        key.channelLabel,
-                        FileFetchFrame.Progress(result.contiguousBytes).encode(),
-                    )
-                }
+                sendProgress(key, result.contiguousBytes)
                 if (result.contiguousBytes >= result.totalBytes) {
                     state.completion.complete(FileFetchOutcome.Satisfied)
                 }
+            }
+
+            is FileIngestResult.Ready -> {
+                state.nextOffset = minOf(state.nextOffset + frame.bytes.size, total)
+                sendProgress(key, result.contiguousBytes)
+                state.completion.complete(FileFetchOutcome.Satisfied)
             }
             is FileIngestResult.Duplicate -> {
                 state.nextOffset = minOf(state.nextOffset + frame.bytes.size, total)
@@ -516,5 +520,21 @@ internal class FileFetchManager(
             holders.remove(key)?.job
         }
         runCatching { job?.cancel() }
+    }
+
+    /** A lost PROGRESS frame only delays the sender's window; the next one carries a later P. */
+    private suspend fun sendProgress(key: FetchKey, contiguousBytes: Long) {
+        try {
+            transport.sendFileFrame(key.peer, key.channelLabel, FileFetchFrame.Progress(contiguousBytes).encode())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.warn(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_FETCH_FAILED,
+                message = "Failed to send fetch PROGRESS",
+                fields = mapOf("peer" to key.peer, "error" to e.message),
+            )
+        }
     }
 }

@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.runtime.message
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -19,7 +20,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.io.files.Path
+import kotlinx.coroutines.withContext
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
@@ -31,8 +32,8 @@ import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.dag.VerificationStateChange
-import org.yapyap.orchestrator.file.FileImportSource
-import org.yapyap.orchestrator.file.FileStore
+import org.yapyap.orchestrator.file.FileSendService
+import org.yapyap.orchestrator.file.PrepareResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.CausalHoldRepository
 import org.yapyap.orchestrator.store.MessageCursor
@@ -40,24 +41,24 @@ import org.yapyap.orchestrator.store.MessageDeliveryRepository
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.concurrent.Volatile
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
+
+/** How long a preparing send's refusal stays on its item before the item goes. */
+private val PREPARING_ERROR_SHOWN = 5.seconds
 
 internal class DefaultMessagingService(
     private val dagEngine: DagEngine,
     private val messageCarrier: MessageCarrier,
     syncCarrier: SyncCarrier,
-    private val fileCarrier: FileCarrier,
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
@@ -66,7 +67,7 @@ internal class DefaultMessagingService(
     private val localIdentity: LocalIdentity,
     private val maxTextBytes: StateFlow<Int>,
     private val orchestratorConfig: StateFlow<OrchestratorConfig>,
-    private val fileStore: FileStore,
+    private val fileSendService: FileSendService,
 ) : MessagingService {
 
     private val incomingMessageEventFlow = MutableSharedFlow<IncomingMessageEvent>(replay = 0, extraBufferCapacity = 64)
@@ -80,6 +81,11 @@ internal class DefaultMessagingService(
     override suspend fun deliveredTo(messageId: Uuid): Set<AccountId> = deliveryTracker.deliveredTo(messageId)
 
     override val maxTextMessageBytes: Int get() = maxTextBytes.value
+
+    private val _preparingSends = MutableStateFlow<Map<Uuid, PreparingSend>>(emptyMap())
+    override val preparingSends: StateFlow<Map<Uuid, PreparingSend>> = _preparingSends.asStateFlow()
+    private val preparingJobs = mutableMapOf<Uuid, Job>()
+    private val preparingMutex = Mutex()
 
     /**
      * Map of open windows per room. Guarded by [windowsMapMutex].
@@ -111,6 +117,7 @@ internal class DefaultMessagingService(
     @Volatile
     private var serviceScope: CoroutineScope? = null
     private var subscriptionJob: Job? = null
+    private var tmpCleanup: Job? = null
     private var verificationStateSubscriptionJob: Job? = null
     private var typingSubscriptionJob: Job? = null
 
@@ -118,6 +125,21 @@ internal class DefaultMessagingService(
         check(subscriptionJob == null) { "MessagingService already started" }
         serviceScope = scope
         deliveryJobs = deliveryTracker.start(scope)
+        // Preparing sends wait for this, so it never deletes a tmp a new send is writing.
+        tmpCleanup = scope.launch {
+            try {
+                fileSendService.cleanTmp()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.error(
+                    component = LogComponent.FILE,
+                    event = LogEvent.FILE_TASK_FAILED,
+                    message = "Failed to clean partial copies on start",
+                    throwable = e,
+                )
+            }
+        }
         subscriptionJob = scope.launch {
             pipeline.ingestResults.collect { result ->
                 // A REJECTED message is never shown: skip both the window insert and any notification.
@@ -164,6 +186,11 @@ internal class DefaultMessagingService(
         verificationStateSubscriptionJob?.join()
         typingSubscriptionJob?.cancel()
         typingSubscriptionJob?.join()
+        preparingMutex.withLock {
+            preparingJobs.values.forEach { it.cancel() }
+            preparingJobs.clear()
+            _preparingSends.value = emptyMap()
+        }
         typingSendMutex.withLock {
             typingSendJobs.values.forEach { it.cancel() }
             typingSendJobs.clear()
@@ -271,10 +298,6 @@ internal class DefaultMessagingService(
         roomId: RoomId,
         message: Message,
     ): SendMessageResult {
-        // Removal refusal: a removed local account cannot append to the room — the
-        // GUI banner gates compose, and this refusal is the backend feedback
-        // (docs/room events.md §3). Only a committed REMOVED row refuses: no row
-        // (pre-fold, unknown room) keeps the previous behavior.
         val localAccountId = localIdentity.getLocalAccountId()
         if (roomRepository.memberRowOf(roomId, localAccountId)?.status == RoomMemberStatus.REMOVED) {
             AppLog.warn(
@@ -301,38 +324,119 @@ internal class DefaultMessagingService(
             return SendMessageResult.Refused(SendRefusal.TooLarge)
         }
 
-        val imported = message.pickedFiles.map { picked ->
-            fileStore.import(
-                source = when (val s = picked.source) {
-                    is PickedFileSource.FilePath -> FileImportSource.PathSource(Path(s.path))
-                    is PickedFileSource.ContentUri -> FileImportSource.ContentUriSource(s.uri)
-                },
-                fileName = picked.fileName,
-                mimeType = picked.mimeType,
-                keepCopy = picked.keepCopy,
-            )
-        }
-        if (message.attachments.size + imported.size > MessagePayload.Attachment.MAX_ATTACHMENTS) {
+        // Check the attachment count before any import (design §10).
+        if (message.pickedFiles.size > MessagePayload.Attachment.MAX_ATTACHMENTS) {
             return SendMessageResult.Refused(SendRefusal.TooLarge)
         }
 
-        val payload = try {
-            val wireAttachments = message.attachments.map {
-                MessagePayload.Attachment(
-                    fileId = FileId(it.fileId),
-                    fileName = it.fileName,
-                    mimeType = it.mimeType,
-                    totalBytes = it.totalBytes,
-                )
-            } + imported.map {
-                MessagePayload.Attachment(
-                    fileId = it.fileId,
-                    fileName = it.fileName,
-                    mimeType = it.mimeType,
-                    totalBytes = it.totalBytes,
-                )
+        if (message.pickedFiles.isEmpty()) {
+            return sendText(roomId, message.content, emptyList(), localAccountId)
+        }
+
+        // Async preparing (design §10): return at once with a local send id; hashing runs
+        // afterwards and the message lands when every fileId is known.
+        val sendId = Uuid.random()
+        val scope = serviceScope ?: error("MessagingService not started")
+        _preparingSends.update { it + (sendId to PreparingSend(sendId, roomId, 0L, 0L)) }
+        val job = scope.launch {
+            try {
+                tmpCleanup?.join()
+                val refusal = prepareAndSend(sendId, roomId, message, localAccountId)
+                if (refusal != null) {
+                    // Show the refusal on the preparing item for a moment, then drop it.
+                    _preparingSends.update { cur ->
+                        cur[sendId]?.let { cur + (sendId to it.copy(error = refusal)) } ?: cur
+                    }
+                    delay(PREPARING_ERROR_SHOWN)
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    preparingMutex.withLock {
+                        preparingJobs.remove(sendId)
+                        _preparingSends.update { it - sendId }
+                    }
+                }
             }
-            dagEngine.append(roomId, MessageDraft.Text(message.content, wireAttachments))
+        }
+        preparingMutex.withLock { preparingJobs[sendId] = job }
+        return SendMessageResult.Preparing(sendId)
+    }
+
+    /**
+     * Hash and import the picked files, then append. Null when the message landed, else the
+     * refusal to show. Copies are released on every path that does not land the message;
+     * cancellation (the user cancelled) releases them too and propagates.
+     */
+    private suspend fun prepareAndSend(
+        sendId: Uuid,
+        roomId: RoomId,
+        message: Message,
+        localAccountId: AccountId,
+    ): SendRefusal? {
+        val prepared = try {
+            fileSendService.prepare(message.pickedFiles) { hashed, total ->
+                _preparingSends.update { cur ->
+                    cur[sendId]?.let { cur + (sendId to it.copy(hashedBytes = hashed, totalBytes = total)) } ?: cur
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.error(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Preparing files for a send failed",
+                throwable = e,
+                fields = mapOf("roomId" to roomId),
+            )
+            return SendRefusal.SendFailed
+        }
+        val attachments = when (prepared) {
+            is PrepareResult.Refused -> return prepared.refusal
+            is PrepareResult.Ready -> prepared.attachments
+        }
+        val sent = try {
+            sendText(roomId, message.content, attachments, localAccountId)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { fileSendService.release(attachments) }
+            throw e
+        } catch (e: Exception) {
+            fileSendService.release(attachments)
+            AppLog.error(
+                component = LogComponent.MESSAGING,
+                event = LogEvent.APPEND_REFUSED,
+                message = "Send with files failed at the append",
+                throwable = e,
+                fields = mapOf("roomId" to roomId),
+            )
+            return SendRefusal.SendFailed
+        }
+        return when (sent) {
+            is SendMessageResult.Sent -> {
+                fileSendService.confirm(attachments)
+                null
+            }
+
+            // sendText already released the copies.
+            is SendMessageResult.Refused -> sent.reason
+            is SendMessageResult.Preparing -> error("sendText never returns Preparing")
+        }
+    }
+
+    override suspend fun cancelPreparingSend(sendId: Uuid) {
+        val job = preparingMutex.withLock { preparingJobs.remove(sendId) }
+        job?.cancel()
+        preparingMutex.withLock { _preparingSends.update { it - sendId } }
+    }
+
+    private suspend fun sendText(
+        roomId: RoomId,
+        content: String,
+        wireAttachments: List<MessagePayload.Attachment>,
+        localAccountId: AccountId,
+    ): SendMessageResult {
+        val payload = try {
+            dagEngine.append(roomId, MessageDraft.Text(content, wireAttachments))
         } catch (_: DagException.FrontierUnavailable) {
             AppLog.warn(
                 component = LogComponent.MESSAGING,
@@ -340,23 +444,16 @@ internal class DefaultMessagingService(
                 message = "Text message not sent — room holds messages but the chainable frontier is empty",
                 fields = mapOf("roomId" to roomId),
             )
+            fileSendService.release(wireAttachments)
             return SendMessageResult.Refused(SendRefusal.HistoryIncomplete)
         }
 
         val members = roomRepository.membersOfRoom(roomId)
 
-        // A Text draft always appends as a displayable Text payload.
         val item = checkNotNull(payload.toDisplayItem()) { "Text draft appended as non-displayable payload" }
         notifyWindowsNewItem(IngestResult.Inserted(payload), item)
 
-        // Small files ride the direct push alongside the message; large files are
-        // pull-only (the requesting device fetches when it decides).
-        for (descriptor in imported) {
-            if (descriptor.totalBytes > SMALL_FILE_MAX_BYTES) continue
-            for (member in members) {
-                fileCarrier.pushFile(descriptor.fileId, member)
-            }
-        }
+        fileSendService.startPushes(wireAttachments, members)
 
         if (members.isEmpty()) {
             AppLog.debug(

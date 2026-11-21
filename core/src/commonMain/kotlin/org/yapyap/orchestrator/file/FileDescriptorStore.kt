@@ -2,9 +2,11 @@ package org.yapyap.orchestrator.file
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.persistence.File_descriptors
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
+import kotlin.time.Instant
 
 internal fun encodeBlockHashes(hashes: List<ByteArray>): ByteArray {
     hashes.forEach { require(it.size == 32) { "block hash must be 32 bytes" } }
@@ -31,7 +33,11 @@ internal interface FileDescriptorStore : FileDescriptorReader {
     suspend fun upsert(descriptor: FileDescriptor)
     suspend fun deleteById(fileId: FileId)
     suspend fun setStatus(fileId: FileId, status: FileDescriptorStatus)
-    suspend fun copyDescriptorsOldestFirst(): List<FileDescriptor>
+    suspend fun touch(fileId: FileId, now: Instant)
+    suspend fun markHeld(descriptor: FileDescriptor)
+
+    /** Least recently accessed COPY descriptors first: true LRU for quota eviction. */
+    suspend fun copyDescriptorsLeastRecentlyUsed(): List<FileDescriptor>
     suspend fun copyBytesTotal(): Long
 }
 
@@ -51,8 +57,10 @@ internal class DefaultFileDescriptorStore(
             block_hashes = encodeBlockHashes(descriptor.blockHashes),
             storage = descriptor.storage,
             path = descriptor.path,
+            storage_kind = descriptor.pathKind,
             status = descriptor.status,
             created_at = descriptor.createdAt,
+            last_access_at = descriptor.lastAccessAt,
         )
     }
 
@@ -68,15 +76,34 @@ internal class DefaultFileDescriptorStore(
         queries.updateFileDescriptorStatus(status, fileId)
     }
 
-    override suspend fun copyDescriptorsOldestFirst(): List<FileDescriptor> = withContext(dbDispatcher) {
-        queries.selectCopyDescriptorsOrderedByCreated().executeAsList().map { it.toDescriptor() }
+    override suspend fun touch(fileId: FileId, now: Instant): Unit = withContext(dbDispatcher) {
+        queries.updateFileDescriptorAccess(now, fileId)
+    }
+
+    override suspend fun markHeld(descriptor: FileDescriptor): Unit = withContext(dbDispatcher) {
+        queries.updateFileDescriptorHeld(
+            file_name = descriptor.fileName,
+            mime_type = descriptor.mimeType,
+            total_bytes = descriptor.totalBytes,
+            block_size = descriptor.blockSize.toLong(),
+            block_hashes = encodeBlockHashes(descriptor.blockHashes),
+            storage = descriptor.storage,
+            path = descriptor.path,
+            storage_kind = descriptor.pathKind,
+            last_access_at = descriptor.lastAccessAt,
+            file_id = descriptor.fileId,
+        )
+    }
+
+    override suspend fun copyDescriptorsLeastRecentlyUsed(): List<FileDescriptor> = withContext(dbDispatcher) {
+        queries.selectCopyDescriptorsOrderedByAccess().executeAsList().map { it.toDescriptor() }
     }
 
     override suspend fun copyBytesTotal(): Long = withContext(dbDispatcher) {
         queries.sumCopyBytes().executeAsOneOrNull() ?: 0L
     }
 
-    private fun org.yapyap.persistence.File_descriptors.toDescriptor(): FileDescriptor = FileDescriptor(
+    private fun File_descriptors.toDescriptor(): FileDescriptor = FileDescriptor(
         fileId = file_id,
         fileName = file_name,
         mimeType = mime_type,
@@ -85,7 +112,9 @@ internal class DefaultFileDescriptorStore(
         blockHashes = decodeBlockHashes(block_hashes),
         storage = storage,
         path = path,
+        pathKind = storage_kind,
         status = status,
         createdAt = created_at,
+        lastAccessAt = last_access_at,
     )
 }

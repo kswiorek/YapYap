@@ -6,6 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -20,26 +21,22 @@ import org.yapyap.routing.file.port.FileEvent
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 import kotlin.uuid.Uuid
 
 /**
  * File request trigger (design §9): decides when this device asks for a file, beside the trigger
  * state (`pending_file_requests`), and starts routing's asking loop through [fileCarrier].
  *
- * Trigger (message ingest): a Text attachment referencing a file with no READY
- * local copy and no progressing transfer opens a PENDING row and starts the
- * router's asking loop. Small files wait out a grace period
- * (`fileRequestFirstAttemptDelay`) for the pushed OFFER; large files at or
- * below `autoDownloadMaxBytes` trigger at once (nothing is pushed); large
- * files above it land DECLINED locally until the user accepts. STALLED (hash
- * mismatch below the retry limit, or the gap trigger after `fileStallTimeout`
- * without prefix progress) and EXPIRED rows re-open; DECLINED / CANCELLED /
- * FAILED / EVICTED are never auto-resurrected — those need a new message or
- * a user re-open.
+ * The gap trigger counts time while this device runs (design §8): it tracks the last P advance
+ * per file in memory on a monotonic clock started at [start], not against `updatedAt`. A long
+ * sleep never fires the trigger at once.
  */
 internal class DefaultFileRequestCoordinator(
     private val pending: PendingFileRequestStore,
     private val receives: FileReceiveReader,
+    private val descriptors: FileDescriptorReader,
     private val control: FileReceiveControl,
     private val messages: MessageRepository,
     private val fileCarrier: FileCarrier,
@@ -47,23 +44,25 @@ internal class DefaultFileRequestCoordinator(
     private val receiveEvents: Flow<FileReceiveEvent>,
     private val config: StateFlow<OrchestratorConfig>,
     private val clock: Clock = Clock.System,
+    private val timeSource: TimeSource = TimeSource.Monotonic,
 ) : FileRequestControl {
     private val jobs = mutableListOf<Job>()
+    private val lastProgress = mutableMapOf<FileId, TimeMark>()
+    private val lastContiguous = mutableMapOf<FileId, Long>()
+    private val progressGuard = Mutex()
 
     fun start(scope: CoroutineScope) {
         check(jobs.isEmpty()) { "FileRequestCoordinator already started" }
         jobs += scope.launch {
             pipeline.ingestResults.collect { result ->
-                // One message failing must not end this collector: every later
-                // ingest would go untriggered until restart.
                 try {
                     onIngest(result.payload)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     AppLog.error(
-                        component = LogComponent.ORCHESTRATOR,
-                        event = LogEvent.SYNC_PROCESS_FAILED,
+                        component = LogComponent.FILE,
+                        event = LogEvent.FILE_TASK_FAILED,
                         message = "File request trigger from ingest failed",
                         throwable = e,
                     )
@@ -72,31 +71,122 @@ internal class DefaultFileRequestCoordinator(
         }
         jobs += scope.launch {
             fileCarrier.fileEvents.collect { event ->
-                runCatching { onFileEvent(event) }
-            }
-        }
-        jobs += scope.launch {
-            receiveEvents.collect { event ->
-                if (event !is FileReceiveEvent.Ready) return@collect
                 try {
-                    pending.drop(event.fileId)
+                    onFileEvent(event)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     AppLog.error(
-                        component = LogComponent.ORCHESTRATOR,
-                        event = LogEvent.SYNC_PROCESS_FAILED,
-                        message = "Dropping the request of a ready file failed",
+                        component = LogComponent.FILE,
+                        event = LogEvent.FILE_TASK_FAILED,
+                        message = "File request event failed",
                         throwable = e,
-                        fields = mapOf("fileId" to event.fileId),
                     )
                 }
             }
         }
         jobs += scope.launch {
+            receiveEvents.collect { event ->
+                when (event) {
+                    is FileReceiveEvent.Progress -> {
+                        // Reset the gap mark only when P advances: suffix chunks staging behind a
+                        // stuck gap must not suppress STALLED.
+                        val advanced = progressGuardLocked {
+                            val prev = lastContiguous[event.fileId]
+                            (prev == null || event.contiguousBytes > prev).also { advanced ->
+                                if (advanced) {
+                                    lastProgress[event.fileId] = timeSource.markNow()
+                                    lastContiguous[event.fileId] = event.contiguousBytes
+                                }
+                            }
+                        }
+                        // A progressing transfer covers the grace period: drop a pending
+                        // REQUEST while bytes arrive (design §9 trigger condition).
+                        if (advanced) try {
+                            val row = receives.find(event.fileId)
+                            if (row != null && row.status == FileReceiveStatus.IN_FLIGHT) {
+                                pending.drop(event.fileId)
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            AppLog.error(
+                                component = LogComponent.FILE,
+                                event = LogEvent.FILE_TASK_FAILED,
+                                message = "Dropping covered pending request failed",
+                                throwable = e,
+                                fields = mapOf("fileId" to event.fileId),
+                            )
+                        }
+                    }
+
+                    is FileReceiveEvent.Ready -> {
+                        progressGuardLocked {
+                            lastProgress.remove(event.fileId)
+                            lastContiguous.remove(event.fileId)
+                        }
+                        try {
+                            pending.drop(event.fileId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            AppLog.error(
+                                component = LogComponent.FILE,
+                                event = LogEvent.FILE_TASK_FAILED,
+                                message = "Dropping the request of a ready file failed",
+                                throwable = e,
+                                fields = mapOf("fileId" to event.fileId),
+                            )
+                        }
+                    }
+
+                    is FileReceiveEvent.Failed -> {
+                        progressGuardLocked {
+                            lastProgress.remove(event.fileId)
+                            lastContiguous.remove(event.fileId)
+                        }
+                    }
+                }
+            }
+        }
+        jobs += scope.launch {
+            // Every active receive gets a fresh mark at start, so a long sleep never
+            // fires the gap trigger at once.
+            try {
+                val active = receives.active()
+                progressGuard.lock()
+                try {
+                    for (row in active) {
+                        lastProgress[row.fileId] = timeSource.markNow()
+                        lastContiguous[row.fileId] = row.contiguousBytes
+                    }
+                } finally {
+                    progressGuard.unlock()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.error(
+                    component = LogComponent.FILE,
+                    event = LogEvent.FILE_TASK_FAILED,
+                    message = "Seeding gap-trigger marks failed",
+                    throwable = e,
+                )
+            }
             while (true) {
                 delay(config.value.fileSweepInterval)
-                runCatching { sweep(clock.now()) }
+                try {
+                    sweep(clock.now())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AppLog.error(
+                        component = LogComponent.FILE,
+                        event = LogEvent.FILE_TASK_FAILED,
+                        message = "File request sweep failed; will retry",
+                        throwable = e,
+                    )
+                }
             }
         }
     }
@@ -106,8 +196,6 @@ internal class DefaultFileRequestCoordinator(
         jobs.clear()
     }
 
-    // -- Trigger ----------------------------------------------------------------
-
     private suspend fun onIngest(payload: MessagePayload) {
         val text = payload as? MessagePayload.Text ?: return
         if (text.attachments.isEmpty()) return
@@ -115,12 +203,8 @@ internal class DefaultFileRequestCoordinator(
             if (attachment.totalBytes <= SMALL_FILE_MAX_BYTES) {
                 maybeRequest(attachment.fileId, immediate = false)
             } else if (attachment.totalBytes <= config.value.autoDownloadMaxBytes) {
-                // Nothing is pushed for large files (§6.6), so there is no grace
-                // period: fetch at once.
                 maybeRequest(attachment.fileId, immediate = true)
             } else {
-                // Above the auto-download limit: a local DECLINED until the user
-                // accepts (re-openable through the runtime facade).
                 markDeclined(attachment.fileId, text.messageId)
             }
         }
@@ -128,23 +212,20 @@ internal class DefaultFileRequestCoordinator(
 
     private suspend fun maybeRequest(fileId: FileId, immediate: Boolean) {
         val now = clock.now()
-        val row = try {
-            receives.find(fileId)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            null
+        if (descriptors.findById(fileId)?.status == FileDescriptorStatus.HELD) {
+            pending.drop(fileId)
+            return
         }
+        val row = receives.find(fileId)
         if (row != null) {
             when (row.status) {
                 FileReceiveStatus.READY -> {
                     pending.drop(fileId)
                     return
                 }
-
                 FileReceiveStatus.PENDING,
                 FileReceiveStatus.IN_FLIGHT,
-                    -> return // a push/fetch is progressing (or about to); small files also wait out the OFFER grace
-
+                    -> return
                 FileReceiveStatus.FAILED,
                 FileReceiveStatus.DECLINED,
                 FileReceiveStatus.CANCELLED,
@@ -153,38 +234,20 @@ internal class DefaultFileRequestCoordinator(
                     pending.drop(fileId)
                     return
                 }
-
-                // Re-requestable: a hash mismatch below the retry limit (the gap trigger
-                // that reopens stalled transfers lands in step 19). Rows that never
-                // progress expire by deletion (no row → trigger below).
                 FileReceiveStatus.STALLED -> Unit
             }
         }
-        val existing = try {
-            pending.find(fileId)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            null
-        }
+        val existing = pending.find(fileId)
         if (existing?.status == PendingFileRequestStatus.PENDING) return
-        // New trigger, or a new message/sync re-arming an UNAVAILABLE row.
-        // Small files wait out the OFFER grace period first; large auto-downloads
-        // start at once.
         val at = if (immediate) now else now + config.value.fileRequestFirstAttemptDelay
         pending.upsertPending(fileId, at, now)
         fileCarrier.startFileRequest(fileId, at)
     }
 
-    /**
-     * Records a local DECLINED for a large file above the auto-download limit: never fetched until the
-     * user accepts. An existing receive (any status) is left alone, so an accept in flight is kept.
-     */
     private suspend fun markDeclined(fileId: FileId, originMessageId: Uuid) {
         val attachment = messages.findFileAttachment(fileId) ?: return
         control.declineUnseen(attachment, originMessageId, clock.now())
     }
-
-    // -- FileRequestControl -----------------------------------------------------
 
     override suspend fun acceptFile(fileId: FileId) {
         val now = clock.now()
@@ -200,27 +263,54 @@ internal class DefaultFileRequestCoordinator(
     }
 
     private suspend fun sweep(now: Instant) {
-        // Re-arm the router for due rows (restart recovery: routing rows persist, but a
-        // dropped routing row must not strand a PENDING trigger), run the gap trigger,
-        // and reopen stalled receives. startFileRequest is idempotent.
+        // An accepted OFFER covers the grace period: a progressing transfer needs no REQUEST.
+        // Drop pending rows for IN_FLIGHT receives instead of re-arming the router.
         for (row in pending.due(now)) {
+            val receive = receives.find(row.fileId)
+            if (receive != null) {
+                when (receive.status) {
+                    FileReceiveStatus.READY -> {
+                        pending.drop(row.fileId)
+                        continue
+                    }
+
+                    FileReceiveStatus.IN_FLIGHT -> {
+                        pending.drop(row.fileId)
+                        continue
+                    }
+
+                    FileReceiveStatus.PENDING -> Unit
+                    FileReceiveStatus.FAILED, FileReceiveStatus.DECLINED,
+                    FileReceiveStatus.CANCELLED, FileReceiveStatus.EVICTED,
+                        -> {
+                        pending.drop(row.fileId)
+                        continue
+                    }
+
+                    FileReceiveStatus.STALLED -> Unit
+                }
+            } else if (descriptors.findById(row.fileId)?.status == FileDescriptorStatus.HELD) {
+                pending.drop(row.fileId)
+                continue
+            }
             fileCarrier.startFileRequest(row.fileId, row.nextAttemptAt)
         }
-        // Gap trigger (design §8, step 19): an IN_FLIGHT receive whose contiguous
-        // prefix P has not advanced for fileStallTimeout goes STALLED — re-requestable,
-        // never refused — and the STALLED branch below re-opens the REQUEST with held
-        // coverage. Small transfers are left alone to merge whatever arrives; a live
-        // large fetch is ended with an ABORT (§6.6) since a dead source cannot be
-        // superseded. The timer counts only while this device runs (the sweep runs in
-        // the started scope).
+        // Gap trigger: an IN_FLIGHT receive whose prefix has not advanced for fileStallTimeout
+        // (measured on the monotonic clock while this device runs) goes STALLED and re-opens
+        // the REQUEST with held coverage. Live transfers are left alone; a live large fetch
+        // is ended with an ABORT since a dead source cannot be superseded.
         val stallAfter = config.value.fileStallTimeout
-        val idleSince = now - stallAfter
         for (row in receives.active()) {
-            if (row.status != FileReceiveStatus.IN_FLIGHT || row.updatedAt >= idleSince) continue
-            // The engine re-checks under its lock: a completion since this read wins.
-            if (control.markStalled(row.fileId, idleSince, now) && row.totalBytes > SMALL_FILE_MAX_BYTES) {
+            if (row.status != FileReceiveStatus.IN_FLIGHT) continue
+            // A receive with no mark yet (an accepted OFFER that never sent a byte) starts its
+            // gap window now.
+            val mark = progressGuardLocked { lastProgress.getOrPut(row.fileId) { timeSource.markNow() } }
+            if (mark.elapsedNow() < stallAfter) continue
+            if (control.markStalled(row.fileId, now) && row.totalBytes > SMALL_FILE_MAX_BYTES) {
                 fileCarrier.abortFileFetch(row.fileId)
             }
+            // A STALLED file re-opens the pending request below.
+            progressGuardLocked { lastProgress[row.fileId] = timeSource.markNow() }
         }
         for (row in receives.active()) {
             if (row.status != FileReceiveStatus.STALLED) continue
@@ -233,18 +323,24 @@ internal class DefaultFileRequestCoordinator(
         }
     }
 
+    private suspend fun <T> progressGuardLocked(block: () -> T): T {
+        progressGuard.lock()
+        try {
+            return block()
+        } finally {
+            progressGuard.unlock()
+        }
+    }
+
     private suspend fun onFileEvent(event: FileEvent) {
         val now = clock.now()
         when (event) {
             is FileEvent.RequestSatisfied -> pending.drop(event.fileId)
             is FileEvent.RequestUnavailable -> pending.setUnavailable(event.fileId, now)
             is FileEvent.NoDirectConnection -> {
-                // Online-but-unconnectable (design §6.6): the routing loop keeps the
-                // request PENDING and retries when a candidate comes online, so there
-                // is no state to change here — the event is for the GUI surface.
                 AppLog.debug(
-                    component = LogComponent.ORCHESTRATOR,
-                    event = LogEvent.SYNC_PROCESS_FAILED,
+                    component = LogComponent.FILE,
+                    event = LogEvent.FILE_TASK_FAILED,
                     message = "Large fetch has no direct connection; request stays pending",
                     fields = mapOf("fileId" to event.fileId),
                 )
@@ -252,6 +348,4 @@ internal class DefaultFileRequestCoordinator(
             else -> Unit
         }
     }
-
-
 }

@@ -173,11 +173,16 @@ internal class FileTargetHandler(
                 row.fileId,
                 payload.chunkIndex.toLong() * row.chunkSizeBytes,
                 plaintext,
+                author = fileEnvelope.source,
             )
         ) {
             is FileIngestResult.Staged -> {
                 // Progress ACK back to the transfer's pusher (own chunk indices, capped).
                 // Best-effort like the transport ACK: untagged, so no outbox outcome.
+                ackedCoverage(row, result.contiguousBytes, result.totalBytes, fileEnvelope)
+            }
+
+            is FileIngestResult.Ready -> {
                 ackedCoverage(row, result.contiguousBytes, result.totalBytes, fileEnvelope)
             }
 

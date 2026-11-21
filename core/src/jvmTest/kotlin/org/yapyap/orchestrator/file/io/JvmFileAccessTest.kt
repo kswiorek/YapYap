@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator.file.io
 
+import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import kotlin.test.Test
@@ -13,25 +14,20 @@ import kotlin.uuid.Uuid
 class JvmFileAccessTest {
     private val access = JvmFileAccess()
 
-    private fun tempPath(name: String): Path {
+    private suspend fun tempPath(name: String): Path {
         val dir = Path(SystemTemporaryDirectory.toString(), "yapyap-file-io-${Uuid.random()}")
         access.createDirectories(dir)
         return Path(dir.toString(), name)
     }
 
     @Test
-    fun positionedRead_insideLargeSparseFile_skipsPrefix() {
+    fun positionedRead_insideLargeSparseFile_skipsPrefix() = runTest {
         val path = tempPath("sparse.bin")
-        // 16 MiB sparse: only the tail page is written.
         val total = 16L * 1024L * 1024L
         val markerOffset = 9L * 1024L * 1024L + 123L
         val marker = ByteArray(4096) { (it * 7).toByte() }
         access.openAppendWriter(path, null).use { w ->
             w.truncate(total)
-            // Move to marker via truncate+append is append-only; write marker by
-            // positioning through a second handle is test-only. Here we fake the
-            // sparse layout by truncating then writing the marker at the end and
-            // asserting a positioned read at an interior offset skips the prefix.
             w.truncate(markerOffset)
             w.write(marker)
             w.flushAndSync()
@@ -47,7 +43,6 @@ class JvmFileAccessTest {
                 off += n
             }
             assertContentEquals(marker, buf)
-            // Prefix reads as zeros (sparse hole).
             val hole = ByteArray(16)
             val n = r.readAt(1024L, hole, 0, hole.size)
             assertEquals(hole.size, n)
@@ -56,7 +51,7 @@ class JvmFileAccessTest {
     }
 
     @Test
-    fun appendWriter_truncatesTornAppendToLength() {
+    fun appendWriter_truncatesTornAppendToLength() = runTest {
         val path = tempPath("torn.bin")
         access.openAppendWriter(path, null).use { w ->
             w.write(ByteArray(100) { it.toByte() })
@@ -66,7 +61,6 @@ class JvmFileAccessTest {
             assertEquals(40L, w.size())
             w.flushAndSync()
         }
-        // Reopen truncates anything beyond the persisted length (crash recovery).
         access.openAppendWriter(path, truncateToLength = 40L).use { w ->
             assertEquals(40L, w.size())
         }
@@ -84,13 +78,11 @@ class JvmFileAccessTest {
     }
 
     @Test
-    fun flush_syncsOncePerCall_andIsDurable() {
+    fun flush_syncsOncePerCall_andIsDurable() = runTest {
         val path = tempPath("durable.bin")
         val payload = ByteArray(65536) { (it % 251).toByte() }
         access.openAppendWriter(path, null).use { w ->
             w.write(payload)
-            // One flush == one fsync (single `force(true)` in JvmAppendHandle);
-            // observable effect: bytes survive close + reopen.
             w.flushAndSync()
         }
         access.openPositionedReader(path).use { r ->

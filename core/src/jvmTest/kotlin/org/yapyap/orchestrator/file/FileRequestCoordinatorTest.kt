@@ -14,6 +14,8 @@ import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
+import org.yapyap.orchestrator.file.receive.ReceiveEngine
+import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageCursor
 import org.yapyap.orchestrator.store.MessageRepository
@@ -44,6 +46,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TestTimeSource
 import kotlin.uuid.Uuid
 
 /**
@@ -71,9 +74,11 @@ class FileRequestCoordinatorTest {
         val coordinator: DefaultFileRequestCoordinator,
         val receiveEvents: MutableSharedFlow<FileReceiveEvent>,
         val source: DefaultFileRequestSource,
+        val timeSource: TestTimeSource,
     )
 
-    private fun harness(
+    private suspend fun harness(
+        timeSource: TestTimeSource = TestTimeSource(),
         memberships: Map<Pair<RoomId, AccountId>, FakeRoomRepository.Member> = emptyMap(),
     ): Harness {
         val db = openMemoryDatabase().database
@@ -93,13 +98,12 @@ class FileRequestCoordinatorTest {
         val crypto = DefaultCryptoProvider()
         val config = MutableStateFlow(OrchestratorConfig())
         val store = DefaultFileStore(descriptors, crypto, files, Path(work.toString(), "store"), config, clock)
-        val engine = DefaultFileReceiveEngine(
+        val engine = ReceiveEngine(
             receives = receives,
-            messages = messages,
+            descriptors = descriptors,
             crypto = crypto,
             files = files,
-            storeDirectory = Path(work.toString(), "store"),
-            incomingDirectory = Path(work.toString(), "incoming"),
+            paths = ReceivePaths(Path(work.toString(), "incoming"), Path(work.toString(), "store")),
             config = config,
             fileStore = store,
             clock = clock,
@@ -113,9 +117,11 @@ class FileRequestCoordinatorTest {
             coverage = engine,
         )
         val receiveEvents = MutableSharedFlow<FileReceiveEvent>(extraBufferCapacity = 16)
+        // timeSource passed in
         val coordinator = DefaultFileRequestCoordinator(
             pending = DefaultPendingFileRequestStore(db, io),
             receives = receives,
+            descriptors = descriptors,
             control = engine,
             messages = messages,
             fileCarrier = router.files,
@@ -123,10 +129,11 @@ class FileRequestCoordinatorTest {
             receiveEvents = receiveEvents,
             config = config,
             clock = clock,
+            timeSource = timeSource,
         )
         return Harness(
             DefaultPendingFileRequestStore(db, io), receives, descriptors,
-            messages, rooms, router, pipeline, coordinator, receiveEvents, source,
+            messages, rooms, router, pipeline, coordinator, receiveEvents, source, timeSource,
         )
     }
 
@@ -183,7 +190,7 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, status = FileReceiveStatus.READY, totalBytes = 1_000L,
                 contiguousBytes = 1_000L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = mid,
+                originMessageId = mid,
                 createdAt = now, updatedAt = now,
             )
         )
@@ -319,11 +326,13 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 100L * 1024 * 1024,
                 contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "big.bin", mimeType = null, hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 createdAt = now, updatedAt = now - 601.seconds,
             )
         )
         h.coordinator.start(this)
+        runCurrent()
+        h.timeSource += kotlin.time.Duration.parse("11m")
         advanceTimeBy(61.seconds)
         runCurrent()
         assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
@@ -340,12 +349,14 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
                 contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 // Silent for longer than fileStallTimeout (10 min): the gap trigger fires.
                 createdAt = now - 11.minutes, updatedAt = now - 11.minutes,
             )
         )
         h.coordinator.start(this)
+        runCurrent()
+        h.timeSource += kotlin.time.Duration.parse("11m")
         advanceTimeBy(61.seconds)
         runCurrent()
         val row = assertNotNull(h.pending.find(fileId), "stalled prefix re-opens the request")
@@ -365,7 +376,7 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
                 contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 createdAt = now, updatedAt = now,
             )
         )
@@ -385,7 +396,7 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, status = FileReceiveStatus.STALLED, totalBytes = 1_000L,
                 contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 1,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 createdAt = now, updatedAt = now,
             )
         )
@@ -397,6 +408,113 @@ class FileRequestCoordinatorTest {
         runCurrent()
         assertNotNull(h.pending.find(fileId), "stalled receive re-opens the request")
         assertTrue(h.router.startedFiles.isNotEmpty())
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun offerAcceptedAfterStart_thatNeverSendsAByte_stalls() = runTest {
+        val h = harness()
+        h.coordinator.start(this)
+        runCurrent()
+        // An OFFER accepted while running: IN_FLIGHT, and no chunk (so no Progress) ever arrives.
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
+                contiguousBytes = 0L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status, "its gap window starts now")
+        h.timeSource += 11.minutes
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
+        assertNotNull(h.pending.find(fileId), "the stalled file is requested again")
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun restartAfterLongSleep_doesNotFireGapTriggerAtOnce() = runTest {
+        // A receive idle for longer than the stall timeout, then a restart: the fresh
+        // marks on start mean the gap trigger waits a full timeout instead of firing at once.
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        h.coordinator.start(this)
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status)
+        assertNull(h.pending.find(fileId))
+        // Even advancing the monotonic clock by only half the timeout still leaves it alone.
+        h.timeSource += kotlin.time.Duration.parse("5m")
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status)
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun slowPushPastGrace_getsNoRequest() = runTest {
+        // A push progressing past the small-file grace period (60s) emits Progress, which
+        // drops the pending row: no REQUEST goes out while bytes arrive.
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 10_000L,
+                contiguousBytes = 0L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        h.pending.upsertPending(fileId, now + 60.seconds, now)
+        h.coordinator.start(this)
+        runCurrent()
+        // Progress arrives before the grace period ends.
+        h.receiveEvents.emit(FileReceiveEvent.Progress(fileId, 100L, 10_000L))
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertNull(h.pending.find(fileId), "progressing push covers the grace period")
+        assertTrue(h.router.startedFiles.isEmpty(), "no REQUEST while a push progresses")
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun noSpace_isDeclinedAndNotReRequested() = runTest {
+        val h = harness()
+        val mid = Uuid.random()
+        h.messages.rows[mid] = StoredMessage(textMessage(mid, senderAccount), isOrphaned = false)
+        h.messages.attachments[fileId] = listOf(mid)
+        h.rooms.members[roomId to senderAccount] = FakeRoomRepository.Member(RoomMemberStatus.ACTIVE, null)
+        // Simulate a no-space DECLINED row (as the engine records on a full volume).
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.DECLINED, totalBytes = 1_000L,
+                contiguousBytes = 0L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        h.coordinator.start(this)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        h.pipeline.emit(IngestResult.Inserted(textMessage(mid, senderAccount)))
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertNull(h.pending.find(fileId), "DECLINED is refused, never auto-resurrected")
+        assertTrue(h.router.startedFiles.isEmpty())
         h.coordinator.stop()
     }
 
@@ -478,7 +596,7 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
                 contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "img.jpg", mimeType = null, hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 createdAt = now, updatedAt = now,
             )
         )
@@ -499,7 +617,9 @@ class FileRequestCoordinatorTest {
                 fileId = fileId, fileName = "img.jpg", mimeType = "image/jpeg",
                 totalBytes = totalBytes, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 storage = FileStorage.COPY, path = "/tmp/img.jpg",
+                pathKind = FilePathKind.PATH,
                 status = FileDescriptorStatus.HELD, createdAt = now,
+                lastAccessAt = now,
             )
         )
     }

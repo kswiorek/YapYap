@@ -24,8 +24,10 @@ CREATE TABLE file_descriptors (
     block_hashes BLOB NOT NULL,
     storage TEXT NOT NULL,
     path TEXT NOT NULL,
+    storage_kind TEXT NOT NULL,
     status TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    last_access_at INTEGER NOT NULL
 );
 
 CREATE TABLE file_receives (
@@ -38,8 +40,6 @@ CREATE TABLE file_receives (
     file_name TEXT,
     mime_type TEXT,
     hash_mismatches INTEGER NOT NULL,
-    part_path TEXT NOT NULL,
-    final_path TEXT NOT NULL,
     origin_message_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL

@@ -1,9 +1,16 @@
 package org.yapyap.gui.state
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.yapyap.gui.mentions.MentionMatcher
 import org.yapyap.orchestrator.runtime.OrchestratorRuntime
 import org.yapyap.orchestrator.runtime.message.Message
@@ -139,7 +146,7 @@ class ChatController(
                 markFailed(key, it.message ?: "Couldn't send.")
                 return@launch
             }) {
-                is SendMessageResult.Sent -> {
+                is SendMessageResult.Sent, is SendMessageResult.Preparing -> {
                     // Real item arrives via displayItems; drop the optimistic row now —
                     // if the window hasn't caught up yet, keep until dedupe fires.
                     _state.value = _state.value.copy(

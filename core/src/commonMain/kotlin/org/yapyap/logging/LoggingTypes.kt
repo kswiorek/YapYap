@@ -123,6 +123,9 @@ internal enum class LogEvent {
     FILE_DEPOSITED,
     FILE_FETCH_FAILED,
     FILE_TASK_FAILED,
+    FILE_BLOCK_MISMATCH,
+    FILE_EVICTED,
+    FILE_UNREFERENCED_DELETED,
 }
 
 internal enum class LogComponent {

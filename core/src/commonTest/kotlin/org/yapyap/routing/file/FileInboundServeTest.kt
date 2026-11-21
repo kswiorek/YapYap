@@ -76,9 +76,15 @@ class FileInboundServeTest {
         var coverage: FileCoverage? = FileCoverage(0L, emptyList())
         val servedFor = mutableListOf<Pair<FileId, AccountId>>()
         override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
-        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
+        override suspend fun ingest(
+            fileId: FileId,
+            byteOffset: Long,
+            plaintext: ByteArray,
+            author: PeerId?,
+        ) =
             FileIngestResult.Duplicate(0L, 0L)
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
+        override suspend fun preferDevice(fileId: FileId): PeerId? = null
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
         override suspend fun requestTotalBytes(fileId: FileId): Long? = null
         override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean {

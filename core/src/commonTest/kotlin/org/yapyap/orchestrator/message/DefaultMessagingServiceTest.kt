@@ -25,11 +25,8 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DefaultDagEngine
 import org.yapyap.orchestrator.dag.MessageDraft
 import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.file.FileDescriptor
-import org.yapyap.orchestrator.file.FileDescriptorStatus
-import org.yapyap.orchestrator.file.FileImportSource
-import org.yapyap.orchestrator.file.FileStorage
-import org.yapyap.orchestrator.file.FileStore
+import org.yapyap.orchestrator.file.FileSendService
+import org.yapyap.orchestrator.file.PrepareResult
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.message.DefaultMessagingService
 import org.yapyap.orchestrator.runtime.message.FanoutReport
@@ -56,6 +53,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
@@ -142,15 +140,12 @@ class DefaultMessagingServiceTest {
     private fun newService(
         pipeline: DefaultInboundMessagePipeline = DefaultInboundMessagePipeline(router.messages, dagEngine),
         maxTextMessageBytes: Int = testMessageLimits().maxTextMessageBytes,
-        fileStore: FileStore = FakeFileStore(),
-        fileCarrier: FileCarrier = RecordingFileCarrier(),
+        fileSendService: FileSendService = FakeFileSendService(),
     ): DefaultMessagingService {
-        router.files = fileCarrier
         return DefaultMessagingService(
             dagEngine = dagEngine,
             messageCarrier = router.messages,
             syncCarrier = router.syncs,
-            fileCarrier = router.files,
             pipeline = pipeline,
             roomRepository = roomMembershipRepo,
             messageRepository = messageRepo,
@@ -159,7 +154,7 @@ class DefaultMessagingServiceTest {
             localIdentity = identityResolver,
             maxTextBytes = MutableStateFlow(maxTextMessageBytes),
             orchestratorConfig = MutableStateFlow(OrchestratorConfig()),
-            fileStore = fileStore,
+            fileSendService = fileSendService,
         )
     }
 
@@ -189,24 +184,17 @@ class DefaultMessagingServiceTest {
     @Test
     fun sendMessage_withPickedFiles_importsPublishesAndPushesSmallFiles() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
-        val fileCarrier = RecordingFileCarrier()
-        val fileStore = FakeFileStore(
-            nextDescriptor = { name ->
-                FileDescriptor(
-                    fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
-                    fileName = name,
-                    mimeType = "image/jpeg",
-                    totalBytes = 1024L,
-                    blockSize = 1024 * 1024,
-                    blockHashes = emptyList(),
-                    storage = FileStorage.COPY,
-                    path = "/store/img",
-                    status = FileDescriptorStatus.HELD,
-                    createdAt = epochSeconds(1L),
-                )
+        val fileSendService = FakeFileSendService(
+            prepareResult = { files ->
+                PrepareResult.Ready(files.map { f ->
+                    MessagePayload.Attachment(
+                        FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                        f.fileName, f.mimeType, 1024L,
+                    )
+                })
             },
         )
-        val service = newService(pipeline, fileStore = fileStore, fileCarrier = fileCarrier)
+        val service = newService(pipeline, fileSendService = fileSendService)
         startStack(this, pipeline, service)
 
         val result = service.sendMessage(
@@ -219,7 +207,9 @@ class DefaultMessagingServiceTest {
             ),
         )
 
-        assertIs<SendMessageResult.Sent>(result)
+        val preparing = assertIs<SendMessageResult.Preparing>(result)
+        advanceUntilIdle()
+        assertTrue(service.preparingSends.value.isEmpty(), "preparing cleared after land")
         // The message carries the imported attachment.
         val stored = messageRepo.findAllInRoom(roomId).map { it.payload }.single()
         val attachments = (stored as MessagePayload.Text).attachments
@@ -229,31 +219,24 @@ class DefaultMessagingServiceTest {
         // Small files push to every member (local + remote).
         assertEquals(
             setOf(localAccount, remoteAccount),
-            fileCarrier.pushed.map { it.second }.toSet(),
+            fileSendService.pushed.map { it.second }.toSet(),
         )
     }
 
     @Test
     fun sendMessage_withLargePickedFile_publishesWithoutPushing() = runTest(UnconfinedTestDispatcher()) {
         val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
-        val fileCarrier = RecordingFileCarrier()
-        val fileStore = FakeFileStore(
-            nextDescriptor = { name ->
-                FileDescriptor(
-                    fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
-                    fileName = name,
-                    mimeType = "application/octet-stream",
-                    totalBytes = 100L * 1024 * 1024,
-                    blockSize = 1024 * 1024,
-                    blockHashes = emptyList(),
-                    storage = FileStorage.REFERENCE,
-                    path = "/tmp/big.bin",
-                    status = FileDescriptorStatus.HELD,
-                    createdAt = epochSeconds(1L),
-                )
+        val fileSendService = FakeFileSendService(
+            prepareResult = { files ->
+                PrepareResult.Ready(files.map { f ->
+                    MessagePayload.Attachment(
+                        FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                        f.fileName, f.mimeType, 100L * 1024 * 1024,
+                    )
+                })
             },
         )
-        val service = newService(pipeline, fileStore = fileStore, fileCarrier = fileCarrier)
+        val service = newService(pipeline, fileSendService = fileSendService)
         startStack(this, pipeline, service)
 
         val result = service.sendMessage(
@@ -271,9 +254,160 @@ class DefaultMessagingServiceTest {
             ),
         )
 
-        assertIs<SendMessageResult.Sent>(result)
-        assertTrue(fileCarrier.pushed.isEmpty(), "large files are pull-only: nothing is pushed")
-        assertEquals(listOf("big.bin"), fileStore.imports)
+        assertIs<SendMessageResult.Preparing>(result)
+        advanceUntilIdle()
+        assertTrue(fileSendService.pushed.isEmpty(), "large files are pull-only: nothing is pushed")
+    }
+
+    @Test
+    fun sendMessage_tooManyAttachments_refusesBeforeAnyImport() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
+        var prepared = false
+        val fileSendService = FakeFileSendService(
+            prepareResult = {
+                prepared = true
+                PrepareResult.Ready(emptyList())
+            },
+        )
+        val service = newService(pipeline, fileSendService = fileSendService)
+        startStack(this, pipeline, service)
+
+        val tooMany = List(MessagePayload.Attachment.MAX_ATTACHMENTS + 1) {
+            PickedFile("f$it.bin", null, PickedFileSource.FilePath("/tmp/f$it.bin"))
+        }
+        val result = service.sendMessage(roomId, Message("too many", pickedFiles = tooMany))
+
+        assertIs<SendMessageResult.Refused>(result)
+        assertEquals(SendRefusal.TooLarge, (result as SendMessageResult.Refused).reason)
+        assertFalse(prepared, "count checked before any import")
+    }
+
+    @Test
+    fun sendMessage_failedAppend_releasesOrphanCopy() = runTest(UnconfinedTestDispatcher()) {
+        dagEngine.ingest(
+            MessagePayload.Text(
+                messageId = Uuid.random(),
+                roomId = roomId,
+                senderAccountId = remoteAccount,
+                prevIds = listOf(Uuid.random()),
+                createdAt = clock.now(),
+                text = "waiting for prev",
+                authorDeviceId = PeerId("test-device"),
+                authorSignature = byteArrayOf(0x01, 0x02, 0x03),
+            ),
+        )
+        val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
+        val fileSendService = FakeFileSendService(
+            prepareResult = { files ->
+                PrepareResult.Ready(files.map { f ->
+                    MessagePayload.Attachment(
+                        FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                        f.fileName, f.mimeType, 1024L,
+                    )
+                })
+            },
+        )
+        val service = newService(pipeline, fileSendService = fileSendService)
+        startStack(this, pipeline, service)
+
+        val result = service.sendMessage(
+            roomId,
+            Message(
+                "with file",
+                pickedFiles = listOf(PickedFile("a.bin", null, PickedFileSource.FilePath("/tmp/a.bin")))
+            ),
+        )
+        assertIs<SendMessageResult.Preparing>(result)
+        advanceUntilIdle()
+        assertEquals(1, fileSendService.released.size, "failed append releases the imported copy")
+        assertEquals(1, messageRepo.byId.size, "nothing appended")
+    }
+
+    @Test
+    fun sendMessage_unreadableFile_isRefusalNotException() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
+        val fileSendService = FakeFileSendService(
+            prepareResult = { PrepareResult.Refused(SendRefusal.FileUnreadable) },
+        )
+        val service = newService(pipeline, fileSendService = fileSendService)
+        startStack(this, pipeline, service)
+        val before = messageRepo.byId.size
+
+        val result = service.sendMessage(
+            roomId,
+            Message(
+                "bad",
+                pickedFiles = listOf(PickedFile("missing.bin", null, PickedFileSource.FilePath("/nope.bin")))
+            ),
+        )
+        // Async: Preparing at once, then the background prepare refuses.
+        assertIs<SendMessageResult.Preparing>(result)
+        advanceUntilIdle()
+        // Failed prepares surface briefly with an error, then clear; either way no message lands.
+        assertEquals(before, messageRepo.byId.size, "unreadable file never appends")
+    }
+
+    @Test
+    fun sendMessage_returnsBeforeHashEnds_messageAppearsOnceHashFinishes() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
+        var releaseHash: (() -> Unit)? = null
+        val fileSendService = FakeFileSendService(
+            prepareResult = { files ->
+                // Simulate slow hashing: wait until the test releases it.
+                kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                    releaseHash = {
+                        cont.resume(PrepareResult.Ready(files.map { f ->
+                            MessagePayload.Attachment(
+                                FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                                f.fileName, f.mimeType, 1024L,
+                            )
+                        }), null)
+                    }
+                }
+            },
+        )
+        val service = newService(pipeline, fileSendService = fileSendService)
+        startStack(this, pipeline, service)
+        val before = messageRepo.byId.size
+
+        val result = service.sendMessage(
+            roomId,
+            Message("slow", pickedFiles = listOf(PickedFile("s.bin", null, PickedFileSource.FilePath("/tmp/s.bin")))),
+        )
+        val preparing = assertIs<SendMessageResult.Preparing>(result)
+        // Returns before hashing ends: no message yet, preparing visible.
+        assertEquals(before, messageRepo.byId.size)
+        assertNotNull(service.preparingSends.value[preparing.sendId])
+
+        releaseHash?.invoke()
+        advanceUntilIdle()
+        assertEquals(before + 1, messageRepo.byId.size, "message appears once hashing finishes")
+        assertNull(service.preparingSends.value[preparing.sendId])
+    }
+
+    @Test
+    fun sendMessage_cancelMidHash_leavesNoCopy() = runTest(UnconfinedTestDispatcher()) {
+        val pipeline = DefaultInboundMessagePipeline(router.messages, dagEngine)
+        val fileSendService = FakeFileSendService(
+            prepareResult = { files ->
+                kotlinx.coroutines.delay(10_000)
+                PrepareResult.Ready(emptyList())
+            },
+        )
+        val service = newService(pipeline, fileSendService = fileSendService)
+        startStack(this, pipeline, service)
+        val before = messageRepo.byId.size
+
+        val result = service.sendMessage(
+            roomId,
+            Message("cancel", pickedFiles = listOf(PickedFile("c.bin", null, PickedFileSource.FilePath("/tmp/c.bin")))),
+        )
+        val preparing = assertIs<SendMessageResult.Preparing>(result)
+        service.cancelPreparingSend(preparing.sendId)
+        advanceUntilIdle()
+        assertEquals(before, messageRepo.byId.size, "cancelled send never lands")
+        assertNull(service.preparingSends.value[preparing.sendId])
+        assertTrue(fileSendService.released.isEmpty(), "nothing to release: prepare never finished")
     }
 
     @Test
@@ -1381,30 +1515,44 @@ private class RecordingFileCarrier : NoopFileCarrier() {
     }
 }
 
-private class FakeFileStore(
-    var nextDescriptor: (fileName: String) -> FileDescriptor? = { null },
-) : FileStore {
-    val imports = mutableListOf<String>()
+private class FakeFileSendService(
+    var prepareResult: suspend (List<PickedFile>) -> PrepareResult = { files ->
+        PrepareResult.Ready(files.mapIndexed { i, f ->
+            MessagePayload.Attachment(
+                FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                f.fileName, f.mimeType, 1024L,
+            )
+        })
+    },
+) : FileSendService {
+    val pushed = mutableListOf<Pair<FileId, AccountId>>()
+    val released = mutableListOf<List<MessagePayload.Attachment>>()
 
-    override suspend fun import(
-        source: FileImportSource,
-        fileName: String,
-        mimeType: String?,
-        keepCopy: Boolean?,
-    ): FileDescriptor {
-        imports += fileName
-        return nextDescriptor(fileName) ?: error("no descriptor stubbed for $fileName")
+    override suspend fun prepare(
+        files: List<PickedFile>,
+        onProgress: (hashedBytes: Long, totalBytes: Long) -> Unit,
+    ): PrepareResult {
+        onProgress(files.size.toLong(), files.size.toLong())
+        return prepareResult(files)
     }
 
-    override suspend fun resolve(fileId: FileId): FileDescriptor? = null
+    override suspend fun release(attachments: List<MessagePayload.Attachment>) {
+        released += attachments
+    }
 
-    override suspend fun markSourceLost(fileId: FileId) = Unit
+    override suspend fun startPushes(
+        attachments: List<MessagePayload.Attachment>,
+        members: Collection<AccountId>,
+    ) {
+        for (a in attachments) {
+            if (a.totalBytes > SMALL_FILE_MAX_BYTES) continue
+            for (m in members) pushed += a.fileId to m
+        }
+    }
 
-    override suspend fun adopt(descriptor: FileDescriptor) = Unit
+    override suspend fun cleanTmp() = Unit
 
-    override suspend fun forget(fileId: FileId) = Unit
-
-    override suspend fun enforceQuota() = Unit
+    override suspend fun confirm(attachments: List<MessagePayload.Attachment>) = Unit
 }
 
 private class RecordingRouter {

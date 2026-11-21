@@ -2,6 +2,8 @@ package org.yapyap.orchestrator.file
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.orchestrator.file.receive.StagedSpan
+import org.yapyap.persistence.File_receives
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
@@ -22,7 +24,8 @@ public enum class FileReceiveStatus {
     READY,
     FAILED,
     DECLINED,
-    /** Reserved: sender-side aborts delete the row instead of marking it. */
+
+    /** Reserved: sender-side aborts the row instead of marking it. */
     CANCELLED,
     EVICTED,
 }
@@ -38,8 +41,6 @@ internal data class FileReceiveRow(
     val fileName: String?,
     val mimeType: String?,
     val hashMismatches: Int,
-    val partPath: String,
-    val finalPath: String,
     val originMessageId: Uuid?,
     val createdAt: Instant,
     val updatedAt: Instant,
@@ -84,25 +85,72 @@ internal interface FileReceiveReader {
 internal interface FileReceiveStore : FileReceiveReader {
     suspend fun upsert(row: FileReceiveRow)
     suspend fun updateProgress(fileId: FileId, contiguousBytes: Long, mismatches: Int, status: FileReceiveStatus, now: Instant)
-    suspend fun updateBlockList(fileId: FileId, blockSize: Int, blockHashes: List<ByteArray>, fileName: String?, mimeType: String?, now: Instant)
     suspend fun updateStatus(fileId: FileId, status: FileReceiveStatus, now: Instant)
     suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
     suspend fun delete(fileId: FileId)
     suspend fun ready(): List<FileReceiveRow>
+    suspend fun all(): List<FileReceiveRow>
 
     suspend fun stageChunk(fileId: FileId, range: StagedRange)
     suspend fun stagedByFile(fileId: FileId): List<StagedRange>
+
+    /** Staged rows overlapping `[from, until)`: the blobs a drain needs, nothing beyond the gap. */
+    suspend fun stagedOverlapping(fileId: FileId, from: Long, until: Long): List<StagedRange>
+
+    /** Offsets and lengths only, no blobs — what coverage decisions run on. */
+    suspend fun stagedRefsByFile(fileId: FileId): List<StagedSpan>
     suspend fun stagedBytes(fileId: FileId): Long
     suspend fun deleteStagedByFile(fileId: FileId)
     suspend fun deleteStagedBelow(fileId: FileId, endExclusive: Long)
     suspend fun deleteStagedFrom(fileId: FileId, start: Long)
+    suspend fun deleteStagedEndingPast(fileId: FileId, start: Long)
     suspend fun trimStagedRow(fileId: FileId, oldStart: Long, newStart: Long, newLength: Long, newPlaintext: ByteArray)
+
+    /** Stage [ranges] and move to [status] in one transaction: P moves before anything is deleted. */
+    suspend fun stageChunks(fileId: FileId, ranges: List<StagedRange>, status: FileReceiveStatus, now: Instant)
+
+    /**
+     * Atomic checkpoint commit (design §8): P advances, drained rows are deleted and the
+     * straddling row trimmed, all in one transaction. [trimOldStart] is null when no row
+     * straddles [newP].
+     */
+    suspend fun commitDrain(
+        fileId: FileId,
+        newP: Long,
+        mismatches: Int,
+        status: FileReceiveStatus,
+        now: Instant,
+        trimOldStart: Long?,
+        trimNewStart: Long?,
+        trimNewLength: Long?,
+        trimNewPlaintext: ByteArray?,
+    )
+
+    /**
+     * Atomic mismatch commit: P rewinds to [blockStart] and every staged row is dropped
+     * (every remaining row either ends past the bad block's start or is a drained prefix
+     * below the new P — a straddling row is trimmed to its prefix, then dropped as drained).
+     */
+    suspend fun commitMismatch(
+        fileId: FileId,
+        blockStart: Long,
+        mismatches: Int,
+        status: FileReceiveStatus,
+        now: Instant,
+    )
+
+    /** Atomic READY commit: staged rows are dropped and the row goes READY in one transaction. */
+    suspend fun markReady(fileId: FileId, newP: Long, mismatches: Int, now: Instant)
+
+    /** Atomic delete of a receive and its staged rows. */
+    suspend fun deleteWithStaged(fileId: FileId)
 }
 
 internal class DefaultFileReceiveStore(
     database: YapYapDatabase,
     private val dbDispatcher: CoroutineDispatcher = databaseDispatcher,
 ) : FileReceiveStore {
+    private val db = database
     private val queries = database.fileQueries
 
     override suspend fun upsert(row: FileReceiveRow): Unit = withContext(dbDispatcher) {
@@ -116,9 +164,7 @@ internal class DefaultFileReceiveStore(
             file_name = row.fileName,
             mime_type = row.mimeType,
             hash_mismatches = row.hashMismatches.toLong(),
-            part_path = row.partPath,
-            final_path = row.finalPath,
-            origin_message_id = row.originMessageId?.toHexString(),
+            origin_message_id = row.originMessageId,
             created_at = row.createdAt,
             updated_at = row.updatedAt,
         )
@@ -140,19 +186,6 @@ internal class DefaultFileReceiveStore(
         }
     }
 
-    override suspend fun updateBlockList(
-        fileId: FileId,
-        blockSize: Int,
-        blockHashes: List<ByteArray>,
-        fileName: String?,
-        mimeType: String?,
-        now: Instant,
-    ) {
-        withContext(dbDispatcher) {
-            queries.updateFileReceiveBlockList(blockSize.toLong(), encodeBlockHashes(blockHashes), fileName, mimeType, now, fileId)
-        }
-    }
-
     override suspend fun updateStatus(fileId: FileId, status: FileReceiveStatus, now: Instant) {
         withContext(dbDispatcher) {
             queries.updateFileReceiveStatus(status, now, fileId)
@@ -161,7 +194,7 @@ internal class DefaultFileReceiveStore(
 
     override suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant) {
         withContext(dbDispatcher) {
-            queries.updateFileReceiveOrigin(messageId.toHexString(), now, fileId)
+            queries.updateFileReceiveOrigin(messageId, now, fileId)
         }
     }
 
@@ -179,6 +212,10 @@ internal class DefaultFileReceiveStore(
         queries.selectReadyFileReceives().executeAsList().map { it.toRow() }
     }
 
+    override suspend fun all(): List<FileReceiveRow> = withContext(dbDispatcher) {
+        queries.selectAllFileReceives().executeAsList().map { it.toRow() }
+    }
+
     override suspend fun stageChunk(fileId: FileId, range: StagedRange) {
         withContext(dbDispatcher) {
             queries.insertFileReceiveChunk(fileId, range.startOffset, range.length, range.plaintext)
@@ -188,6 +225,19 @@ internal class DefaultFileReceiveStore(
     override suspend fun stagedByFile(fileId: FileId): List<StagedRange> = withContext(dbDispatcher) {
         queries.selectFileReceiveChunksByFile(fileId).executeAsList().map {
             StagedRange(it.start_offset, it.length, it.plaintext)
+        }
+    }
+
+    override suspend fun stagedOverlapping(fileId: FileId, from: Long, until: Long): List<StagedRange> =
+        withContext(dbDispatcher) {
+            queries.selectFileReceiveChunksOverlapping(fileId, until, from).executeAsList().map {
+                StagedRange(it.start_offset, it.length, it.plaintext)
+            }
+        }
+
+    override suspend fun stagedRefsByFile(fileId: FileId): List<StagedSpan> = withContext(dbDispatcher) {
+        queries.selectFileReceiveChunkRefsByFile(fileId).executeAsList().map {
+            StagedSpan(it.start_offset, it.length)
         }
     }
 
@@ -213,6 +263,12 @@ internal class DefaultFileReceiveStore(
         }
     }
 
+    override suspend fun deleteStagedEndingPast(fileId: FileId, start: Long) {
+        withContext(dbDispatcher) {
+            queries.deleteFileReceiveChunksEndingPast(fileId, start)
+        }
+    }
+
     override suspend fun trimStagedRow(
         fileId: FileId,
         oldStart: Long,
@@ -225,7 +281,79 @@ internal class DefaultFileReceiveStore(
         }
     }
 
-    private fun org.yapyap.persistence.File_receives.toRow(): FileReceiveRow = FileReceiveRow(
+    override suspend fun stageChunks(
+        fileId: FileId,
+        ranges: List<StagedRange>,
+        status: FileReceiveStatus,
+        now: Instant
+    ) {
+        withContext(dbDispatcher) {
+            db.transaction {
+                for (range in ranges) {
+                    queries.insertFileReceiveChunk(fileId, range.startOffset, range.length, range.plaintext)
+                }
+                queries.updateFileReceiveStatus(status, now, fileId)
+            }
+        }
+    }
+
+    override suspend fun commitDrain(
+        fileId: FileId,
+        newP: Long,
+        mismatches: Int,
+        status: FileReceiveStatus,
+        now: Instant,
+        trimOldStart: Long?,
+        trimNewStart: Long?,
+        trimNewLength: Long?,
+        trimNewPlaintext: ByteArray?,
+    ) {
+        withContext(dbDispatcher) {
+            db.transaction {
+                // P moves before anything is deleted.
+                queries.updateFileReceiveProgress(newP, mismatches.toLong(), status, now, fileId)
+                queries.deleteFileReceiveChunksBelow(fileId, newP)
+                if (trimOldStart != null && trimNewStart != null && trimNewLength != null && trimNewPlaintext != null) {
+                    queries.updateFileReceiveChunk(trimNewStart, trimNewLength, trimNewPlaintext, fileId, trimOldStart)
+                }
+            }
+        }
+    }
+
+    override suspend fun commitMismatch(
+        fileId: FileId,
+        blockStart: Long,
+        mismatches: Int,
+        status: FileReceiveStatus,
+        now: Instant,
+    ) {
+        withContext(dbDispatcher) {
+            db.transaction {
+                queries.updateFileReceiveProgress(blockStart, mismatches.toLong(), status, now, fileId)
+                queries.deleteFileReceiveChunksByFile(fileId)
+            }
+        }
+    }
+
+    override suspend fun markReady(fileId: FileId, newP: Long, mismatches: Int, now: Instant) {
+        withContext(dbDispatcher) {
+            db.transaction {
+                queries.updateFileReceiveProgress(newP, mismatches.toLong(), FileReceiveStatus.READY, now, fileId)
+                queries.deleteFileReceiveChunksByFile(fileId)
+            }
+        }
+    }
+
+    override suspend fun deleteWithStaged(fileId: FileId) {
+        withContext(dbDispatcher) {
+            db.transaction {
+                queries.deleteFileReceiveChunksByFile(fileId)
+                queries.deleteFileReceiveById(fileId)
+            }
+        }
+    }
+
+    private fun File_receives.toRow(): FileReceiveRow = FileReceiveRow(
         fileId = file_id,
         status = status,
         totalBytes = total_bytes,
@@ -235,9 +363,7 @@ internal class DefaultFileReceiveStore(
         fileName = file_name,
         mimeType = mime_type,
         hashMismatches = hash_mismatches.toInt(),
-        partPath = part_path,
-        finalPath = final_path,
-        originMessageId = origin_message_id?.let { Uuid.parseHex(it) },
+        originMessageId = origin_message_id,
         createdAt = created_at,
         updatedAt = updated_at,
     )

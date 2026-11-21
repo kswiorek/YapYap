@@ -906,6 +906,43 @@ Replaces `DefaultFileReceiveEngine`.
 
 - **Done when:** `DefaultFileReceiveEngine.kt` does not exist; `ReceiveEngine` does not import `MessageRepository`;
   `grep -n "partPath\|finalPath" core/src/commonMain` finds nothing outside `ReceivePaths`.
+- **As landed:**
+    - Recovery runs before ingest opens: `start` retries it until it succeeds, and `recovered` flips only on success
+      (`recoverNow` runs it inline for tests). Ingest, OFFER checks and checkpoints answer `Defer` / do nothing until
+      then.
+    - Recovery keeps staged rows and rewinds P to what survived on disk: a longer `.part` is truncated to P, a shorter
+      one rewinds P to its size, a missing one is recreated at P 0. A receive whose `.part` was already renamed to its
+      final file (crash between the rename and READY) is left for the checkpoint to complete. Ended receives drop any
+      `.part` and staged rows a failed cleanup left.
+    - Free-space check and insert hold the reservation mutex together; the concurrent-OFFERs test launches both checks
+      concurrently.
+    - `completeRow`: rename (skipped when the final file exists), directory fsync, `markReady`, then `adopt`. A crash
+      between READY and adopt is repaired by recovery re-adopting READY rows whose final file exists.
+      `crashAtEveryCheckpointStep_losesNothingAcked` injects a crash before `commitDrain`, the rename, `markReady` and
+      `adopt`, then restarts.
+    - No running hash is kept: the drain appends at P (one fsync), verifies each block it completes by re-reading it
+      from disk, then commits. `PartWriter.hasherForPrefix` and the engine's hash map are gone.
+    - Each file's lock and its in-memory state (the authors of staged ranges, the device to ask first) live in one
+      per-file slot, so different files never share a mutable map. Events and receive ends are sent after the lock is
+      released.
+    - Same device first: the device that fed the most bytes of the bad block is remembered; with no recorded author
+      overlapping it, none. In memory only (after a restart the candidate order applies). The candidate core asks it
+      first through a new `CandidateStrategy.preferredDevice` hook that orders devices, not accounts.
+    - Byte checkpoint: ingest drains when the drainable run from P reaches `fileCheckpointBytes`, or the file could
+      complete. Drains load only the staged rows overlapping `[P, newP)` (`stagedOverlapping`).
+    - A failed append, verify or rename propagates: the receive stays IN_FLIGHT and the checkpoint timer retries. A
+      drain that fails right after staging a chunk is logged and the chunk still answers `Staged` (it is durable).
+    - `heldCoverage` propagates store failures and returns null for ended receives (DECLINED, FAILED, CANCELLED,
+      EVICTED), so routing stops requesting them. `reopen`, `markStalled`, `decline`, `evicted` and `forgetUnreferenced`
+      propagate. A store failure inside `checkOffer` / `ingest` is the one place mapped to `Defer`, logged at the verb
+      boundary.
+    - Retention logs deletions as `FILE_UNREFERENCED_DELETED` (new); mismatches log `FILE_BLOCK_MISMATCH`, evictions
+      `FILE_EVICTED` (new).
+    - `FileFetchManager`'s new `Ready` branch sends PROGRESS through a logged helper. The pre-existing `runCatching`
+      calls in that file are left for R5.4, which rewrites it.
+    - `FileTargetHandler` and `FileFetchManager` pass the transfer's peer to `ingest` as the author.
+    - `DrainPlan.deleteBelow` removed (always equals `newP`); `heldCoverage` keeps a `totalBytes` param to detect
+      completion.
 
 ### Step R4.2 — Store, quota and eviction (`orchestrator/file`)
 
@@ -945,6 +982,29 @@ Replaces `DefaultFileReceiveEngine`.
 
 - **Done when:** a received file evicted by quota shows EVICTED and comes back after `acceptFile`; `FileAccess` has no
   blocking public function; the dead code listed above is gone (`grep` each name).
+- **As landed:**
+    - Quota lives in `FileRetention`, behind a `FileQuota` interface, not in `FileStore`: it runs after every READY
+      (from `receiveEvents`, on its own job, never under a file lock) and at the end of each send's `prepare`, keeping
+      that send's and every unconfirmed send's copies. There is no `onEvict` callback and no `enforceQuotaExcept`; the
+      store no longer needs the engine.
+    - `evicted` returns whether it handled a READY receive: EVICTED first, then the descriptor is forgotten, then the
+      final file deleted. Other copies lose their descriptor first, then their bytes, always at the store path for their
+      `fileId`, never at a path read from the row. Failures propagate (the retention job logs and retries).
+    - `last_access_at` is stored in milliseconds, and LRU ties break on `created_at`, then `file_id`. `touch` runs once
+      per serve (on the read that reaches EOF) and on GUI open; it propagates.
+    - `import` returns `ImportResult` (`Imported(descriptor, created)`, `SourceUnreadable`, `NoSpace`). It reports
+      hashed bytes through `onBytes`. A copy checks free space first. Tmp names are random. The tmp is deleted on every
+      path that does not move it into place, cancellation included.
+    - Re-importing a SOURCE_LOST file without a copy makes it a REFERENCE at the picked location, also when it was a
+      lost COPY, so quota never deletes the user's own file. Re-importing with a copy restores a lost COPY from the tmp
+      (or upgrades a REFERENCE). A HELD COPY is only touched.
+    - The plaintext source treats only an `IOException` opening the file as SOURCE_LOST; other errors propagate.
+    - `localFilePath` returns null for `CONTENT_URI` references (no filesystem path to vend; the GUI holds the URI
+      permission).
+    - `FilePathKind` added to `PublicApiSurfaceTest` whitelist as shared-internal vocabulary (new public enum, like
+      `FileStorage`).
+    - `FileAccess.close()` stays blocking (fd release only, no fsync). The JVM `syncDirectory` stays best-effort, since
+      some platforms cannot open a directory.
 
 ### Step R4.3 — The coordinator and the GUI facade (`orchestrator/file`, `orchestrator/runtime/file`)
 
@@ -980,6 +1040,17 @@ Replaces `DefaultFileReceiveEngine`.
     - declining an in-flight file leaves no `.part`;
     - no-space is DECLINED and not re-requested.
 - **Done when:** no `runCatching` in `orchestrator/file`; `FileRequestCoordinator` never reads `updatedAt`.
+- **As landed:**
+    - Gap feed resets the monotonic mark only when `Progress.contiguousBytes` advances past the last recorded P. The
+      engine emits `Progress` only when a drain advances P, not per chunk.
+    - A receive the sweep finds without a mark (an OFFER accepted while running that never sent a byte) gets one then,
+      so it stalls a full `fileStallTimeout` later.
+    - `markStalled(fileId, now)` carries wall `Instant` for `updatedAt`; staleness is decided by the coordinator from
+      its monotonic marks, engine re-checks `IN_FLIGHT` under lock.
+    - Sweep drops due pending for `IN_FLIGHT` only (not `PENDING`, which is never created); accepted-OFFER coverage is
+      via Progress-drop plus sweep-drop (no separate OFFER event).
+    - A no-space OFFER records DECLINED; if that insert fails, the OFFER defers so the sender retries. Routing stops
+      asking because `heldCoverage` is null for DECLINED.
 
 ### Step R4.4 — Sending moves out of messaging (`orchestrator/file`, `orchestrator/runtime/message`)
 
@@ -1034,6 +1105,25 @@ Replaces `DefaultFileReceiveEngine`.
     - a partial copy from a killed send is cleaned at start.
 - **Done when:** `DefaultMessagingService` imports nothing from `orchestrator.file` except `FileSendService` and its
   result types; `Message.attachments` does not exist; `docs/gui-api.md` describes the preparing state.
+- **As landed:**
+    - `FileSendService` also has `confirm()` (drops the releasable mark after a successful append) and `cleanTmp()`
+      (delegates to `FileStore.cleanTmp`). Preparing sends wait for the start-up cleanup, so it never deletes a tmp a
+      new send is writing.
+    - Hashing runs in a background child of the messaging `serviceScope`.
+    - `prepare` releases the descriptors it created (and their copies) on a refusal, an exception or cancellation, so a
+      send cancelled or refused part-way leaves no copy. Only descriptors that prepare created are releasable.
+    - Import errors are typed: `SourceUnreadable` → `FileUnreadable`, `NoSpace` → `NoSpace`. A new
+      `SendRefusal.SendFailed` covers a storage or I/O failure after `sendMessage` returned (it has nobody to throw to).
+      A refusal after hashing, `HistoryIncomplete` included, shows on the preparing item for 5 s, then the item goes.
+    - Progress is per hashed byte, not per file.
+    - `gui-api.md` updated: the vocabulary line names `PreparingSend`, and the preparing paragraph describes refusals.
+      The GUI maps the new refusals and treats `Preparing` like `Sent` for its optimistic row. `FilePathKind` whitelist
+      hunk is R4.2, noted above.
+    - `startPushes` logs a push that fails to start (`FILE_TASK_FAILED`); the pull path still fetches the file. File
+      causes in messaging log under `FILE` with `FILE_*` events.
+    - `DefaultMessagingServiceTest` uses `FakeFileSendService`. The real `DefaultFileSendService` is covered by
+      `FileSendServiceTest`: unreadable mapping, part-way refusal and cancel mid-hash leave no copy, per-byte progress,
+      release only of what the send created, `cleanTmp`.
 
 ---
 

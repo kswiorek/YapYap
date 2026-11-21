@@ -1,6 +1,5 @@
 package org.yapyap.orchestrator.file
 
-import kotlinx.io.files.Path
 import org.yapyap.protocol.FileId
 import kotlin.time.Instant
 
@@ -8,6 +7,12 @@ import kotlin.time.Instant
 public enum class FileStorage {
     COPY,
     REFERENCE,
+}
+
+/** Whether [FileDescriptor.path] is a filesystem path or an Android content URI (design §10). */
+public enum class FilePathKind {
+    PATH,
+    CONTENT_URI,
 }
 
 /** Holder-side liveness of a descriptor. A rotted reference stops being served. */
@@ -30,8 +35,8 @@ internal data class FileDescriptor(
     val storage: FileStorage,
     /** Store path for COPY; original path or content-URI string for REFERENCE. */
     val path: String,
+    val pathKind: FilePathKind,
     val status: FileDescriptorStatus,
     val createdAt: Instant,
-) {
-    fun storePath(): Path = Path(path)
-}
+    val lastAccessAt: Instant,
+)

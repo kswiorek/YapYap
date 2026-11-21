@@ -10,6 +10,7 @@ import org.yapyap.orchestrator.dag.DagEngine
 import org.yapyap.orchestrator.file.FileDescriptorReader
 import org.yapyap.orchestrator.file.FileReceiveReader
 import org.yapyap.orchestrator.file.FileRequestControl
+import org.yapyap.orchestrator.file.FileSendService
 import org.yapyap.orchestrator.file.FileStore
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
@@ -85,6 +86,7 @@ internal class DefaultOrchestratorRuntime(
     roomRepository: RoomRepository,
     localDeviceType: DeviceType,
     fileStore: FileStore,
+    fileSendService: FileSendService,
     fileReceives: FileReceiveReader,
     fileDescriptors: FileDescriptorReader,
     fileRequests: FileRequestControl,
@@ -95,7 +97,6 @@ internal class DefaultOrchestratorRuntime(
         dagEngine = dagEngine,
         messageCarrier = router.messages,
         syncCarrier = router.syncs,
-        fileCarrier = router.files,
         pipeline = pipeline,
         roomRepository = roomRepository,
         messageRepository = messageRepository,
@@ -104,7 +105,7 @@ internal class DefaultOrchestratorRuntime(
         localIdentity = localIdentity,
         maxTextBytes = maxTextMessageBytes,
         orchestratorConfig = orchestratorConfig,
-        fileStore = fileStore,
+        fileSendService = fileSendService,
     )
 
     override val files = DefaultFileTransferService(
@@ -112,6 +113,7 @@ internal class DefaultOrchestratorRuntime(
         descriptors = fileDescriptors,
         files = fileAccess,
         requests = fileRequests,
+        store = fileStore,
     )
 
     override val onboarding = DefaultOnboardingService(

@@ -1,8 +1,10 @@
 package org.yapyap.orchestrator.file
 
+import kotlinx.io.IOException
 import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.file.io.FileAccess
+import org.yapyap.orchestrator.file.io.PositionedHandle
 import org.yapyap.protocol.FileId
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FilePlaintextSource
@@ -52,7 +54,7 @@ internal class DefaultFilePlaintextSource(
             store.markSourceLost(fileId)
             return FileReadResult.SourceLost(blockIndexFor(descriptor.blockSize, offset, descriptor.totalBytes))
         }
-        try {
+        reader.use {
             val out = ByteArray(want)
             var outPos = 0
             val firstBlock = (offset / descriptor.blockSize).toInt()
@@ -77,7 +79,6 @@ internal class DefaultFilePlaintextSource(
                         return FileReadResult.SourceLost(blockIndex)
                     }
                     hasher.update(buf, 0, got)
-                    // Copy only the requested slice of this block.
                     val sliceStart = maxOf(offset, blockStart)
                     val sliceEnd = minOf(offset + want, blockEnd)
                     if (sliceEnd > sliceStart) {
@@ -100,20 +101,21 @@ internal class DefaultFilePlaintextSource(
                 }
             }
             check(outPos == want) { "short read: $outPos < $want" }
-            return FileReadResult.Ok(out, eof = offset + want >= descriptor.totalBytes)
-        } finally {
-            runCatching { reader.close() }
+            val eof = offset + want >= descriptor.totalBytes
+            // One LRU touch per serve, not per chunk: every serve ends with the read at EOF.
+            if (eof) store.touch(fileId)
+            return FileReadResult.Ok(out, eof = eof)
         }
     }
 
-    private fun openReader(descriptor: FileDescriptor): org.yapyap.orchestrator.file.io.PositionedHandle? {
-        // REFERENCE descriptors store either a plain path or a content URI.
-        if (descriptor.storage == FileStorage.REFERENCE && descriptor.path.startsWith("content://")) {
-            runCatching { files.openContentPositionedReader(descriptor.path) }.getOrNull()?.let { return it }
-            return null
+    /** Null when the underlying file is gone or unreadable: the serve reports SOURCE_LOST. */
+    private suspend fun openReader(descriptor: FileDescriptor): PositionedHandle? = try {
+        when (descriptor.pathKind) {
+            FilePathKind.CONTENT_URI -> files.openContentPositionedReader(descriptor.path)
+            FilePathKind.PATH -> files.openPositionedReader(Path(descriptor.path))
         }
-        val path = runCatching { Path(descriptor.path) }.getOrNull() ?: return null
-        return runCatching { files.openPositionedReader(path) }.getOrNull()
+    } catch (e: IOException) {
+        null
     }
 
     private fun blockIndexFor(blockSize: Int, offset: Long, totalBytes: Long): Int {

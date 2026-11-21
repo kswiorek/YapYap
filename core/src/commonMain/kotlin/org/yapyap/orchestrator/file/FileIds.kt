@@ -10,25 +10,6 @@ import org.yapyap.protocol.buildFileIdPreimage
  * Hashing lives here, outside `protocol` (the `RoomIds` pattern).
  */
 internal object FileIds {
-    suspend fun blockHashesForBytes(
-        crypto: CryptoProvider,
-        data: ByteArray,
-        blockSize: Int,
-    ): List<ByteArray> {
-        require(blockSize > 0) { "blockSize must be > 0" }
-        if (data.isEmpty()) return emptyList()
-        val hashes = mutableListOf<ByteArray>()
-        var offset = 0
-        while (offset < data.size) {
-            val len = minOf(blockSize, data.size - offset)
-            val hasher = crypto.sha256Hasher()
-            hasher.update(data, offset, len)
-            hashes += hasher.digest()
-            offset += len
-        }
-        return hashes
-    }
-
     suspend fun fileIdForBlocks(
         crypto: CryptoProvider,
         totalBytes: Long,
@@ -37,13 +18,6 @@ internal object FileIds {
     ): FileId {
         val preimage = buildFileIdPreimage(totalBytes, blockSize, blockHashes)
         return FileId(crypto.toHex(crypto.sha256(preimage)))
-    }
-
-    suspend fun fileIdForBytes(crypto: CryptoProvider, data: ByteArray): FileId {
-        val totalBytes = data.size.toLong()
-        val blockSize = blockSizeFor(totalBytes)
-        val hashes = blockHashesForBytes(crypto, data, blockSize)
-        return fileIdForBlocks(crypto, totalBytes, blockSize, hashes)
     }
 
     /**

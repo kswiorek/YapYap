@@ -1,35 +1,44 @@
 package org.yapyap.orchestrator.file.io
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 
 /**
  * JVM `FileAccess` (design §11): `FileChannel`-backed positioned reads,
  * append-only writes with an explicit fsync, and volume free-space.
  *
- * Content URIs do not occur on JVM: both content methods return null.
+ * Every function switches to the IO dispatcher internally: no blocking fsync
+ * ever runs on a router or node coroutine. Content URIs do not occur on JVM.
  */
 internal class JvmFileAccess : FileAccess {
-    override fun exists(path: Path): Boolean = Files.exists(nio(path))
+    override suspend fun exists(path: Path): Boolean = withContext(Dispatchers.IO) {
+        Files.exists(nio(path))
+    }
 
-    override fun createDirectories(path: Path) {
+    override suspend fun createDirectories(path: Path): Unit = withContext(Dispatchers.IO) {
         Files.createDirectories(nio(path))
     }
 
-    override fun fileSize(path: Path): Long? {
+    override suspend fun fileSize(path: Path): Long? = withContext(Dispatchers.IO) {
         val p = nio(path)
-        if (!Files.exists(p)) return null
-        return Files.size(p)
+        if (!Files.exists(p)) return@withContext null
+        Files.size(p)
     }
 
-    override fun freeSpaceBytes(directory: Path): Long = File(directory.toString()).usableSpace
+    override suspend fun freeSpaceBytes(directory: Path): Long = withContext(Dispatchers.IO) {
+        File(directory.toString()).usableSpace
+    }
 
-    override fun delete(path: Path, mustExist: Boolean) {
+    override suspend fun delete(path: Path, mustExist: Boolean): Unit = withContext(Dispatchers.IO) {
         if (mustExist) {
             Files.delete(nio(path))
         } else {
@@ -37,45 +46,54 @@ internal class JvmFileAccess : FileAccess {
         }
     }
 
-    override fun move(source: Path, target: Path) {
+    override suspend fun move(source: Path, target: Path): Unit = withContext(Dispatchers.IO) {
         target.toString().let { t ->
-            java.io.File(t).parentFile?.mkdirs()
+            File(t).parentFile?.mkdirs()
         }
+        // Atomic only: a non-atomic fallback would leave a torn final file on crash.
+        Files.move(nio(source), nio(target), StandardCopyOption.ATOMIC_MOVE)
+    }
+
+    override suspend fun syncDirectory(path: Path): Unit = withContext(Dispatchers.IO) {
+        val dir = Paths.get(path.toString()).parent ?: return@withContext
         try {
-            Files.move(nio(source), nio(target), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            FileChannel.open(dir, StandardOpenOption.READ).use { it.force(true) }
         } catch (_: Exception) {
-            Files.move(
-                nio(source),
-                nio(target),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-            )
+            // Best-effort: the rename above is what matters.
         }
     }
 
-    override fun openAppendWriter(path: Path, truncateToLength: Long?): AppendHandle {
-        val p = nio(path)
-        p.parent?.let { Files.createDirectories(it) }
-        val raf = RandomAccessFile(path.toString(), "rw")
-        val channel = raf.channel
-        if (truncateToLength != null && channel.size() != truncateToLength) {
-            raf.setLength(truncateToLength)
+    override suspend fun openAppendWriter(path: Path, truncateToLength: Long?): AppendHandle =
+        withContext(Dispatchers.IO) {
+            val p = nio(path)
+            p.parent?.let { Files.createDirectories(it) }
+            val raf = RandomAccessFile(path.toString(), "rw")
+            val channel = raf.channel
+            if (truncateToLength != null && channel.size() != truncateToLength) {
+                raf.setLength(truncateToLength)
+            }
+            channel.position(channel.size())
+            JvmAppendHandle(channel, raf)
         }
-        // Torn appends are cut at open to the persisted length; the writer then appends only.
-        channel.position(channel.size())
-        return JvmAppendHandle(channel, raf)
-    }
 
-    override fun openPositionedReader(path: Path, startOffset: Long): PositionedHandle {
-        require(startOffset >= 0) { "startOffset must be >= 0 but was $startOffset" }
-        val channel = FileChannel.open(nio(path), StandardOpenOption.READ)
-        return JvmPositionedHandle(channel, startOffset)
-    }
+    override suspend fun openPositionedReader(path: Path, startOffset: Long): PositionedHandle =
+        withContext(Dispatchers.IO) {
+            require(startOffset >= 0) { "startOffset must be >= 0 but was $startOffset" }
+            val channel = FileChannel.open(nio(path), StandardOpenOption.READ)
+            JvmPositionedHandle(channel, startOffset)
+        }
 
     override suspend fun contentSize(uri: String): Long? = null
 
-    override fun openContentSource(uri: String): kotlinx.io.Source? = null
+    override suspend fun openContentPositionedReader(uri: String, startOffset: Long): PositionedHandle? = null
 
-    override fun openContentPositionedReader(uri: String, startOffset: Long): PositionedHandle? = null
+    override suspend fun cleanTmpFiles(storeDir: Path, prefix: String): Unit = withContext(Dispatchers.IO) {
+        val dir = Paths.get(storeDir.toString())
+        if (!Files.isDirectory(dir)) return@withContext
+        Files.list(dir).use { stream ->
+            stream.filter { it.fileName.toString().startsWith(prefix) }.forEach { Files.deleteIfExists(it) }
+        }
+    }
 
     private fun nio(path: Path) = Paths.get(path.toString())
 
@@ -83,28 +101,28 @@ internal class JvmFileAccess : FileAccess {
         private val channel: FileChannel,
         private val raf: RandomAccessFile,
     ) : AppendHandle {
-        override fun write(bytes: ByteArray, offset: Int, length: Int) {
+        override suspend fun write(bytes: ByteArray, offset: Int, length: Int): Unit = withContext(Dispatchers.IO) {
             require(offset >= 0 && length >= 0 && offset + length <= bytes.size) {
                 "offset ($offset) + length ($length) exceeds size ${bytes.size}"
             }
-            if (length == 0) return
-            val buf = java.nio.ByteBuffer.wrap(bytes, offset, length)
+            if (length == 0) return@withContext
+            val buf = ByteBuffer.wrap(bytes, offset, length)
             while (buf.hasRemaining()) {
                 channel.write(buf)
             }
         }
 
-        override fun flushAndSync() {
+        override suspend fun flushAndSync(): Unit = withContext(Dispatchers.IO) {
             channel.force(true)
         }
 
-        override fun truncate(length: Long) {
+        override suspend fun truncate(length: Long): Unit = withContext(Dispatchers.IO) {
             require(length >= 0) { "length must be >= 0 but was $length" }
             raf.setLength(length)
             channel.position(channel.size())
         }
 
-        override fun size(): Long = channel.size()
+        override suspend fun size(): Long = withContext(Dispatchers.IO) { channel.size() }
 
         override fun close() {
             runCatching { channel.close() }
@@ -116,17 +134,18 @@ internal class JvmFileAccess : FileAccess {
         private val channel: FileChannel,
         private val startOffset: Long,
     ) : PositionedHandle {
-        override fun size(): Long = channel.size()
+        override suspend fun size(): Long = withContext(Dispatchers.IO) { channel.size() }
 
-        override fun readAt(offset: Long, buf: ByteArray, bufOffset: Int, length: Int): Int {
-            require(offset >= 0) { "offset must be >= 0 but was $offset" }
-            require(bufOffset >= 0 && length >= 0 && bufOffset + length <= buf.size) {
-                "bufOffset ($bufOffset) + length ($length) exceeds size ${buf.size}"
+        override suspend fun readAt(offset: Long, buf: ByteArray, bufOffset: Int, length: Int): Int =
+            withContext(Dispatchers.IO) {
+                require(offset >= 0) { "offset must be >= 0 but was $offset" }
+                require(bufOffset >= 0 && length >= 0 && bufOffset + length <= buf.size) {
+                    "bufOffset ($bufOffset) + length ($length) exceeds size ${buf.size}"
+                }
+                if (length == 0) return@withContext 0
+                val byteBuf = ByteBuffer.wrap(buf, bufOffset, length)
+                channel.read(byteBuf, startOffset + offset)
             }
-            if (length == 0) return 0
-            val byteBuf = java.nio.ByteBuffer.wrap(buf, bufOffset, length)
-            return channel.read(byteBuf, startOffset + offset)
-        }
 
         override fun close() {
             runCatching { channel.close() }

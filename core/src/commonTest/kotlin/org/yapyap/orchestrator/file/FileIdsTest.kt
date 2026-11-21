@@ -5,6 +5,7 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.protocol.FILE_BLOCK_BASE_SIZE_BYTES
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.blockSizeFor
+import org.yapyap.testfixtures.TestFileIds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -35,7 +36,7 @@ class FileIdsTest {
 
     @Test
     fun fileId_emptyFile_stableAndVerifies() = runTest {
-        val fileId = FileIds.fileIdForBytes(crypto, byteArrayOf())
+        val fileId = TestFileIds.fileIdForBytes(crypto, byteArrayOf())
         assertEquals(blockSizeFor(0), FILE_BLOCK_BASE_SIZE_BYTES)
         assertTrue(FileIds.checkBlockList(crypto, fileId, 0, blockSizeFor(0), emptyList()))
     }
@@ -43,9 +44,9 @@ class FileIdsTest {
     @Test
     fun fileId_oneShortBlock_roundTrip() = runTest {
         val data = "hello".encodeToByteArray()
-        val fileId = FileIds.fileIdForBytes(crypto, data)
+        val fileId = TestFileIds.fileIdForBytes(crypto, data)
         val blockSize = blockSizeFor(data.size.toLong())
-        val hashes = FileIds.blockHashesForBytes(crypto, data, blockSize)
+        val hashes = TestFileIds.blockHashesForBytes(crypto, data, blockSize)
         assertEquals(1, hashes.size)
         assertTrue(FileIds.checkBlockList(crypto, fileId, data.size.toLong(), blockSize, hashes))
     }
@@ -53,10 +54,10 @@ class FileIdsTest {
     @Test
     fun fileId_exactlyOneBlock_roundTrip() = runTest {
         val data = ByteArray(mib) { it.toByte() }
-        val fileId = FileIds.fileIdForBytes(crypto, data)
+        val fileId = TestFileIds.fileIdForBytes(crypto, data)
         val blockSize = blockSizeFor(data.size.toLong())
         assertEquals(mib, blockSize)
-        val hashes = FileIds.blockHashesForBytes(crypto, data, blockSize)
+        val hashes = TestFileIds.blockHashesForBytes(crypto, data, blockSize)
         assertEquals(1, hashes.size)
         assertTrue(FileIds.checkBlockList(crypto, fileId, data.size.toLong(), blockSize, hashes))
     }
@@ -64,9 +65,9 @@ class FileIdsTest {
     @Test
     fun fileId_exactMultiple_roundTrip() = runTest {
         val data = ByteArray(2 * mib) { (it % 251).toByte() }
-        val fileId = FileIds.fileIdForBytes(crypto, data)
+        val fileId = TestFileIds.fileIdForBytes(crypto, data)
         val blockSize = blockSizeFor(data.size.toLong())
-        val hashes = FileIds.blockHashesForBytes(crypto, data, blockSize)
+        val hashes = TestFileIds.blockHashesForBytes(crypto, data, blockSize)
         assertEquals(2, hashes.size)
         assertTrue(FileIds.checkBlockList(crypto, fileId, data.size.toLong(), blockSize, hashes))
     }
@@ -74,9 +75,9 @@ class FileIdsTest {
     @Test
     fun fileId_shortLastBlock_roundTrip() = runTest {
         val data = ByteArray(mib + 13) { (it * 7).toByte() }
-        val fileId = FileIds.fileIdForBytes(crypto, data)
+        val fileId = TestFileIds.fileIdForBytes(crypto, data)
         val blockSize = blockSizeFor(data.size.toLong())
-        val hashes = FileIds.blockHashesForBytes(crypto, data, blockSize)
+        val hashes = TestFileIds.blockHashesForBytes(crypto, data, blockSize)
         assertEquals(2, hashes.size)
         assertTrue(FileIds.checkBlockList(crypto, fileId, data.size.toLong(), blockSize, hashes))
     }
@@ -84,9 +85,9 @@ class FileIdsTest {
     @Test
     fun checkBlockList_rejectsMismatch() = runTest {
         val data = "content".encodeToByteArray()
-        val fileId = FileIds.fileIdForBytes(crypto, data)
+        val fileId = TestFileIds.fileIdForBytes(crypto, data)
         val blockSize = blockSizeFor(data.size.toLong())
-        val hashes = FileIds.blockHashesForBytes(crypto, data, blockSize).toMutableList()
+        val hashes = TestFileIds.blockHashesForBytes(crypto, data, blockSize).toMutableList()
         hashes[0] = hashes[0].copyOf().also { it[0] = (it[0].toInt() xor 0xff).toByte() }
         assertFalse(FileIds.checkBlockList(crypto, fileId, data.size.toLong(), blockSize, hashes))
     }
@@ -94,8 +95,8 @@ class FileIdsTest {
     @Test
     fun checkBlockList_rejectsWrongBlockSize() = runTest {
         val data = ByteArray(10) { 1 }
-        val fileId = FileIds.fileIdForBytes(crypto, data)
-        val hashes = FileIds.blockHashesForBytes(crypto, data, mib)
+        val fileId = TestFileIds.fileIdForBytes(crypto, data)
+        val hashes = TestFileIds.blockHashesForBytes(crypto, data, mib)
         assertFalse(FileIds.checkBlockList(crypto, FileId(fileId.value), data.size.toLong(), 2 * mib, hashes))
     }
 }

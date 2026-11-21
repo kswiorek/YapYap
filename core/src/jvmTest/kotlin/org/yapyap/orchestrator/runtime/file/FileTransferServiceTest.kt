@@ -12,7 +12,6 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
-import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
 import org.yapyap.orchestrator.file.DefaultFileStore
@@ -21,6 +20,8 @@ import org.yapyap.orchestrator.file.FileReceiveRow
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.PendingFileRequestStatus
 import org.yapyap.orchestrator.file.io.JvmFileAccess
+import org.yapyap.orchestrator.file.receive.ReceiveEngine
+import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.orchestrator.store.DefaultRoomRepository
@@ -78,7 +79,7 @@ class FileTransferServiceTest {
         }
     }
 
-    private fun harness(): Harness {
+    private suspend fun harness(): Harness {
         val db = openMemoryDatabase().database
         val clock = FakeClock(now)
         val receives = DefaultFileReceiveStore(db)
@@ -92,20 +93,21 @@ class FileTransferServiceTest {
         val config = MutableStateFlow(OrchestratorConfig())
         val crypto = DefaultCryptoProvider()
         val storeDir = Path(work.toString(), "store")
-        val engine = DefaultFileReceiveEngine(
+        val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config, clock)
+        val engine = ReceiveEngine(
             receives = receives,
-            messages = messages,
+            descriptors = descriptors,
             crypto = crypto,
             files = files,
-            storeDirectory = storeDir,
-            incomingDirectory = Path(work.toString(), "incoming"),
+            paths = ReceivePaths(Path(work.toString(), "incoming"), storeDir),
             config = config,
-            fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config, clock),
+            fileStore = fileStore,
             clock = clock,
         )
         val coordinator = DefaultFileRequestCoordinator(
             pending = pending,
             receives = receives,
+            descriptors = descriptors,
             control = engine,
             messages = messages,
             fileCarrier = router.files,
@@ -119,6 +121,7 @@ class FileTransferServiceTest {
             descriptors = descriptors,
             files = files,
             requests = coordinator,
+            store = fileStore,
         )
         val mid = Uuid.random()
         return Harness(service, receives, pending, messages, rooms, router, mid)
@@ -196,7 +199,7 @@ class FileTransferServiceTest {
                 fileId = fileId, status = FileReceiveStatus.READY, totalBytes = 1_000L,
                 contiguousBytes = 1_000L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "a.bin", mimeType = null, hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 createdAt = now, updatedAt = now,
             )
         )
@@ -215,7 +218,7 @@ class FileTransferServiceTest {
                 fileId = fileId, status = FileReceiveStatus.READY, totalBytes = 1_000L,
                 contiguousBytes = 1_000L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "a.bin", mimeType = null, hashMismatches = 0,
-                partPath = "p", finalPath = "f", originMessageId = null,
+                originMessageId = null,
                 createdAt = now, updatedAt = now,
             )
         )

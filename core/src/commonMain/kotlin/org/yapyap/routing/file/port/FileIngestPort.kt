@@ -1,6 +1,7 @@
 package org.yapyap.routing.file.port
 
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PeerId
 
 /** Verdict for an OFFER: accept, short-circuit (already held), refuse, or wait. */
 internal sealed interface FileOfferVerdict {
@@ -31,6 +32,9 @@ internal sealed interface FileIngestResult {
     /** Decrypted and durably recorded: the chunk may now be ACKed. Carries the new P. */
     data class Staged(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
 
+    /** The chunk completed the file: checkpointed at completion, READY follows on the ends flow. */
+    data class Ready(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
+
     /** Fully-covered range (a duplicate across transfers/relays): ACK, nothing stored. */
     data class Duplicate(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
 
@@ -49,5 +53,10 @@ internal sealed interface FileIngestResult {
  */
 internal interface FileIngestPort {
     suspend fun checkOffer(offer: FileManifest): FileOfferVerdict
-    suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult
+    suspend fun ingest(
+        fileId: FileId,
+        byteOffset: Long,
+        plaintext: ByteArray,
+        author: PeerId? = null,
+    ): FileIngestResult
 }

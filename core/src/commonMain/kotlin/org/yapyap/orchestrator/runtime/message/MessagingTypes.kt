@@ -38,12 +38,16 @@ public sealed interface MessageDisplayItem {
 
 public data class Message(
     val content: String,
-    val attachments: List<MessageAttachment> = emptyList(),
     /**
      * Files to attach to this send. The messaging service imports each one (hashing into
      * the file store) and publishes the message with the resulting attachments — the GUI
      * never handles `fileId`s itself and issues no second call. Small files start pushing
      * on send; large files are pull-only and wait for the receiver to fetch.
+     *
+     * Sending with files is asynchronous (design §10): `sendMessage` checks the count and
+     * returns `Preparing` at once with a local send id; hashing runs afterwards and the
+     * message is appended when every `fileId` is known. Until then the GUI shows a
+     * preparing item with hashing progress from `preparingSends`.
      */
     val pickedFiles: List<PickedFile> = emptyList(),
 )
@@ -69,11 +73,20 @@ public sealed interface PickedFileSource {
     public data class ContentUri(val uri: String) : PickedFileSource
 }
 
-public data class MessageAttachment(
-    val fileId: String,
-    val fileName: String,
-    val mimeType: String?,
-    val totalBytes: Long,
+/**
+ * A send with files that is still hashing (design §10): returned at once by `sendMessage`
+ * with a local send id; the message is appended when every `fileId` is known. The GUI shows
+ * a preparing item with hashing progress until then. If the app stops mid-hash the send is
+ * lost (in-memory only, partial copy deleted on next start). Cancelling stops the hash and
+ * deletes the partial copy. The message's place in the room is the moment hashing finished,
+ * not the moment the user pressed send.
+ */
+public data class PreparingSend(
+    public val sendId: Uuid,
+    public val roomId: RoomId,
+    public val hashedBytes: Long,
+    public val totalBytes: Long,
+    public val error: SendRefusal? = null,
 )
 
 /**
@@ -135,6 +148,12 @@ public sealed interface SendMessageResult {
      *  reachability snapshot — advisory, never an error state. */
     public data class Sent(val fanout: FanoutReport) : SendMessageResult
 
+    /**
+     * Accepted, hashing in the background: the local send id is in `preparingSends`
+     * until the message lands (or fails). The GUI shows a preparing item meanwhile.
+     */
+    public data class Preparing(val sendId: Uuid) : SendMessageResult
+
     /** Refused before any write — nothing appended, nothing sent. */
     public data class Refused(val reason: SendRefusal) : SendMessageResult
 }
@@ -148,6 +167,18 @@ public sealed interface SendRefusal {
 
     /** Room frontier unchainable — still syncing. */
     public data object HistoryIncomplete : SendRefusal
+
+    /** A picked file could not be read (missing, moved, or unreadable). */
+    public data object FileUnreadable : SendRefusal
+
+    /** Not enough space to import or receive the file. */
+    public data object NoSpace : SendRefusal
+
+    /**
+     * A send with files failed after `sendMessage` returned (a storage or I/O error, not the
+     * user's input). Only seen on a preparing send; retrying may work.
+     */
+    public data object SendFailed : SendRefusal
 }
 
 /**

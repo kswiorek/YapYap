@@ -26,12 +26,13 @@ import org.yapyap.logging.AppLog
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
 import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
-import org.yapyap.orchestrator.file.DefaultFileReceiveEngine
 import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileStore
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.FileRequestControl
 import org.yapyap.orchestrator.file.io.JvmFileAccess
+import org.yapyap.orchestrator.file.receive.ReceiveEngine
+import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.openMemoryDatabase
@@ -61,6 +62,7 @@ import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
 import org.yapyap.testfixtures.PrintingAppLogger
 import org.yapyap.testfixtures.epochSeconds
+import org.yapyap.testfixtures.importHeld
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
@@ -203,13 +205,12 @@ class FileSmallPushTwoRouterTest {
         files.createDirectories(bobIncomingDir)
         val bobFileStore = DefaultFileStore(bobDescriptors, crypto, files, bobStoreDir, fileConfig)
 
-        val bobEngine = DefaultFileReceiveEngine(
+        val bobEngine = ReceiveEngine(
             receives = bobReceives,
-            messages = bobMessages,
+            descriptors = bobDescriptors,
             crypto = crypto,
             files = files,
-            storeDirectory = bobStoreDir,
-            incomingDirectory = bobIncomingDir,
+            paths = ReceivePaths(bobIncomingDir, bobStoreDir),
             config = fileConfig,
             fileStore = bobFileStore,
             clock = clock,
@@ -286,6 +287,7 @@ class FileSmallPushTwoRouterTest {
                 override suspend fun acceptFile(fileId: org.yapyap.protocol.FileId) = error("not used")
                 override suspend fun declineFile(fileId: org.yapyap.protocol.FileId) = error("not used")
             },
+            store = bobFileStore,
         )
 
         try {
@@ -322,7 +324,7 @@ class FileSmallPushTwoRouterTest {
                     it.write(original)
                     it.flushAndSync()
                 }
-                val descriptor = aliceFileStore.import(
+                val descriptor = aliceFileStore.importHeld(
                     source = org.yapyap.orchestrator.file.FileImportSource.PathSource(sourcePath),
                     fileName = "small.bin",
                     mimeType = "application/octet-stream",

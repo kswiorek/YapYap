@@ -1,6 +1,8 @@
 import kotlin.time.Instant;
+import kotlin.uuid.Uuid;
 import org.yapyap.protocol.FileId;
 import org.yapyap.orchestrator.file.FileStorage;
+import org.yapyap.orchestrator.file.FilePathKind;
 import org.yapyap.orchestrator.file.FileDescriptorStatus;
 import org.yapyap.orchestrator.file.FileReceiveStatus;
 
@@ -17,15 +19,17 @@ CREATE TABLE file_descriptors (
     storage TEXT AS FileStorage NOT NULL,
     -- Store path for COPY; original path or content-URI string for REFERENCE.
     path TEXT NOT NULL,
+    storage_kind TEXT AS FilePathKind NOT NULL,
     status TEXT AS FileDescriptorStatus NOT NULL,
-    created_at INTEGER AS Instant NOT NULL
+    created_at INTEGER AS Instant NOT NULL,
+    last_access_at INTEGER AS Instant NOT NULL
 );
 
 insertFileDescriptor:
 INSERT OR REPLACE INTO file_descriptors (
     file_id, file_name, mime_type, total_bytes, block_size, block_hashes,
-    storage, path, status, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    storage, path, storage_kind, status, created_at, last_access_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectFileDescriptorById:
 SELECT * FROM file_descriptors WHERE file_id = ?;
@@ -36,17 +40,21 @@ DELETE FROM file_descriptors WHERE file_id = ?;
 updateFileDescriptorStatus:
 UPDATE file_descriptors SET status = ? WHERE file_id = ?;
 
-selectCopyDescriptorsOrderedByCreated:
-SELECT * FROM file_descriptors WHERE storage = 'COPY' ORDER BY created_at ASC;
+updateFileDescriptorAccess:
+UPDATE file_descriptors SET last_access_at = ? WHERE file_id = ?;
+
+updateFileDescriptorHeld:
+UPDATE file_descriptors SET status = 'HELD', file_name = ?, mime_type = ?, total_bytes = ?, block_size = ?, block_hashes = ?, storage = ?, path = ?, storage_kind = ?, last_access_at = ? WHERE file_id = ?;
+
+selectCopyDescriptorsOrderedByAccess:
+SELECT * FROM file_descriptors WHERE storage = 'COPY' ORDER BY last_access_at ASC, created_at ASC, file_id ASC;
 
 sumCopyBytes:
 SELECT COALESCE(SUM(total_bytes), 0) FROM file_descriptors WHERE storage = 'COPY';
 
-selectAllFileDescriptors:
-SELECT * FROM file_descriptors;
-
 -- Orchestrator-owned receive state, fileId-scoped (design §13): coverage checkpoints,
 -- block verification state and staging live here; incoming transfers merge into it.
+-- Paths are derived from the fileId and the store layout, never stored.
 CREATE TABLE file_receives (
     file_id TEXT AS FileId NOT NULL PRIMARY KEY,
     status TEXT AS FileReceiveStatus NOT NULL,
@@ -61,11 +69,9 @@ CREATE TABLE file_receives (
     file_name TEXT,
     mime_type TEXT,
     hash_mismatches INTEGER NOT NULL,
-    part_path TEXT NOT NULL,
-    final_path TEXT NOT NULL,
-    -- Discovered when a message referencing the file shows up; a READY row still
-    -- without one after fileTransferTtl is deleted with its file.
-    origin_message_id TEXT,
+    -- Discovered when a message referencing the file shows up; a receive still
+    -- without one after the unreferenced retention is deleted with its file.
+    origin_message_id TEXT AS Uuid,
     created_at INTEGER AS Instant NOT NULL,
     updated_at INTEGER AS Instant NOT NULL
 );
@@ -73,12 +79,15 @@ CREATE TABLE file_receives (
 insertFileReceive:
 INSERT OR REPLACE INTO file_receives (
     file_id, status, total_bytes, contiguous_bytes, block_size, block_hashes,
-    file_name, mime_type, hash_mismatches, part_path, final_path,
+    file_name, mime_type, hash_mismatches,
     origin_message_id, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectFileReceiveById:
 SELECT * FROM file_receives WHERE file_id = ?;
+
+selectAllFileReceives:
+SELECT * FROM file_receives;
 
 selectActiveFileReceives:
 SELECT * FROM file_receives WHERE status = 'IN_FLIGHT' OR status = 'STALLED';
@@ -89,11 +98,6 @@ SELECT * FROM file_receives WHERE status = 'READY';
 updateFileReceiveProgress:
 UPDATE file_receives
 SET contiguous_bytes = ?, hash_mismatches = ?, status = ?, updated_at = ?
-WHERE file_id = ?;
-
-updateFileReceiveBlockList:
-UPDATE file_receives
-SET block_size = ?, block_hashes = ?, file_name = ?, mime_type = ?, updated_at = ?
 WHERE file_id = ?;
 
 updateFileReceiveStatus:
@@ -122,6 +126,14 @@ VALUES (?, ?, ?, ?);
 selectFileReceiveChunksByFile:
 SELECT * FROM file_receive_chunks WHERE file_id = ? ORDER BY start_offset ASC;
 
+selectFileReceiveChunksOverlapping:
+SELECT * FROM file_receive_chunks
+WHERE file_id = ? AND start_offset < :untilExclusive AND start_offset + length > :fromInclusive
+ORDER BY start_offset ASC;
+
+selectFileReceiveChunkRefsByFile:
+SELECT file_id, start_offset, length FROM file_receive_chunks WHERE file_id = ? ORDER BY start_offset ASC;
+
 sumFileReceiveStagedBytes:
 SELECT COALESCE(SUM(length), 0) FROM file_receive_chunks WHERE file_id = ?;
 
@@ -133,6 +145,9 @@ DELETE FROM file_receive_chunks WHERE file_id = ? AND start_offset + length <= ?
 
 deleteFileReceiveChunksFrom:
 DELETE FROM file_receive_chunks WHERE file_id = ? AND start_offset >= ?;
+
+deleteFileReceiveChunksEndingPast:
+DELETE FROM file_receive_chunks WHERE file_id = ? AND start_offset + length > ?;
 
 updateFileReceiveChunk:
 UPDATE file_receive_chunks

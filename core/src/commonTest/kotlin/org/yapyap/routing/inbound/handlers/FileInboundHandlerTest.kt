@@ -78,12 +78,19 @@ internal class ScriptedFileIngestPort(
         return offerVerdict
     }
 
-    override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
+    override suspend fun ingest(
+        fileId: FileId,
+        byteOffset: Long,
+        plaintext: ByteArray,
+        author: PeerId?,
+    ): FileIngestResult {
         ingests += Triple(fileId, byteOffset, plaintext)
         return ingestResult
     }
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
+
+    override suspend fun preferDevice(fileId: FileId): PeerId? = null
 
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
 
