@@ -63,6 +63,9 @@ internal interface PacketOutbox {
     /** Removes every row expired at [now]; returns them. */
     suspend fun pruneExpired(now: Instant): List<OutboxEntry>
 
+    /** Packet ids still queued for [tag] (restart recovery of per-transfer windows). */
+    suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid>
+
     /** Whether a row carrying [tag] is still queued. */
     suspend fun hasTagged(tag: OutboxTag): Boolean
     suspend fun earliestPendingRetryAt(): Instant?

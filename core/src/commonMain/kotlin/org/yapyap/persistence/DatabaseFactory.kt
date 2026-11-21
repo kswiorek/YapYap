@@ -187,6 +187,7 @@ internal class DatabaseFactory(
                     via_relayAdapter = PeerIdAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
                     expires_atAdapter = InstantEpochSecondsAdapter,
+                    deposited_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 pending_file_requestsAdapter = Pending_file_requests.Adapter(
                     file_idAdapter = FileIdAdapter(),

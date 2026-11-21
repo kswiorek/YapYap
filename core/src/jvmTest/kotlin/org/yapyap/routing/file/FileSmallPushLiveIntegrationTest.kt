@@ -47,10 +47,6 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
 import org.yapyap.routing.router.FakeSyncPayloadProvider
-import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
-import org.yapyap.routing.router.InMemoryFilePushStore
-import org.yapyap.routing.router.InMemoryFileRelayStore
-import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.LocalLinkStatus
@@ -58,6 +54,10 @@ import org.yapyap.routing.router.NoFileReceiveEnds
 import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRelayStore
+import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -236,10 +236,10 @@ class FileSmallPushLiveIntegrationTest {
                 serveGate = RefusingFilePorts(),
                 plaintext = DefaultFilePlaintextSource(aliceDescriptors, aliceFileStore, files, crypto),
                 receiveEnds = NoFileReceiveEnds,
-                incoming = InMemoryFileIncomingTransferStore(),
-                pushes = InMemoryFilePushStore(),
-                relay = InMemoryFileRelayStore(),
-                requestAttempts = InMemoryFileRequestAttemptStore(),
+                incoming = DefaultFileIncomingTransferStore(aliceDb),
+                pushes = DefaultFilePushStore(aliceDb),
+                relay = DefaultFileRelayStore(aliceDb),
+                requestAttempts = DefaultFileRequestAttemptStore(aliceDb),
                 chunkSizeBytes = MutableStateFlow(chunkSize),
                 fetchFrameBytes = MutableStateFlow(chunkSize),
             ),
@@ -267,10 +267,10 @@ class FileSmallPushLiveIntegrationTest {
                 serveGate = RefusingFilePorts(),
                 plaintext = DefaultFilePlaintextSource(bobDescriptors, bobFileStore, files, crypto),
                 receiveEnds = bobEngine,
-                incoming = InMemoryFileIncomingTransferStore(),
-                pushes = InMemoryFilePushStore(),
-                relay = InMemoryFileRelayStore(),
-                requestAttempts = InMemoryFileRequestAttemptStore(),
+                incoming = DefaultFileIncomingTransferStore(bobDb),
+                pushes = DefaultFilePushStore(bobDb),
+                relay = DefaultFileRelayStore(bobDb),
+                requestAttempts = DefaultFileRequestAttemptStore(bobDb),
                 chunkSizeBytes = MutableStateFlow(chunkSize),
                 fetchFrameBytes = MutableStateFlow(chunkSize),
             ),

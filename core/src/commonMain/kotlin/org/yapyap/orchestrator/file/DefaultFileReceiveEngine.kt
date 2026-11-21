@@ -172,7 +172,7 @@ internal class DefaultFileReceiveEngine(
     }
 
     override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray): FileIngestResult {
-        if (plaintext.isEmpty()) return FileIngestResult.Duplicate
+        if (plaintext.isEmpty()) return FileIngestResult.Duplicate(0L, 0L)
         return lock.withLock {
             val now = clock.now()
             val row = try {
@@ -182,7 +182,7 @@ internal class DefaultFileReceiveEngine(
                 return FileIngestResult.Defer
             } ?: return FileIngestResult.Refused
             when (row.status) {
-                FileReceiveStatus.READY -> return FileIngestResult.Duplicate
+                FileReceiveStatus.READY -> return FileIngestResult.Duplicate(row.contiguousBytes, row.totalBytes)
                 FileReceiveStatus.FAILED,
                 FileReceiveStatus.DECLINED,
                 FileReceiveStatus.CANCELLED,
@@ -196,7 +196,7 @@ internal class DefaultFileReceiveEngine(
             }
             if (byteOffset < 0 || byteOffset >= row.totalBytes) return FileIngestResult.Refused
             val end = minOf(byteOffset + plaintext.size, row.totalBytes)
-            if (end <= row.contiguousBytes) return FileIngestResult.Duplicate
+            if (end <= row.contiguousBytes) return FileIngestResult.Duplicate(row.contiguousBytes, row.totalBytes)
             val staged: List<StagedRange> = try {
                 receives.stagedByFile(fileId)
             } catch (e: Exception) {
@@ -204,7 +204,7 @@ internal class DefaultFileReceiveEngine(
                 return FileIngestResult.Defer
             }
             val uncovered = subtractUncovered(maxOf(byteOffset, row.contiguousBytes), end, byteOffset, plaintext, staged)
-            if (uncovered.isEmpty()) return FileIngestResult.Duplicate
+            if (uncovered.isEmpty()) return FileIngestResult.Duplicate(row.contiguousBytes, row.totalBytes)
             if (!extendsPrefix(row.contiguousBytes, staged, uncovered)) {
                 val stagedTotal = try {
                     receives.stagedBytes(fileId)

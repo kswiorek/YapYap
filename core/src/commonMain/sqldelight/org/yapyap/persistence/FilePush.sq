@@ -22,15 +22,28 @@ CREATE TABLE file_pushes (
     marker_packet_id TEXT,
     status TEXT NOT NULL,
     created_at INTEGER AS Instant NOT NULL,
-    expires_at INTEGER AS Instant NOT NULL
+    expires_at INTEGER AS Instant NOT NULL,
+    -- Deposit-round claim (design §6.4): set once when the round starts, NULL before.
+    deposited_at INTEGER AS Instant
 );
+
+-- Chunk index recovery across restarts (design §6.2): the actor records packetId → index
+-- when it enqueues, so a restart rebuilds `queued` from outbox rows instead of re-sealing.
+CREATE TABLE file_push_chunks (
+    transfer_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    packet_id TEXT NOT NULL,
+    PRIMARY KEY (transfer_id, chunk_index),
+    FOREIGN KEY (transfer_id) REFERENCES file_pushes(transfer_id) ON DELETE CASCADE
+);
+CREATE INDEX file_push_chunks_packet_idx ON file_push_chunks(packet_id);
 
 insertFilePush:
 INSERT INTO file_pushes (
     transfer_id, file_id, target_device, via_relay, kind, total_bytes, key, chunk_size_bytes,
     start_index, next_chunk_index, contiguous_acked, marker_packet_id,
-    status, created_at, expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    status, created_at, expires_at, deposited_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectFilePushById:
 SELECT * FROM file_pushes WHERE transfer_id = ?;
@@ -40,8 +53,18 @@ SELECT * FROM file_pushes
 WHERE file_id = :fileId AND target_device = :target
   AND (status = 'CREATED' OR status = 'IN_FLIGHT');
 
+-- A new send to (file, device) starts a fresh generation: earlier finished transfers of
+-- the pair stop counting toward the account's state and events.
+deleteTerminalFilePushesByFileAndTarget:
+DELETE FROM file_pushes
+WHERE file_id = :fileId AND target_device = :target
+  AND status != 'CREATED' AND status != 'IN_FLIGHT';
+
 selectLiveFilePushes:
 SELECT * FROM file_pushes WHERE status = 'CREATED' OR status = 'IN_FLIGHT';
+
+selectFilePushesByFile:
+SELECT * FROM file_pushes WHERE file_id = :fileId;
 
 updateFilePushStatus:
 UPDATE file_pushes SET status = ? WHERE transfer_id = ?;
@@ -52,10 +75,32 @@ UPDATE file_pushes SET marker_packet_id = ? WHERE transfer_id = ?;
 updateFilePushProgress:
 UPDATE file_pushes SET next_chunk_index = ?, contiguous_acked = ? WHERE transfer_id = ?;
 
-selectExpiredFilePushes:
-SELECT * FROM file_pushes WHERE expires_at <= ?;
+-- Deposit-round claim (design §6.4): exactly one claimant per source transfer, restart-safe.
+claimFilePushDeposited:
+UPDATE file_pushes SET deposited_at = :now WHERE transfer_id = :id AND deposited_at IS NULL;
 
-selectFilePushByMarkerPacketId:
-SELECT * FROM file_pushes WHERE marker_packet_id = ?;
+-- Terminal rows past their TTL: the ticker deletes them with their key (invariant 5).
+selectTerminalFilePushesBefore:
+SELECT * FROM file_pushes
+WHERE (status NOT IN ('CREATED', 'IN_FLIGHT')) AND expires_at <= ?;
+
+deleteFilePushById:
+DELETE FROM file_pushes WHERE transfer_id = ?;
+
+insertFilePushChunk:
+INSERT OR REPLACE INTO file_push_chunks (transfer_id, chunk_index, packet_id)
+VALUES (?, ?, ?);
+
+selectFilePushChunksByTransfer:
+SELECT transfer_id, chunk_index, packet_id FROM file_push_chunks WHERE transfer_id = ?;
+
+selectFilePushChunkByPacket:
+SELECT transfer_id, chunk_index, packet_id FROM file_push_chunks WHERE packet_id = ?;
+
+deleteFilePushChunkByPacket:
+DELETE FROM file_push_chunks WHERE packet_id = ?;
+
+deleteFilePushChunksByTransfer:
+DELETE FROM file_push_chunks WHERE transfer_id = ?;
 
 CREATE INDEX file_pushes_file_target_idx ON file_pushes(file_id, target_device);

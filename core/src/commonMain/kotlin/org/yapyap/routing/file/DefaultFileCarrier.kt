@@ -16,8 +16,9 @@ import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileReceiveEnd
+import org.yapyap.routing.file.port.FileSendState
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.store.FileIncomingTransferStore
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -32,6 +33,9 @@ internal interface FilePushOps {
      * file to that device (old transfer CANCELled). False when not held or large.
      */
     suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean
+
+    /** Per-account send state, computed from `file_pushes` (design §12–§13). */
+    suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState>
 }
 
 /**
@@ -42,7 +46,7 @@ internal interface FilePushOps {
 internal class DefaultFileCarrier(
     private val localDeviceId: PeerId,
     private val protection: EnvelopeProtectionService,
-    private val incoming: FileIncomingTransferStore,
+    private val incoming: FileIncomingTransfers,
     private val enqueue: suspend (BinaryEnvelope) -> Unit,
     private val clock: Clock,
     private val routerConfig: StateFlow<RouterConfig>,
@@ -58,6 +62,9 @@ internal class DefaultFileCarrier(
 
     override suspend fun cancelFile(fileId: FileId, target: AccountId) =
         pushOps.cancelFile(fileId, target)
+
+    override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> =
+        pushOps.sendState(fileId)
 
     override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) =
         startRequest(fileId, firstAttemptAt)
@@ -76,29 +83,44 @@ internal class DefaultFileCarrier(
         )
     }
 
-    /** Sends [payload] to every live transfer author of [fileId] and drops their incoming rows. */
+    /**
+     * Drops [fileId]'s incoming rows and sends [payload] to each of their authors. Each answer
+     * stands alone: one author's failure (logged) never costs the others theirs. The answer is
+     * politeness — an unanswered author's transfer ends on its own TTL.
+     */
     private suspend fun endIncoming(fileId: FileId, payload: FilePayload, message: String) {
         val now = clock.now()
         val expiresAt = now + routerConfig.value.fileTransferTtl
-        for (row in incoming.findByFile(fileId)) {
-            enqueue(
-                buildFileControlEnvelope(
-                    protection = protection,
-                    transferId = row.transferId,
-                    source = localDeviceId,
-                    target = row.authorDevice,
-                    createdAt = now,
-                    expiresAt = expiresAt,
-                    payload = payload,
-                ),
-            )
+        for (row in incoming.endAllFor(fileId)) {
+            try {
+                enqueue(
+                    buildFileControlEnvelope(
+                        protection = protection,
+                        transferId = row.transferId,
+                        source = localDeviceId,
+                        target = row.authorDevice,
+                        createdAt = now,
+                        expiresAt = expiresAt,
+                        payload = payload,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.warn(
+                    component = LogComponent.FILE,
+                    event = LogEvent.FILE_TASK_FAILED,
+                    message = "Could not answer a transfer author; its transfer ends on its TTL",
+                    fields = mapOf("fileId" to fileId, "transferId" to row.transferId, "error" to e.toString()),
+                )
+                continue
+            }
             AppLog.info(
-                component = LogComponent.ROUTER,
-                event = LogEvent.OUTBOX_MESSAGE_QUEUED,
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_PUSH_ENDED,
                 message = message,
                 fields = mapOf("fileId" to fileId, "transferId" to row.transferId, "author" to row.authorDevice),
             )
         }
-        incoming.deleteByFile(fileId)
     }
 }

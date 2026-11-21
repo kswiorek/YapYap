@@ -10,6 +10,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import org.yapyap.routing.file.fetch.FileFetchManager
@@ -20,8 +21,13 @@ import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileReceiveEnds
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.file.port.FileServeGate
-import org.yapyap.routing.file.relay.FileRelayForwarder
+import org.yapyap.routing.file.push.FileOutbox
+import org.yapyap.routing.file.push.FilePushEngine
+import org.yapyap.routing.file.push.FileSender
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.inbound.handlers.FileRelayDoor
+import org.yapyap.routing.inbound.handlers.FileServeHandler
+import org.yapyap.routing.inbound.handlers.FileTargetHandler
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.RelaySelectionPolicy
@@ -58,7 +64,7 @@ internal class FileRoutingPorts(
 )
 
 /**
- * Routing's file machinery, assembled in one place (design §6, §7, §9): the pusher, the relay
+ * Routing's file machinery, assembled in one place (design §6, §7, §9): the push engine, the relay
  * forwarder, the large-path fetch, the request processor, the inbound FILE handler and the
  * [FileCarrier] the orchestrator sees. The router builds it from its shared pieces and only
  * routes to it: FILE packets to [inboundHandler], FILE and FILE_REQUEST outcomes to
@@ -68,7 +74,7 @@ internal class FileRouting(
     ctx: RoutingContext,
     ports: FileRoutingPorts,
     private val outboxProcessor: OutboxProcessor,
-    packetOutbox: PacketOutbox,
+    private val packetOutbox: PacketOutbox,
     relaySelection: RelaySelectionPolicy,
     peerPolicy: SyncPeerPolicy,
     sessionOpener: ProactiveSessionOpener,
@@ -98,24 +104,30 @@ internal class FileRouting(
 
         override suspend fun deleteByTag(tag: OutboxTag) = packetOutbox.deleteByTag(tag)
 
-        override suspend fun hasQueued(tag: OutboxTag) = packetOutbox.hasTagged(tag)
-
-        override suspend fun isPacketQueued(packetId: Uuid) = packetOutbox.getByPacketId(packetId) != null
+        override suspend fun packetIdsByTag(tag: OutboxTag) = packetOutbox.packetIdsByTag(tag)
     }
 
-    private val pusher = FilePusher(
+    private val incomingTransfers = FileIncomingTransfers(ports.incoming, ctx.clock)
+
+    private val pushEngine = FilePushEngine(
         ctx = ctx,
         plaintext = ports.plaintext,
         pushes = ports.pushes,
         outbox = outbox,
         events = events,
-        chunkSizeBytes = ports.chunkSizeBytes,
         relaySelection = relaySelection,
+        relay = ports.relay,
+        incoming = incomingTransfers,
     )
 
-    // Relay-side forward driver (design §7): shares the file outbox with the authoring pusher;
-    // FILE outcomes for unknown push rows are its forwards.
-    private val relayForwarder = FileRelayForwarder(ctx = ctx, relay = ports.relay, outbox = outbox)
+    private val sender = FileSender(
+        ctx = ctx,
+        plaintext = ports.plaintext,
+        pushes = ports.pushes,
+        engine = pushEngine,
+        events = events,
+        chunkSizeBytes = ports.chunkSizeBytes,
+    )
 
     // Large-path fetch (design §6.6): the fetch protocol on dedicated file channels; no envelopes,
     // no outbox.
@@ -147,11 +159,11 @@ internal class FileRouting(
     private val carrier = DefaultFileCarrier(
         localDeviceId = ctx.localDeviceId,
         protection = ctx.envelopeProtectionService,
-        incoming = ports.incoming,
+        incoming = incomingTransfers,
         enqueue = { envelope -> outboxProcessor.enqueueAndWake(envelope, ctx.clock.now()) },
         clock = ctx.clock,
         routerConfig = ctx.routerConfig,
-        pushOps = pusher,
+        pushOps = sender,
         events = events,
         startRequest = { fileId, firstAttemptAt -> requestProcessor.start(fileId, firstAttemptAt) },
         abortFetch = { fileId -> fetchManager.abortFetch(fileId, FileFetchAbortReason.CANCELLED) },
@@ -159,18 +171,32 @@ internal class FileRouting(
 
     val fileCarrier: FileCarrier get() = carrier
 
+    private val targetHandler = FileTargetHandler(
+        ctx = ctx,
+        incoming = incomingTransfers,
+        ingest = ports.ingest,
+        signals = pushEngine,
+        onOfferReceived = { fileId -> requestProcessor.onOfferReceived(fileId) },
+    )
+
+    private val relayDoor = FileRelayDoor(
+        ctx = ctx,
+        relay = ports.relay,
+        packetOutbox = packetOutbox,
+        onRelayWhole = { transferId -> pushEngine.onRelayWhole(transferId) },
+    )
+
+    private val serveHandler = FileServeHandler(
+        ctx = ctx,
+        serveGate = ports.serveGate,
+        pusher = sender,
+    )
+
     val inboundHandler = FileInboundHandler(
         ctx = ctx,
-        incoming = ports.incoming,
-        ingest = ports.ingest,
-        serveGate = ports.serveGate,
-        pusher = pusher,
-        relay = ports.relay,
-        onCoverageAck = { transferId, contiguous, missing -> pusher.onCoverageAck(transferId, contiguous, missing) },
-        onTransferComplete = { transferId -> pusher.onTransferComplete(transferId) },
-        onTransferCancelled = { transferId, reason -> pusher.onTransferCancelled(transferId, reason) },
-        onOfferReceived = { fileId -> requestProcessor.onOfferReceived(fileId) },
-        onRelayStored = { relayForwarder.wake() },
+        target = targetHandler,
+        door = relayDoor,
+        serve = serveHandler,
     )
 
     /**
@@ -179,9 +205,8 @@ internal class FileRouting(
      * receives. The router's outbox loop dispatches what they queue.
      */
     fun runIn(scope: CoroutineScope): List<Job> = listOf(
-        pusher.runIn(scope),
+        pushEngine.runIn(scope),
         requestProcessor.runIn(scope),
-        relayForwarder.runIn(scope),
         fetchManager.runIn(scope),
         scope.launch {
             for (outcome in outcomeChannel) {
@@ -191,8 +216,8 @@ internal class FileRouting(
                     throw e
                 } catch (e: Exception) {
                     AppLog.error(
-                        component = LogComponent.ROUTER,
-                        event = LogEvent.OUTBOX_PROCESS_FAILED,
+                        component = LogComponent.FILE,
+                        event = LogEvent.FILE_TASK_FAILED,
                         message = "Failed to handle file outbox outcome",
                         throwable = e,
                         fields = mapOf("tag" to outcome.tag),
@@ -209,8 +234,8 @@ internal class FileRouting(
                 } catch (e: Exception) {
                     // Politeness: the authors' transfers end on their TTL without it.
                     AppLog.error(
-                        component = LogComponent.ROUTER,
-                        event = LogEvent.OUTBOX_PROCESS_FAILED,
+                        component = LogComponent.FILE,
+                        event = LogEvent.FILE_TASK_FAILED,
                         message = "Failed to answer an ended receive",
                         throwable = e,
                         fields = mapOf("fileId" to end.fileId),
@@ -221,21 +246,27 @@ internal class FileRouting(
     )
 
     /** An OFFER marker's relay copies (design §5): a one-round deposit of its authoring transfer. */
-    suspend fun depositByMarkerPacket(packetId: Uuid): Int = pusher.depositByMarkerPacket(packetId)
+    suspend fun depositByMarkerPacket(packetId: Uuid): Int {
+        // Resolve through the outbox tag, not the push row's marker id: the actor re-arms
+        // an unacked marker with a fresh packet, so by the time the backup fires the row
+        // points at a newer marker than the packet that triggered this backup.
+        val tag = packetOutbox.getByPacketId(packetId)?.tag ?: return 0
+        if (tag.kind != OutboxTag.Kind.FILE_PUSH) return 0
+        return pushEngine.depositRemainder(TransferId(tag.id))
+    }
 
     /** Routes a FILE_PUSH / FILE_FORWARD / FILE_REQUEST outcome to whoever waits on it. */
-    suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
+    fun onOutboxOutcome(outcome: OutboxOutcome) {
         outcomeChannel.trySend(outcome)
     }
 
     private suspend fun routeOutcome(outcome: OutboxOutcome) {
         when (outcome.tag.kind) {
             OutboxTag.Kind.FILE_REQUEST -> requestProcessor.onAttemptOutcome(outcome)
-            OutboxTag.Kind.FILE_PUSH -> pusher.onOutboxOutcome(outcome)
-            OutboxTag.Kind.FILE_FORWARD -> relayForwarder.onOutboxOutcome(outcome)
+            OutboxTag.Kind.FILE_PUSH -> pushEngine.onOutboxOutcome(outcome)
+            OutboxTag.Kind.FILE_FORWARD -> pushEngine.onForwardOutcome(outcome)
 
             else -> error("Not a file outcome: ${outcome.tag.kind}")
         }
     }
-
 }

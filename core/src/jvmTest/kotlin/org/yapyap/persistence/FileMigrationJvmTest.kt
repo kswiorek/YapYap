@@ -16,6 +16,7 @@ private val fileIndexes = listOf(
     "file_receive_chunks_file_idx",
     "file_incoming_transfers_file_idx",
     "file_pushes_file_target_idx",
+    "file_push_chunks_packet_idx",
     "file_request_attempts_due_idx",
     "file_relay_chunks_transfer_idx",
 )
@@ -27,6 +28,7 @@ private val fileTables = listOf(
     "pending_file_requests",
     "file_incoming_transfers",
     "file_pushes",
+    "file_push_chunks",
     "file_request_declined_devices",
     "file_request_attempts",
     "file_relay_chunks",

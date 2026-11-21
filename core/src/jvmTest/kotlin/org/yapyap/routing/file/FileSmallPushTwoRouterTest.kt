@@ -46,16 +46,16 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
 import org.yapyap.routing.router.FakeSyncPayloadProvider
-import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
-import org.yapyap.routing.router.InMemoryFilePushStore
-import org.yapyap.routing.router.InMemoryFileRelayStore
-import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.NoFileReceiveEnds
 import org.yapyap.routing.router.RefusingFilePorts
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TrackingPacketOutbox
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRelayStore
+import org.yapyap.routing.store.DefaultFileRequestAttemptStore
 import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -90,6 +90,38 @@ class FileSmallPushTwoRouterTest {
 
     @Test
     fun twoRouters_smallFilePush_reachesReadyWithIdenticalFileId(): Unit = runBlocking {
+        runPush(
+            originalBytes = 96 * 1024,
+            orchestratorConfig = OrchestratorConfig(
+                fileCheckpointBytes = 16L * 1024L,
+                fileCheckpointInterval = 200.milliseconds,
+            ),
+            chunkSize = 32 * 1024,
+            timeout = 60.seconds,
+        )
+    }
+
+    /**
+     * R3.1 realistic case: a 10 MB file (above the 16-chunk window) between two real
+     * routers with the default [OrchestratorConfig] reaches READY — the case that
+     * deadlocked before the per-transfer actor engine.
+     */
+    @Test
+    fun twoRouters_tenMegabytePush_reachesReadyWithDefaultConfig(): Unit = runBlocking {
+        runPush(
+            originalBytes = 10 * 1024 * 1024,
+            orchestratorConfig = OrchestratorConfig(),
+            chunkSize = 220 * 1024,
+            timeout = 300.seconds,
+        )
+    }
+
+    private suspend fun CoroutineScope.runPush(
+        originalBytes: Int,
+        orchestratorConfig: OrchestratorConfig,
+        chunkSize: Int,
+        timeout: kotlin.time.Duration,
+    ) {
         val crypto = DefaultCryptoProvider()
         val alicePeer = buildTestPeerIdentity(crypto, "file-local-alice")
         val bobPeer = buildTestPeerIdentity(crypto, "file-local-bob")
@@ -149,13 +181,7 @@ class FileSmallPushTwoRouterTest {
         val bobProtection = protection(sessionManager(bobIdentity), bobSigner)
 
         val files = JvmFileAccess()
-        val fileConfig = MutableStateFlow(
-            OrchestratorConfig(
-                fileCheckpointBytes = 16L * 1024L,
-                fileCheckpointInterval = 200.milliseconds,
-            ),
-        )
-        val chunkSize = 32 * 1024
+        val fileConfig = MutableStateFlow(orchestratorConfig)
 
         val aliceDb = openMemoryDatabase().database
         val aliceDescriptors = DefaultFileDescriptorStore(aliceDb)
@@ -212,10 +238,10 @@ class FileSmallPushTwoRouterTest {
                 serveGate = RefusingFilePorts(),
                 plaintext = DefaultFilePlaintextSource(aliceDescriptors, aliceFileStore, files, crypto),
                 receiveEnds = NoFileReceiveEnds,
-                incoming = InMemoryFileIncomingTransferStore(),
-                pushes = InMemoryFilePushStore(),
-                relay = InMemoryFileRelayStore(),
-                requestAttempts = InMemoryFileRequestAttemptStore(),
+                incoming = DefaultFileIncomingTransferStore(aliceDb),
+                pushes = DefaultFilePushStore(aliceDb),
+                relay = DefaultFileRelayStore(aliceDb),
+                requestAttempts = DefaultFileRequestAttemptStore(aliceDb),
                 chunkSizeBytes = MutableStateFlow(chunkSize),
                 fetchFrameBytes = MutableStateFlow(chunkSize),
             ),
@@ -243,10 +269,10 @@ class FileSmallPushTwoRouterTest {
                 serveGate = RefusingFilePorts(),
                 plaintext = DefaultFilePlaintextSource(bobDescriptors, bobFileStore, files, crypto),
                 receiveEnds = bobEngine,
-                incoming = InMemoryFileIncomingTransferStore(),
-                pushes = InMemoryFilePushStore(),
-                relay = InMemoryFileRelayStore(),
-                requestAttempts = InMemoryFileRequestAttemptStore(),
+                incoming = DefaultFileIncomingTransferStore(bobDb),
+                pushes = DefaultFilePushStore(bobDb),
+                relay = DefaultFileRelayStore(bobDb),
+                requestAttempts = DefaultFileRequestAttemptStore(bobDb),
                 chunkSizeBytes = MutableStateFlow(chunkSize),
                 fetchFrameBytes = MutableStateFlow(chunkSize),
             ),
@@ -290,7 +316,7 @@ class FileSmallPushTwoRouterTest {
             }
 
             try {
-                val original = ByteArray(96 * 1024) { (it * 7).toByte() }
+                val original = ByteArray(originalBytes) { (it * 7).toByte() }
                 val sourcePath = Path(aliceWork.toString(), "small.bin")
                 files.openAppendWriter(sourcePath, null).use {
                     it.write(original)
@@ -305,7 +331,7 @@ class FileSmallPushTwoRouterTest {
                 val fileId = descriptor.fileId
 
                 aliceRouter.files.pushFile(fileId, bobAccount)
-                val maybeSnapshot = withTimeout(60.seconds) {
+                val maybeSnapshot = withTimeout(timeout) {
                     var latest = bobFiles.receiveState(fileId)
                     while (latest?.status != FileReceiveStatus.READY) {
                         delay(100.milliseconds)

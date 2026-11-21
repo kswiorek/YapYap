@@ -92,8 +92,19 @@ CREATE TABLE file_pushes (
     marker_packet_id TEXT,
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    deposited_at INTEGER
 );
+
+CREATE TABLE file_push_chunks (
+    transfer_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    packet_id TEXT NOT NULL,
+    PRIMARY KEY (transfer_id, chunk_index),
+    FOREIGN KEY (transfer_id) REFERENCES file_pushes(transfer_id) ON DELETE CASCADE
+);
+
+CREATE INDEX file_push_chunks_packet_idx ON file_push_chunks(packet_id);
 
 CREATE INDEX file_pushes_file_target_idx ON file_pushes(file_id, target_device);
 

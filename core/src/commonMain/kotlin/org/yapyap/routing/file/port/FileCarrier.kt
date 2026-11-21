@@ -93,6 +93,9 @@ internal interface FileCarrier {
     /** End our push of [fileId] to [target]'s devices (user cancel). */
     suspend fun cancelFile(fileId: FileId, target: AccountId)
 
+    /** Per-account send state (design §12–§13): computed from `file_pushes`, no new table. */
+    suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState>
+
     /**
      * Starts asking candidate devices for [fileId] (idempotent), first at [firstAttemptAt]. What to
      * ask for and which accounts may hold it come from the [FileRequestSource]; routing asks one
@@ -107,4 +110,20 @@ internal interface FileCarrier {
      * cancel both land here; the small path needs nothing (its gap trigger cancels no transfer).
      */
     suspend fun abortFileFetch(fileId: FileId)
+}
+
+/** Per-account send state for one file, aggregated over its device transfers. */
+internal data class FileSendState(
+    val status: FileSendStatus,
+    val sentBytes: Long,
+    val totalBytes: Long,
+)
+
+internal enum class FileSendStatus {
+    SENDING,
+    COMPLETED,
+    ENDED,
+    EXPIRED,
+    DECLINED,
+    CANCELLED,
 }

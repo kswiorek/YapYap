@@ -1,12 +1,15 @@
 package org.yapyap.routing.file
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -17,12 +20,14 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileFailureReason
 import org.yapyap.routing.file.port.FileManifest
-import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReadResult
-import org.yapyap.routing.file.relay.FileRelayForwarder
-import org.yapyap.routing.router.InMemoryFilePushStore
-import org.yapyap.routing.router.InMemoryFileRelayStore
+import org.yapyap.routing.file.push.FileOutbox
+import org.yapyap.routing.file.push.FilePushEngine
+import org.yapyap.routing.file.push.testIncomingTransfers
+import org.yapyap.routing.policy.NoRelaySelection
+import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRelayStore
 import org.yapyap.routing.store.FilePush
 import org.yapyap.routing.store.FilePushKind
 import org.yapyap.routing.store.FilePushStatus
@@ -41,6 +46,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -77,16 +83,17 @@ class FileOutcomeRoutingTest {
             deletes += tag
         }
 
-        override suspend fun hasQueued(tag: OutboxTag): Boolean = false
-        override suspend fun isPacketQueued(packetId: Uuid): Boolean = false
+        override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> = emptyList()
     }
 
-    private class NoPlaintext : FilePlaintextSource {
-        override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult =
-            error("not used")
-
-        override suspend fun describe(fileId: FileId): FileManifest? = null
-    }
+    private fun manifest() = FileManifest(
+        fileId = fileId,
+        totalBytes = 10_000L,
+        blockSize = 1024 * 1024,
+        blockHashes = listOf(ByteArray(32) { 7 }),
+        fileName = "photo.jpg",
+        mimeType = "image/jpeg",
+    )
 
     private fun pushRow(transferId: TransferId, markerPacketId: Uuid) = FilePush(
         transferId = transferId,
@@ -130,26 +137,31 @@ class FileOutcomeRoutingTest {
             torByPeer = mutableMapOf(targetDevice to TorEndpoint("peer.onion", 80)),
             clock = FakeClock(now),
         )
-        val pushes = InMemoryFilePushStore()
+        val pushes = DefaultFilePushStore(openMemoryDatabase().database, Dispatchers.Unconfined)
         val outbox = RecordingFileOutbox()
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
-        val pusher = FilePusher(
+        val plaintext = FakeFilePlaintextSource()
+        plaintext.describeImpl = { manifest() }
+        val engine = FilePushEngine(
             ctx = stack.ctx,
-            plaintext = NoPlaintext(),
+            plaintext = plaintext,
             pushes = pushes,
             outbox = outbox,
             events = events,
-            chunkSizeBytes = MutableStateFlow(32 * 1024),
+            relaySelection = NoRelaySelection,
+            relay = DefaultFileRelayStore(openMemoryDatabase().database, Dispatchers.Unconfined),
+            incoming = testIncomingTransfers(stack.ctx.clock),
         )
         val seen = mutableListOf<FileEvent>()
         val collect = launch { events.collect { seen += it } }
+        var engineJob: Job? = null
         try {
             val transferId = TransferId(Uuid.random())
             val marker = Uuid.random()
             pushes.insert(pushRow(transferId, marker))
 
             // A forward outcome for a live push row: ignored, nothing touched.
-            pusher.onOutboxOutcome(
+            engine.onOutboxOutcome(
                 OutboxOutcome.Acked(
                     OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
                     targetDevice,
@@ -167,9 +179,11 @@ class FileOutcomeRoutingTest {
             )
             assertNull(withTimeoutOrNull(100.milliseconds) { events.first() }, "wrong-kind outcome emits nothing")
 
-            // The matching kind still acts: a chunk DECLINED ends the transfer quietly.
+            // The matching kind still acts (on a running engine): a chunk DECLINED ends the
+            // transfer quietly.
+            engineJob = engine.runIn(this)
             val chunkPacket = Uuid.random()
-            pusher.onOutboxOutcome(
+            engine.onOutboxOutcome(
                 OutboxOutcome.Nacked(
                     OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value),
                     targetDevice,
@@ -177,6 +191,9 @@ class FileOutcomeRoutingTest {
                     PacketNackReason.DECLINED,
                 )
             )
+            withTimeout(5.seconds) {
+                while (pushes.find(transferId)?.status?.isLive == true) delay(10.milliseconds)
+            }
             assertEquals(FilePushStatus.ENDED, pushes.find(transferId)?.status)
             assertEquals(listOf(OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value)), outbox.deletes)
             delay(100.milliseconds)
@@ -185,6 +202,7 @@ class FileOutcomeRoutingTest {
                 "a chunk DECLINED ends the transfer quietly, never as a refusal",
             )
         } finally {
+            engineJob?.cancel()
             collect.cancel()
         }
     }
@@ -197,15 +215,25 @@ class FileOutcomeRoutingTest {
             torByPeer = mutableMapOf(targetDevice to TorEndpoint("peer.onion", 80)),
             clock = FakeClock(now),
         )
-        val relay = InMemoryFileRelayStore()
+        val relay = DefaultFileRelayStore(openMemoryDatabase().database, Dispatchers.Unconfined)
         val outbox = RecordingFileOutbox()
-        val forwarder = FileRelayForwarder(ctx = stack.ctx, relay = relay, outbox = outbox)
+        val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
+        val engine = FilePushEngine(
+            ctx = stack.ctx,
+            plaintext = FakeFilePlaintextSource(),
+            pushes = DefaultFilePushStore(openMemoryDatabase().database, Dispatchers.Unconfined),
+            outbox = outbox,
+            events = events,
+            relaySelection = NoRelaySelection,
+            relay = relay,
+            incoming = testIncomingTransfers(stack.ctx.clock),
+        )
 
         val transferId = TransferId(Uuid.random())
         relay.insert(relayRow(transferId))
 
         // A push outcome for a live relay row: ignored, nothing touched.
-        forwarder.onOutboxOutcome(
+        engine.onForwardOutcome(
             OutboxOutcome.Acked(
                 OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value),
                 targetDevice,
@@ -216,16 +244,24 @@ class FileOutcomeRoutingTest {
         assertTrue(outbox.enqueues.isEmpty() && outbox.deletes.isEmpty(), "wrong-kind outcome touches no outbox rows")
 
         // The matching kind still acts: a DECLINED forward is dropped, never re-offered.
-        val markerPacket = Uuid.random()
-        forwarder.onOutboxOutcome(
-            OutboxOutcome.Nacked(
-                OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
-                targetDevice,
-                markerPacket,
-                PacketNackReason.DECLINED,
+        // The running engine's sweep starts the forward, which sends its marker.
+        val engineJob = engine.runIn(this)
+        try {
+            withTimeout(5.seconds) { while (outbox.enqueues.isEmpty()) delay(10) }
+            val markerPacket = outbox.enqueues.single().envelope.packetId
+            engine.onForwardOutcome(
+                OutboxOutcome.Nacked(
+                    OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value),
+                    targetDevice,
+                    markerPacket,
+                    PacketNackReason.DECLINED,
+                )
             )
-        )
-        assertNull(relay.find(transferId), "a refused forward is dropped")
-        assertEquals(listOf(OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value)), outbox.deletes)
+            withTimeout(5.seconds) { while (relay.find(transferId) != null) delay(10) }
+            assertNull(relay.find(transferId), "a refused forward is dropped")
+            assertEquals(listOf(OutboxTag(OutboxTag.Kind.FILE_FORWARD, transferId.value)), outbox.deletes)
+        } finally {
+            engineJob.cancel()
+        }
     }
 }

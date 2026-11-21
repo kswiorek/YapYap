@@ -56,6 +56,8 @@ internal data class FilePush(
     val status: FilePushStatus,
     val createdAt: Instant,
     val expiresAt: Instant,
+    /** Deposit-round claim (design §6.4): set once when the round starts, null before. */
+    val depositedAt: Instant? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -76,6 +78,7 @@ internal data class FilePush(
         if (status != other.status) return false
         if (createdAt != other.createdAt) return false
         if (expiresAt != other.expiresAt) return false
+        if (depositedAt != other.depositedAt) return false
         return true
     }
 
@@ -83,7 +86,7 @@ internal data class FilePush(
         var result = transferId.hashCode()
         result = 31 * result + fileId.hashCode()
         result = 31 * result + targetDevice.hashCode()
-        result = 31 * result + (viaRelay?.hashCode() ?: 0)
+        result = 31 * result + viaRelay.hashCode()
         result = 31 * result + kind.hashCode()
         result = 31 * result + totalBytes.hashCode()
         result = 31 * result + key.contentHashCode()
@@ -91,10 +94,11 @@ internal data class FilePush(
         result = 31 * result + startIndex
         result = 31 * result + nextChunkIndex
         result = 31 * result + contiguousAcked
-        result = 31 * result + (markerPacketId?.hashCode() ?: 0)
+        result = 31 * result + markerPacketId.hashCode()
         result = 31 * result + status.hashCode()
         result = 31 * result + createdAt.hashCode()
         result = 31 * result + expiresAt.hashCode()
+        result = 31 * result + depositedAt.hashCode()
         return result
     }
 }
@@ -106,12 +110,33 @@ internal interface FilePushStore {
     suspend fun findLiveByFileAndTarget(fileId: FileId, target: PeerId): List<FilePush>
     suspend fun live(): List<FilePush>
 
+    /** Deletes the finished (non-live) transfers of (file, device), keys and chunk maps included. */
+    suspend fun deleteTerminalByFileAndTarget(fileId: FileId, target: PeerId)
+
+    /** Every row for [fileId], live and terminal (send-state and terminal-gating reads). */
+    suspend fun allByFile(fileId: FileId): List<FilePush>
+
     /** The row whose OFFER marker is the outbox packet [markerPacketId] (backup trigger). */
-    suspend fun findByMarkerPacket(markerPacketId: Uuid): FilePush?
     suspend fun setStatus(transferId: TransferId, status: FilePushStatus)
     suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?)
     suspend fun setProgress(transferId: TransferId, nextChunkIndex: Int, contiguousAcked: Int)
-    suspend fun expired(now: Instant): List<FilePush>
+
+    /**
+     * Deposit-round claim (design §6.4): sets `deposited_at` once per source transfer.
+     * True exactly once per row, so the round is restart-safe and never repeats.
+     */
+    suspend fun claimDeposited(transferId: TransferId, now: Instant): Boolean
+
+    /** Terminal rows past their TTL: the ticker deletes them with their key (invariant 5). */
+    suspend fun terminalBefore(now: Instant): List<FilePush>
+    suspend fun delete(transferId: TransferId)
+
+    /** Chunk index recovery (design §6.2): packetId → index, written when a chunk is enqueued. */
+    suspend fun recordChunk(transferId: TransferId, chunkIndex: Int, packetId: Uuid)
+    suspend fun chunksByTransfer(transferId: TransferId): Map<Int, Uuid>
+    suspend fun chunkByPacket(packetId: Uuid): Pair<TransferId, Int>?
+    suspend fun deleteChunkByPacket(packetId: Uuid)
+    suspend fun deleteChunksByTransfer(transferId: TransferId)
 }
 
 internal class DefaultFilePushStore(
@@ -138,6 +163,7 @@ internal class DefaultFilePushStore(
                 status = row.status.name,
                 created_at = row.createdAt,
                 expires_at = row.expiresAt,
+                deposited_at = row.depositedAt,
             )
         }
     }
@@ -151,12 +177,16 @@ internal class DefaultFilePushStore(
             queries.selectLiveFilePushesByFileAndTarget(fileId, target).executeAsList().map { it.toRow() }
         }
 
+    override suspend fun deleteTerminalByFileAndTarget(fileId: FileId, target: PeerId) {
+        withContext(dbDispatcher) { queries.deleteTerminalFilePushesByFileAndTarget(fileId, target) }
+    }
+
     override suspend fun live(): List<FilePush> = withContext(dbDispatcher) {
         queries.selectLiveFilePushes().executeAsList().map { it.toRow() }
     }
 
-    override suspend fun findByMarkerPacket(markerPacketId: Uuid): FilePush? = withContext(dbDispatcher) {
-        queries.selectFilePushByMarkerPacketId(markerPacketId.toHexString()).executeAsOneOrNull()?.toRow()
+    override suspend fun allByFile(fileId: FileId): List<FilePush> = withContext(dbDispatcher) {
+        queries.selectFilePushesByFile(fileId).executeAsList().map { it.toRow() }
     }
 
     override suspend fun setStatus(transferId: TransferId, status: FilePushStatus) {
@@ -177,8 +207,55 @@ internal class DefaultFilePushStore(
         }
     }
 
-    override suspend fun expired(now: Instant): List<FilePush> = withContext(dbDispatcher) {
-        queries.selectExpiredFilePushes(now).executeAsList().map { it.toRow() }
+    override suspend fun claimDeposited(transferId: TransferId, now: Instant): Boolean =
+        withContext(dbDispatcher) {
+            queries.claimFilePushDeposited(now, transferId.value.toHexString()).value > 0L
+        }
+
+    override suspend fun terminalBefore(now: Instant): List<FilePush> = withContext(dbDispatcher) {
+        queries.selectTerminalFilePushesBefore(now).executeAsList().map { it.toRow() }
+    }
+
+    override suspend fun delete(transferId: TransferId) {
+        withContext(dbDispatcher) {
+            queries.deleteFilePushChunksByTransfer(transferId.value.toHexString())
+            queries.deleteFilePushById(transferId.value.toHexString())
+        }
+    }
+
+    override suspend fun recordChunk(transferId: TransferId, chunkIndex: Int, packetId: Uuid) {
+        withContext(dbDispatcher) {
+            queries.insertFilePushChunk(
+                transfer_id = transferId.value.toHexString(),
+                chunk_index = chunkIndex.toLong(),
+                packet_id = packetId.toHexString(),
+            )
+        }
+    }
+
+    override suspend fun chunksByTransfer(transferId: TransferId): Map<Int, Uuid> =
+        withContext(dbDispatcher) {
+            queries.selectFilePushChunksByTransfer(transferId.value.toHexString()).executeAsList()
+                .associate { it.chunk_index.toInt() to Uuid.parseHex(it.packet_id) }
+        }
+
+    override suspend fun chunkByPacket(packetId: Uuid): Pair<TransferId, Int>? =
+        withContext(dbDispatcher) {
+            queries.selectFilePushChunkByPacket(packetId.toHexString()).executeAsOneOrNull()?.let {
+                TransferId(Uuid.parseHex(it.transfer_id)) to it.chunk_index.toInt()
+            }
+        }
+
+    override suspend fun deleteChunkByPacket(packetId: Uuid) {
+        withContext(dbDispatcher) {
+            queries.deleteFilePushChunkByPacket(packetId.toHexString())
+        }
+    }
+
+    override suspend fun deleteChunksByTransfer(transferId: TransferId) {
+        withContext(dbDispatcher) {
+            queries.deleteFilePushChunksByTransfer(transferId.value.toHexString())
+        }
     }
 
     private fun org.yapyap.persistence.File_pushes.toRow(): FilePush = FilePush(
@@ -197,5 +274,6 @@ internal class DefaultFilePushStore(
         status = FilePushStatus.valueOf(status),
         createdAt = created_at,
         expiresAt = expires_at,
+        depositedAt = deposited_at,
     )
 }

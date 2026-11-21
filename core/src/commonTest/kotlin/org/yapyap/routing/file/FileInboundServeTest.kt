@@ -14,6 +14,8 @@ import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
+import org.yapyap.protocol.envelopes.ChunkRange
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
@@ -31,13 +33,19 @@ import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
+import org.yapyap.routing.file.port.FileSendState
 import org.yapyap.routing.inbound.handlers.FileInboundHandler
+import org.yapyap.routing.inbound.handlers.FileRelayDoor
+import org.yapyap.routing.inbound.handlers.FileServeHandler
+import org.yapyap.routing.inbound.handlers.FileTargetHandler
 import org.yapyap.routing.router.FakeFilePorts
+import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.TrackingPacketOutbox
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
 import org.yapyap.testfixtures.FakeClock
@@ -68,7 +76,8 @@ class FileInboundServeTest {
         var coverage: FileCoverage? = FileCoverage(0L, emptyList())
         val servedFor = mutableListOf<Pair<FileId, AccountId>>()
         override suspend fun checkOffer(offer: FileManifest) = FileOfferVerdict.Accept
-        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) = FileIngestResult.Duplicate
+        override suspend fun ingest(fileId: FileId, byteOffset: Long, plaintext: ByteArray) =
+            FileIngestResult.Duplicate(0L, 0L)
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
         override suspend fun requestTotalBytes(fileId: FileId): Long? = null
@@ -87,6 +96,8 @@ class FileInboundServeTest {
             serves += Triple(fileId, device, fromOffset)
             return serveResult
         }
+        override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> =
+            emptyMap()
     }
 
     private class FakeIncoming : FileIncomingTransferStore {
@@ -171,7 +182,7 @@ class FileInboundServeTest {
         canServe: Boolean = true,
         serveResult: Boolean = true,
     ): Triple<FileInboundHandler, FakeIngest, FakePusher> {
-        val identity = org.yapyap.routing.router.FakeIdentityResolverForRouter(
+        val identity = FakeIdentityResolverForRouter(
             localDevice = deviceIdentity(localDevice),
             peersByAccount = mapOf(holderAccount to listOf(holderDevice)),
         )
@@ -194,18 +205,33 @@ class FileInboundServeTest {
         )
         val ingest = FakeIngest(canServe)
         val pusher = FakePusher().also { it.serveResult = serveResult }
+        val incomingTransfers = FileIncomingTransfers(FakeIncoming(), clock)
+        val signals = object : FileTransferSignals {
+            override suspend fun coverageAck(
+                transferId: TransferId,
+                from: PeerId,
+                contiguousChunks: Int,
+                missing: List<ChunkRange>,
+            ) = Unit
+
+            override suspend fun complete(transferId: TransferId, from: PeerId) = Unit
+            override suspend fun cancelled(
+                transferId: TransferId,
+                from: PeerId,
+                reason: FileCancelReason,
+            ) = Unit
+        }
         val handler = FileInboundHandler(
             ctx = ctx,
-            incoming = FakeIncoming(),
-            ingest = ingest,
-            serveGate = ingest,
-            pusher = pusher,
-            relay = InMemoryFileRelayStore(),
-            onCoverageAck = { _, _, _ -> },
-            onTransferComplete = {},
-            onTransferCancelled = { _, _ -> },
-            onOfferReceived = {},
-            onRelayStored = {},
+            target = FileTargetHandler(
+                ctx, incomingTransfers, ingest, signals, onOfferReceived = {},
+            ),
+            door = FileRelayDoor(
+                ctx, InMemoryFileRelayStore(),
+                TrackingPacketOutbox(),
+                onRelayWhole = {},
+            ),
+            serve = FileServeHandler(ctx, ingest, pusher),
         )
         return Triple(handler, ingest, pusher)
     }

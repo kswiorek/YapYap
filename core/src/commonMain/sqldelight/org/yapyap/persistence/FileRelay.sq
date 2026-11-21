@@ -54,7 +54,7 @@ selectLiveFileRelayTransfers:
 SELECT * FROM file_relay_transfers;
 
 updateFileRelayTransferStatus:
-UPDATE file_relay_transfers SET status = ?, last_chunk_at = ? WHERE transfer_id = ?;
+UPDATE file_relay_transfers SET status = ? WHERE transfer_id = ?;
 
 updateFileRelayTransferMarker:
 UPDATE file_relay_transfers SET marker_packet_id = ?, status = ? WHERE transfer_id = ?;
@@ -65,11 +65,9 @@ UPDATE file_relay_transfers SET last_chunk_at = ? WHERE transfer_id = ?;
 sumFileRelayReservedBytes:
 SELECT COALESCE(SUM(reserved_bytes), 0) FROM file_relay_transfers;
 
-selectFileRelayEvictionCandidates:
-SELECT transfer_id FROM file_relay_transfers ORDER BY last_chunk_at ASC, transfer_id ASC LIMIT :limit;
-
-selectExpiredFileRelayTransfers:
-SELECT * FROM file_relay_transfers WHERE expires_at <= :now OR last_chunk_at <= :idleBefore;
+-- Admission's eviction order (design §7.2): least recently fed first, every row.
+selectFileRelayEvictionOrder:
+SELECT transfer_id, reserved_bytes FROM file_relay_transfers ORDER BY last_chunk_at ASC, transfer_id ASC;
 
 deleteFileRelayTransferById:
 DELETE FROM file_relay_transfers WHERE transfer_id = ?;
@@ -78,8 +76,13 @@ insertFileRelayChunk:
 INSERT OR IGNORE INTO file_relay_chunks (transfer_id, chunk_index, packet_id, blob)
 VALUES (?, ?, ?, ?);
 
-selectFileRelayChunksByTransfer:
-SELECT * FROM file_relay_chunks WHERE transfer_id = ? ORDER BY chunk_index ASC;
+-- Index-only views: the door's coverage ACK and the forward's restream never load blobs
+-- they do not send.
+selectFileRelayChunkRefsByTransfer:
+SELECT chunk_index, packet_id FROM file_relay_chunks WHERE transfer_id = ? ORDER BY chunk_index ASC;
+
+selectFileRelayChunkBlob:
+SELECT blob FROM file_relay_chunks WHERE transfer_id = ? AND chunk_index = ?;
 
 countFileRelayChunksByTransfer:
 SELECT COUNT(*) FROM file_relay_chunks WHERE transfer_id = ?;
@@ -92,8 +95,5 @@ SELECT * FROM file_relay_chunks WHERE packet_id = ?;
 
 deleteFileRelayChunkByPacketId:
 DELETE FROM file_relay_chunks WHERE packet_id = ?;
-
-deleteFileRelayChunksByTransfer:
-DELETE FROM file_relay_chunks WHERE transfer_id = ?;
 
 CREATE INDEX file_relay_chunks_transfer_idx ON file_relay_chunks(transfer_id);

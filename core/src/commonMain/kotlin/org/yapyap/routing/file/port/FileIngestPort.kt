@@ -32,7 +32,7 @@ internal sealed interface FileIngestResult {
     data class Staged(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
 
     /** Fully-covered range (a duplicate across transfers/relays): ACK, nothing stored. */
-    data object Duplicate : FileIngestResult
+    data class Duplicate(val contiguousBytes: Long, val totalBytes: Long) : FileIngestResult
 
     /** Staging bound hit or a transient failure: silent (no ACK, no NACK, dedup cleared); the sender retries. */
     data object Defer : FileIngestResult

@@ -79,6 +79,7 @@ import org.yapyap.routing.file.port.FileServeGate
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
+import org.yapyap.routing.store.AdmitResult
 import org.yapyap.routing.store.DueOutboxRow
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.routing.store.FileIncomingTransferStore
@@ -86,6 +87,7 @@ import org.yapyap.routing.store.FilePush
 import org.yapyap.routing.store.FilePushStatus
 import org.yapyap.routing.store.FilePushStore
 import org.yapyap.routing.store.FileRelayChunk
+import org.yapyap.routing.store.FileRelayChunkRef
 import org.yapyap.routing.store.FileRelayStatus
 import org.yapyap.routing.store.FileRelayStore
 import org.yapyap.routing.store.FileRelayTransfer
@@ -397,6 +399,7 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
 
 /** In-memory [FilePushStore], mirroring the SQL semantics. */internal class InMemoryFilePushStore : FilePushStore {
     private val rows = linkedMapOf<TransferId, FilePush>()
+    private val chunks = linkedMapOf<Pair<TransferId, Int>, Uuid>()
     private val mutex = Mutex()
 
     override suspend fun insert(row: FilePush) = mutex.withLock {
@@ -411,8 +414,17 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
         rows.values.filter { it.fileId == fileId && it.targetDevice == target && it.status.isLive }
     }
 
+    override suspend fun deleteTerminalByFileAndTarget(fileId: FileId, target: PeerId) = mutex.withLock {
+        rows.values.removeAll { it.fileId == fileId && it.targetDevice == target && !it.status.isLive }
+        Unit
+    }
+
     override suspend fun live(): List<FilePush> = mutex.withLock {
         rows.values.filter { it.status.isLive }
+    }
+
+    override suspend fun allByFile(fileId: FileId): List<FilePush> = mutex.withLock {
+        rows.values.filter { it.fileId == fileId }
     }
 
     override suspend fun setStatus(transferId: TransferId, status: FilePushStatus) = mutex.withLock {
@@ -431,12 +443,44 @@ internal class InMemorySyncAttemptStore : SyncAttemptStore {
             Unit
         }
 
-    override suspend fun expired(now: Instant): List<FilePush> = mutex.withLock {
-        rows.values.filter { it.expiresAt <= now }
+    override suspend fun claimDeposited(transferId: TransferId, now: Instant): Boolean = mutex.withLock {
+        val row = rows[transferId] ?: return@withLock false
+        if (row.depositedAt != null) return@withLock false
+        rows[transferId] = row.copy(depositedAt = now)
+        true
     }
 
-    override suspend fun findByMarkerPacket(markerPacketId: Uuid): FilePush? = mutex.withLock {
-        rows.values.firstOrNull { it.markerPacketId == markerPacketId }
+    override suspend fun terminalBefore(now: Instant): List<FilePush> = mutex.withLock {
+        rows.values.filter { !it.status.isLive && it.expiresAt <= now }
+    }
+
+    override suspend fun delete(transferId: TransferId) = mutex.withLock {
+        rows.remove(transferId)
+        chunks.keys.removeAll { it.first == transferId }
+        Unit
+    }
+
+    override suspend fun recordChunk(transferId: TransferId, chunkIndex: Int, packetId: Uuid) = mutex.withLock {
+        chunks[transferId to chunkIndex] = packetId
+        Unit
+    }
+
+    override suspend fun chunksByTransfer(transferId: TransferId): Map<Int, Uuid> = mutex.withLock {
+        chunks.entries.filter { it.key.first == transferId }.associate { it.key.second to it.value }
+    }
+
+    override suspend fun chunkByPacket(packetId: Uuid): Pair<TransferId, Int>? = mutex.withLock {
+        chunks.entries.firstOrNull { it.value == packetId }?.let { it.key.first to it.key.second }
+    }
+
+    override suspend fun deleteChunkByPacket(packetId: Uuid) = mutex.withLock {
+        chunks.entries.firstOrNull { it.value == packetId }?.let { chunks.remove(it.key) }
+        Unit
+    }
+
+    override suspend fun deleteChunksByTransfer(transferId: TransferId) = mutex.withLock {
+        chunks.keys.removeAll { it.first == transferId }
+        Unit
     }
 
     fun all(): List<FilePush> = rows.values.toList()
@@ -461,8 +505,8 @@ internal class InMemoryFileRelayStore : FileRelayStore {
         transfers.values.toList()
     }
 
-    override suspend fun setStatus(transferId: TransferId, status: FileRelayStatus, now: Instant) = mutex.withLock {
-        transfers[transferId]?.let { transfers[transferId] = it.copy(status = status, lastChunkAt = now) }
+    override suspend fun setStatus(transferId: TransferId, status: FileRelayStatus) = mutex.withLock {
+        transfers[transferId]?.let { transfers[transferId] = it.copy(status = status) }
         Unit
     }
 
@@ -482,28 +526,19 @@ internal class InMemoryFileRelayStore : FileRelayStore {
         transfers.values.sumOf { it.reservedBytes }
     }
 
-    override suspend fun evictionCandidates(limit: Long): List<TransferId> = mutex.withLock {
-        transfers.values.sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value.toHexString() }))
-            .take(limit.toInt()).map { it.transferId }
-    }
-
-    override suspend fun expired(now: Instant, idleBefore: Instant): List<FileRelayTransfer> = mutex.withLock {
-        transfers.values.filter { it.expiresAt <= now || it.lastChunkAt <= idleBefore }
-    }
-
     override suspend fun delete(transferId: TransferId) = mutex.withLock {
         transfers.remove(transferId)
         chunks.keys.removeAll { it.first == transferId }
         Unit
     }
 
-    override suspend fun insertChunk(transferId: TransferId, chunkIndex: Int, blob: ByteArray) = mutex.withLock {
-        chunks.getOrPut(transferId to chunkIndex) { FileRelayChunk(transferId, chunkIndex, null, blob) }
-        Unit
+    override suspend fun chunkRefs(transferId: TransferId): List<FileRelayChunkRef> = mutex.withLock {
+        chunks.values.filter { it.transferId == transferId }.sortedBy { it.chunkIndex }
+            .map { FileRelayChunkRef(it.chunkIndex, it.packetId) }
     }
 
-    override suspend fun chunks(transferId: TransferId): List<FileRelayChunk> = mutex.withLock {
-        chunks.values.filter { it.transferId == transferId }.sortedBy { it.chunkIndex }
+    override suspend fun chunkBlob(transferId: TransferId, chunkIndex: Int): ByteArray? = mutex.withLock {
+        chunks[transferId to chunkIndex]?.blob
     }
 
     override suspend fun chunkCount(transferId: TransferId): Long = mutex.withLock {
@@ -523,6 +558,76 @@ internal class InMemoryFileRelayStore : FileRelayStore {
         chunks.keys.firstOrNull { key -> chunks[key]?.packetId == packetId }?.let { chunks.remove(it) }
         Unit
     }
+
+    override suspend fun admit(
+        row: FileRelayTransfer,
+        reserveBytes: Long,
+        budget: Long,
+    ): AdmitResult = mutex.withLock {
+        val used = transfers.values.sumOf { it.reservedBytes }
+        if (used + reserveBytes <= budget) {
+            transfers.getOrPut(row.transferId) { row }
+            AdmitResult(true, emptyList())
+        } else {
+            // Choose victims read-only first: a refused admission never disturbs the store.
+            val victims = mutableListOf<TransferId>()
+            var remaining = used
+            for (candidate in transfers.values
+                .sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value.toHexString() }))
+            ) {
+                if (remaining + reserveBytes <= budget) break
+                if (candidate.transferId == row.transferId) continue
+                victims += candidate.transferId
+                remaining -= candidate.reservedBytes
+            }
+            if (remaining + reserveBytes > budget) {
+                AdmitResult(false, emptyList())
+            } else {
+                for (victim in victims) {
+                    transfers.remove(victim)
+                    chunks.keys.removeAll { it.first == victim }
+                }
+                transfers.getOrPut(row.transferId) { row }
+                AdmitResult(true, victims)
+            }
+        }
+    }
+
+    private fun suffixCompleteLocked(transferId: TransferId): Boolean {
+        val row = transfers[transferId] ?: return false
+        val count = if (row.totalBytes == 0L) 0 else ((row.totalBytes - 1) / row.chunkSizeBytes + 1).toInt()
+        val expected = maxOf(0, count - row.startIndex)
+        return chunks.values.count { it.transferId == transferId }.toLong() >= expected
+    }
+
+    override suspend fun storeChunk(
+        transferId: TransferId,
+        chunkIndex: Int,
+        blob: ByteArray,
+        now: Instant,
+    ): FileRelayStatus? = mutex.withLock {
+        if (transfers[transferId] == null) return@withLock null
+        chunks.getOrPut(transferId to chunkIndex) { FileRelayChunk(transferId, chunkIndex, null, blob) }
+        transfers[transferId]?.let { transfers[transferId] = it.copy(lastChunkAt = now) }
+        val row = transfers.getValue(transferId)
+        if (row.status == FileRelayStatus.RESERVED && suffixCompleteLocked(transferId)) {
+            transfers[transferId] = row.copy(status = FileRelayStatus.WHOLE)
+            FileRelayStatus.WHOLE
+        } else {
+            row.status
+        }
+    }
+
+    override suspend fun promoteIfWhole(transferId: TransferId): Boolean = mutex.withLock {
+        val row = transfers[transferId] ?: return@withLock false
+        if (row.status == FileRelayStatus.WHOLE) return@withLock true
+        if (row.status == FileRelayStatus.RESERVED && suffixCompleteLocked(transferId)) {
+            transfers[transferId] = row.copy(status = FileRelayStatus.WHOLE)
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /** Scriptable [FilePlaintextSource] for pusher tests. */
@@ -541,6 +646,8 @@ internal class NoopFilePushOps : FilePushOps {
     override suspend fun pushFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean = false
+    override suspend fun sendState(fileId: FileId): Map<AccountId, org.yapyap.routing.file.port.FileSendState> =
+        emptyMap()
 }
 
 /** In-memory [FileRequestAttemptStore], mirroring the SQL semantics. */
@@ -988,6 +1095,9 @@ internal class TrackingPacketOutbox : PacketOutbox {
     override suspend fun deleteByTag(tag: OutboxTag) {
         synchronized(lock) { entries.entries.removeAll { it.value.tag == tag } }
     }
+
+    override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> =
+        synchronized(lock) { entries.values.filter { it.tag == tag }.map { it.envelope.packetId } }
 
     override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =
         synchronized(lock) {

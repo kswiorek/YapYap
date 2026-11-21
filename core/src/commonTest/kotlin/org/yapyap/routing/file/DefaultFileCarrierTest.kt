@@ -26,6 +26,7 @@ import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileReceiveEnd
+import org.yapyap.routing.file.port.FileSendState
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.store.FileIncomingStatus
@@ -82,21 +83,23 @@ class DefaultFileCarrierTest {
                 org.yapyap.crypto.store.BootstrapKeySource { null },
             ),
         )
-        val incoming = InMemoryFileIncomingTransferStore()
+        val store = InMemoryFileIncomingTransferStore()
+        val clock = FakeClock(epochSeconds(10_000L))
+        val incoming = FileIncomingTransfers(store, clock)
         val sent = mutableListOf<org.yapyap.protocol.envelopes.BinaryEnvelope>()
         val carrier = DefaultFileCarrier(
             localDeviceId = localPeer.device.deviceId,
             protection = service,
             incoming = incoming,
             enqueue = { sent += it },
-            clock = FakeClock(epochSeconds(10_000L)),
+            clock = clock,
             routerConfig = MutableStateFlow(RouterConfig()),
             pushOps = org.yapyap.routing.router.NoopFilePushOps(),
             events = MutableSharedFlow(extraBufferCapacity = 64),
             startRequest = { _, _ -> },
             abortFetch = {},
         )
-        return Harness(carrier, service, incoming, sent, localPeer.device.deviceId)
+        return Harness(carrier, service, store, sent, localPeer.device.deviceId)
     }
 
     private fun row(
@@ -175,7 +178,7 @@ class DefaultFileCarrierTest {
         val carrier = DefaultFileCarrier(
             localDeviceId = h.localId,
             protection = h.service,
-            incoming = h.incoming,
+            incoming = FileIncomingTransfers(h.incoming, FakeClock(epochSeconds(10_000L))),
             enqueue = { h.sent += it },
             clock = FakeClock(epochSeconds(10_000L)),
             routerConfig = MutableStateFlow(RouterConfig()),
@@ -189,6 +192,8 @@ class DefaultFileCarrierTest {
                     device: PeerId,
                     fromOffset: Long,
                 ): Boolean = false
+                override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> =
+                    emptyMap()
             },
             events = MutableSharedFlow(extraBufferCapacity = 64),
             startRequest = { _, _ -> },

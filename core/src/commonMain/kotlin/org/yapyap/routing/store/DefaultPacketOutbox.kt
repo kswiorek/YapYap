@@ -175,6 +175,10 @@ internal class DefaultPacketOutbox(
         }
     }
 
+    override suspend fun packetIdsByTag(tag: OutboxTag): List<Uuid> = withContext(dbDispatcher) {
+        queries.selectPacketIdsByTag(tag.kind.code, tag.id).executeAsList()
+    }
+
     override suspend fun pruneExpired(now: Instant): List<OutboxEntry> =
         withContext(dbDispatcher) {
             val expired = database.transactionWithResult {

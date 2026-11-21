@@ -72,7 +72,7 @@ Everything in [`plan.md`](plan.md)'s ground rules still holds. In addition:
 
 ## For whoever executes this plan
 
-Phases R1 and R2 are **done** (see their "As landed" notes). Start at R3.1 and go in the order of "Order and
+Phases R1, R2 and R3 are **done** (see their "As landed" notes). Start at R4.1 and go in the order of "Order and
 parallelism".
 Read this section in full before every step.
 
@@ -555,7 +555,7 @@ service only to see them. Each carrier reports the ACKs of what it sent. Indepen
 
 ---
 
-## Phase R3 — The small path
+## Phase R3 — The small path — done
 
 ### Step R3.1 — The push engine (`routing/file/push`)
 
@@ -650,6 +650,38 @@ class, outcome channel).
   "late chunk after READY".
 - **Done when:** `FilePusher` does not exist; `grep -rn "contiguousAcked" routing/file/push` shows it is used only for
   progress, never in the window check.
+- **As landed:**
+    - Actors run in a child scope the engine creates in `runIn` (set synchronously, cancelled with the
+      returned job). While the engine is stopped nothing starts: rows are durable and the next `runIn`
+      starts them. There is no fallback scope; `relay` and `incoming` are required constructor parameters.
+    - A fresh actor (also after a restart) starts its stall clock at the current time, so a restart never
+      trips the timeout deposit by itself. `pump` skips an index that is still queued, so a re-queue never
+      seals one index twice.
+    - A new `pushFile` to a (file, device) pair deletes that pair's finished transfers first: the same
+      file (same content id) sent again reports its own completion or failure. `sendState`'s progress
+      is the minimum over live rows only.
+    - Expiry of a marker row before its transfer TTL re-arms the same marker (design §6.1); only
+      terminal outcomes never re-offer.
+    - Supersede (serve-with-supersede) is a silent `SilentCancel` input so it never surfaces as a failure;
+      user cancel keeps the `CANCELLED` failure.
+    - Account-level reporting is enforced at the actor: `OutgoingProgress` is the minimum covered bytes
+      across the account's live device transfers, `OutgoingComplete` fires once per account, and `Failed`
+      only when every device transfer is terminal with none completed (ENDED wins over EXPIRED).
+    - A COMPLETE addressed from the ultimate target resolves authoring rows regardless of what it
+      is addressed to (the target addresses transfers by (file, device)).
+    - The OFFER-marker backup resolves the transfer through the outbox tag, not the row's marker
+      id: the actor re-arms an unacked marker with a fresh packet, which would otherwise orphan
+      the backup trigger.
+    - The tick re-arms an unacked CREATED marker only when no marker row is still queued.
+    - The stall-clock check lives in `FileDepositPolicy.shouldDeposit`, used by the actor tick; an empty
+      relay selection never burns the deposit round.
+    - Terminal resolution is engine-owned and atomic (`completeTransfer` / `failTransfer` /
+      `terminateSilent` under the engine mutex): the actor asks, the engine persists the status,
+      emits at most once per (file, account), then drops the actor. Actor drops skip `job.cancel()`
+      when the caller is the actor's own job (self-cancel would abort the post-commit emit).
+    - `FilePushEngine.depositByMarkerPacket` is gone: `FileRouting.depositByMarkerPacket` resolves the
+      authoring transfer through the outbox tag (the row's marker id goes stale on re-arm), then calls
+      `depositRemainder`.
 
 ### Step R3.2 — The inbound handler, split (`routing/inbound/handlers`, `routing/file`)
 
@@ -702,6 +734,20 @@ dispatcher, and `file_incoming_transfers` gets exactly one writer. Needs R3.1.
   (`grep -rn "FileIncomingTransferStore" core/src/commonMain`
   shows only the store, `FileIncomingTransfers`, `FileRoutingPorts` and wiring); `FileInboundHandler` is under 150
   lines.
+- **As landed:**
+    - `FileSendStatus` has no `FAILED`: terminally refusing every device of an account surfaces as
+      `DECLINED`/`CANCELLED`/`ENDED`/`EXPIRED` (the reason is preserved), never a separate `FAILED`.
+      Design §13 lists the same set; the step text over-specified.
+    - `totalBytes == 0` stays valid on both OFFER paths, against the step text: an empty file is a
+      supported case (design §3: "an empty file has no blocks"; the receive engine handles it). Both
+      paths share `isValidOfferPublicHalf` in `routing/file/FileControlEnvelopes.kt`, unit-tested directly,
+      since the Offer type itself refuses a zero chunk size.
+    - A receive end answers each author on its own: one failed answer is logged and the rest still go.
+    - `FileIngestResult.Duplicate` carries `(contiguousBytes, totalBytes)` so a duplicate
+      answers with a coverage ACK (the ACK rule of R3.1 needs the receiver's P); the receive engine and
+      the fetch manager fill it in. The chunk-size-0 OFFER test hand-crafts a signed envelope: the codec
+      and protection reject it as `DECODE_FAILED` before any validation, so the handler/door
+      public-half checks only ever see constructible payloads.
 
 ### Step R3.3 — The relay on the push engine (`routing/file/relay`)
 
@@ -746,6 +792,31 @@ eviction and cleanup can never leave orphan rows. Needs R3.1 and R3.2.
     - an idle partial transfer is dropped after `fileRelayIdleTtl` (fake clock) and its bytes are freed;
     - a CANCEL from a non-depositor is ignored.
 - **Done when:** `FileRelayForwarder` does not exist; every multi-row relay change happens inside one store transaction.
+- **As landed:**
+    - Forwards run as `ForwardActor` (relay-store-backed, owned by the same engine) rather than reusing
+      `TransferActor`, which is push-row-backed; both serialise per transfer through their own mailbox.
+    - The door calls `FilePushEngine.onRelayWhole(transferId)` only when a transfer becomes WHOLE; it never
+      sweeps. The engine tick alone runs `sweepForwards` (expiry, idle reservations, WHOLE promotion,
+      restart rebuild, one Tick per running forward). Forward actors start under the engine mutex with a
+      `startingForwards` guard, so the door and the tick can never start two for one transfer.
+    - Admission walks every row oldest-fed first (no candidate page), so it evicts as many as it takes.
+      `storeChunk` checks the parent row first and writes nothing for a gone row; the door answers that
+      DECLINED. The door's coverage ACK and the forward's restream read chunk indices only (`chunkRefs`); a blob is
+      loaded only for a chunk that goes out.
+    - Every relay drop deletes relay rows first, then `FILE_FORWARD` outbox rows (the forward actor did
+      the reverse). A forward ignores NACK/expiry outcomes for packets that are neither its current
+      marker nor a stored chunk (a pre-restart marker).
+    - The inner-source check also refuses a device whose account is BANNED.
+    - A forward's tick restream covers STREAMING only — FORWARDING still waits for its marker ACK,
+      so chunks never overtake their OFFER. Restart re-sends the FORWARDING marker for the same reason.
+    - Admission is one conditional-write transaction: victims are chosen read-only and nothing is
+      deleted when the row still doesn't fit. Chunk store + touch + WHOLE promotion is one
+      transaction (`storeChunk` / `promoteIfWhole`).
+    - Engine tests run on real SQL stores (moved to jvmTest); a store-semantics test pins claim
+      atomicity, eviction rules and tag queries; the three-router test proves READY-once and
+      per-relay streamed chunks.
+    - The inner-source check has its own test: `unknownInnerSource_isDeclinedWithoutStoring`
+      (an unknown device's verifiable OFFER is DECLINED, nothing stored).
 
 ---
 
@@ -1204,7 +1275,8 @@ Replaces `FileFetchManager`.
 
 ## Order and parallelism
 
-**R1 and R2 are done.** Their seams and shared pieces are what every later step builds on; continue at step 5 below.
+**R1, R2 and R3 are done.** Their seams, shared pieces and the small path are what every later step builds on; continue
+at step 8 below.
 
 **Dependencies after R1:**
 
@@ -1220,9 +1292,9 @@ Replaces `FileFetchManager`.
 2. ~~R2.4 — per-carrier deliveries~~ (done)
 3. ~~R2.3 — outbox fixes~~ (done)
 4. ~~R2.2 — candidate core~~ (done)
-5. R3.1 — push engine
-6. R3.2 — inbound handler split
-7. R3.3 — relay on the engine
+5. ~~R3.1 — push engine~~ (done)
+6. ~~R3.2 — inbound handler split~~ (done)
+7. ~~R3.3 — relay on the engine~~ (done)
 8. R4.1 — receive engine split
 9. R4.2 — store, quota, eviction
 10. R4.3 — coordinator and facade

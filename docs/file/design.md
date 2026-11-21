@@ -337,7 +337,8 @@ The same `FilePlaintextSource` feeds the large fetch (§6.6).
 
 ### 6.1 The marker
 
-The OFFER is enqueued as a normal outbox entry with `OutboxTag.Kind.FILE`, id = `transferId`, and standard
+The OFFER is enqueued as a normal outbox entry with `OutboxTag.Kind.FILE_PUSH` (relay forwards use `FILE_FORWARD`), id =
+`transferId`, and standard
 semantics — the delivery contract's "ACK = processed" is untouched:
 
 - ACK (the offer was accepted) → marker removed; **the engine owns everything after**.
@@ -429,7 +430,8 @@ target online simultaneously.
   **highest contiguous ACKed prefix** (`startIndex = prefix + 1`). This is safe by construction: any ACK holes
   below the prefix end are inside the remainder by definition, so the simplification never excludes a hole; it
   may re-send a few chunks the target already got, which the receiver drops as duplicates.
-- **A deposit happens at most once per transfer** (the message backup's claim pattern, restart-safe) — and
+- **A deposit happens at most once per transfer** (the message backup's claim pattern, restart-safe,
+  claimed durably on the source row's `deposited_at`) — and
   once suffices, because covered sets are suffixes: a later stall's remainder is a subset of the first
   deposit's covered set. The direct path keeps retrying meanwhile; the deposit is the insurance.
 - **Parallel redundancy, never sequential.** The same covered set goes to every relay `RelaySelectionPolicy`
@@ -561,11 +563,13 @@ quota).
    re-deposits after a stall no-op.
 3. **Wholeness gate**: every index of the covered suffix present → the transfer is *whole*. **Incomplete
    transfers are never pushed and never offered**: the relay stays silent, and the **reservation TTL** (idle
-   expiry) cleans up what the sender never finished. The TTL is load-bearing for budget correctness, not
+   expiry, `fileRelayIdleTtl` for transfers that are not yet whole) cleans up what the sender never finished.
+   The TTL is load-bearing for budget correctness, not
    hygiene.
 4. **Forward = the same pusher, DB source**: once whole, the stored OFFER payload is enqueued to the target as
    a normal outbox marker; ACK → chunk rows stream from the store; per-chunk ACKs from the target delete rows;
-   the transfer row is dropped when drained.
+   the transfer row is dropped when drained. The door answers each stored chunk with a coverage ACK built
+   from the chunks stored so far, so the depositor's window advances.
    - Outer `BinaryEnvelope.source` = the relay, inner `FileEnvelope.source` = the original sender with its
      signature intact — exactly the message-transit pattern (`MessageInboundHandler`): relay transit is
      unauthenticated at the outer layer, content is authenticated inside.
@@ -665,7 +669,8 @@ branches on it.
   rotten copy stops at the source), then the candidate order continues. After `fileHashRetryLimit` mismatches
   the file is FAILED.
 - **Progress ACKs** (coverage in the transfer's own chunk indices, capped, §3.2) flow back to each transfer's
-  pusher.
+  pusher. Chunk `k` is covered iff `(k + 1) × chunkSize <= P` or `P == totalBytes`; a duplicate chunk
+  is answered with the same coverage ACK (the sender's window only advances on ACKs).
 - **The gap trigger.** If P does not advance for `fileStallTimeout` (minutes — deliberately beyond the
   sender's `chunkAckTimeout` so the push machinery acts first), the
   file goes STALLED — re-requestable, not refused — the durable coverage is kept, and the REQUEST path re-opens
@@ -825,16 +830,16 @@ own traffic → our row, account-grain, pushed through the same machinery).
 
 ### Module layout
 
-| Layer                  | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `protocol`             | `FileEnvelope` rework (§3.2: `transferId`-addressed control packets, chunk-index ACK, sealed byte-coverage REQUEST, the block list in the sealed OFFER half), `Text.attachments` (§3.1, breaking, payload header version 3), the `fileId` construction, the block-size rule and `smallFileMaxBytes` until the network config exists (§1, §2), the fetch frames (§6.6), codecs + round-trip tests, observability profile update                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `crypto`               | incremental SHA-256 on `CryptoProvider` (init/update/final, §2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `protection`           | real `FileProtection` (§4): ratchet-sealed OFFER half and REQUEST, per-transfer chunk AEAD and signing (small path only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `routing`              | the pusher (`file/push`): per-device fan-out + per-transfer state, cutting and protecting chunks from `FilePlaintextSource`; the fetch (`file/fetch`, §6.6): both ends of the fetch channel, credit window, frames passed straight to the transport; the relay store and forwarder (`file/relay`); the incoming-transfer rows and chunk decryption; real `FileInboundHandler` (foreign target → admission/park; local → decrypt, synchronous ingest port + emit); `FileCarrier` port on `Router` + account-level file events; the `FilePlaintextSource` port (orchestrator implements it); the file request processor on the shared candidate core (a large request opens a session and a fetch channel); `OutboxTag.Kind.FILE`; `packetId` on `OutboxOutcome`; the outbox changes of §6.2 (blob-less due query, messages first, FILE retry policy); the deposit-trigger policy shared with messages (§6.3) |
-| `orchestrator/file`    | the file machinery: `FileIds` block hashing, classification, descriptor creation, the block-checking plaintext source, the file store (copies and references, quota and retention, §10), the receive engine (coverage, staging, checkpoints, block verification, ready), the auto-download decision, the REQUEST trigger + coordinator, serve-on-REQUEST and serve-on-fetch with the serve gate (account-level); stores: `file_descriptors`, `file_transfers`, `file_receives`, `file_receive_chunks`, `pending_file_requests`; the DAG gains `message_attachments`; the transfer enums move out of `persistence/DatabaseEnums.kt` to the owning stores                                                                                                                                                                                                                                                     || `orchestrator/runtime/file` | the GUI-facing receive-state facade: `FileTransferService` (`receiveState`, `localFilePath`) over `orchestrator/file` — sending goes through `MessagingService.sendMessage` with picked files (no separate file-send entry point, §10); progress, accept/decline and open land with the GUI surface — the runtime stays the GUI's whole API ([`../gui-api.md`](../gui-api.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `transport/webrtc`     | a file channel kind opened per fetch by either side (the backend already multiplexes by label: envelope and AV channels), carrying raw frames instead of `BinaryEnvelope`s; `bufferedAmount` low-threshold exposure; channel close events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `orchestrator/file/io` | chunk-shaped read/write boundary over kotlinx.io, plus the positioned read (`expect`/`actual`, §11)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `wiring`               | `FileLimits` (derived chunk size, chained like `MessageLimits`), config wiring incl. the storage-pledge split                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Layer                  | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `protocol`             | `FileEnvelope` rework (§3.2: `transferId`-addressed control packets, chunk-index ACK, sealed byte-coverage REQUEST, the block list in the sealed OFFER half), `Text.attachments` (§3.1, breaking, payload header version 3), the `fileId` construction, the block-size rule and `smallFileMaxBytes` until the network config exists (§1, §2), the fetch frames (§6.6), codecs + round-trip tests, observability profile update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `crypto`               | incremental SHA-256 on `CryptoProvider` (init/update/final, §2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `protection`           | real `FileProtection` (§4): ratchet-sealed OFFER half and REQUEST, per-transfer chunk AEAD and signing (small path only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `routing`              | the push engine (`file/push`): per-device fan-out + per-transfer actors, cutting and protecting chunks from `FilePlaintextSource`, relay forwards over the DB chunk source; the fetch (`file/fetch`, §6.6): both ends of the fetch channel, credit window, frames passed straight to the transport; the relay door (admission/park) + `FileIncomingTransfers` (the target side's per-transfer rows); a thin `FileInboundHandler` dispatching local envelopes to the target/serve handlers and foreign ones to the door; `FileCarrier` port on `Router` + account-level file events; the `FilePlaintextSource` port (orchestrator implements it); the file request processor on the shared candidate core (a large request opens a session and a fetch channel); `OutboxTag.Kind.FILE_PUSH`/`FILE_FORWARD`; `packetId` on `OutboxOutcome`; the outbox changes of §6.2 (blob-less due query, messages first, FILE retry policy); per-kind relay backup (markers message-backed, chunks never) and the gone-only deposit triggers (§6.3) |
+| `orchestrator/file`    | the file machinery: `FileIds` block hashing, classification, descriptor creation, the block-checking plaintext source, the file store (copies and references, quota and retention, §10), the receive engine (coverage, staging, checkpoints, block verification, ready), the auto-download decision, the REQUEST trigger + coordinator, serve-on-REQUEST and serve-on-fetch with the serve gate (account-level); stores: `file_descriptors`, `file_receives`, `file_receive_chunks`, `pending_file_requests`; the DAG gains `message_attachments`; the transfer enums move out of `persistence/DatabaseEnums.kt` to the owning stores                                                                                                                                                                                                                                                                                                                                                                                                 || `orchestrator/runtime/file` | the GUI-facing receive-state facade: `FileTransferService` (`receiveState`, `localFilePath`) over `orchestrator/file` — sending goes through `MessagingService.sendMessage` with picked files (no separate file-send entry point, §10); progress, accept/decline and open land with the GUI surface — the runtime stays the GUI's whole API ([`../gui-api.md`](../gui-api.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `transport/webrtc`     | a file channel kind opened per fetch by either side (the backend already multiplexes by label: envelope and AV channels), carrying raw frames instead of `BinaryEnvelope`s; `bufferedAmount` low-threshold exposure; channel close events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `orchestrator/file/io` | chunk-shaped read/write boundary over kotlinx.io, plus the positioned read (`expect`/`actual`, §11)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `wiring`               | `FileLimits` (derived chunk size, chained like `MessageLimits`), config wiring incl. the storage-pledge split                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Within the orchestrator the split follows the layer's own shape: the machinery is `orchestrator/file`, a
 domain package beside `dag` and `sync`, and the GUI reaches it only through `FileTransferService` in
@@ -864,14 +869,8 @@ file_descriptors (            -- the permanent store index: what we hold (no key
   status TEXT,                -- HELD | SOURCE_LOST (a reference moved, deleted or edited)
   created_at …
 )
-file_transfers (              -- our sends and serves: one row per (file, peer account)
-  file_id TEXT, peer_account_id TEXT, direction TEXT,   -- SEND | SERVE
-  class TEXT,                                            -- SMALL | LARGE
-  status TEXT,                                           -- CREATED | IN_FLIGHT | COMPLETED | ENDED | EXPIRED |
-                                                          -- DECLINED | CANCELLED | FAILED
-                                                          -- (COMPLETED only on a COMPLETE; ENDED = outcome unknown)
-  progress …, created_at, updated_at, expires_at
-)
+file_transfers -- REMOVED (was: our sends and serves, one row per file/account).
+-- Per-account send state is a routing query over file_pushes instead (FileCarrier.sendState).
 file_receives (               -- receive state, fileId-scoped; incoming transfers merge here
   file_id TEXT PK,
   status TEXT,                -- PENDING | IN_FLIGHT | STALLED | READY | FAILED | DECLINED | EVICTED
@@ -891,7 +890,7 @@ file_receive_chunks (         -- staging is the chunk tracker: staged, not-yet-d
 pending_file_requests (file_id TEXT PK, status TEXT, next_attempt_at, …)
 
 -- routing (transferId grain: pushing, forwarding, asking)
-file_pushes (                 -- the pusher's per-device transfer state (small path; a large fetch has no row)
+file_pushes (                 -- the push engine's per-device transfer state (small path; a large fetch has no row)
   transfer_id TEXT PK, file_id TEXT, target_device TEXT, via_relay TEXT NULL,
                         -- via_relay: outer envelope target for DEPOSIT rows (the relay);
                         -- NULL for DIRECT/SERVE (outer == target_device)
@@ -899,8 +898,13 @@ file_pushes (                 -- the pusher's per-device transfer state (small p
   key BLOB,                   -- this transfer's own key
   chunk_size_bytes INT, start_index INT, …               -- the covered suffix; resume derives
   status …,                   -- CREATED | IN_FLIGHT | COMPLETED | ENDED | EXPIRED | DECLINED | CANCELLED (§14)
-  created_at, expires_at
+  created_at, expires_at, deposited_at NULL              -- the deposit round claim (one round, §6.4)
 )
+file_push_chunks (            -- chunk index recovery across restarts: packetId → index
+  transfer_id TEXT, chunk_index INT, packet_id TEXT, PRIMARY KEY (transfer_id, chunk_index)
+)
+-- No file_transfers table: per-account send state is a routing query over file_pushes
+-- (non-DEPOSIT rows, same aggregation as the events; FileCarrier.sendState).
 file_incoming_transfers (     -- the receiver's per-transfer rows: chunk mapping, decryption, COMPLETE targets
   transfer_id TEXT PK, file_id TEXT, author_device TEXT,
   key BLOB, chunk_size_bytes INT, total_bytes INT, start_index INT,
@@ -911,7 +915,9 @@ file_relay_transfers (
   transfer_id TEXT PK, source_device, target_device,
   chunk_size_bytes INT, total_bytes INT, start_index INT,   -- covered suffix, wholeness derived
   offer_payload BLOB,                                       -- replayed verbatim on forward
-  status TEXT,                                              -- RESERVED | WHOLE | FORWARDING | DRAINED | EXPIRED
+  status TEXT,                                              -- RESERVED | WHOLE | FORWARDING | STREAMING
+                                                          -- (rows are deleted when drained, declined, expired or
+                                                          -- evicted: forget after delivery, never DRAINED/EXPIRED)
   reserved_bytes INT, created_at, last_chunk_at             -- last_chunk_at drives the reservation TTL
 )
 file_relay_chunks (transfer_id, chunk_index PK, blob)
@@ -948,8 +954,9 @@ See [`transfer states.mmd`](transfer%20states.mmd). Compact listing:
   transfers are left alone); STALLED → IN_FLIGHT when any source resumes delivery; READY → **EVICTED** (quota
   LRU; fetched again only on a user re-open); IN_FLIGHT that never progresses expires → the REQUEST
   trigger re-opens.
-- **Relay transfer**: RESERVED (admitted) → WHOLE (covered suffix complete) → FORWARDING (offer ACKed) →
-  DRAINED; EXPIRED (reservation TTL or transfer TTL) from RESERVED/WHOLE; **dropped when the target DECLINED
+- **Relay transfer**: RESERVED (admitted) → WHOLE (covered suffix complete) → FORWARDING (marker
+  queued) → STREAMING (marker ACKed, chunks queued); deleted when drained, declined, expired, evicted or
+  cancelled (forget after delivery — no DRAINED/EXPIRED states); **dropped when the target DECLINED
   the forwarded OFFER**.
 - **Request**: PENDING → ASKING (one candidate; a large request first opens a session) → **WAITING (ACK;
   offer pending, timeout → next candidate)** → SATISFIED (OFFER received; the serve transfer takes over) /
@@ -966,15 +973,16 @@ Per guide §2, each layer's config type lives next to its code:
 
 - **Network value, not config**: `smallFileMaxBytes = 10 MB` (§1) — the network config when it exists, a
   protocol constant until then.
-- `FileServiceConfig` (orchestrator, `orchestrator/file`): receive directory, retention quota, `maxStagedBytes`,
-  `fileHashRetryLimit` (e.g. 3, §8);
+- `OrchestratorConfig` file fields (`orchestrator`, implemented in `orchestrator/file`): receive
+  directory, retention quota, `maxStagedBytes`, `fileHashRetryLimit` (e.g. 3, §8);
   `autoDownloadMaxBytes` (per device — large files at or below it are fetched without asking; e.g. 250 MB on
   desktop, lower on mobile, §8); `copyIntoStoreMaxBytes` (the "keep a copy" checkbox default, default
-  `smallFileMaxBytes`, §10); `fileCheckpointBytes` (e.g. 8 MB) and `fileCheckpointInterval` (e.g. 2 s, §8).
+  `smallFileMaxBytes`, §10); `fileCheckpointBytes` (e.g. 8 MB) and `fileCheckpointInterval` (e.g. 2 s, §8);
+  `fileStallTimeout` (the receiver's gap trigger, §8).
 - `RouterConfig` additions: `fileTransferTtl = 2 days` (marker, relay reservation and transfer lifetimes),
-  `maxInFlightChunks` (the pusher's window, §6.2), `fileChunkRetryDelay` (the flat retry of chunk rows, §6.2),
-  `chunkAckTimeout` (no chunk ACK at all for this long → deposit, §6.3), `fileStallTimeout` (the receiver's gap
-  trigger), `fileRequestAttemptTimeout`,
+  `maxInFlightChunks` (the push engine's window, §6.2), `fileChunkRetryDelay` (the flat retry of chunk rows,
+  §6.2), `chunkAckTimeout` (no chunk ACK at all for this long → deposit, §6.3),
+  `fileRelayIdleTtl` (idle partial deposits are dropped, §7.2), `fileRequestAttemptTimeout`,
   `fileRequestFirstAttemptDelay` (the grace period, small files), `fileRequestWaitTimeout` (WAITING for the
   OFFER), `fileSessionOpenTimeout` (a large request opening its session), `fileStreamWindowBytes` (e.g.
   32 MB — how far a fetch's holder may run past the last `PROGRESS`, §6.6) and `maxConcurrentFetches`
