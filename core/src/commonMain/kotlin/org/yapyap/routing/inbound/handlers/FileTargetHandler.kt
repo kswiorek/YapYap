@@ -173,7 +173,6 @@ internal class FileTargetHandler(
                 row.fileId,
                 payload.chunkIndex.toLong() * row.chunkSizeBytes,
                 plaintext,
-                author = fileEnvelope.source,
             )
         ) {
             is FileIngestResult.Staged -> {

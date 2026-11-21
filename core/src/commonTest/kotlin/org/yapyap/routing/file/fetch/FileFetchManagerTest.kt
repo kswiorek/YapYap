@@ -93,7 +93,6 @@ class FileFetchManagerTest {
             fileId: FileId,
             byteOffset: Long,
             plaintext: ByteArray,
-            author: PeerId?,
         ): FileIngestResult {
             ingestCalls++
             ingestedBytes += plaintext.size
@@ -102,7 +101,6 @@ class FileFetchManagerTest {
             return FileIngestResult.Staged(contiguous, total)
         }
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = FileCoverage(0L, emptyList())
-        override suspend fun preferDevice(fileId: FileId): PeerId? = null
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
         override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
         override suspend fun requestTotalBytes(fileId: FileId): Long? = null
@@ -270,7 +268,6 @@ class FileFetchManagerTest {
                 fileId: FileId,
                 byteOffset: Long,
                 plaintext: ByteArray,
-                author: PeerId?,
             ) =
                 FileIngestResult.Defer
         }
@@ -355,7 +352,6 @@ class FileFetchManagerTest {
                 fileId: FileId,
                 byteOffset: Long,
                 plaintext: ByteArray,
-                author: PeerId?,
             ) =
                 FileIngestResult.Defer
         }

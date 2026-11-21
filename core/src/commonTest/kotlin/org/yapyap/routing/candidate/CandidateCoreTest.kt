@@ -12,7 +12,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.sync.FixedSyncPeerPolicy
 import org.yapyap.sync.buildSyncRoutingStack
 import org.yapyap.sync.testDeviceIdentity
@@ -101,10 +100,8 @@ class CandidateCoreTest {
         val holder: AccountId,
         override val attempts: InMemoryAttempts,
         var wanted: Set<Uuid> = emptySet(),
-        var preferred: PeerId? = null,
     ) : CandidateStrategy<Uuid> {
         override suspend fun candidateAccounts(id: Uuid): List<AccountId> = listOf(holder)
-        override suspend fun preferredDevice(id: Uuid): PeerId? = preferred
         override suspend fun idsWithCandidate(account: AccountId): List<Uuid> = emptyList()
         override suspend fun isWanted(id: Uuid): Boolean = id in wanted
         override suspend fun buildAttempt(id: Uuid, device: PeerId, now: Instant): BuiltAttempt? = null
@@ -136,14 +133,12 @@ class CandidateCoreTest {
 
     private fun coreHarness(
         maxConcurrent: Int = 2,
-        holderDevices: List<PeerId> = listOf(holderDevice),
-        peerPolicy: SyncPeerPolicy = FixedSyncPeerPolicy(nextDevice = holderDevice),
         run: suspend (id: Uuid, device: PeerId) -> CallOutcome,
     ): CoreHarness {
         val clock = FakeClock(now)
         val stack = buildSyncRoutingStack(
             localDevice = testDeviceIdentity(localDevice),
-            peersByAccount = mapOf(holderAccount to holderDevices),
+            peersByAccount = mapOf(holderAccount to listOf(holderDevice)),
             torByPeer = mutableMapOf(),
             clock = clock,
         )
@@ -152,7 +147,7 @@ class CandidateCoreTest {
         val core = CandidateRequestCore(
             ctx = stack.ctx,
             strategy = strategy,
-            peerPolicy = peerPolicy,
+            peerPolicy = FixedSyncPeerPolicy(nextDevice = holderDevice),
             executor = AttemptExecutor.Call(MutableStateFlow(maxConcurrent), run),
             maxIdlePoll = MutableStateFlow(50.milliseconds),
         )
@@ -217,40 +212,6 @@ class CandidateCoreTest {
             release.complete(Unit)
             withTimeout(10.seconds) {
                 while (h.attempts.contains(id)) delay(20)
-            }
-        } finally {
-            h.stop()
-        }
-    }
-
-    @Test
-    fun preferredDevice_isOfferedFirst() = runBlocking {
-        val second = PeerId("candidate-holder-device-cccccccccccccccccccccccccccccc")
-        val offered = CompletableDeferred<List<PeerId>>()
-        val recording = object : SyncPeerPolicy {
-            override fun pickNextDevice(
-                candidates: List<PeerId>,
-                declined: Set<PeerId>,
-                unanswered: Set<PeerId>
-            ): PeerId? {
-                offered.complete(candidates)
-                return candidates.first()
-            }
-        }
-        val asked = CompletableDeferred<PeerId>()
-        val h = coreHarness(holderDevices = listOf(holderDevice, second), peerPolicy = recording) { _, device ->
-            asked.complete(device)
-            CallOutcome.Satisfied
-        }
-        try {
-            val id = Uuid.random()
-            h.strategy.wanted = setOf(id)
-            h.strategy.preferred = second
-            h.core.start(id, now)
-            h.start()
-            withTimeout(10.seconds) {
-                assertEquals(listOf(second, holderDevice), offered.await(), "the preferred device comes first")
-                assertEquals(second, asked.await())
             }
         } finally {
             h.stop()

@@ -778,12 +778,10 @@ internal class RefusingFilePorts : FakeFilePorts {
         fileId: FileId,
         byteOffset: Long,
         plaintext: ByteArray,
-        author: PeerId?,
     ): FileIngestResult =
         FileIngestResult.Refused
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
-    override suspend fun preferDevice(fileId: FileId): PeerId? = null
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
     override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = false
     override suspend fun requestTotalBytes(fileId: FileId): Long? = null

@@ -867,8 +867,7 @@ Replaces `DefaultFileReceiveEngine`.
       transaction.
     - **Mismatch.** Delete every staged row that ends past the bad block's start; trim a row that straddles
       it. Fail exactly at `fileHashRetryLimit` mismatches.
-    - **Same device first.** Record the author device of the transfers that fed the bad block. The next
-      REQUEST asks that device first (design §8/§9). Today this is a TODO in `FileRequestProcessor`.
+  - ~~**Same device first.**~~ Dropped (see "As landed"): the re-request uses the usual candidate order.
     - **Completion is reported.**
         - The engine checkpoints at completion, not on the timer.
         - `ingest` returns `Ready`, a new result, when the file completes, so routing learns it on the chunk
@@ -922,12 +921,11 @@ Replaces `DefaultFileReceiveEngine`.
       `adopt`, then restarts.
     - No running hash is kept: the drain appends at P (one fsync), verifies each block it completes by re-reading it
       from disk, then commits. `PartWriter.hasherForPrefix` and the engine's hash map are gone.
-    - Each file's lock and its in-memory state (the authors of staged ranges, the device to ask first) live in one
-      per-file slot, so different files never share a mutable map. Events and receive ends are sent after the lock is
-      released.
-    - Same device first: the device that fed the most bytes of the bad block is remembered; with no recorded author
-      overlapping it, none. In memory only (after a restart the candidate order applies). The candidate core asks it
-      first through a new `CandidateStrategy.preferredDevice` hook that orders devices, not accounts.
+  - Each file has its own lock (a `Mutex` per `fileId`); the engine keeps no other per-file state in memory.
+    Events and receive ends are sent after the lock is released.
+  - Same device first is dropped: devices holding the file are interchangeable, and every holder checks
+    blocks as it reads (design §9), so a re-request after a mismatch uses the usual candidate order.
+    `ingest` takes no author, and `FileRequestSource` / `FileCoverageReader` have no `preferDevice`.
     - Byte checkpoint: ingest drains when the drainable run from P reaches `fileCheckpointBytes`, or the file could
       complete. Drains load only the staged rows overlapping `[P, newP)` (`stagedOverlapping`).
     - A failed append, verify or rename propagates: the receive stays IN_FLIGHT and the checkpoint timer retries. A
@@ -940,7 +938,6 @@ Replaces `DefaultFileReceiveEngine`.
       `FILE_EVICTED` (new).
     - `FileFetchManager`'s new `Ready` branch sends PROGRESS through a logged helper. The pre-existing `runCatching`
       calls in that file are left for R5.4, which rewrites it.
-    - `FileTargetHandler` and `FileFetchManager` pass the transfer's peer to `ingest` as the author.
     - `DrainPlan.deleteBelow` removed (always equals `newP`); `heldCoverage` keeps a `totalBytes` param to detect
       completion.
 
@@ -990,7 +987,8 @@ Replaces `DefaultFileReceiveEngine`.
     - `evicted` returns whether it handled a READY receive: EVICTED first, then the descriptor is forgotten, then the
       final file deleted. Other copies lose their descriptor first, then their bytes, always at the store path for their
       `fileId`, never at a path read from the row. Failures propagate (the retention job logs and retries).
-    - `last_access_at` is stored in milliseconds, and LRU ties break on `created_at`, then `file_id`. `touch` runs once
+  - `last_access_at` is in epoch seconds like every other timestamp; LRU ties break on `created_at`, then `file_id`.
+    `touch` runs once
       per serve (on the read that reaches EOF) and on GUI open; it propagates.
     - `import` returns `ImportResult` (`Imported(descriptor, created)`, `SourceUnreadable`, `NoSpace`). It reports
       hashed bytes through `onBytes`. A copy checks free space first. Tmp names are random. The tmp is deleted on every
@@ -1426,7 +1424,7 @@ Fold these into [`design.md`](design.md) in the step named.
 - **§9 (R2.1, R4.3):**
     - the serve gate covers every account that can see a referencing message, its author included;
     - "an accepted OFFER covers the grace period";
-    - same device first is recorded per bad block.
+  - no same device first: a re-request after a block mismatch uses the usual candidate order (§8, R4.1).
 - **§10 sending (R4.4):** asynchronous send with a preparing state; the message is appended when hashing
   finishes.
 - **§11 file I/O (R5.2):** the two-pass plaintext stream (verify, then stream with a re-hash), and

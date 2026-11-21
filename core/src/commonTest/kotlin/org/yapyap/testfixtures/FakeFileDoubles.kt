@@ -44,7 +44,6 @@ internal class FakeFileSource(
         fileId: FileId,
         byteOffset: Long,
         plaintext: ByteArray,
-        author: PeerId?,
     ): FileIngestResult {
         ingestedBytes += plaintext.size
         val total = totalBytesByFile[fileId] ?: defaultTotalBytes ?: (byteOffset + plaintext.size)
@@ -52,7 +51,6 @@ internal class FakeFileSource(
     }
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
-    override suspend fun preferDevice(fileId: FileId): PeerId? = null
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = candidates
     override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = canServe
     override suspend fun requestTotalBytes(fileId: FileId): Long? =
@@ -90,7 +88,6 @@ internal class FakeReceives : FileReceiveReader {
 /** Held coverage: nothing held unless a test sets [coverage] (tests needing served bytes set it). */
 internal class FakeCoverage(var coverage: FileCoverage? = null) : FileCoverageReader {
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
-    override suspend fun preferDevice(fileId: FileId): PeerId? = null
 }
 
 /** Local identity stub reporting a fixed account. */

@@ -665,8 +665,8 @@ branches on it.
   commit, so the append-only writer handles it: the `.part` is truncated to the block's start, the block's
   staged rows are dropped, the live transfers are CANCELled (merged coverage cannot say which one sent the bad
   bytes), and the file goes back to re-requestable (STALLED) with a mismatch count. The next REQUEST, with
-  coverage ending at the bad block, asks the same device first (a holder checks blocks as it reads, §9, so a
-  rotten copy stops at the source), then the candidate order continues. After `fileHashRetryLimit` mismatches
+  coverage ending at the bad block, follows the usual candidate order: every holder checks blocks as it reads (§9), so a
+  rotten copy stops at its source whichever device is asked. After `fileHashRetryLimit` mismatches
   the file is FAILED.
 - **Progress ACKs** (coverage in the transfer's own chunk indices, capped, §3.2) flow back to each transfer's
   pusher. Chunk `k` is covered iff `(k + 1) × chunkSize <= P` or `P == totalBytes`; a duplicate chunk
@@ -1228,8 +1228,8 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
 - Same file at one relay under two transferIds: different keys and ciphertext, independent rows, both
   forward.
 - Relay deposit round to two relays: two transferIds, two sealed OFFERs, both forwards decrypt at the target.
-- Block mismatch: `.part` truncated to the bad block's start, earlier blocks kept → STALLED → re-REQUEST (same device
-  first) → FAILED after `fileHashRetryLimit`; a holder with a rotten block ends the serve at that
+- Block mismatch: `.part` truncated to the bad block's start, earlier blocks kept → STALLED → re-REQUEST (usual
+  candidate order) → FAILED after `fileHashRetryLimit`; a holder with a rotten block ends the serve at that
   block and declines later REQUESTs.
 - Reference mode: the original is edited, moved or deleted → the next serve stops at the first bad block →
   descriptor SOURCE_LOST; the message still renders; another holder serves.

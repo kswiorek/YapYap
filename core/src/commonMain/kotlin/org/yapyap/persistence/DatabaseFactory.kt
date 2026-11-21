@@ -166,7 +166,7 @@ internal class DatabaseFactory(
                     storage_kindAdapter = EnumColumnAdapter(),
                     statusAdapter = EnumColumnAdapter(),
                     created_atAdapter = InstantEpochSecondsAdapter,
-                    last_access_atAdapter = InstantEpochMillisAdapter,
+                    last_access_atAdapter = InstantEpochSecondsAdapter,
                 ),
                 file_receivesAdapter = File_receives.Adapter(
                     file_idAdapter = FileIdAdapter(),
@@ -236,12 +236,6 @@ internal class UuidAdapter : ColumnAdapter<Uuid, String> {
 internal object InstantEpochSecondsAdapter : ColumnAdapter<Instant, Long> {
     override fun decode(databaseValue: Long): Instant = Instant.fromEpochSeconds(databaseValue)
     override fun encode(value: Instant): Long = value.epochSeconds
-}
-
-/** Millisecond resolution, for columns that order recent events (LRU access times). */
-internal object InstantEpochMillisAdapter : ColumnAdapter<Instant, Long> {
-    override fun decode(databaseValue: Long): Instant = Instant.fromEpochMilliseconds(databaseValue)
-    override fun encode(value: Instant): Long = value.toEpochMilliseconds()
 }
 
 internal object SigningPublicKeyAdapter : ColumnAdapter<SigningPublicKey, ByteArray> {

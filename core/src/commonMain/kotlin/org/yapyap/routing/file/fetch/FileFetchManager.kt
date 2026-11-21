@@ -445,7 +445,7 @@ internal class FileFetchManager(
         val total = state.totalBytes ?: return
         if (state.nextOffset >= total) return
         val result = try {
-            ingest.ingest(state.fileId, state.nextOffset, frame.bytes, author = key.peer)
+            ingest.ingest(state.fileId, state.nextOffset, frame.bytes)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

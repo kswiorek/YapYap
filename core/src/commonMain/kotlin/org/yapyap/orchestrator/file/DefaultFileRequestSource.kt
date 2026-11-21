@@ -5,7 +5,6 @@ import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.sync.RoomVisibility
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileRequestSource
@@ -27,9 +26,6 @@ internal class DefaultFileRequestSource(
     private val coverage: FileCoverageReader,
 ) : FileRequestSource, FileServeGate {
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage.heldCoverage(fileId)
-
-    override suspend fun preferDevice(fileId: FileId): PeerId? =
-        coverage.preferDevice(fileId)
 
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> {
         val messageIds = messages.findMessageIdsByFileId(fileId)

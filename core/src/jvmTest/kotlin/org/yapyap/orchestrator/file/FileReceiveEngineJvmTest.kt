@@ -21,7 +21,6 @@ import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
@@ -720,45 +719,6 @@ class FileReceiveEngineJvmTest {
         retention.sweep(clock.now())
         assertNull(h.receives.find(fileId))
         assertNull(h.files.fileSize(h.paths.part(fileId)), "the unreferenced .part is deleted")
-    }
-
-    @Test
-    fun sameDeviceFirst_isTheDeviceThatFedTheBadBlock() = runTest {
-        val h = harness()
-        val total = 3L * 1024 * 1024
-        val (fileId, blockSize, hashes) = sampleFile(total)
-        val bytes = bytesFor(total)
-        val good = PeerId("good-author-device-000000000000000000000000000000000000000")
-        val bad = PeerId("bad-author-device-0000000000000000000000000000000000000000")
-
-        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
-        h.engine.ingest(fileId, 0, bytes.copyOfRange(0, 1024 * 1024), author = good)
-        val tampered = bytes.copyOfRange(1024 * 1024, 2 * 1024 * 1024)
-        tampered[10] = (tampered[10].toInt() xor 0xff).toByte()
-        h.engine.ingest(fileId, 1024L * 1024, tampered, author = bad)
-        h.engine.ingest(fileId, 2L * 1024 * 1024, bytes.copyOfRange(2 * 1024 * 1024, total.toInt()), author = good)
-
-        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
-        assertEquals(1024L * 1024, h.receives.find(fileId)?.contiguousBytes)
-        assertEquals(bad, h.engine.preferDevice(fileId), "the device whose bytes failed is asked first")
-    }
-
-    @Test
-    fun sameDeviceFirst_unknownWhenNoRecordedDeviceFedTheBadBlock() = runTest {
-        val h = harness()
-        val total = 2L * 1024 * 1024
-        val (fileId, blockSize, hashes) = sampleFile(total)
-        val bytes = bytesFor(total)
-        val good = PeerId("good-author-device-000000000000000000000000000000000000000")
-
-        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
-        h.engine.ingest(fileId, 0, bytes.copyOfRange(0, 1024 * 1024), author = good)
-        val tampered = bytes.copyOfRange(1024 * 1024, total.toInt())
-        tampered[0] = (tampered[0].toInt() xor 0xff).toByte()
-        h.engine.ingest(fileId, 1024L * 1024, tampered, author = null)
-
-        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
-        assertNull(h.engine.preferDevice(fileId), "an unrelated earlier author is not guessed")
     }
 
     @Test

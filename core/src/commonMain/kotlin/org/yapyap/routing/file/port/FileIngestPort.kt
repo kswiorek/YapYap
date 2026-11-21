@@ -1,7 +1,6 @@
 package org.yapyap.routing.file.port
 
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
 
 /** Verdict for an OFFER: accept, short-circuit (already held), refuse, or wait. */
 internal sealed interface FileOfferVerdict {
@@ -57,6 +56,5 @@ internal interface FileIngestPort {
         fileId: FileId,
         byteOffset: Long,
         plaintext: ByteArray,
-        author: PeerId? = null,
     ): FileIngestResult
 }

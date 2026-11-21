@@ -333,13 +333,13 @@ included, so every test data directory is reset when this step lands.
     - the serve gate through `message_attachments` and the sync gate's visibility check;
     - serve-on-REQUEST through the pusher, with a fresh transfer and the floor-aligned start;
     - one live transfer per (`fileId`, target device), where a REQUEST supersedes a push;
-    - after a hash mismatch, the same device first.
+    - after a hash mismatch, the usual candidate order (no same device first).
 - **Tests:**
     - history sync on a fresh device pulls the file;
     - a non-targeted sibling pulls after the grace period;
     - the serve gate refuses an account with no visible message;
     - all candidates declining gives UNAVAILABLE;
-    - a block mismatch triggers a re-request from the same device, then FAILED at the limit.
+  - a block mismatch triggers a re-request, then FAILED at the limit.
 
 ---
 

@@ -37,7 +37,6 @@ import org.yapyap.orchestrator.file.FileStore
 import org.yapyap.orchestrator.file.StagedRange
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
@@ -55,25 +54,6 @@ import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
-
-/** The device that sent the staged range ending at [end]. */
-private data class StagedAuthor(val end: Long, val author: PeerId)
-
-/** One file's lock and the in-memory state only that lock guards. */
-private class FileSlot {
-    val lock = Mutex()
-
-    /** Staged ranges by start offset, kept while they are at or above the block holding P. */
-    val authors = mutableMapOf<Long, StagedAuthor>()
-
-    /** The device to ask first after a block mismatch (design §8). */
-    var preferDevice: PeerId? = null
-
-    fun clear() {
-        authors.clear()
-        preferDevice = null
-    }
-}
 
 /** What a verb decided to announce. Sent after the file lock is released. */
 private class Announcements {
@@ -136,8 +116,8 @@ internal class ReceiveEngine(
 
     override val receiveEnds: Flow<FileReceiveEnd> = ends.receiveAsFlow()
 
-    private val slotsGuard = Mutex()
-    private val slots = mutableMapOf<FileId, FileSlot>()
+    private val locksGuard = Mutex()
+    private val locks = mutableMapOf<FileId, Mutex>()
     private val spaceMutex = Mutex()
 
     @Volatile
@@ -216,11 +196,10 @@ internal class ReceiveEngine(
         fileId: FileId,
         byteOffset: Long,
         plaintext: ByteArray,
-        author: PeerId?,
     ): FileIngestResult {
         if (!recovered) return FileIngestResult.Defer
         return try {
-            ingestChunk(fileId, byteOffset, plaintext, author)
+            ingestChunk(fileId, byteOffset, plaintext)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -242,7 +221,7 @@ internal class ReceiveEngine(
      */
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? {
         if (descriptors.findById(fileId)?.status == FileDescriptorStatus.HELD) return null
-        return withFile(fileId) { _, _ ->
+        return withFile(fileId) { _ ->
             val row = receives.find(fileId) ?: return@withFile FileCoverage(0L, emptyList())
             if (row.status !in ACTIVE) return@withFile null
             Coverage.heldCoverage(
@@ -254,11 +233,9 @@ internal class ReceiveEngine(
         }
     }
 
-    override suspend fun preferDevice(fileId: FileId): PeerId? = withFile(fileId) { slot, _ -> slot.preferDevice }
-
     // -- FileReceiveControl ---------------------------------------------------------
 
-    override suspend fun markStalled(fileId: FileId, now: Instant): Boolean = withFile(fileId) { _, _ ->
+    override suspend fun markStalled(fileId: FileId, now: Instant): Boolean = withFile(fileId) { _ ->
         val row = receives.find(fileId) ?: return@withFile false
         if (row.status != FileReceiveStatus.IN_FLIGHT) return@withFile false
         receives.updateStatus(fileId, FileReceiveStatus.STALLED, now)
@@ -266,7 +243,7 @@ internal class ReceiveEngine(
     }
 
     override suspend fun declineUnseen(attachment: MessagePayload.Attachment, originMessageId: Uuid, now: Instant) {
-        withFile(attachment.fileId) { _, _ ->
+        withFile(attachment.fileId) { _ ->
             if (receives.find(attachment.fileId) == null) {
                 receives.upsert(declinedRow(attachment, originMessageId, now))
             }
@@ -274,7 +251,7 @@ internal class ReceiveEngine(
     }
 
     override suspend fun decline(fileId: FileId, attachment: MessagePayload.Attachment?, now: Instant) {
-        withFile(fileId) { slot, out ->
+        withFile(fileId) { out ->
             val row = receives.find(fileId)
             when {
                 row == null -> attachment?.let { receives.upsert(declinedRow(it, null, now)) }
@@ -284,7 +261,6 @@ internal class ReceiveEngine(
                     receives.updateStatus(fileId, FileReceiveStatus.DECLINED, now)
                     receives.deleteStagedByFile(fileId)
                     files.delete(paths.part(fileId))
-                    slot.clear()
                     if (row.status in ACTIVE) {
                         out.ends += FileReceiveEnd.Cancelled(fileId, FileCancelReason.DECLINED)
                         out.events += FileReceiveEvent.Failed(fileId, FileFailureReason.DECLINED)
@@ -294,20 +270,19 @@ internal class ReceiveEngine(
         }
     }
 
-    override suspend fun reopen(fileId: FileId): Boolean = withFile(fileId) { slot, _ ->
+    override suspend fun reopen(fileId: FileId): Boolean = withFile(fileId) { _ ->
         val row = receives.find(fileId) ?: return@withFile true
         when (row.status) {
             FileReceiveStatus.READY -> false
             in ACTIVE -> true
             else -> {
                 receives.deleteWithStaged(fileId)
-                slot.clear()
                 true
             }
         }
     }
 
-    override suspend fun evicted(fileId: FileId, now: Instant): Boolean = withFile(fileId) { slot, _ ->
+    override suspend fun evicted(fileId: FileId, now: Instant): Boolean = withFile(fileId) { _ ->
         val row = receives.find(fileId) ?: return@withFile false
         if (row.status != FileReceiveStatus.READY) return@withFile false
         // EVICTED first, then the descriptor, then the bytes: a failure part-way never leaves a
@@ -315,7 +290,6 @@ internal class ReceiveEngine(
         receives.updateStatus(fileId, FileReceiveStatus.EVICTED, now)
         fileStore.forget(fileId)
         files.delete(paths.final(fileId))
-        slot.clear()
         AppLog.info(
             component = LogComponent.FILE,
             event = LogEvent.FILE_EVICTED,
@@ -326,11 +300,10 @@ internal class ReceiveEngine(
     }
 
     override suspend fun forgetUnreferenced(fileId: FileId) {
-        withFile(fileId) { slot, _ ->
+        withFile(fileId) { _ ->
             receives.deleteWithStaged(fileId)
             files.delete(paths.part(fileId))
             files.delete(paths.final(fileId))
-            slot.clear()
         }
     }
 
@@ -341,13 +314,13 @@ internal class ReceiveEngine(
         if (!recovered) return
         for (listed in receives.active()) {
             try {
-                withFile(listed.fileId) { slot, out ->
+                withFile(listed.fileId) { out ->
                     val row = receives.find(listed.fileId) ?: return@withFile
                     if (row.status !in ACTIVE) return@withFile
                     if (row.contiguousBytes >= row.totalBytes) {
-                        completeRow(row, now, slot, out)
+                        completeRow(row, now, out)
                     } else {
-                        drainRow(row, now, slot, out)
+                        drainRow(row, now, out)
                     }
                 }
             } catch (e: CancellationException) {
@@ -374,20 +347,20 @@ internal class ReceiveEngine(
      */
     private suspend fun recover(now: Instant) {
         for (listed in receives.active()) {
-            withFile(listed.fileId) { _, _ ->
+            withFile(listed.fileId) { _ ->
                 val row = receives.find(listed.fileId) ?: return@withFile
                 if (row.status in ACTIVE) recoverPart(row, now)
             }
         }
         for (listed in receives.all().filter { it.status in TERMINAL }) {
-            withFile(listed.fileId) { _, _ ->
+            withFile(listed.fileId) { _ ->
                 val part = paths.part(listed.fileId)
                 if (files.exists(part)) files.delete(part)
                 if (receives.stagedBytes(listed.fileId) > 0) receives.deleteStagedByFile(listed.fileId)
             }
         }
         for (listed in receives.ready()) {
-            withFile(listed.fileId) { _, out ->
+            withFile(listed.fileId) { out ->
                 if (descriptors.findById(listed.fileId) == null && files.exists(paths.final(listed.fileId))) {
                     fileStore.adopt(receivedDescriptor(listed, createdAt = listed.createdAt, now = now))
                 }
@@ -427,7 +400,7 @@ internal class ReceiveEngine(
         if (descriptors.findById(offer.fileId)?.status == FileDescriptorStatus.HELD) {
             return FileOfferVerdict.AlreadyReady
         }
-        return withFile(offer.fileId) { _, _ ->
+        return withFile(offer.fileId) { _ ->
             val existing = receives.find(offer.fileId)
             val validBlockList = FileIds.checkBlockList(
                 crypto, offer.fileId, offer.totalBytes, offer.blockSize, offer.blockHashes,
@@ -488,8 +461,7 @@ internal class ReceiveEngine(
         fileId: FileId,
         byteOffset: Long,
         plaintext: ByteArray,
-        author: PeerId?,
-    ): FileIngestResult = withFile(fileId) { slot, out ->
+    ): FileIngestResult = withFile(fileId) { out ->
         val now = clock.now()
         val row = receives.find(fileId) ?: return@withFile FileIngestResult.Refused
         val p = row.contiguousBytes
@@ -502,7 +474,7 @@ internal class ReceiveEngine(
         if (plaintext.isEmpty()) return@withFile FileIngestResult.Duplicate(p, total)
         if (byteOffset < 0 || (total > 0 && byteOffset >= total)) return@withFile FileIngestResult.Refused
         if (total == 0L) {
-            completeRow(row, now, slot, out)
+            completeRow(row, now, out)
             return@withFile FileIngestResult.Ready(0L, 0L)
         }
         val end = minOf(byteOffset + plaintext.size, total)
@@ -527,10 +499,6 @@ internal class ReceiveEngine(
             return@withFile FileIngestResult.Defer
         }
         receives.stageChunks(fileId, toStage, FileReceiveStatus.IN_FLIGHT, now)
-        if (author != null) {
-            for (range in toStage) slot.authors[range.startOffset] =
-                StagedAuthor(range.startOffset + range.length, author)
-        }
         val drainable = Coverage.drainPlan(p, staged + added).newP
         if (drainable < total && drainable - p < config.value.fileCheckpointBytes) {
             return@withFile FileIngestResult.Staged(p, total)
@@ -538,7 +506,7 @@ internal class ReceiveEngine(
         // Completion or the byte threshold: drain now. The chunk is already durable, so a
         // failed drain still answers Staged and the checkpoint timer retries the drain.
         val outcome = try {
-            drainRow(row.copy(status = FileReceiveStatus.IN_FLIGHT), now, slot, out)
+            drainRow(row.copy(status = FileReceiveStatus.IN_FLIGHT), now, out)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -564,7 +532,7 @@ internal class ReceiveEngine(
      * Drains the contiguous run from P: append it, verify the blocks it completes, then commit
      * P and the staged cleanup in one transaction. Caller holds the file lock.
      */
-    private suspend fun drainRow(row: FileReceiveRow, now: Instant, slot: FileSlot, out: Announcements): DrainOutcome {
+    private suspend fun drainRow(row: FileReceiveRow, now: Instant, out: Announcements): DrainOutcome {
         val blockSize = row.blockSize ?: return DrainOutcome.NothingDrainable
         val blockHashes = row.blockHashes ?: return DrainOutcome.NothingDrainable
         val p = row.contiguousBytes
@@ -586,7 +554,7 @@ internal class ReceiveEngine(
         val part = paths.part(row.fileId)
         writer.appendAt(part, p, bytes)
         val bad = firstBadBlock(part, row, plan.newP, blockSize, blockHashes)
-        if (bad != null) return mismatch(row, bad, blockSize, now, slot, out)
+        if (bad != null) return mismatch(row, bad, blockSize, now, out)
 
         val trimPlaintext = plan.trimOldStart?.let { start ->
             val straddling = staged.first { it.startOffset == start }
@@ -596,11 +564,9 @@ internal class ReceiveEngine(
             row.fileId, plan.newP, row.hashMismatches, row.status, now,
             plan.trimOldStart, plan.trimNewStart, plan.trimNewLength, trimPlaintext,
         )
-        val blockFloor = plan.newP / blockSize * blockSize
-        slot.authors.entries.removeAll { it.value.end <= blockFloor }
         out.events += FileReceiveEvent.Progress(row.fileId, plan.newP, row.totalBytes)
         if (plan.newP >= row.totalBytes) {
-            completeRow(row.copy(contiguousBytes = plan.newP), now, slot, out)
+            completeRow(row.copy(contiguousBytes = plan.newP), now, out)
             return DrainOutcome.Completed
         }
         return DrainOutcome.Advanced(plan.newP)
@@ -629,8 +595,8 @@ internal class ReceiveEngine(
     }
 
     /**
-     * A block failed its hash (design §8): truncate to its start, record which device fed it,
-     * drop every staged row and rewind P in one transaction, CANCEL the live transfers. STALLED
+     * A block failed its hash (design §8): truncate to its start, drop every
+     * staged row and rewind P in one transaction, CANCEL the live transfers. STALLED
      * re-requests it; FAILED at `fileHashRetryLimit` mismatches.
      */
     private suspend fun mismatch(
@@ -638,24 +604,15 @@ internal class ReceiveEngine(
         blockIndex: Int,
         blockSize: Int,
         now: Instant,
-        slot: FileSlot,
         out: Announcements,
     ): DrainOutcome {
         val blockStart = blockIndex.toLong() * blockSize
-        val blockEnd = minOf(blockStart + blockSize, row.totalBytes)
         // Truncate before the commit: if it fails nothing is committed and the next drain redoes it.
         writer.truncateTo(paths.part(row.fileId), blockStart)
         val mismatches = row.hashMismatches + 1
         val failed = mismatches >= config.value.fileHashRetryLimit
         val status = if (failed) FileReceiveStatus.FAILED else FileReceiveStatus.STALLED
         receives.commitMismatch(row.fileId, blockStart, mismatches, status, now)
-        slot.preferDevice = slot.authors
-            .filter { (start, staged) -> start < blockEnd && staged.end > blockStart }
-            .entries
-            .groupBy({ it.value.author }, { minOf(it.value.end, blockEnd) - maxOf(it.key, blockStart) })
-            .maxByOrNull { (_, overlaps) -> overlaps.sum() }
-            ?.key
-        slot.authors.clear()
         out.ends += FileReceiveEnd.Cancelled(row.fileId, FileCancelReason.ABORT)
         AppLog.warn(
             component = LogComponent.FILE,
@@ -665,7 +622,6 @@ internal class ReceiveEngine(
         )
         if (!failed) return DrainOutcome.Mismatched(blockStart)
         files.delete(paths.part(row.fileId))
-        slot.clear()
         out.events += FileReceiveEvent.Failed(row.fileId, FileFailureReason.FAILED)
         AppLog.info(
             component = LogComponent.FILE,
@@ -681,13 +637,12 @@ internal class ReceiveEngine(
      * Idempotent: a crash after the rename restarts here with the final file in place; a crash
      * between READY and adopt is repaired by [recover]. Quota runs elsewhere, never under this lock.
      */
-    private suspend fun completeRow(row: FileReceiveRow, now: Instant, slot: FileSlot, out: Announcements) {
+    private suspend fun completeRow(row: FileReceiveRow, now: Instant, out: Announcements) {
         val final = paths.final(row.fileId)
         if (!files.exists(final)) files.move(paths.part(row.fileId), final)
         files.syncDirectory(final)
         receives.markReady(row.fileId, row.totalBytes, row.hashMismatches, now)
         fileStore.adopt(receivedDescriptor(row, createdAt = now, now = now))
-        slot.clear()
         out.events += FileReceiveEvent.Ready(row.fileId)
         out.ends += FileReceiveEnd.Ready(row.fileId)
         AppLog.info(
@@ -711,16 +666,16 @@ internal class ReceiveEngine(
 
     // -- Locking --------------------------------------------------------------------
 
-    private suspend fun slotFor(fileId: FileId): FileSlot = slotsGuard.withLock {
-        slots.getOrPut(fileId) { FileSlot() }
+    private suspend fun lockFor(fileId: FileId): Mutex = locksGuard.withLock {
+        locks.getOrPut(fileId) { Mutex() }
     }
 
     /** Runs [block] under [fileId]'s lock, then sends what it announced, also when it threw part-way. */
-    private suspend inline fun <T> withFile(fileId: FileId, block: (FileSlot, Announcements) -> T): T {
-        val slot = slotFor(fileId)
+    private suspend inline fun <T> withFile(fileId: FileId, block: (Announcements) -> T): T {
+        val lock = lockFor(fileId)
         val out = Announcements()
         try {
-            return slot.lock.withLock { block(slot, out) }
+            return lock.withLock { block(out) }
         } finally {
             withContext(NonCancellable) {
                 for (end in out.ends) ends.send(end)

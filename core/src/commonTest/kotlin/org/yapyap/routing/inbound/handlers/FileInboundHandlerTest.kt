@@ -82,7 +82,6 @@ internal class ScriptedFileIngestPort(
         fileId: FileId,
         byteOffset: Long,
         plaintext: ByteArray,
-        author: PeerId?,
     ): FileIngestResult {
         ingests += Triple(fileId, byteOffset, plaintext)
         return ingestResult
@@ -90,7 +89,6 @@ internal class ScriptedFileIngestPort(
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
 
-    override suspend fun preferDevice(fileId: FileId): PeerId? = null
 
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
 
