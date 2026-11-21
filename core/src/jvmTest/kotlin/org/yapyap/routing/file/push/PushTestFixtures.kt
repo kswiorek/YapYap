@@ -31,7 +31,8 @@ import org.yapyap.protocol.identity.SigningPublicKey
 import org.yapyap.routing.file.FileIncomingTransfers
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileManifest
-import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.PlaintextRead
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.policy.NoRelaySelection
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.FakeFilePlaintextSource
@@ -190,10 +191,20 @@ internal fun pushHarness(
             mimeType = "image/jpeg",
         )
     }
-    plaintext.readImpl = { _, offset, max ->
-        val end = minOf(offset + max, totalBytes)
-        if (offset >= end) FileReadResult.Ok(byteArrayOf(), eof = true)
-        else FileReadResult.Ok(bytes.copyOfRange(offset.toInt(), end.toInt()), eof = end == totalBytes)
+    plaintext.openImpl = { _, fromOffset ->
+        if (fromOffset > totalBytes) null
+        else object : PlaintextStream {
+            var pos = fromOffset
+            override suspend fun read(maxBytes: Int): PlaintextRead {
+                if (pos >= totalBytes) return PlaintextRead.Eof
+                val end = minOf(pos + maxBytes, totalBytes)
+                val slice = bytes.copyOfRange(pos.toInt(), end.toInt())
+                pos = end
+                return PlaintextRead.Bytes(slice)
+            }
+
+            override fun close() = Unit
+        }
     }
     // Real SQL store on in-memory SQLite: restart recovery, the deposit claim and the
     // chunk index all rely on store atomicity, not on fake semantics.

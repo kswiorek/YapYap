@@ -20,7 +20,7 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.file.fetch.FileFetchManager
+import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
@@ -85,9 +85,9 @@ class FileRequestProcessorTest {
         PeerAvailabilityRegistry(clock, ctx.routerConfig, FakePeerAvailabilityStore()),
     )
 
-    private fun idleFetchManager(ctx: RoutingContext, events: MutableSharedFlow<FileEvent>) = FileFetchManager(
-        localDeviceId = ctx.localDeviceId,
-        devices = ctx.devices,
+    private fun idleFetchManager(ctx: RoutingContext, clock: FakeClock, events: MutableSharedFlow<FileEvent>) =
+        FileFetchService(
+            devices = ctx.devices,
         transport = ctx.webRtcTransport,
         plaintext = NoPlaintext,
         ingest = RefusingFilePorts(),
@@ -95,6 +95,7 @@ class FileRequestProcessorTest {
         routerConfig = ctx.routerConfig,
         frameBytes = MutableStateFlow(32 * 1024),
         events = events,
+            clock = clock,
     )
 
     private fun harness(
@@ -139,7 +140,7 @@ class FileRequestProcessorTest {
             events = events,
             onNoLink = {},
             sessionOpener = idleSessionOpener(ctx, clock),
-            fetchManager = idleFetchManager(ctx, events),
+            fetchService = idleFetchManager(ctx, clock, events),
         )
         return Harness(stack, attempts, events, processor, policy, gate)
     }
@@ -273,7 +274,7 @@ class FileRequestProcessorTest {
             events = events,
             onNoLink = {},
             sessionOpener = idleSessionOpener(ctx, clock),
-            fetchManager = idleFetchManager(ctx, events),
+            fetchService = idleFetchManager(ctx, clock, events),
         )
         processor.start(fileId, now)
         CoroutineScope(SupervisorJob()).let { scope ->

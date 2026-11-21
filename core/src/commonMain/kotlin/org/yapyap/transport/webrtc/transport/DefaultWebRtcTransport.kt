@@ -1,7 +1,22 @@
 package org.yapyap.transport.webrtc.transport
 
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -13,7 +28,20 @@ import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import org.yapyap.transport.TransportException
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
-import org.yapyap.transport.webrtc.types.*
+import org.yapyap.transport.webrtc.types.AvQualityTier
+import org.yapyap.transport.webrtc.types.AvSessionOptions
+import org.yapyap.transport.webrtc.types.FileChannelId
+import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcAvSessionPhase
+import org.yapyap.transport.webrtc.types.WebRtcAvSessionState
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcDataType
+import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcFileFrame
+import org.yapyap.transport.webrtc.types.WebRtcIncomingAvSessionRequest
+import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
+import org.yapyap.transport.webrtc.types.WebRtcSessionPhase
+import org.yapyap.transport.webrtc.types.WebRtcSessionState
 
 internal class DefaultWebRtcTransport(
     private val backend: WebRtcBackend,
@@ -21,7 +49,7 @@ internal class DefaultWebRtcTransport(
 
     private val incomingEnvelopeFlow = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
-    private val incomingFileFrameFlow = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 256)
+    private val incomingFileFrameFlow = MutableSharedFlow<WebRtcFileFrame>(extraBufferCapacity = 256)
     private val fileChannelEventFlow = MutableSharedFlow<WebRtcFileChannelEvent>(extraBufferCapacity = 64)
     private val sessionStateMap = MutableStateFlow<Map<PeerId, WebRtcSessionState>>(emptyMap())
     private val incomingCallInviteFlow =
@@ -31,7 +59,7 @@ internal class DefaultWebRtcTransport(
 
     override val incomingEnvelopes: Flow<WebRtcIncomingEnvelope> = incomingEnvelopeFlow.asSharedFlow()
     override val incomingAvFrames: Flow<WebRtcDataFrame> = incomingAvFrameFlow.asSharedFlow()
-    override val incomingFileFrames: Flow<WebRtcDataFrame> = incomingFileFrameFlow.asSharedFlow()
+    override val incomingFileFrames: Flow<WebRtcFileFrame> = incomingFileFrameFlow.asSharedFlow()
     override val fileChannelEvents: Flow<WebRtcFileChannelEvent> = fileChannelEventFlow.asSharedFlow()
     override val sessionStates: StateFlow<Map<PeerId, WebRtcSessionState>> = sessionStateMap.asStateFlow()
     override val incomingCallInvites: Flow<WebRtcIncomingAvSessionRequest> = incomingCallInviteFlow.asSharedFlow()
@@ -47,6 +75,7 @@ internal class DefaultWebRtcTransport(
 
     private var backendSignalJob: Job? = null
     private var backendDataJob: Job? = null
+    private var backendFileDataJob: Job? = null
     private var backendSessionEventsJob: Job? = null
     private var backendAvChannelEventsJob: Job? = null
     private var backendFileChannelEventsJob: Job? = null
@@ -80,6 +109,13 @@ internal class DefaultWebRtcTransport(
         backendDataJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
             backend.incomingDataFrames.collect { frame ->
                 handleIncomingFrame(frame)
+            }
+        }
+
+        backendFileDataJob = localScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            // Own collector and buffer: a stalled file consumer never delays envelopes.
+            backend.incomingFileFrames.collect { frame ->
+                incomingFileFrameFlow.emit(frame)
             }
         }
 
@@ -226,11 +262,13 @@ internal class DefaultWebRtcTransport(
         if (!started) return
         backendSignalJob?.cancel()
         backendDataJob?.cancel()
+        backendFileDataJob?.cancel()
         backendSessionEventsJob?.cancel()
         backendAvChannelEventsJob?.cancel()
         backendFileChannelEventsJob?.cancel()
         backendSignalJob = null
         backendDataJob = null
+        backendFileDataJob = null
         backendSessionEventsJob = null
         backendAvChannelEventsJob = null
         backendFileChannelEventsJob = null
@@ -277,35 +315,23 @@ internal class DefaultWebRtcTransport(
         backend.closeSession(key)
     }
 
-    override suspend fun openFileChannel(target: PeerId, channelLabel: String) {
+    override suspend fun openFileChannel(target: PeerId): FileChannelId {
         check(started) { "WebRTC transport must be started before opening file channel" }
-        backend.openFileChannel(target, channelLabel)
+        return backend.openFileChannel(target)
     }
 
-    override suspend fun closeFileChannel(target: PeerId, channelLabel: String) {
+    override suspend fun closeFileChannel(channel: FileChannelId) {
         check(started) { "WebRTC transport must be started before closing file channel" }
-        backend.closeFileChannel(target, channelLabel)
+        backend.closeFileChannel(channel)
     }
 
-    override suspend fun sendFileFrame(target: PeerId, channelLabel: String, payload: ByteArray) {
+    override suspend fun sendFileFrame(channel: FileChannelId, payload: ByteArray) {
         check(started) { "WebRTC transport must be started before sending file frame" }
-        val local = requireNotNull(localDevice) { "Local device is not available" }
-        backend.sendData(
-            WebRtcDataFrame(
-                source = local,
-                target = target,
-                dataType = WebRtcDataType.FILE_DATA,
-                payload = payload,
-                channelLabel = channelLabel,
-            )
-        )
+        backend.sendFileFrame(channel, payload)
     }
 
-    override fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long? =
-        backend.fileChannelBufferedAmount(target, channelLabel)
-
-    override suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long) =
-        backend.setFileChannelBufferedThreshold(target, channelLabel, thresholdBytes)
+    override suspend fun awaitBufferedBelow(channel: FileChannelId, thresholdBytes: Long) =
+        backend.awaitBufferedBelow(channel, thresholdBytes)
 
     override suspend fun inviteCall(peer: PeerId, options: AvSessionOptions) {
         check(started) { "WebRTC transport must be started before inviting call" }
@@ -436,7 +462,13 @@ internal class DefaultWebRtcTransport(
             }
 
             WebRtcDataType.FILE_DATA -> {
-                incomingFileFrameFlow.emit(frame)
+                // The backend surfaces file bytes on incomingFileFrames, never here.
+                AppLog.warn(
+                    component = LogComponent.WEBRTC_TRANSPORT,
+                    event = LogEvent.SIGNAL_INBOUND_HANDLED,
+                    message = "Ignoring FILE_DATA on the envelope data path",
+                    fields = mapOf("peer" to frame.source),
+                )
             }
         }
     }

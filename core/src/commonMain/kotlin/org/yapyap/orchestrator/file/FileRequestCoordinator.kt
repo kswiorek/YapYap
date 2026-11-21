@@ -15,6 +15,7 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
+import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
@@ -257,7 +258,7 @@ internal class DefaultFileRequestCoordinator(
     }
 
     override suspend fun declineFile(fileId: FileId) {
-        fileCarrier.abortFileFetch(fileId)
+        fileCarrier.abortFileFetch(fileId, FileFetchAbortReason.CANCELLED)
         pending.drop(fileId)
         control.decline(fileId, messages.findFileAttachment(fileId), clock.now())
     }
@@ -307,7 +308,7 @@ internal class DefaultFileRequestCoordinator(
             val mark = progressGuardLocked { lastProgress.getOrPut(row.fileId) { timeSource.markNow() } }
             if (mark.elapsedNow() < stallAfter) continue
             if (control.markStalled(row.fileId, now) && row.totalBytes > SMALL_FILE_MAX_BYTES) {
-                fileCarrier.abortFileFetch(row.fileId)
+                fileCarrier.abortFileFetch(row.fileId, FileFetchAbortReason.STALLED)
             }
             // A STALLED file re-opens the pending request below.
             progressGuardLocked { lastProgress[row.fileId] = timeSource.markNow() }

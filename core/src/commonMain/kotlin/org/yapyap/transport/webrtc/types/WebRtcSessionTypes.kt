@@ -48,25 +48,3 @@ internal sealed interface WebRtcAvChannelEvent {
     data class Removed(override val peer: PeerId) : WebRtcAvChannelEvent
     data class Failed(override val peer: PeerId, val reason: String) : WebRtcAvChannelEvent
 }
-
-/**
- * File-channel lifecycle (design §6.6, step 20): one fetch = one channel on an
- * existing peer connection, opened per fetch by either side. Carries raw fetch
- * frames instead of `BinaryEnvelope`s. `BufferedLow` fires when the channel's
- * `bufferedAmount` drops to the holder's low threshold so the sender can resume.
- */
-internal sealed interface WebRtcFileChannelEvent {
-    val peer: PeerId
-    val channelLabel: String
-
-    data class Adding(override val peer: PeerId, override val channelLabel: String) : WebRtcFileChannelEvent
-    data class Active(override val peer: PeerId, override val channelLabel: String) : WebRtcFileChannelEvent
-    data class Removed(override val peer: PeerId, override val channelLabel: String) : WebRtcFileChannelEvent
-    data class Failed(override val peer: PeerId, override val channelLabel: String, val reason: String) :
-        WebRtcFileChannelEvent
-    data class BufferedLow(
-        override val peer: PeerId,
-        override val channelLabel: String,
-        val bufferedAmount: Long,
-    ) : WebRtcFileChannelEvent
-}

@@ -112,6 +112,8 @@ internal class TransferActor(
                 fields = mapOf("transferId" to transferId),
             )
         } finally {
+            // Releases the plaintext stream: a cancelled actor never reads to its last chunk.
+            source.close()
             try {
                 onTerminal(this)
             } catch (e: CancellationException) {

@@ -16,6 +16,7 @@ import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.e2ee.CryptoSessionConfig
 import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
+import org.yapyap.crypto.e2ee.TestPeerIdentity
 import org.yapyap.crypto.e2ee.buildTestPeerIdentity
 import org.yapyap.crypto.e2ee.manager.DefaultCryptoSessionManager
 import org.yapyap.crypto.e2ee.manager.SessionUpgradePolicy
@@ -26,6 +27,7 @@ import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.orchestrator.OrchestratorConfig
+import org.yapyap.orchestrator.dag.IngestResult
 import org.yapyap.orchestrator.dag.VerificationState
 import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
 import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
@@ -55,6 +57,7 @@ import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -63,10 +66,12 @@ import org.yapyap.protocol.RoomMemberRole
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.router.DefaultRouter
+import org.yapyap.routing.router.E2eeIdentityResolverForRouter
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
 import org.yapyap.routing.router.FakeSyncPayloadProvider
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
@@ -88,10 +93,11 @@ import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import org.yapyap.transport.webrtc.types.WebRtcDataFrame
-import org.yapyap.transport.webrtc.types.WebRtcDataType
+import org.yapyap.transport.webrtc.types.FileChannelId
 import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcFileFrame
 import org.yapyap.transport.webrtc.types.WebRtcSessionState
+import java.util.*
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -121,9 +127,9 @@ class FileLargeFetchTwoRouterTest {
     private val now = epochSeconds(10_000L)
 
     private class FakePipeline : InboundMessagePipeline {
-        private val flow = MutableSharedFlow<org.yapyap.orchestrator.dag.IngestResult>(extraBufferCapacity = 64)
+        private val flow = MutableSharedFlow<IngestResult>(extraBufferCapacity = 64)
         override val ingestResults = flow
-        suspend fun emit(result: org.yapyap.orchestrator.dag.IngestResult) {
+        suspend fun emit(result: IngestResult) {
             flow.emit(result)
         }
 
@@ -151,8 +157,8 @@ class FileLargeFetchTwoRouterTest {
     )
 
     private suspend fun buildNode(
-        localPeer: org.yapyap.crypto.e2ee.TestPeerIdentity,
-        peers: Map<PeerId, org.yapyap.crypto.e2ee.TestPeerIdentity>,
+        localPeer: TestPeerIdentity,
+        peers: Map<PeerId, TestPeerIdentity>,
         peersByAccount: Map<AccountId, List<PeerId>>,
         torByPeer: MutableMap<PeerId, TorEndpoint>,
         localTor: RecordingTorTransport,
@@ -180,7 +186,7 @@ class FileLargeFetchTwoRouterTest {
         val fileStore = DefaultFileStore(descriptors, crypto, files, storeDir, config)
         val chunkSize = MutableStateFlow(32 * 1024)
 
-        fun sessionManager(identity: org.yapyap.routing.router.E2eeIdentityResolverForRouter) =
+        fun sessionManager(identity: E2eeIdentityResolverForRouter) =
             DefaultCryptoSessionManager(
                 crypto = crypto,
                 x3dh = X3dhHandshake(crypto),
@@ -195,7 +201,7 @@ class FileLargeFetchTwoRouterTest {
                 sessionConfig = MutableStateFlow(CryptoSessionConfig()),
             )
 
-        val identity = org.yapyap.routing.router.E2eeIdentityResolverForRouter(
+        val identity = E2eeIdentityResolverForRouter(
             local = localPeer,
             peers = peers,
             peersByAccount = peersByAccount,
@@ -289,8 +295,8 @@ class FileLargeFetchTwoRouterTest {
     private data class Mesh(
         val alice: Node,
         val bob: Node,
-        val alicePeer: org.yapyap.crypto.e2ee.TestPeerIdentity,
-        val bobPeer: org.yapyap.crypto.e2ee.TestPeerIdentity,
+        val alicePeer: TestPeerIdentity,
+        val bobPeer: TestPeerIdentity,
         val scope: CoroutineScope,
         val jobs: MutableList<Job>,
         val fetchFromOffsets: MutableList<Long>,
@@ -315,45 +321,47 @@ class FileLargeFetchTwoRouterTest {
         }
     }
 
+    /**
+     * Delivers file frames and channel closes between the two transports. Frames and closes run on
+     * separate coroutines of the multi-threaded mesh scope, as the backend's separate frame and
+     * event flows do, so a close can overtake frames sent before it. Frames of one channel stay in
+     * order (the backend's guarantee).
+     */
     private fun Mesh.pumpFiles(): Job = scope.launch {
-        val seenAToB = mutableSetOf<Triple<PeerId, String, ByteArray>>()
-        val seenBToA = mutableSetOf<Triple<PeerId, String, ByteArray>>()
-        val seenAClosed = mutableSetOf<Pair<PeerId, String>>()
-        val seenBClosed = mutableSetOf<Pair<PeerId, String>>()
-        while (true) {
-            delay(10.milliseconds)
-            for (sent in alice.webRtc.sendFileFrameCalls.toList()) {
-                if (seenAToB.add(sent)) {
-                    val (target, label, payload) = sent
-                    val frame = runCatching { FileFetchFrame.decode(payload) }.getOrNull()
-                    if (frame is FileFetchFrame.Fetch) fetchFromOffsets += frame.fromOffset
-                    val incoming = WebRtcDataFrame(
-                        alicePeer.device.deviceId, target, WebRtcDataType.FILE_DATA, payload, label,
+        launch { forwardFrames(alice.webRtc, alicePeer.device.deviceId, bob.webRtc) }
+        launch { forwardFrames(bob.webRtc, bobPeer.device.deviceId, alice.webRtc) }
+        launch { forwardCloses(alice.webRtc, alicePeer.device.deviceId, bob.webRtc) }
+        launch { forwardCloses(bob.webRtc, bobPeer.device.deviceId, alice.webRtc) }
+    }
+
+    private suspend fun Mesh.forwardFrames(
+        from: RecordingWebRtcTransport,
+        fromDevice: PeerId,
+        to: RecordingWebRtcTransport
+    ) {
+        for ((channel, payload) in from.sentFileFrames) {
+            val frame = FileFetchFrame.decode(payload)
+            if (frame is FileFetchFrame.Fetch) fetchFromOffsets += frame.fromOffset
+            val incoming = WebRtcFileFrame(FileChannelId(peer = fromDevice, label = channel.label), payload)
+            while (!to.tryEmitFileFrame(incoming)) delay(2)
+        }
+    }
+
+    private suspend fun forwardCloses(
+        from: RecordingWebRtcTransport,
+        fromDevice: PeerId,
+        to: RecordingWebRtcTransport
+    ) {
+        for (channel in from.closedFileChannels) {
+            // Closes travel on their own path, and may overtake frames still being forwarded.
+            to.tryEmitFileChannelEvent(
+                WebRtcFileChannelEvent.Removed(
+                    FileChannelId(
+                        peer = fromDevice,
+                        label = channel.label
                     )
-                    while (!bob.webRtc.tryEmitFileFrame(incoming)) delay(5)
-                }
-            }
-            for (sent in bob.webRtc.sendFileFrameCalls.toList()) {
-                if (seenBToA.add(sent)) {
-                    val (target, label, payload) = sent
-                    val frame = runCatching { FileFetchFrame.decode(payload) }.getOrNull()
-                    if (frame is FileFetchFrame.Fetch) fetchFromOffsets += frame.fromOffset
-                    val incoming = WebRtcDataFrame(
-                        bobPeer.device.deviceId, target, WebRtcDataType.FILE_DATA, payload, label,
-                    )
-                    while (!alice.webRtc.tryEmitFileFrame(incoming)) delay(5)
-                }
-            }
-            for (closed in alice.webRtc.closeFileChannelCalls.toList()) {
-                if (seenAClosed.add(closed)) {
-                    bob.webRtc.tryEmitFileChannelEvent(WebRtcFileChannelEvent.Removed(closed.first, closed.second))
-                }
-            }
-            for (closed in bob.webRtc.closeFileChannelCalls.toList()) {
-                if (seenBClosed.add(closed)) {
-                    alice.webRtc.tryEmitFileChannelEvent(WebRtcFileChannelEvent.Removed(closed.first, closed.second))
-                }
-            }
+                )
+            )
         }
     }
 
@@ -386,15 +394,15 @@ class FileLargeFetchTwoRouterTest {
             retryLoopMaxIdlePoll = 1.seconds,
         ),
         simulateSession: Boolean = true,
+        fileConfig: OrchestratorConfig = OrchestratorConfig(
+            fileCheckpointBytes = 16L * 1024L,
+            fileCheckpointInterval = 200.milliseconds,
+        ),
     ): Mesh {
         val crypto = DefaultCryptoProvider()
         val alicePeer = buildTestPeerIdentity(crypto, "file-large-alice")
         val bobPeer = buildTestPeerIdentity(crypto, "file-large-bob")
         val clock = FakeClock(now)
-        val fileConfig = OrchestratorConfig(
-            fileCheckpointBytes = 16L * 1024L,
-            fileCheckpointInterval = 200.milliseconds,
-        )
         val bobFileConfig = fileConfig.copy(autoDownloadMaxBytes = bobAutoDownload)
         val aliceTor = RecordingTorTransport(TorEndpoint("alice-large.onion", 80))
         val bobTor = RecordingTorTransport(TorEndpoint("bob-large.onion", 80))
@@ -418,7 +426,7 @@ class FileLargeFetchTwoRouterTest {
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val mesh = Mesh(
-            alice, bob, alicePeer, bobPeer, scope, mutableListOf(), mutableListOf(),
+            alice, bob, alicePeer, bobPeer, scope, mutableListOf(), Collections.synchronizedList(mutableListOf()),
             simulateSession = simulateSession,
         )
         return mesh
@@ -501,7 +509,7 @@ class FileLargeFetchTwoRouterTest {
         return tags
     }
 
-    private suspend fun readFinal(node: Node, fileId: org.yapyap.protocol.FileId, size: Int): ByteArray {
+    private suspend fun readFinal(node: Node, fileId: FileId, size: Int): ByteArray {
         val path = Path(node.work.toString(), "store", fileId.value)
         return JvmFileAccess().openPositionedReader(path).use { reader ->
             val out = ByteArray(size)
@@ -528,7 +536,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.start()
             val payload = mesh.publishLargeFile()
             val fileId = payload.attachments.single().fileId
-            mesh.bob.pipeline.emit(org.yapyap.orchestrator.dag.IngestResult.Inserted(payload))
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             try {
                 withTimeout(90.seconds) {
                     while (mesh.bob.receives.find(fileId)?.status != FileReceiveStatus.READY) delay(100)
@@ -593,7 +601,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.start()
             val payload = mesh.publishLargeFile()
             val fileId = payload.attachments.single().fileId
-            mesh.bob.pipeline.emit(org.yapyap.orchestrator.dag.IngestResult.Inserted(payload))
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             delay(3000)
             // Gated: local DECLINED, no request, no fetch frames anywhere.
             assertEquals(FileReceiveStatus.DECLINED, mesh.bob.receives.find(fileId)?.status)
@@ -621,7 +629,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.start()
             val payload = mesh.publishLargeFile()
             val fileId = payload.attachments.single().fileId
-            mesh.bob.pipeline.emit(org.yapyap.orchestrator.dag.IngestResult.Inserted(payload))
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             // Drop the channel mid-fetch (after progress, long before done).
             withTimeout(30.seconds) {
                 while ((mesh.bob.receives.find(fileId)?.contiguousBytes ?: 0L) < 65_536L) delay(50)
@@ -632,8 +640,8 @@ class FileLargeFetchTwoRouterTest {
                 assertContentEquals(ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() }, stored)
                 return@runBlocking
             }
-            val label = mesh.bob.webRtc.openFileChannelCalls.single().second
-            mesh.bob.webRtc.closeFileChannel(mesh.alicePeer.device.deviceId, label)
+            val channel = mesh.bob.webRtc.openedChannels.single()
+            mesh.bob.webRtc.closeFileChannel(channel)
             // A fresh fetch names the checkpointed P as its offset.
             withTimeout(90.seconds) {
                 while (mesh.fetchFromOffsets.size < 2) delay(100)
@@ -658,7 +666,7 @@ class FileLargeFetchTwoRouterTest {
             mesh.start()
             val payload = mesh.publishLargeFile()
             val fileId = payload.attachments.single().fileId
-            mesh.bob.pipeline.emit(org.yapyap.orchestrator.dag.IngestResult.Inserted(payload))
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             delay(2000)
             // Nobody to ask: PENDING, no session, no fetch.
             assertNotNull(mesh.bob.pending.find(fileId))
@@ -683,7 +691,7 @@ class FileLargeFetchTwoRouterTest {
         try {
             mesh.start()
             val payload = mesh.publishLargeFile()
-            mesh.bob.pipeline.emit(org.yapyap.orchestrator.dag.IngestResult.Inserted(payload))
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
             val seen = mutableListOf<FileEvent>()
             val collect = launch { mesh.bob.router.files.fileEvents.collect { seen += it } }
             withTimeout(20.seconds) {
@@ -696,6 +704,163 @@ class FileLargeFetchTwoRouterTest {
             assertTrue(mesh.bob.webRtc.openSessionCalls.isNotEmpty(), "sessions were attempted")
             assertTrue(mesh.fetchFromOffsets.isEmpty(), "no fetch without a session")
             assertTrue(mesh.torFilePackets().none { it == PacketType.FILE }, "nothing falls back to Tor")
+        } finally {
+            mesh.teardown()
+        }
+    }
+
+    @Test
+    fun largeFetch_64MB_defaultCheckpointAndWindow() = runBlocking {
+        // Default checkpoint (8 MiB) and window (32 MiB): bounded memory with production cadence.
+        // Frames stay small so the 64 MB transfer fits the test budget. Router polling stays fast.
+        val defaultMesh = buildMesh(
+            routerConfig = RouterConfig(fileSessionOpenTimeout = 5.seconds, retryLoopMaxIdlePoll = 1.seconds),
+            fileConfig = OrchestratorConfig(),
+        )
+        try {
+            defaultMesh.start()
+            val size = 64L * 1024L * 1024L
+            val sourceBytes = ByteArray(size.toInt()) { (it * 7).toByte() }
+            val sourcePath = Path(defaultMesh.alice.work.toString(), "big64.bin")
+            JvmFileAccess().openAppendWriter(sourcePath, null).use {
+                it.write(sourceBytes)
+                it.flushAndSync()
+            }
+            val descriptor = defaultMesh.alice.fileStore.importHeld(
+                source = FileImportSource.PathSource(sourcePath),
+                fileName = fileName,
+                mimeType = mimeType,
+                keepCopy = true,
+            )
+            val mid = Uuid.random()
+            val payload = MessagePayload.Text(
+                messageId = mid,
+                roomId = roomId,
+                senderAccountId = aliceAccount,
+                authorDeviceId = defaultMesh.alicePeer.device.deviceId,
+                prevIds = emptyList(),
+                createdAt = defaultMesh.alice.clock.now(),
+                text = "big64",
+                attachments = listOf(
+                    MessagePayload.Attachment(descriptor.fileId, fileName, mimeType, descriptor.totalBytes)
+                ),
+            )
+            for (node in listOf(defaultMesh.alice, defaultMesh.bob)) {
+                for (account in listOf(aliceAccount, bobAccount)) {
+                    node.db.identityQueries.putAccount(
+                        account, null, false, AccountRole.MEMBER, IdentityStatus.ACTIVE, "test", false,
+                    )
+                }
+                node.rooms.ensureRoomExists(roomId, RoomType.TEXT_CHANNEL, "r")
+                node.messages.insert(
+                    payload, isOrphaned = false, ancestryComplete = true,
+                    verificationState = VerificationState.VERIFIED,
+                )
+            }
+            defaultMesh.alice.rooms.upsertMember(roomId, bobAccount, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+            defaultMesh.alice.rooms.upsertMember(roomId, aliceAccount, RoomMemberRole.MEMBER, RoomMemberStatus.ACTIVE)
+            defaultMesh.bob.pipeline.emit(IngestResult.Inserted(payload))
+            try {
+                withTimeout(120.seconds) {
+                    while (defaultMesh.bob.receives.find(descriptor.fileId)?.status != FileReceiveStatus.READY) delay(
+                        200
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                val row = defaultMesh.bob.receives.find(descriptor.fileId)
+                throw AssertionError(
+                    "64 MB fetch did not complete: status=${row?.status} P=${row?.contiguousBytes} " +
+                            "staged=${defaultMesh.bob.receives.stagedByFile(descriptor.fileId).size}"
+                )
+            }
+            val stored = readFinal(defaultMesh.bob, descriptor.fileId, size.toInt())
+            assertContentEquals(sourceBytes, stored)
+            // The large path never touches Tor payloads or the outbox.
+            assertTrue(defaultMesh.torFilePackets().none { it == PacketType.FILE })
+            assertTrue(
+                defaultMesh.outboxFileTags()
+                    .none { it.kind in OutboxTag.Kind.FILE_KINDS || it.kind == OutboxTag.Kind.FILE_REQUEST }
+            )
+        } finally {
+            defaultMesh.teardown()
+        }
+    }
+
+    @Test
+    fun mismatchAtSource_abortsAndRetries() = runBlocking {
+        val mesh = buildMesh()
+        try {
+            mesh.start()
+            val payload = mesh.publishLargeFile()
+            val fileId = payload.attachments.single().fileId
+            // Corrupt the holder's stored copy in its second block: every serve ABORTs there.
+            // The holder's two-pass check catches it before any bad byte goes out, so the
+            // receiver never records a mismatch — it re-asks the same holder (MISMATCH retries
+            // same first) and the holder ABORTs again.
+            val holderPath = Path(mesh.alice.work.toString(), "store", fileId.value)
+            val stored = readFinal(mesh.alice, fileId, fileBytesTotal.toInt())
+            val blockSize = blockSizeFor(fileBytesTotal)
+            val corruptAt = blockSize + 10
+            stored[corruptAt] = (stored[corruptAt] + 1).toByte()
+            JvmFileAccess().openAppendWriter(holderPath, 0).use {
+                it.write(stored)
+                it.flushAndSync()
+            }
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payload))
+            // The fetch is retried from the checkpointed prefix; it never reaches READY.
+            withTimeout(60.seconds) {
+                while (mesh.fetchFromOffsets.size < 2) delay(200)
+            }
+            val row = mesh.bob.receives.find(fileId)
+            assertTrue(row?.status != FileReceiveStatus.READY, "corrupt source must not complete")
+            assertTrue(mesh.fetchFromOffsets.size >= 2, "re-requested after ABORT, got ${mesh.fetchFromOffsets}")
+        } finally {
+            mesh.teardown()
+        }
+    }
+
+    @Test
+    fun twoConcurrentFetches_fromOnePeer() = runBlocking {
+        val mesh = buildMesh()
+        try {
+            mesh.start()
+            // Two files from the same holder: both stream at once on their own channels.
+            val payloadA = mesh.publishLargeFile()
+            val fileA = payloadA.attachments.single().fileId
+            val bytesB = ByteArray(fileBytesTotal.toInt()) { (it * 3 + 1).toByte() }
+            val srcB = Path(mesh.alice.work.toString(), "big-b.bin")
+            JvmFileAccess().openAppendWriter(srcB, null).use { it.write(bytesB); it.flushAndSync() }
+            val descB = mesh.alice.fileStore.importHeld(
+                FileImportSource.PathSource(srcB), "b.bin", mimeType, keepCopy = true,
+            )
+            val payloadB = MessagePayload.Text(
+                messageId = Uuid.random(),
+                roomId = roomId,
+                senderAccountId = aliceAccount,
+                authorDeviceId = mesh.alicePeer.device.deviceId,
+                prevIds = emptyList(),
+                createdAt = mesh.alice.clock.now(),
+                text = "big-b",
+                attachments = listOf(MessagePayload.Attachment(descB.fileId, "b.bin", mimeType, descB.totalBytes)),
+            )
+            for (node in listOf(mesh.alice, mesh.bob)) {
+                node.messages.insert(
+                    payloadB, isOrphaned = false, ancestryComplete = true,
+                    verificationState = VerificationState.VERIFIED,
+                )
+            }
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payloadA))
+            mesh.bob.pipeline.emit(IngestResult.Inserted(payloadB))
+            withTimeout(120.seconds) {
+                while (mesh.bob.receives.find(fileA)?.status != FileReceiveStatus.READY ||
+                    mesh.bob.receives.find(descB.fileId)?.status != FileReceiveStatus.READY
+                ) delay(200)
+            }
+            assertContentEquals(
+                ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() },
+                readFinal(mesh.bob, fileA, fileBytesTotal.toInt()),
+            )
+            assertContentEquals(bytesB, readFinal(mesh.bob, descB.fileId, fileBytesTotal.toInt()))
         } finally {
             mesh.teardown()
         }

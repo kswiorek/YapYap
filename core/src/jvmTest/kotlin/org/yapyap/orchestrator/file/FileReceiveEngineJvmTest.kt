@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
@@ -22,6 +23,7 @@ import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.envelopes.FileCancelReason
+import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
@@ -34,12 +36,14 @@ import org.yapyap.testfixtures.importHeld
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -66,11 +70,26 @@ private class FailingWriteAccess(
             private var written = 0L
 
             override suspend fun write(bytes: ByteArray, offset: Int, length: Int) {
-                if (written >= failAfterBytes) throw kotlinx.io.IOException(message)
+                if (written >= failAfterBytes) throw IOException(message)
                 val allowed = minOf(length.toLong(), failAfterBytes - written).toInt()
                 inner.write(bytes, offset, allowed)
                 written += allowed
-                if (allowed < length) throw kotlinx.io.IOException(message)
+                if (allowed < length) throw IOException(message)
+            }
+        }
+    }
+}
+
+/** Counts fsyncs through append handles. */
+private class SyncCountingAccess(private val delegate: FileAccess = JvmFileAccess()) : FileAccess by delegate {
+    var syncs = 0
+
+    override suspend fun openAppendWriter(path: Path, truncateToLength: Long?): AppendHandle {
+        val inner = delegate.openAppendWriter(path, truncateToLength)
+        return object : AppendHandle by inner {
+            override suspend fun flushAndSync() {
+                syncs++
+                inner.flushAndSync()
             }
         }
     }
@@ -784,5 +803,227 @@ class FileReceiveEngineJvmTest {
         assertNull(h.files.fileSize(h.paths.part(fileId)), "declining an in-flight file drops its .part")
         assertTrue(h.receives.stagedRefsByFile(fileId).isEmpty())
         assertEquals(1, h.ends.cancels.size)
+    }
+
+    // -- Fetch append ----------------------------------------------------------------
+
+    @Test
+    fun fetchAppend_writesNoStagedRows() = runTest {
+        val h = harness()
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+
+        var off = 0L
+        while (off < total) {
+            val end = minOf(off + 256 * 1024, total)
+            val result = h.engine.append(fileId, off, bytes.copyOfRange(off.toInt(), end.toInt()))
+            assertTrue(result is FileAppendResult.Appended || result is FileAppendResult.Ready, "got $result")
+            off = end
+            if (result is FileAppendResult.Ready) break
+        }
+
+        assertTrue(h.receives.stagedRefsByFile(fileId).isEmpty(), "a fetch never stages")
+        assertEquals(FileReceiveStatus.READY, h.receives.find(fileId)?.status)
+        assertContentEquals(bytes, readAll(h.files, h.paths.final(fileId), total.toInt()))
+    }
+
+    @Test
+    fun fetchAppend_checkpointsByBytesAndByTime() = runTest {
+        // Interval long enough that only the byte threshold and the explicit checkpoint move P.
+        val config = OrchestratorConfig(
+            fileCheckpointBytes = 1L * 1024 * 1024,
+            fileCheckpointInterval = 1000.seconds,
+        )
+        val h = harness(config = config)
+        val total = 3L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+
+        // Below the byte threshold: durable in the `.part`, P unchanged.
+        var r = h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        assertIs<FileAppendResult.Appended>(r)
+        assertEquals(0L, r.committedBytes)
+        assertEquals(0L, h.receives.find(fileId)?.contiguousBytes)
+        assertEquals(256 * 1024L, h.files.fileSize(h.paths.part(fileId)))
+
+        // Past the threshold: P advances without any staged rows.
+        r = h.engine.append(fileId, 256 * 1024, bytes.copyOfRange(256 * 1024, 1152 * 1024))
+        assertIs<FileAppendResult.Appended>(r)
+        assertEquals(1152 * 1024L, r.committedBytes)
+        assertTrue(h.receives.stagedRefsByFile(fileId).isEmpty())
+
+        // Time checkpoint: more bytes without reaching the threshold, then the timer moves P.
+        r = h.engine.append(fileId, 1152 * 1024, bytes.copyOfRange(1152 * 1024, 1408 * 1024))
+        assertIs<FileAppendResult.Appended>(r)
+        assertEquals(1152 * 1024L, r.committedBytes, "below threshold P does not move")
+        h.engine.checkpoint()
+        assertEquals(1408 * 1024L, h.receives.find(fileId)?.contiguousBytes)
+    }
+
+    @Test
+    fun fetchAppend_mismatchReportsTheBlock() = runTest {
+        val h = harness()
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+
+        // Corrupt the second block.
+        val bad = bytes.copyOf()
+        val secondStart = blockSize
+        for (i in 0 until minOf(blockSize, bad.size - secondStart)) {
+            bad[secondStart + i] = (bad[secondStart + i] + 1).toByte()
+        }
+        var off = 0L
+        var mismatch: FileAppendResult.Mismatch? = null
+        while (off < total && mismatch == null) {
+            val end = minOf(off + 256 * 1024, total)
+            when (val r = h.engine.append(fileId, off, bad.copyOfRange(off.toInt(), end.toInt()))) {
+                is FileAppendResult.Mismatch -> mismatch = r
+                is FileAppendResult.Ready -> error("corrupt bytes must not complete")
+                is FileAppendResult.Appended -> off = end
+                is FileAppendResult.NoSpace, is FileAppendResult.Ended, is FileAppendResult.Defer ->
+                    error("unexpected $r")
+            }
+        }
+        assertNotNull(mismatch, "a bad block reports mismatch")
+        assertEquals(1, mismatch.blockIndex)
+        // P rewinds to at most the bad block's start.
+        assertTrue((h.receives.find(fileId)?.contiguousBytes ?: Long.MAX_VALUE) <= blockSize.toLong())
+    }
+
+    @Test
+    fun fetchAppend_resumeFromPTruncatesUncommittedSuffix() = runTest {
+        val h = harness()
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+
+        // Two frames below the checkpoint: durable in the `.part`, P still 0.
+        h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        h.engine.append(fileId, 256 * 1024, bytes.copyOfRange(256 * 1024, 512 * 1024))
+        assertEquals(512 * 1024L, h.files.fileSize(h.paths.part(fileId)))
+        assertEquals(0L, h.receives.find(fileId)?.contiguousBytes)
+
+        // A new fetch names P (0) while the `.part` still holds the old suffix: truncate and re-send.
+        val r = h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        assertIs<FileAppendResult.Appended>(r)
+        assertEquals(256 * 1024L, h.files.fileSize(h.paths.part(fileId)))
+        assertContentEquals(
+            bytes.copyOfRange(0, 256 * 1024),
+            readAll(h.files, h.paths.part(fileId), 256 * 1024),
+        )
+    }
+
+    @Test
+    fun fetchAppend_offsetMismatchThrows() = runTest {
+        val h = harness()
+        val total = 1L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        // Neither the committed prefix (0, below the checkpoint) nor the uncommitted end (256 KiB).
+        assertFailsWith<IllegalArgumentException> {
+            h.engine.append(fileId, 1, bytes.copyOfRange(1, 1 + 256 * 1024))
+        }
+    }
+
+    @Test
+    fun fetchAppend_fsyncsOnlyAtCheckpoints() = runTest {
+        val counting = SyncCountingAccess()
+        val h = harness(config = OrchestratorConfig(fileCheckpointBytes = 1L * 1024 * 1024), files = counting)
+        val total = 3L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        counting.syncs = 0
+        // 64 KiB frames: fifteen below the 1 MiB checkpoint, then the sixteenth reaches it.
+        val frame = 64 * 1024
+        repeat(15) { i ->
+            assertIs<FileAppendResult.Appended>(
+                h.engine.append(
+                    fileId,
+                    i.toLong() * frame,
+                    bytes.copyOfRange(i * frame, (i + 1) * frame)
+                )
+            )
+        }
+        assertEquals(0, counting.syncs, "no fsync between checkpoints")
+        val r = h.engine.append(fileId, 15L * frame, bytes.copyOfRange(15 * frame, 16 * frame))
+        assertEquals(1024 * 1024L, assertIs<FileAppendResult.Appended>(r).committedBytes)
+        assertEquals(1, counting.syncs, "one fsync for the checkpoint")
+    }
+
+    @Test
+    fun fetchAppend_writeFailure_propagatesAndKeepsTheReceive() = runTest {
+        val failing = FailingWriteAccess(failAfterBytes = 100L * 1024, message = "I/O error")
+        val h = harness(files = failing)
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        failing.failing = false
+        h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        failing.failing = true
+        assertFailsWith<IOException> {
+            h.engine.append(fileId, 256 * 1024, bytes.copyOfRange(256 * 1024, 2 * 256 * 1024))
+        }
+        // Nothing is declined or deleted: the next fetch resumes from P.
+        val row = assertNotNull(h.receives.find(fileId))
+        assertEquals(FileReceiveStatus.IN_FLIGHT, row.status)
+        assertEquals(0L, row.contiguousBytes)
+        assertTrue(h.ends.cancels.isEmpty())
+        failing.failing = false
+        var off = 0L
+        while (off < total) {
+            val end = minOf(off + 256 * 1024, total)
+            h.engine.append(fileId, off, bytes.copyOfRange(off.toInt(), end.toInt()))
+            off = end
+        }
+        assertEquals(FileReceiveStatus.READY, h.receives.find(fileId)?.status)
+        assertContentEquals(bytes, readAll(h.files, h.paths.final(fileId), total.toInt()))
+    }
+
+    @Test
+    fun fetchAppend_diskFull_declinesTheReceive() = runTest {
+        var free = Long.MAX_VALUE
+        val filling = object : FileAccess by JvmFileAccess() {
+            override suspend fun freeSpaceBytes(directory: Path): Long = free
+        }
+        val h = harness(files = filling)
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        free = 1024
+        assertIs<FileAppendResult.NoSpace>(
+            h.engine.append(
+                fileId,
+                256 * 1024,
+                bytes.copyOfRange(256 * 1024, 512 * 1024)
+            )
+        )
+        assertEquals(FileReceiveStatus.DECLINED, h.receives.find(fileId)?.status)
+        assertNull(h.files.fileSize(h.paths.part(fileId)))
+        assertEquals(listOf(fileId to FileCancelReason.DECLINED), h.ends.cancels)
+    }
+
+    @Test
+    fun fetchAppend_afterTheReceiveEnded_isEnded() = runTest {
+        val h = harness()
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        h.engine.decline(fileId, null, h.clock.now())
+        // A frame still in flight after the user's decline: an expected race, not an error.
+        assertIs<FileAppendResult.Ended>(h.engine.append(fileId, 256 * 1024, bytes.copyOfRange(256 * 1024, 512 * 1024)))
     }
 }

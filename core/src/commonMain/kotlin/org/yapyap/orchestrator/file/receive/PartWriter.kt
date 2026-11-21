@@ -19,7 +19,7 @@ internal class PartWriter(
     private val files: FileAccess,
     private val crypto: CryptoProvider,
 ) {
-    /** Append [bytes] at [at], creating the parent directories. Caller fsyncs via the handle. */
+    /** Append [bytes] at [at] and fsync. A longer `.part` is truncated to [at] first. */
     suspend fun appendAt(path: Path, at: Long, bytes: ByteArray) {
         files.openAppendWriter(path, null).use { writer ->
             val size = writer.size()
@@ -30,6 +30,26 @@ internal class PartWriter(
             writer.write(bytes)
             writer.flushAndSync()
         }
+    }
+
+    /**
+     * Write [bytes] at [at] without an fsync (fetch frames between checkpoints): P is the durable
+     * truth, and recovery truncates whatever an unsynced write left past it.
+     */
+    suspend fun writeAt(path: Path, at: Long, bytes: ByteArray) {
+        files.openAppendWriter(path, null).use { writer ->
+            val size = writer.size()
+            if (size != at) {
+                if (size > at) writer.truncate(at)
+                else throw IllegalStateException("torn .part shorter than P: size=$size at=$at")
+            }
+            writer.write(bytes)
+        }
+    }
+
+    /** Fsync [path]: the bytes a checkpoint is about to commit are on disk. */
+    suspend fun sync(path: Path) {
+        files.openAppendWriter(path, null).use { it.flushAndSync() }
     }
 
     /** Truncate [path] to [length] and fsync. */

@@ -13,6 +13,4 @@ internal data class WebRtcDataFrame(
     val target: PeerId,
     val dataType: WebRtcDataType,
     val payload: ByteArray,
-    /** File-channel label for FILE_DATA frames (one fetch = one channel); null otherwise. */
-    val channelLabel: String? = null,
 )

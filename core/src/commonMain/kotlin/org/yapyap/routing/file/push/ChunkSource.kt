@@ -7,9 +7,11 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
  * owns the bytes. Pushes read plaintext through [PlaintextChunkSource]; relay forwards replay
  * stored envelopes through a dedicated forward actor.
  */
-internal interface ChunkSource {
+internal interface ChunkSource : AutoCloseable {
     suspend fun offer(): BinaryEnvelope
     suspend fun chunk(index: Int): ChunkResult
+
+    override fun close()
 }
 
 internal sealed interface ChunkResult {

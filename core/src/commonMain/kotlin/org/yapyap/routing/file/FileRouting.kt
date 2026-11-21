@@ -12,8 +12,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileFetchAbortReason
-import org.yapyap.routing.file.fetch.FileFetchManager
+import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileIngestPort
@@ -130,9 +129,8 @@ internal class FileRouting(
     )
 
     // Large-path fetch (design §6.6): the fetch protocol on dedicated file channels; no envelopes,
-    // no outbox.
-    private val fetchManager = FileFetchManager(
-        localDeviceId = ctx.localDeviceId,
+    // no outbox. One actor per channel on each end; state dies with the channel.
+    private val fetchService = FileFetchService(
         devices = ctx.devices,
         transport = ctx.webRtcTransport,
         plaintext = ports.plaintext,
@@ -141,6 +139,7 @@ internal class FileRouting(
         routerConfig = ctx.routerConfig,
         frameBytes = ports.fetchFrameBytes,
         events = events,
+        clock = ctx.clock,
     )
 
     private val requestProcessor = FileRequestProcessor(
@@ -153,7 +152,7 @@ internal class FileRouting(
         events = events,
         onNoLink = onNoLink,
         sessionOpener = sessionOpener,
-        fetchManager = fetchManager,
+        fetchService = fetchService,
     )
 
     private val carrier = DefaultFileCarrier(
@@ -166,7 +165,7 @@ internal class FileRouting(
         pushOps = sender,
         events = events,
         startRequest = { fileId, firstAttemptAt -> requestProcessor.start(fileId, firstAttemptAt) },
-        abortFetch = { fileId -> fetchManager.abortFetch(fileId, FileFetchAbortReason.CANCELLED) },
+        abortFetch = { fileId, reason -> fetchService.abortFetch(fileId, reason) },
     )
 
     val fileCarrier: FileCarrier get() = carrier
@@ -207,7 +206,7 @@ internal class FileRouting(
     fun runIn(scope: CoroutineScope): List<Job> = listOf(
         pushEngine.runIn(scope),
         requestProcessor.runIn(scope),
-        fetchManager.runIn(scope),
+        fetchService.runIn(scope),
         scope.launch {
             for (outcome in outcomeChannel) {
                 try {

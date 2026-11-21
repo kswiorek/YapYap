@@ -12,6 +12,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
@@ -53,7 +54,7 @@ internal class DefaultFileCarrier(
     private val pushOps: FilePushOps,
     events: MutableSharedFlow<FileEvent>,
     private val startRequest: suspend (FileId, Instant) -> Unit,
-    private val abortFetch: suspend (FileId) -> Unit,
+    private val abortFetch: suspend (FileId, FileFetchAbortReason) -> Unit,
 ) : FileCarrier {
     override val fileEvents: Flow<FileEvent> = events.asSharedFlow()
 
@@ -69,7 +70,7 @@ internal class DefaultFileCarrier(
     override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) =
         startRequest(fileId, firstAttemptAt)
 
-    override suspend fun abortFileFetch(fileId: FileId) = abortFetch(fileId)
+    override suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason) = abortFetch(fileId, reason)
 
     /** Answers a receive the engine ended: COMPLETE when ready, CANCEL when it stopped. */
     suspend fun onReceiveEnd(end: FileReceiveEnd) = when (end) {

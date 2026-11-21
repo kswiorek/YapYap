@@ -636,7 +636,10 @@ class FileRequestCoordinatorTest {
             startedFiles += fileId to firstAttemptAt
         }
 
-        override suspend fun abortFileFetch(fileId: FileId) {
+        override suspend fun abortFileFetch(
+            fileId: FileId,
+            reason: org.yapyap.protocol.envelopes.FileFetchAbortReason
+        ) {
             abortedFiles += fileId
         }
     }

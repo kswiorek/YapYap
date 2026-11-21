@@ -3,6 +3,7 @@ package org.yapyap.routing.file.port
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import kotlin.time.Instant
 
 /**
@@ -105,11 +106,12 @@ internal interface FileCarrier {
     suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant)
 
     /**
-     * Aborts our live large-file fetch of [fileId] (ABORT and channel close, in-memory state
-     * dropped). Idempotent: unknown files are a no-op. The receiver's gap trigger and the user
-     * cancel both land here; the small path needs nothing (its gap trigger cancels no transfer).
+     * Aborts our live large-file fetch of [fileId] with [reason] (`STALLED` for the receiver gap
+     * trigger, `CANCELLED` for the user), ABORTing and closing only the requester — never our
+     * serves of the same file. Idempotent: unknown files are a no-op. The small path needs
+     * nothing (its gap trigger cancels no transfer).
      */
-    suspend fun abortFileFetch(fileId: FileId)
+    suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason)
 }
 
 /** Per-account send state for one file, aggregated over its device transfers. */

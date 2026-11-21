@@ -1,35 +1,51 @@
 package org.yapyap.transport.webrtc
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.PacketType
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
-import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import org.yapyap.transport.webrtc.types.WebRtcDataFrame
 import org.yapyap.transport.webrtc.types.WebRtcDataType
 import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcFileFrame
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
- * Step 20: per-fetch file channels carry raw frames beside the envelope channel.
+ * Per-fetch file channels are backend-minted `FileChannelId` handles carrying raw [WebRtcFileFrame]
+ * frames on their own flow and buffer. Ordering and reliability are the backend's (see
+ * `FileChannelInboxTest`); this covers the transport's delegation, routing and isolation.
  */
 class FileChannelTransportTest {
 
     private val self = PeerId("file-self-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     private val peer = PeerId("file-peer-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+    private fun testEnvelope() = BinaryEnvelope(
+        packetId = Uuid.random(),
+        packetType = PacketType.MESSAGE,
+        dispositionRequested = false,
+        createdAt = epochSeconds(1L),
+        expiresAt = epochSeconds(2L),
+        source = peer,
+        target = self,
+        payload = byteArrayOf(0xAB.toByte()),
+    )
 
     @Test
     fun twoFileChannels_streamWithoutStarvingEnvelopeChannel() = runBlocking {
@@ -38,46 +54,32 @@ class FileChannelTransportTest {
         transport.start(self)
         try {
             backend.simulateEnvelopeChannelOpen(peer)
-            transport.openFileChannel(peer, "yapyap-file-fetch-1")
-            transport.openFileChannel(peer, "yapyap-file-fetch-2")
-            assertEquals(
-                listOf(peer to "yapyap-file-fetch-1", peer to "yapyap-file-fetch-2"),
-                backend.openFileChannelCalls,
-            )
+            val channel1 = transport.openFileChannel(peer)
+            val channel2 = transport.openFileChannel(peer)
+            assertEquals(listOf(peer, peer), backend.openFileChannelCalls)
 
-            // Two file frames on different channels + one envelope frame all land.
-            val fileFrame1 = WebRtcDataFrame(peer, self, WebRtcDataType.FILE_DATA, byteArrayOf(1, 2), "yapyap-file-fetch-1")
-            val fileFrame2 = WebRtcDataFrame(peer, self, WebRtcDataType.FILE_DATA, byteArrayOf(3, 4), "yapyap-file-fetch-2")
-            // Subscribe first so buffered emissions are not missed, then emit.
+            // Two file frames on different channels both land.
             val collected = async {
                 withTimeout(5.seconds) { transport.incomingFileFrames.take(2).toList() }
             }
             // Small yield so the collector is active before emitting.
             delay(10)
-            assertTrue(backend.tryEmitFileFrame(fileFrame1))
-            assertTrue(backend.tryEmitFileFrame(fileFrame2))
+            assertTrue(backend.tryEmitFileFrame(WebRtcFileFrame(channel1, byteArrayOf(1, 2))))
+            assertTrue(backend.tryEmitFileFrame(WebRtcFileFrame(channel2, byteArrayOf(3, 4))))
             val frames = collected.await()
-            val labels = frames.map { it.channelLabel }.toSet()
-            assertEquals(setOf("yapyap-file-fetch-1", "yapyap-file-fetch-2"), labels)
+            assertEquals(setOf(channel1, channel2), frames.map { it.channel }.toSet())
 
             // Envelope channel still flows alongside file channels.
-            val envelope = BinaryEnvelope(
-                packetId = Uuid.random(),
-                packetType = org.yapyap.protocol.PacketType.MESSAGE,
-                dispositionRequested = false,
-                createdAt = epochSeconds(1L),
-                expiresAt = epochSeconds(2L),
-                source = peer,
-                target = self,
-                payload = byteArrayOf(0xAB.toByte()),
-            )
+            val envelope = testEnvelope()
             val inboundCollected = async {
                 withTimeout(5.seconds) { transport.incomingEnvelopes.first() }
             }
             delay(10)
-            assertTrue(backend.tryEmitFileFrame(
-                WebRtcDataFrame(peer, self, WebRtcDataType.ENVELOPE_BINARY, envelope.encode())
-            ))
+            assertTrue(
+                backend.tryEmitDataFrame(
+                    WebRtcDataFrame(peer, self, WebRtcDataType.ENVELOPE_BINARY, envelope.encode()),
+                ),
+            )
             val inbound = inboundCollected.await()
             assertEquals(envelope.packetId, inbound.envelope.packetId)
         } finally {
@@ -86,27 +88,27 @@ class FileChannelTransportTest {
     }
 
     @Test
-    fun fileChannelEvents_forwardBufferedLow() = runBlocking {
+    fun fileChannels_openReturnsDistinctHandlesAndRoutesByChannel() = runBlocking {
         val backend = RecordingWebRtcBackend()
         val transport = DefaultWebRtcTransport(backend)
         transport.start(self)
         try {
-            transport.openFileChannel(peer, "yapyap-file-fetch-9")
-            transport.setFileChannelBufferedThreshold(peer, "yapyap-file-fetch-9", 1024L)
-            assertEquals(listOf(Triple(peer, "yapyap-file-fetch-9", 1024L)), backend.setThresholdCalls)
+            // Reliability is backend-enforced (ordered=true whatever the shared config says);
+            // here we verify the transport delegates opens and routes sends by handle.
+            val channel1 = transport.openFileChannel(peer)
+            val channel2 = transport.openFileChannel(peer)
+            assertNotEquals(channel1, channel2)
+            assertEquals(listOf(peer, peer), backend.openFileChannelCalls)
 
-            val collected = async {
-                withTimeout(5.seconds) {
-                    transport.fileChannelEvents.first { it is WebRtcFileChannelEvent.BufferedLow }
-                }
-            }
-            delay(10)
-            assertTrue(backend.tryEmitFileChannelEvent(
-                WebRtcFileChannelEvent.BufferedLow(peer, "yapyap-file-fetch-9", 512L)
-            ))
-            val event = collected.await()
-            assertTrue(event is WebRtcFileChannelEvent.BufferedLow)
-            assertEquals(512L, (event as WebRtcFileChannelEvent.BufferedLow).bufferedAmount)
+            val payload1 = byteArrayOf(1, 2, 3)
+            val payload2 = byteArrayOf(4, 5, 6)
+            transport.sendFileFrame(channel1, payload1)
+            transport.sendFileFrame(channel2, payload2)
+            assertEquals(2, backend.sendFileFrameCalls.size)
+            assertEquals(channel1, backend.sendFileFrameCalls[0].first)
+            assertTrue(payload1.contentEquals(backend.sendFileFrameCalls[0].second))
+            assertEquals(channel2, backend.sendFileFrameCalls[1].first)
+            assertTrue(payload2.contentEquals(backend.sendFileFrameCalls[1].second))
         } finally {
             transport.stop()
         }
@@ -127,9 +129,8 @@ class FileChannelTransportTest {
                 }
             }
             delay(10)
-            transport.openFileChannel(peer, "yapyap-file-fetch-a")
-            transport.openFileChannel(peer, "yapyap-file-fetch-b")
-            // Wait for the opens to forward (Adding/Active) so the collector is live.
+            val channel1 = transport.openFileChannel(peer)
+            val channel2 = transport.openFileChannel(peer)
             withTimeout(5.seconds) {
                 while (backend.openFileChannelCalls.size < 2) {
                     delay(10)
@@ -145,26 +146,71 @@ class FileChannelTransportTest {
                 }
             }
             job.cancel()
-            val labels = removed.map { it.channelLabel }.toSet()
-            assertEquals(setOf("yapyap-file-fetch-a", "yapyap-file-fetch-b"), labels)
+            assertEquals(setOf(channel1, channel2), removed.map { it.channel }.toSet())
         } finally {
             transport.stop()
         }
     }
 
     @Test
-    fun sendFileFrame_routesByChannelLabel() = runBlocking {
+    fun sendFileFrame_routesByChannel() = runBlocking {
         val backend = RecordingWebRtcBackend()
         val transport = DefaultWebRtcTransport(backend)
         transport.start(self)
         try {
+            val channel = transport.openFileChannel(peer)
             val payload = byteArrayOf(7, 8, 9)
-            transport.sendFileFrame(peer, "yapyap-file-fetch-x", payload)
-            assertEquals(1, backend.sendDataCalls.size)
-            val sent = backend.sendDataCalls.single()
-            assertEquals(WebRtcDataType.FILE_DATA, sent.dataType)
-            assertEquals("yapyap-file-fetch-x", sent.channelLabel)
-            assertTrue(payload.contentEquals(sent.payload))
+            transport.sendFileFrame(channel, payload)
+            assertEquals(1, backend.sendFileFrameCalls.size)
+            val sent = backend.sendFileFrameCalls.single()
+            assertEquals(channel, sent.first)
+            assertTrue(payload.contentEquals(sent.second))
+        } finally {
+            transport.stop()
+        }
+    }
+
+    @Test
+    fun stalledFileConsumer_doesNotDelayEnvelopes() = runBlocking {
+        val backend = RecordingWebRtcBackend()
+        val transport = DefaultWebRtcTransport(backend)
+        transport.start(self)
+        try {
+            backend.simulateEnvelopeChannelOpen(peer)
+            val channel = transport.openFileChannel(peer)
+            delay(50)
+
+            // A file consumer that takes one frame and then never returns: the transport's file
+            // collector backs up behind it until the backend's file buffer is full.
+            val stalledAt = CompletableDeferred<Unit>()
+            val stalled = launch {
+                transport.incomingFileFrames.collect {
+                    stalledAt.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+            delay(50)
+            var refused = 0
+            repeat(2_000) { i ->
+                if (!backend.tryEmitFileFrame(WebRtcFileFrame(channel, byteArrayOf(i.toByte())))) refused++
+            }
+            withTimeout(5.seconds) { stalledAt.await() }
+            assertTrue(refused > 0, "the file path must really be backed up")
+
+            // Envelopes ride a separate flow and must still arrive promptly.
+            val envelope = testEnvelope()
+            val inboundCollected = async {
+                withTimeout(5.seconds) { transport.incomingEnvelopes.first() }
+            }
+            delay(10)
+            assertTrue(
+                backend.tryEmitDataFrame(
+                    WebRtcDataFrame(peer, self, WebRtcDataType.ENVELOPE_BINARY, envelope.encode()),
+                ),
+            )
+            val inbound = inboundCollected.await()
+            assertEquals(envelope.packetId, inbound.envelope.packetId)
+            stalled.cancel()
         } finally {
             transport.stop()
         }

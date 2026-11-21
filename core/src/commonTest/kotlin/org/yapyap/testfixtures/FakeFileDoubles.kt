@@ -10,12 +10,13 @@ import org.yapyap.orchestrator.file.FileStorage
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
+import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.router.FakeFilePorts
 import kotlin.time.Instant
 
@@ -48,6 +49,12 @@ internal class FakeFileSource(
         ingestedBytes += plaintext.size
         val total = totalBytesByFile[fileId] ?: defaultTotalBytes ?: (byteOffset + plaintext.size)
         return FileIngestResult.Staged(byteOffset + plaintext.size, total)
+    }
+
+    override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult {
+        ingestedBytes += bytes.size
+        val total = totalBytesByFile[fileId] ?: defaultTotalBytes ?: (offset + bytes.size)
+        return FileAppendResult.Appended(offset + bytes.size)
     }
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
@@ -100,6 +107,6 @@ internal class FakeLocalIdentity(private val account: AccountId) : org.yapyap.cr
 
 /** A plaintext source that holds nothing: for tests that wire the large path but never serve. */
 internal object NoPlaintext : FilePlaintextSource {
-    override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult = FileReadResult.NotHeld
+    override suspend fun open(fileId: FileId, fromOffset: Long): PlaintextStream? = null
     override suspend fun describe(fileId: FileId): FileManifest? = null
 }

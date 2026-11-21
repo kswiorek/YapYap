@@ -97,7 +97,7 @@ class DefaultFileCarrierTest {
             pushOps = org.yapyap.routing.router.NoopFilePushOps(),
             events = MutableSharedFlow(extraBufferCapacity = 64),
             startRequest = { _, _ -> },
-            abortFetch = {},
+            abortFetch = { _, _ -> },
         )
         return Harness(carrier, service, store, sent, localPeer.device.deviceId)
     }
@@ -197,7 +197,7 @@ class DefaultFileCarrierTest {
             },
             events = MutableSharedFlow(extraBufferCapacity = 64),
             startRequest = { _, _ -> },
-            abortFetch = {},
+            abortFetch = { _, _ -> },
         )
         val target = AccountId("target-account")
         carrier.pushFile(fileId, target)

@@ -33,6 +33,7 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.FileIncomingTransfers
 import org.yapyap.routing.file.FileTransferSignals
 import org.yapyap.routing.file.isValidOfferPublicHalf
+import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
@@ -86,6 +87,9 @@ internal class ScriptedFileIngestPort(
         ingests += Triple(fileId, byteOffset, plaintext)
         return ingestResult
     }
+
+    override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult =
+        FileAppendResult.Appended(offset + bytes.size)
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
 

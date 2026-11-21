@@ -21,7 +21,8 @@ import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.protocol.FileId
+import org.yapyap.routing.file.port.PlaintextRead
 import org.yapyap.testfixtures.importHeld
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -98,9 +99,8 @@ class FileStoreJvmTest {
         val resolved = assertNotNull(descriptors.findById(descriptor.fileId))
         assertTrue(files.exists(Path(resolved.path)))
         val source = DefaultFilePlaintextSource(descriptors, store, files, crypto)
-        val got = source.read(descriptor.fileId, 0, 4096)
-        check(got is FileReadResult.Ok)
-        assertEquals(4096, got.bytes.size)
+        val got = readExact(source, descriptor.fileId, 0, 4096)
+        assertEquals(4096, got.size)
     }
 
     @Test
@@ -123,10 +123,7 @@ class FileStoreJvmTest {
             raf.write(0xFF)
         }
         val source = DefaultFilePlaintextSource(descriptors, store, files, crypto)
-        val res = source.read(descriptor.fileId, editAt - 100, 4096)
-        check(res is FileReadResult.SourceLost) {
-            "expected SourceLost but was $res"
-        }
+        assertEquals(1, expectSourceLost(source, descriptor.fileId, editAt - 100, 4096))
         assertEquals(FileDescriptorStatus.SOURCE_LOST, assertNotNull(descriptors.findById(descriptor.fileId)).status)
     }
 
@@ -170,7 +167,7 @@ class FileStoreJvmTest {
         // The store copy is lost: serving finds it gone.
         files.delete(Path(copy.path))
         val source = DefaultFilePlaintextSource(descriptors, store, files, crypto)
-        check(source.read(copy.fileId, 0, 4096) is FileReadResult.SourceLost)
+        assertEquals(0, expectSourceLost(source, copy.fileId, 0, 4096))
         // Re-sent without keeping a copy: the user's file becomes the reference.
         val again = store.importHeld(FileImportSource.PathSource(original), "pic.bin", null, keepCopy = false)
         assertEquals(FileStorage.REFERENCE, again.storage)
@@ -178,8 +175,8 @@ class FileStoreJvmTest {
         assertEquals(FileStorage.REFERENCE, descriptors.findById(copy.fileId)?.storage)
         quotaFor(db, store, work, storeDir, config).enforceQuota()
         assertTrue(files.exists(original), "quota must never delete the user's own file")
-        val served = source.read(copy.fileId, 0, 4096)
-        check(served is FileReadResult.Ok) { "expected Ok but was $served" }
+        val served = readExact(source, copy.fileId, 0, 4096)
+        assertEquals(4096, served.size)
     }
 
     @Test
@@ -194,11 +191,11 @@ class FileStoreJvmTest {
         val copy = store.importHeld(FileImportSource.PathSource(original), "doc.bin", null, keepCopy = true)
         files.delete(Path(copy.path))
         val source = DefaultFilePlaintextSource(descriptors, store, files, crypto)
-        check(source.read(copy.fileId, 0, 4096) is FileReadResult.SourceLost)
+        assertEquals(0, expectSourceLost(source, copy.fileId, 0, 4096))
         val again = store.importHeld(FileImportSource.PathSource(original), "doc.bin", null, keepCopy = true)
         assertEquals(FileDescriptorStatus.HELD, again.status)
         assertTrue(files.exists(Path(again.path)))
-        check(source.read(copy.fileId, 0, 4096) is FileReadResult.Ok)
+        check(readExact(source, copy.fileId, 0, 4096).size == 4096)
         assertEquals(listOf(copy.fileId.value), storeFileNames(storeDir))
     }
 
@@ -303,8 +300,7 @@ class FileStoreJvmTest {
             raf.write(0xFF)
         }
         val source = DefaultFilePlaintextSource(descriptors, store, files, crypto)
-        val lost = source.read(descriptor.fileId, 1_500_000L - 100, 4096)
-        check(lost is FileReadResult.SourceLost)
+        assertEquals(1, expectSourceLost(source, descriptor.fileId, 1_500_000L - 100, 4096))
         assertEquals(FileDescriptorStatus.SOURCE_LOST, descriptors.findById(descriptor.fileId)?.status)
         // Restore the original bytes and re-import: a matching hash goes back to HELD.
         files.delete(original)
@@ -312,9 +308,8 @@ class FileStoreJvmTest {
         val again = store.importHeld(FileImportSource.PathSource(original), "orig.bin", null, keepCopy = false)
         assertEquals(FileDescriptorStatus.HELD, again.status)
         assertEquals(descriptor.fileId, again.fileId)
-        val served = source.read(descriptor.fileId, 1_500_000L - 100, 4096)
-        check(served is FileReadResult.Ok) { "expected Ok after re-import but was $served" }
-        assertEquals(bytes.copyOfRange(1_500_000 - 100, 1_500_000 - 100 + 4096).toList(), served.bytes.toList())
+        val served = readExact(source, descriptor.fileId, 1_500_000L - 100, 4096)
+        assertEquals(bytes.copyOfRange(1_500_000 - 100, 1_500_000 - 100 + 4096).toList(), served.toList())
     }
 
     @Test
@@ -333,5 +328,54 @@ class FileStoreJvmTest {
         assertEquals(ref.fileId, upgraded.fileId)
         assertEquals(FileStorage.COPY, upgraded.storage)
         assertTrue(files.exists(Path(upgraded.path)), "upgraded copy must exist in the store")
+    }
+
+    /** Reads exactly [maxBytes] verified bytes from [offset], failing on EOF, loss or a missing stream. */
+    private suspend fun readExact(
+        source: DefaultFilePlaintextSource,
+        fileId: FileId,
+        offset: Long,
+        maxBytes: Int,
+    ): ByteArray {
+        val stream = assertNotNull(source.open(fileId, offset), "expected a stream at $offset")
+        try {
+            val out = java.io.ByteArrayOutputStream()
+            var remaining = maxBytes
+            while (remaining > 0) {
+                when (val r = stream.read(remaining)) {
+                    is PlaintextRead.Bytes -> {
+                        out.write(r.bytes)
+                        remaining -= r.bytes.size
+                    }
+
+                    is PlaintextRead.Eof -> error("EOF after ${maxBytes - remaining} of $maxBytes bytes at $offset")
+                    is PlaintextRead.SourceLost -> error("SourceLost(${r.blockIndex}) at $offset")
+                }
+            }
+            return out.toByteArray()
+        } finally {
+            stream.close()
+        }
+    }
+
+    /** Drains the stream until it reports loss, returning the lost block index. */
+    private suspend fun expectSourceLost(
+        source: DefaultFilePlaintextSource,
+        fileId: FileId,
+        offset: Long,
+        maxBytes: Int,
+    ): Int {
+        val stream = assertNotNull(source.open(fileId, offset), "expected a stream at $offset")
+        try {
+            while (true) {
+                when (val r = stream.read(maxBytes)) {
+                    is PlaintextRead.Bytes -> continue
+                    is PlaintextRead.Eof -> error("expected SourceLost but hit EOF at $offset")
+                    is PlaintextRead.SourceLost -> return r.blockIndex
+                }
+            }
+        } finally {
+            stream.close()
+        }
     }
 }

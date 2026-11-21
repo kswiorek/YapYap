@@ -7,16 +7,25 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.transport.session.SessionTransport
-import org.yapyap.transport.webrtc.types.*
+import org.yapyap.transport.webrtc.types.AvSessionOptions
+import org.yapyap.transport.webrtc.types.FileChannelId
+import org.yapyap.transport.webrtc.types.WebRtcAvSessionState
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcFileFrame
+import org.yapyap.transport.webrtc.types.WebRtcIncomingAvSessionRequest
+import org.yapyap.transport.webrtc.types.WebRtcSessionState
 
 
 internal interface WebRtcTransport : SessionTransport<PeerId> {
     // Data plane
     val incomingEnvelopes: Flow<WebRtcIncomingEnvelope>
     val incomingAvFrames: Flow<WebRtcDataFrame>
-    /** Raw fetch frames on per-fetch file channels (design §6.6, step 20). */
-    val incomingFileFrames: Flow<WebRtcDataFrame>
-    /** Per-fetch file-channel lifecycle (open/close/flow-control). */
+
+    /** Raw fetch frames on per-fetch file channels (design §6.6): its own flow and buffer. */
+    val incomingFileFrames: Flow<WebRtcFileFrame>
+
+    /** Per-fetch file-channel lifecycle (open/close). */
     val fileChannelEvents: Flow<WebRtcFileChannelEvent>
 
     // Signaling plane (bootstrap only: OFFER/ANSWER/ICE/REJECT/CANCEL)
@@ -65,11 +74,16 @@ internal interface WebRtcTransport : SessionTransport<PeerId> {
     suspend fun endCall(peer: PeerId, reason: String? = null)
 
     // File fetch channels (one channel per fetch, raw frames, design §6.6)
-    suspend fun openFileChannel(target: PeerId, channelLabel: String)
-    suspend fun closeFileChannel(target: PeerId, channelLabel: String)
-    suspend fun sendFileFrame(target: PeerId, channelLabel: String, payload: ByteArray)
-    fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long?
-    suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long)
+    suspend fun openFileChannel(target: PeerId): FileChannelId
+    suspend fun closeFileChannel(channel: FileChannelId)
+    suspend fun sendFileFrame(channel: FileChannelId, payload: ByteArray)
+
+    /**
+     * Suspend until [channel]'s buffered amount drops at or below [thresholdBytes].
+     * A closed channel returns at once. The transport never polls: this is backed
+     * by the backend's low-threshold callback.
+     */
+    suspend fun awaitBufferedBelow(channel: FileChannelId, thresholdBytes: Long)
 }
 
 internal data class WebRtcIncomingEnvelope(

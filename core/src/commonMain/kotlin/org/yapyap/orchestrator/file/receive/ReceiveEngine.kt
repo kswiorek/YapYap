@@ -41,6 +41,7 @@ import org.yapyap.protocol.blockSizeFor
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileFailureReason
 import org.yapyap.routing.file.port.FileIngestPort
@@ -215,6 +216,15 @@ internal class ReceiveEngine(
     }
 
     /**
+     * Fetch append (design §6.6, §8). Only a not-yet-recovered engine defers; a failed write,
+     * fsync or verify propagates, leaving P where it was, and the fetch resumes from P.
+     */
+    override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult {
+        if (!recovered) return FileAppendResult.Defer
+        return appendBytes(fileId, offset, bytes)
+    }
+
+    /**
      * Durable held coverage for building a REQUEST (design §3.2, §9): the contiguous prefix plus
      * the capped missing ranges beyond it. Null when the file needs no request: held, READY, or
      * ended (DECLINED, FAILED, CANCELLED, EVICTED wait for the user to re-open them).
@@ -256,16 +266,7 @@ internal class ReceiveEngine(
             when {
                 row == null -> attachment?.let { receives.upsert(declinedRow(it, null, now)) }
                 row.status == FileReceiveStatus.READY -> Unit
-                else -> {
-                    // DECLINED first: a failure in the cleanup below leaves leftovers recovery drops.
-                    receives.updateStatus(fileId, FileReceiveStatus.DECLINED, now)
-                    receives.deleteStagedByFile(fileId)
-                    files.delete(paths.part(fileId))
-                    if (row.status in ACTIVE) {
-                        out.ends += FileReceiveEnd.Cancelled(fileId, FileCancelReason.DECLINED)
-                        out.events += FileReceiveEvent.Failed(fileId, FileFailureReason.DECLINED)
-                    }
-                }
+                else -> declineRow(row, now, out)
             }
         }
     }
@@ -319,8 +320,11 @@ internal class ReceiveEngine(
                     if (row.status !in ACTIVE) return@withFile
                     if (row.contiguousBytes >= row.totalBytes) {
                         completeRow(row, now, out)
-                    } else {
+                    } else if (receives.stagedBytes(row.fileId) > 0) {
                         drainRow(row, now, out)
+                    } else {
+                        // No staged rows: a fetch file whose `.part` grew past P.
+                        commitFetchPrefix(row, now, out)
                     }
                 }
             } catch (e: CancellationException) {
@@ -526,6 +530,108 @@ internal class ReceiveEngine(
             is DrainOutcome.Mismatched -> FileIngestResult.Staged(outcome.blockStart, total)
             DrainOutcome.Failed -> FileIngestResult.Refused
         }
+    }
+
+    /** DECLINED first: a failure in the cleanup below leaves leftovers recovery drops. Caller holds the lock. */
+    private suspend fun declineRow(row: FileReceiveRow, now: Instant, out: Announcements) {
+        receives.updateStatus(row.fileId, FileReceiveStatus.DECLINED, now)
+        receives.deleteStagedByFile(row.fileId)
+        files.delete(paths.part(row.fileId))
+        if (row.status in ACTIVE) {
+            out.ends += FileReceiveEnd.Cancelled(row.fileId, FileCancelReason.DECLINED)
+            out.events += FileReceiveEvent.Failed(row.fileId, FileFailureReason.DECLINED)
+        }
+    }
+
+    /**
+     * Fetch append body: writes [bytes] at [offset] into the `.part` without staging or an fsync.
+     * A checkpoint (a full `fileCheckpointBytes` past P, or the file's end) fsyncs, verifies the
+     * blocks it completes and commits P. Time checkpoints run in [checkpoint].
+     */
+    private suspend fun appendBytes(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult =
+        withFile(fileId) { out ->
+            require(offset >= 0) { "offset must be >= 0 but was $offset" }
+            val now = clock.now()
+            val row = receives.find(fileId) ?: return@withFile FileAppendResult.Ended
+            when (row.status) {
+                FileReceiveStatus.READY -> return@withFile FileAppendResult.Ready
+                !in ACTIVE -> return@withFile FileAppendResult.Ended
+                else -> Unit
+            }
+            val total = row.totalBytes
+            if (total == 0L) {
+                require(offset == 0L) { "fetch offset $offset != uncommitted end 0" }
+                completeRow(row, now, out)
+                return@withFile FileAppendResult.Ready
+            }
+            val blockSize = checkNotNull(row.blockSize) { "missing block info for $fileId" }
+            val blockHashes = checkNotNull(row.blockHashes) { "missing block info for $fileId" }
+            val part = paths.part(fileId)
+            val size = files.fileSize(part) ?: run {
+                createEmptyPart(row, now)
+                0L
+            }
+            // A resume after a drop without a restart: the `.part` still holds the previous fetch's
+            // unverified suffix past P. The write below truncates it.
+            require(offset == size || (offset == row.contiguousBytes && size > offset)) {
+                "fetch offset $offset != uncommitted end $size"
+            }
+            if (bytes.isEmpty()) return@withFile FileAppendResult.Appended(row.contiguousBytes)
+            val end = offset + bytes.size
+            require(end <= total) { "fetch bytes [$offset, $end) exceed total $total" }
+            // The reservation at FETCH_OK counted this file; the disk can still fill from elsewhere.
+            if (files.freeSpaceBytes(paths.incomingDir) < bytes.size) {
+                declineRow(row, now, out)
+                AppLog.info(
+                    component = LogComponent.FILE,
+                    event = LogEvent.FILE_RECEIVE_FAILED,
+                    message = "Fetch declined: no space",
+                    fields = mapOf("fileId" to fileId),
+                )
+                return@withFile FileAppendResult.NoSpace
+            }
+            writer.writeAt(part, offset, bytes)
+            if (end < total && end - row.contiguousBytes < config.value.fileCheckpointBytes) {
+                return@withFile FileAppendResult.Appended(row.contiguousBytes)
+            }
+            writer.sync(part)
+            val bad = firstBadBlock(part, row, end, blockSize, blockHashes)
+            if (bad != null) {
+                mismatch(row, bad, blockSize, now, out)
+                return@withFile FileAppendResult.Mismatch(bad)
+            }
+            if (end >= total) {
+                completeRow(row.copy(contiguousBytes = total), now, out)
+                return@withFile FileAppendResult.Ready
+            }
+            receives.updateProgress(fileId, end, row.hashMismatches, row.status, now)
+            out.events += FileReceiveEvent.Progress(fileId, end, total)
+            FileAppendResult.Appended(end)
+        }
+
+    /**
+     * Time checkpoint for a fetch file: fsyncs and commits the `.part` suffix past P that byte
+     * checkpoints have not moved yet. Caller holds the file lock.
+     */
+    private suspend fun commitFetchPrefix(row: FileReceiveRow, now: Instant, out: Announcements) {
+        val part = paths.part(row.fileId)
+        val size = files.fileSize(part) ?: return
+        if (size <= row.contiguousBytes) return
+        val blockSize = row.blockSize ?: return
+        val blockHashes = row.blockHashes ?: return
+        val newP = minOf(size, row.totalBytes)
+        writer.sync(part)
+        val bad = firstBadBlock(part, row, newP, blockSize, blockHashes)
+        if (bad != null) {
+            mismatch(row, bad, blockSize, now, out)
+            return
+        }
+        if (newP >= row.totalBytes) {
+            completeRow(row.copy(contiguousBytes = newP), now, out)
+            return
+        }
+        receives.updateProgress(row.fileId, newP, row.hashMismatches, row.status, now)
+        out.events += FileReceiveEvent.Progress(row.fileId, newP, row.totalBytes)
     }
 
     /**

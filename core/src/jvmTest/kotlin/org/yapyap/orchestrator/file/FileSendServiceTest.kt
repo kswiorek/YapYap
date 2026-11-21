@@ -42,7 +42,8 @@ private class NoopCarrier : FileCarrier {
     override suspend fun cancelFile(fileId: FileId, target: AccountId) = Unit
     override suspend fun sendState(fileId: FileId) = emptyMap<AccountId, FileSendState>()
     override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
-    override suspend fun abortFileFetch(fileId: FileId) = Unit
+    override suspend fun abortFileFetch(fileId: FileId, reason: org.yapyap.protocol.envelopes.FileFetchAbortReason) =
+        Unit
 }
 
 private class RecordingQuota : FileQuota {

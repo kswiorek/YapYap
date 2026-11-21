@@ -353,6 +353,7 @@ internal class FilePushEngine(
      */
     private suspend fun dropPushActor(id: TransferId) {
         val entry = mutex.withLock { actors.remove(id) } ?: return
+        // The actor closes its plaintext stream in its own `finally`, never under a running read.
         if (entry.job != currentCoroutineContext()[Job]) entry.job.cancel()
     }
 

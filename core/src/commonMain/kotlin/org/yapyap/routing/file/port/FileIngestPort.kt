@@ -26,6 +26,31 @@ internal enum class FileRefusalReason {
     NOT_RETRYABLE,
 }
 
+/**
+ * Result of handing one fetch frame's bytes to the receive engine (design §6.6, §8).
+ * Fetch frames arrive in order and append at P without staging. A failed write or verify throws,
+ * leaving P where it was; `offset` other than the uncommitted end throws [IllegalArgumentException].
+ */
+internal sealed interface FileAppendResult {
+    /** P after this call (often unchanged: checkpoints move it by bytes and by time). */
+    data class Appended(val committedBytes: Long) : FileAppendResult
+
+    /** The file is complete: this append finished it (READY follows on the ends flow), or it already was. */
+    data object Ready : FileAppendResult
+
+    /** A block failed its hash: truncated to its start; the requester ABORTs and re-asks. */
+    data class Mismatch(val blockIndex: Int) : FileAppendResult
+
+    /** The disk is full: the receive is DECLINED locally; the requester ABORTs and the request ends. */
+    data object NoSpace : FileAppendResult
+
+    /** The receive ended locally (declined, failed, forgotten): the requester stops, nothing to blame. */
+    data object Ended : FileAppendResult
+
+    /** Recovery is not done yet: retry the same bytes shortly. */
+    data object Defer : FileAppendResult
+}
+
 /** Result of handing one decrypted chunk to the receive engine (synchronous, design §8). */
 internal sealed interface FileIngestResult {
     /** Decrypted and durably recorded: the chunk may now be ACKed. Carries the new P. */
@@ -57,4 +82,12 @@ internal interface FileIngestPort {
         byteOffset: Long,
         plaintext: ByteArray,
     ): FileIngestResult
+
+    /**
+     * Append fetch bytes at the uncommitted end (design §6.6, §8): straight into the `.part` at
+     * [offset], without staging. [offset] must equal the uncommitted end, or the checkpointed
+     * prefix when resuming after a drop (the leftover suffix is truncated). Checkpoints move P by
+     * bytes (here) and by time (in the sweep).
+     */
+    suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult
 }

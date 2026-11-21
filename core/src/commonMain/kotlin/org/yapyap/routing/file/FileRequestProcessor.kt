@@ -25,7 +25,7 @@ import org.yapyap.routing.candidate.CandidateRow
 import org.yapyap.routing.candidate.CandidateStrategy
 import org.yapyap.routing.candidate.CandidateWaiting
 import org.yapyap.routing.candidate.SuccessAction
-import org.yapyap.routing.file.fetch.FileFetchManager
+import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.outbound.OutboxProcessor
@@ -66,7 +66,7 @@ internal class FileRequestProcessor(
     /** No candidate has an open link: whoever keeps links open may want to try these now. */
     onNoLink: suspend (PeerId) -> Unit = {},
     sessionOpener: ProactiveSessionOpener,
-    fetchManager: FileFetchManager,
+    fetchService: FileFetchService,
 ) {
     private val strategy = FileRequestStrategy(ctx, attempts, requests, outboxProcessor, events)
     private val smallCore = CandidateRequestCore(
@@ -77,7 +77,7 @@ internal class FileRequestProcessor(
         maxIdlePoll = maxIdlePoll,
         onNoLink = onNoLink,
     )
-    private val fetchStrategy = FileFetchStrategy(ctx, attempts, requests, sessionOpener, fetchManager, events)
+    private val fetchStrategy = FileFetchStrategy(ctx, attempts, requests, sessionOpener, fetchService, events)
     private val fetchCore = CandidateRequestCore(
         ctx = ctx,
         strategy = fetchStrategy,

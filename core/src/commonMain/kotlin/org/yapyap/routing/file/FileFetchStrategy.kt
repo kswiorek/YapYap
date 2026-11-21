@@ -11,8 +11,8 @@ import org.yapyap.routing.candidate.CandidateAttemptStore
 import org.yapyap.routing.candidate.CandidateRow
 import org.yapyap.routing.candidate.CandidateStrategy
 import org.yapyap.routing.candidate.SuccessAction
-import org.yapyap.routing.file.fetch.FileFetchManager
-import org.yapyap.routing.file.fetch.FileFetchOutcome
+import org.yapyap.routing.file.fetch.FetchResult
+import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.outbound.ProactiveSessionOpener
@@ -38,7 +38,7 @@ internal class FileFetchStrategy(
     private val store: FileRequestAttemptStore,
     private val requests: FileRequestSource,
     private val sessionOpener: ProactiveSessionOpener,
-    private val fetchManager: FileFetchManager,
+    private val fetchService: FileFetchService,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
     private val dock = object : CandidateAttemptStore<FileId> {
@@ -111,16 +111,20 @@ internal class FileFetchStrategy(
             }
             return CallOutcome.NoDirectConnection
         }
-        return when (fetchManager.fetchFile(device, id, coverage.contiguousBytes)) {
-            is FileFetchOutcome.Satisfied -> {
+        return when (fetchService.fetch(device, id, coverage.contiguousBytes)) {
+            FetchResult.SATISFIED -> {
                 emitBestEffort(FileEvent.RequestSatisfied(id))
                 CallOutcome.Satisfied
             }
 
-            is FileFetchOutcome.Declined -> CallOutcome.Declined
-            // Failed or interrupted (session dropped mid-file): PENDING, ask again on
-            // backoff — preferably the same holder, which resumes from P (design §9).
-            is FileFetchOutcome.Failed, is FileFetchOutcome.Interrupted -> CallOutcome.NoDirectConnection
+            FetchResult.DECLINED -> CallOutcome.Declined
+            // The receive ended locally (no space, declined, failed): drop the row, never
+            // blacklist. No satisfaction event: the GUI learns how the receive ended from the engine.
+            FetchResult.NO_SPACE, FetchResult.ENDED -> CallOutcome.Satisfied
+            // A block failed its hash: back to PENDING in the usual candidate order.
+            FetchResult.MISMATCH -> CallOutcome.Unanswered
+            FetchResult.UNANSWERED -> CallOutcome.Unanswered
+            FetchResult.NO_DIRECT_CONNECTION -> CallOutcome.NoDirectConnection
         }
     }
 

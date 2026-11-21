@@ -29,6 +29,7 @@ import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
@@ -82,6 +83,8 @@ class FileInboundServeTest {
             plaintext: ByteArray,
         ) =
             FileIngestResult.Duplicate(0L, 0L)
+        override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray) =
+            FileAppendResult.Appended(offset + bytes.size)
         override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
         override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
         override suspend fun requestTotalBytes(fileId: FileId): Long? = null

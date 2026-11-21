@@ -484,33 +484,53 @@ One fetch = one data channel between the requesting device and one holder.
 2. **The requester opens a fetch channel** on that peer connection (no renegotiation; either side may add a
    data channel) and sends `FETCH { fileId, fromOffset }`, with `fromOffset` = its checkpointed P (§8). A
    dedicated channel keeps a 100 GB stream from starving messages and ACKs on the envelope channel.
-3. **The holder answers once.** It runs the serve gate for the session's peer device (§9) and replies
-   `FETCH_OK { totalBytes, block list }`, or `FETCH_DECLINED` (not held, or not allowed) and closes the
-   channel. The requester checks the block list against the `fileId` (§2) before it accepts a byte; a list
-   that does not match closes the channel and counts that holder as declined.
+3. **The holder answers once.** It runs the serve gate for the session's peer device (§9, also
+   rejecting removed or revoked devices) and replies `FETCH_OK { totalBytes, block list }`, or
+   `FETCH_DECLINED` (not held, or not allowed) and closes the channel. The requester checks the block list against the
+   `fileId` (§2) before it accepts a byte; a list
+   that does not match closes the channel and counts that holder as declined — the only
+   holder-side decline. A local refusal (no space, an ended receive) never counts against the holder.
 4. **The holder sends `DATA` frames**: raw plaintext, in order, from `fromOffset` to the end, each frame up to
-   the transport's frame limit. It reads through `FilePlaintextSource`, so every block is checked against the
-   block list before its bytes go out (a fetch that starts mid-block reads from that block's start). A frame's
+   the transport's frame limit. It reads through a `FilePlaintextSource` stream (§11), so every block is checked against
+   the
+   block list before its bytes go out (a fetch that starts mid-block reads from that block's start, verifying the whole
+   block first). A frame's
    offset is implied by its order; nothing is numbered.
-5. **The requester appends at P**, verifies blocks as P passes them, and sends `PROGRESS { P }` after each
-   checkpoint (§8), once the fsync and the P commit are done.
+5. **The requester appends at P through its own port** (`FileIngestPort.append`, not the small path's
+   staging `ingest`). Frames are written without an fsync; a checkpoint (§8) fsyncs, verifies the blocks
+   P passes and commits P, and the requester sends `PROGRESS { P }` only when P moves. A failed write or
+   verify leaves P where it was: the requester ABORTs and the next attempt resumes from P. `Defer` (the
+   engine is still recovering) retries the same bytes until the channel goes — no frame is dropped.
+   `NoSpace` (the disk filled after the reservation) declines the receive locally and ends the request
+   without blacklisting, as does a receive that ended meanwhile; `Mismatch` ABORTs and re-asks in the
+   usual candidate order.
 6. **The end.** The last block verifies → READY → the requester closes the channel. Either side may send
    `ABORT { reason }` (a bad block at the source, no space, the gap trigger, a user cancel) and close.
+   A fetch lives exactly as long as its channel; `abortFetch` ends only the requester for that file,
+   never the node's serves of it.
 
 **Frames.** Each channel message is one frame: a type byte, then the body. `FETCH`, `FETCH_OK`,
 `FETCH_DECLINED`, `PROGRESS` and `ABORT` have a small codec in `protocol` (`FileFetchFrame`, wire values
 21–26, separate from the `FileEnvelope` kinds); `DATA` is the type byte followed
 by raw bytes. The `fileId` appears in `FETCH` in the clear inside the channel — DTLS covers it, and only the
 peer device ever sees the channel (§4). `FETCH_OK` also carries the holder's display metadata (`fileName`, `mimeType`)
-so the requester can index the receive row. One fetch runs on one data channel
-labeled `yapyap-file-<fetchId>` so concurrent fetches to one peer demultiplex.
+so the requester can index the receive row. One fetch runs on one data channel per fetch, so concurrent fetches to one
+peer demultiplex.
+The channel handle is minted by the transport — routing never builds label strings. File channels are always
+reliable (ordered, no retransmit or lifetime limit), whatever the shared data-channel config says.
 
-**A credit window.** The holder may run at most `fileStreamWindowBytes` (32 MB) past the last `PROGRESS`,
-and also pauses on the channel's `bufferedAmount` low-threshold (pause above 2 MB buffered, resume at or
-below 1 MB). Both are needed: the channel's buffer only
-protects the sender, and `JvmWebRtcBackend` receives through an `onMessage` callback with no receive-side flow
+**A credit window.** The holder may start a frame at most `fileStreamWindowBytes` (32 MB) past the last
+`PROGRESS` (the requester closes a channel whose holder starts one further out, since its frames would queue
+without bound),
+and also waits on `awaitBufferedBelow` (resume at or below 1 MB buffered) instead of polling a threshold or
+events. Both are needed: the channel's buffer only
+protects the sender, and the backend receives through an `onMessage` callback with no receive-side flow
 control. Without the window a receiver with a slow disk would pile frames up in memory, and blocking the
-callback instead would stall the envelope channel on the same connection.
+callback instead would stall the envelope channel on the same connection. The backend delivers each data
+channel's messages in order (one per-channel queue drained by one coroutine, no per-message launch); a close
+lets the queue drain before the channel is reported gone. File frames have their own flow and buffer so a
+stalled file consumer never delays envelopes, and a remotely opened file channel that is not ordered and
+reliable is refused.
 
 **No staging, no routing rows.** One ordered source lands every byte at P, so a fetch never stages. Neither
 end has a row for it in routing: the holder's state (offset, window) and the requester's (the channel) live in
@@ -796,6 +816,15 @@ redesign, kotlinx-io issue #241) but not shipped, so the design needs it only fo
   would re-read up to the whole file each time. The I/O module therefore has a **positioned read**
   (`expect`/`actual` over `FileChannel` on JVM and Android) behind its chunk-shaped boundary; reads stay linear
   from the start offset.
+- **The serve is a two-pass stream** (`FilePlaintextSource.open` → `PlaintextStream.read`, bounded 256 KiB
+  buffers, never a whole block which reaches 128 MiB): pass 1 hashes each block and compares it with the
+  block list, handing out nothing yet; pass 2 re-reads the block with positioned reads and streams it from
+  the requested offset when the serve starts mid-block, hashing again and comparing at the block's end. A
+  referenced original edited between the two passes ends the serve at that block (the receiver's own block
+  check would also catch it, but the holder must stop serving it). Push chunks and fetch frames both read
+  through it, so each block is verified once per serve instead of once per chunk; disk reads double, which is
+  fine since the disk outpaces the network. `FileAccess` is suspend and switches to the IO dispatcher
+  internally, so no blocking fsync runs on a router or node coroutine.
 - A torn append (crash mid-drain) is truncated at open to the persisted P (§8) — the DB is the checkpoint,
   the file length never is.
 - The chunk-shaped I/O boundary (`readChunk`/`writeChunk`-style module) still exists as a module, with a

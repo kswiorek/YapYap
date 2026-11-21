@@ -16,11 +16,15 @@ import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.file.fetch.FileFetchManager
+import org.yapyap.routing.file.fetch.FileFetchService
+import org.yapyap.routing.file.port.FileAppendResult
+import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileManifest
+import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.PlaintextRead
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
@@ -30,14 +34,13 @@ import org.yapyap.sync.FakePeerAvailabilityStore
 import org.yapyap.sync.buildSyncRoutingStack
 import org.yapyap.sync.testDeviceIdentity
 import org.yapyap.testfixtures.FakeClock
-import org.yapyap.testfixtures.FakeFileSource
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.tor.RecordingTorTransport
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import org.yapyap.transport.webrtc.types.WebRtcDataFrame
-import org.yapyap.transport.webrtc.types.WebRtcDataType
+import org.yapyap.transport.webrtc.types.FileChannelId
 import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcFileFrame
 import org.yapyap.transport.webrtc.types.WebRtcSessionState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -48,8 +51,8 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Large request path, routing side: the fetch strategy opens a WebRTC session
- * ([ProactiveSessionOpener.awaitSession]) and then runs a fetch. FETCH_OK and
+ * Large request path, routing side: the fetch strategy opens a WebRTC
+ * session ([ProactiveSessionOpener.awaitSession]) and then runs a fetch. FETCH_OK and
  * FETCH_DECLINED are the attempt's outcomes with no WAITING state; unreachable
  * candidates stay PENDING; online-but-unconnectable reports "no direct
  * connection". Nothing large touches the outbox or Tor.
@@ -64,7 +67,7 @@ class FileFetchStrategyTest {
     private val largeTotal = 11L * 1024L * 1024L
     private val now = epochSeconds(10_000L)
 
-    private class Plaintext(val bytes: ByteArray) : FilePlaintextSource {
+    private class BytePlaintext(val bytes: ByteArray) : FilePlaintextSource {
         fun info(name: String = "big.bin") = FileManifest(
             fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
             totalBytes = bytes.size.toLong(),
@@ -76,11 +79,58 @@ class FileFetchStrategyTest {
 
         override suspend fun describe(fileId: FileId): FileManifest? = info()
 
-        override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult {
-            if (offset >= bytes.size) return FileReadResult.Ok(ByteArray(0), eof = true)
-            val end = minOf(bytes.size, (offset + maxBytes).toInt())
-            return FileReadResult.Ok(bytes.copyOfRange(offset.toInt(), end), eof = end >= bytes.size)
+        override suspend fun open(fileId: FileId, fromOffset: Long): PlaintextStream? {
+            if (fromOffset > bytes.size) return null
+            return object : PlaintextStream {
+                var pos = fromOffset.toInt().coerceAtMost(bytes.size)
+                override suspend fun read(maxBytes: Int): PlaintextRead {
+                    if (pos >= bytes.size) return PlaintextRead.Eof
+                    val end = minOf(bytes.size, pos + maxBytes)
+                    val slice = bytes.copyOfRange(pos, end)
+                    pos = end
+                    return PlaintextRead.Bytes(slice)
+                }
+
+                override fun close() = Unit
+            }
         }
+    }
+
+    private class CompletingSource(
+        var coverage: FileCoverage? = FileCoverage(0L, emptyList()),
+        var candidates: List<AccountId> = emptyList(),
+        var serveAllowed: Boolean = true,
+        var defaultTotalBytes: Long? = null,
+        var totalBytesByFile: Map<FileId, Long?> = emptyMap(),
+        var appendImpl: (suspend (offset: Long, bytes: ByteArray) -> FileAppendResult)? = null,
+    ) : org.yapyap.routing.router.FakeFilePorts {
+        var checkOffers = 0
+        var ingestedBytes = 0L
+        override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict =
+            FileOfferVerdict.Accept.also { checkOffers++ }
+
+        override suspend fun ingest(
+            fileId: FileId,
+            byteOffset: Long,
+            plaintext: ByteArray
+        ): org.yapyap.routing.file.port.FileIngestResult {
+            ingestedBytes += plaintext.size
+            val total = totalBytesByFile[fileId] ?: defaultTotalBytes ?: (byteOffset + plaintext.size)
+            return org.yapyap.routing.file.port.FileIngestResult.Staged(byteOffset + plaintext.size, total)
+        }
+
+        override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult {
+            ingestedBytes += bytes.size
+            appendImpl?.let { return it(offset, bytes) }
+            val total = totalBytesByFile[fileId] ?: defaultTotalBytes ?: (offset + bytes.size)
+            return if (offset + bytes.size >= total) FileAppendResult.Ready
+            else FileAppendResult.Appended(offset + bytes.size)
+        }
+
+        override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage
+        override suspend fun requestCandidates(fileId: FileId): List<AccountId> = candidates
+        override suspend fun canServe(fileId: FileId, requester: AccountId): Boolean = serveAllowed
+        override suspend fun requestTotalBytes(fileId: FileId): Long? = totalBytesByFile[fileId] ?: defaultTotalBytes
     }
 
     private class MapDevices(private val map: Map<PeerId, AccountId>) : DeviceDirectory {
@@ -92,7 +142,8 @@ class FileFetchStrategyTest {
             map.filter { it.value in accountIds }.keys.toList()
 
         override suspend fun getAllActiveDeviceIds(): List<PeerId> = map.keys.toList()
-        override suspend fun getDeviceStatus(deviceId: PeerId) = null
+        override suspend fun getDeviceStatus(deviceId: PeerId) =
+            if (deviceId in map) org.yapyap.protocol.IdentityStatus.ACTIVE else null
         override suspend fun getAccountStatus(accountId: AccountId) = null
         override suspend fun getDeclaredTorEndpoint(deviceId: PeerId) = null
     }
@@ -106,7 +157,7 @@ class FileFetchStrategyTest {
         val requesterWebRtc: RecordingWebRtcTransport,
         val requesterTor: RecordingTorTransport,
         val holderTransports: Map<PeerId, RecordingWebRtcTransport>,
-        val requesterGate: FakeFileSource,
+        val requesterGate: CompletingSource,
         val holderData: ByteArray,
         val jobs: List<Job>,
     ) {
@@ -147,17 +198,17 @@ class FileFetchStrategyTest {
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val holderEvents = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val attempts = InMemoryFileRequestAttemptStore()
-        val requesterGate = FakeFileSource(candidates = listOf(holderAccount), defaultTotalBytes = largeTotal)
-        val requesterManager = FileFetchManager(
-            localDeviceId = localDevice,
+        val requesterGate = CompletingSource(candidates = listOf(holderAccount), defaultTotalBytes = largeTotal)
+        val requesterManager = FileFetchService(
             devices = stack.ctx.devices,
             transport = stack.webRtc,
-            plaintext = Plaintext(ByteArray(0)),
+            plaintext = BytePlaintext(ByteArray(0)),
             ingest = requesterGate,
             serveGate = requesterGate,
             routerConfig = configFlow,
             frameBytes = MutableStateFlow(32 * 1024),
             events = events,
+            clock = clock,
         )
         val registry = PeerAvailabilityRegistry(clock, configFlow, FakePeerAvailabilityStore())
         val sessionOpener = ProactiveSessionOpener(stack.ctx, registry)
@@ -171,66 +222,79 @@ class FileFetchStrategyTest {
             events = events,
             onNoLink = {},
             sessionOpener = sessionOpener,
-            fetchManager = requesterManager,
+            fetchService = requesterManager,
         )
         val holderTransports = holderDevices.associateWith { RecordingWebRtcTransport() }
         val holderManagers = holderDevices.associateWith { device ->
-            FileFetchManager(
-                localDeviceId = device,
+            val holderGate = CompletingSource(serveAllowed = holderCanServe(device))
+            FileFetchService(
                 devices = MapDevices(mapOf(localDevice to holderAccount)),
                 transport = holderTransports.getValue(device),
-                plaintext = Plaintext(dataBytes),
-                ingest = FakeFileSource(canServe = holderCanServe(device)),
-                serveGate = FakeFileSource(canServe = holderCanServe(device)),
+                plaintext = BytePlaintext(dataBytes),
+                ingest = holderGate,
+                serveGate = holderGate,
                 routerConfig = configFlow,
                 frameBytes = MutableStateFlow(32 * 1024),
                 events = holderEvents,
+                clock = clock,
             )
         }
         val jobs = mutableListOf<Job>()
         jobs += requesterManager.runIn(scope)
         holderManagers.values.forEach { jobs += it.runIn(scope) }
         jobs += processor.runIn(scope)
-        // File-frame pump between requester and holder transports, routed by target.
+        // File-frame pump between requester and holder transports, routed by label.
+        // Channels are per-side (peer = remote); the peer sees the same label with
+        // peer = sender. Translate on every hop.
         jobs += scope.launch {
-            val seenRequester = mutableSetOf<Triple<PeerId, String, ByteArray>>()
-            val seenHolder = mutableMapOf<PeerId, MutableSet<Triple<PeerId, String, ByteArray>>>()
-            val seenRequesterClosed = mutableSetOf<Pair<PeerId, String>>()
-            val seenHolderClosed = mutableMapOf<PeerId, MutableSet<Pair<PeerId, String>>>()
+            var requesterSent = 0
+            val holderSent = mutableMapOf<PeerId, Int>()
+            var requesterClosed = 0
+            val holderClosed = mutableMapOf<PeerId, Int>()
             while (true) {
                 delay(10)
-                for (sent in stack.webRtc.sendFileFrameCalls.toList()) {
-                    if (seenRequester.add(sent)) {
-                        val (target, label, payload) = sent
-                        val peerTransport = holderTransports[target] ?: continue
-                        val frame = WebRtcDataFrame(localDevice, target, WebRtcDataType.FILE_DATA, payload, label)
-                        while (!peerTransport.tryEmitFileFrame(frame)) delay(5)
-                    }
+                val reqSends = stack.webRtc.sendFileFrameCalls.toList()
+                while (requesterSent < reqSends.size) {
+                    val (channel, payload) = reqSends[requesterSent++]
+                    val holderTransport = holderTransports[channel.peer] ?: continue
+                    val forHolder = WebRtcFileFrame(
+                        FileChannelId(peer = localDevice, label = channel.label),
+                        payload,
+                    )
+                    while (!holderTransport.tryEmitFileFrame(forHolder)) delay(5)
                 }
                 for ((device, transport) in holderTransports) {
-                    val seen = seenHolder.getOrPut(device) { mutableSetOf() }
-                    for (sent in transport.sendFileFrameCalls.toList()) {
-                        if (seen.add(sent)) {
-                            val (_, label, payload) = sent
-                            val frame = WebRtcDataFrame(device, localDevice, WebRtcDataType.FILE_DATA, payload, label)
-                            while (!stack.webRtc.tryEmitFileFrame(frame)) delay(5)
-                        }
+                    val sends = transport.sendFileFrameCalls.toList()
+                    var done = holderSent.getOrDefault(device, 0)
+                    while (done < sends.size) {
+                        val (channel, payload) = sends[done++]
+                        val forRequester = WebRtcFileFrame(
+                            FileChannelId(peer = device, label = channel.label),
+                            payload,
+                        )
+                        while (!stack.webRtc.tryEmitFileFrame(forRequester)) delay(5)
                     }
-                    val seenClosed = seenHolderClosed.getOrPut(device) { mutableSetOf() }
-                    for (closed in transport.closeFileChannelCalls.toList()) {
-                        if (seenClosed.add(closed)) {
-                            stack.webRtc.tryEmitFileChannelEvent(
-                                WebRtcFileChannelEvent.Removed(closed.first, closed.second)
+                    holderSent[device] = done
+                    val closes = transport.closeFileChannelCalls.toList()
+                    var closedDone = holderClosed.getOrDefault(device, 0)
+                    while (closedDone < closes.size) {
+                        val channel = closes[closedDone++]
+                        stack.webRtc.tryEmitFileChannelEvent(
+                            WebRtcFileChannelEvent.Removed(
+                                FileChannelId(peer = device, label = channel.label)
                             )
-                        }
-                    }
-                }
-                for (closed in stack.webRtc.closeFileChannelCalls.toList()) {
-                    if (seenRequesterClosed.add(closed)) {
-                        holderTransports[closed.first]?.tryEmitFileChannelEvent(
-                            WebRtcFileChannelEvent.Removed(localDevice, closed.second)
                         )
                     }
+                    holderClosed[device] = closedDone
+                }
+                val reqCloses = stack.webRtc.closeFileChannelCalls.toList()
+                while (requesterClosed < reqCloses.size) {
+                    val channel = reqCloses[requesterClosed++]
+                    holderTransports[channel.peer]?.tryEmitFileChannelEvent(
+                        WebRtcFileChannelEvent.Removed(
+                            FileChannelId(peer = localDevice, label = channel.label)
+                        )
+                    )
                 }
             }
         }
@@ -352,6 +416,54 @@ class FileFetchStrategyTest {
             delay(500)
             // Core owns small files: a sealed REQUEST went through the outbox.
             assertTrue(f.requesterWebRtc.openSessionCalls.isEmpty(), "large path never opens sessions for small files")
+        } finally {
+            f.stop()
+        }
+    }
+
+    @Test
+    fun noSpace_dropsRowWithoutBlacklisting() = runBlocking {
+        val f = fixture()
+        f.requesterGate.appendImpl = { _, _ -> FileAppendResult.NoSpace }
+        try {
+            f.processor.start(fileId, now)
+            withTimeout(20.seconds) {
+                while (f.attempts.findById(fileId) != null) delay(50)
+            }
+            assertNull(f.attempts.findById(fileId), "NO_SPACE drops the row")
+            assertTrue(
+                f.attempts.declinedDevices(fileId).isEmpty(),
+                "a local no-space refusal never counts against the holder"
+            )
+        } finally {
+            f.stop()
+        }
+    }
+
+    @Test
+    fun mismatch_retriesSameHolderFirst() = runBlocking {
+        val f = fixture(holderDevices = listOf(holderDevice, holderDevice2), advanceClock = true)
+        var first = true
+        f.requesterGate.appendImpl = { offset, bytes ->
+            if (first) {
+                first = false
+                FileAppendResult.Mismatch(0)
+            } else if (offset + bytes.size >= (f.requesterGate.defaultTotalBytes ?: 0L)) {
+                FileAppendResult.Ready
+            } else {
+                FileAppendResult.Appended(offset + bytes.size)
+            }
+        }
+        try {
+            f.processor.start(fileId, now)
+            withTimeout(60.seconds) {
+                while (f.attempts.findById(fileId) != null) delay(50)
+            }
+            assertNull(f.attempts.findById(fileId), "mismatch eventually completes")
+            assertTrue(
+                f.attempts.declinedDevices(fileId).isEmpty(),
+                "MISMATCH retries the same holder first, never blacklists"
+            )
         } finally {
             f.stop()
         }

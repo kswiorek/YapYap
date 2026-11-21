@@ -121,7 +121,7 @@ internal class RecordingTorTransport(
 
     /** [sends] excluding heartbeat envelopes (ping / log-off), for assertions on message traffic. */
     fun sendsExcludingHeartbeat(): List<Pair<TorEndpoint, BinaryEnvelope>> =
-        sends.filterNot { (_, envelope) -> envelope.isHeartbeat() }
+        synchronized(sends) { sends.filterNot { (_, envelope) -> envelope.isHeartbeat() } }
 
     private fun BinaryEnvelope.isHeartbeat(): Boolean {
         if (packetType != PacketType.SYSTEM) return false

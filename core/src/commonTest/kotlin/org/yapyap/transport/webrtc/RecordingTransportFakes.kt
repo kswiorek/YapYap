@@ -1,13 +1,32 @@
 package org.yapyap.transport.webrtc
 
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.transport.webrtc.backend.WebRtcBackend
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
-import org.yapyap.transport.webrtc.types.*
+import org.yapyap.transport.webrtc.types.AvSessionOptions
+import org.yapyap.transport.webrtc.types.FILE_CHANNEL_PREFIX
+import org.yapyap.transport.webrtc.types.FileChannelId
+import org.yapyap.transport.webrtc.types.WebRtcAvChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcAvSessionState
+import org.yapyap.transport.webrtc.types.WebRtcDataFrame
+import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
+import org.yapyap.transport.webrtc.types.WebRtcFileFrame
+import org.yapyap.transport.webrtc.types.WebRtcIncomingAvSessionRequest
+import org.yapyap.transport.webrtc.types.WebRtcSessionEvent
+import org.yapyap.transport.webrtc.types.WebRtcSessionState
+import kotlin.uuid.Uuid
 
 /** Recording fake — no WebRTC stack; satisfies all flows and records API usage. */
 internal class RecordingWebRtcTransport : WebRtcTransport {
@@ -15,7 +34,7 @@ internal class RecordingWebRtcTransport : WebRtcTransport {
     private val incomingEnvelopesMutable = MutableSharedFlow<WebRtcIncomingEnvelope>(extraBufferCapacity = 64)
     private val incomingAvFramesMutable =
         MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 64)
-    private val incomingFileFramesMutable = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 256)
+    private val incomingFileFramesMutable = MutableSharedFlow<WebRtcFileFrame>(extraBufferCapacity = 256)
     private val fileChannelEventsMutable = MutableSharedFlow<WebRtcFileChannelEvent>(extraBufferCapacity = 64)
     private val outgoingBootstrapSignalsMutable = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
     private val sessionStatesMutable = MutableStateFlow<Map<PeerId, WebRtcSessionState>>(emptyMap())
@@ -45,11 +64,19 @@ internal class RecordingWebRtcTransport : WebRtcTransport {
     val updateCallOptionsCalls = mutableListOf<Pair<PeerId, AvSessionOptions>>()
     val endCallCalls = mutableListOf<Pair<PeerId, String?>>()
     val hasSessionCalls = mutableListOf<PeerId>()
-    val openFileChannelCalls = mutableListOf<Pair<PeerId, String>>()
-    val closeFileChannelCalls = mutableListOf<Pair<PeerId, String>>()
-    val sendFileFrameCalls = mutableListOf<Triple<PeerId, String, ByteArray>>()
-    val setFileThresholdCalls = mutableListOf<Triple<PeerId, String, Long>>()
-    private val fileBufferedAmounts = mutableMapOf<Pair<PeerId, String>, Long>()
+    val openFileChannelCalls = mutableListOf<PeerId>()
+    val openedChannels = mutableListOf<FileChannelId>()
+    val closeFileChannelCalls = mutableListOf<FileChannelId>()
+    val sendFileFrameCalls = mutableListOf<Pair<FileChannelId, ByteArray>>()
+    val awaitBufferedCalls = mutableListOf<Pair<FileChannelId, Long>>()
+
+    /**
+     * Every file frame sent and channel closed, in call order. Unlike the lists above these are
+     * safe to consume while concurrent fetches keep sending (a pump forwarding to another node).
+     */
+    val sentFileFrames = Channel<Pair<FileChannelId, ByteArray>>(Channel.UNLIMITED)
+    val closedFileChannels = Channel<FileChannelId>(Channel.UNLIMITED)
+    private val fileCallsGuard = Mutex()
 
     /** Peers whose simulated envelope data channel is OPEN; only these report hasSession == true. */
     private val openChannelPeers = mutableSetOf<PeerId>()
@@ -119,31 +146,31 @@ internal class RecordingWebRtcTransport : WebRtcTransport {
         endCallCalls.add(peer to reason)
     }
 
-    override suspend fun openFileChannel(target: PeerId, channelLabel: String) {
-        openFileChannelCalls.add(target to channelLabel)
+    override suspend fun openFileChannel(target: PeerId): FileChannelId {
+        openFileChannelCalls.add(target)
+        // Concurrent fetches open channels at once: labels must stay unique.
+        val id = FileChannelId(target, "${FILE_CHANNEL_PREFIX}fake-${Uuid.random()}")
+        fileCallsGuard.withLock { openedChannels.add(id) }
+        return id
     }
 
-    override suspend fun closeFileChannel(target: PeerId, channelLabel: String) {
-        closeFileChannelCalls.add(target to channelLabel)
-        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Removed(target, channelLabel))
+    override suspend fun closeFileChannel(channel: FileChannelId) {
+        fileCallsGuard.withLock { closeFileChannelCalls.add(channel) }
+        closedFileChannels.trySend(channel)
+        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Removed(channel))
     }
 
-    override suspend fun sendFileFrame(target: PeerId, channelLabel: String, payload: ByteArray) {
-        sendFileFrameCalls.add(Triple(target, channelLabel, payload))
+    override suspend fun sendFileFrame(channel: FileChannelId, payload: ByteArray) {
+        fileCallsGuard.withLock { sendFileFrameCalls.add(channel to payload) }
+        sentFileFrames.trySend(channel to payload)
     }
 
-    override fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long? =
-        fileBufferedAmounts[target to channelLabel]
-
-    override suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long) {
-        setFileThresholdCalls.add(Triple(target, channelLabel, thresholdBytes))
+    override suspend fun awaitBufferedBelow(channel: FileChannelId, thresholdBytes: Long) {
+        awaitBufferedCalls.add(channel to thresholdBytes)
+        // No real backpressure: the buffer is always below the threshold.
     }
 
-    fun setFileBufferedAmount(target: PeerId, channelLabel: String, amount: Long) {
-        fileBufferedAmounts[target to channelLabel] = amount
-    }
-
-    fun tryEmitFileFrame(frame: WebRtcDataFrame): Boolean = incomingFileFramesMutable.tryEmit(frame)
+    fun tryEmitFileFrame(frame: WebRtcFileFrame): Boolean = incomingFileFramesMutable.tryEmit(frame)
 
     fun tryEmitFileChannelEvent(event: WebRtcFileChannelEvent): Boolean = fileChannelEventsMutable.tryEmit(event)
 
@@ -160,12 +187,14 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
 
     private val outgoingSignalsMutable = MutableSharedFlow<WebRtcSignal>(extraBufferCapacity = 64)
     private val incomingDataFramesMutable = MutableSharedFlow<WebRtcDataFrame>(extraBufferCapacity = 256)
+    private val incomingFileFramesMutable = MutableSharedFlow<WebRtcFileFrame>(extraBufferCapacity = 256)
     private val sessionEventsMutable = MutableSharedFlow<WebRtcSessionEvent>(extraBufferCapacity = 64)
     private val avChannelEventsMutable = MutableSharedFlow<WebRtcAvChannelEvent>(extraBufferCapacity = 64)
     private val fileChannelEventsMutable = MutableSharedFlow<WebRtcFileChannelEvent>(extraBufferCapacity = 64)
 
     override val outgoingSignals = outgoingSignalsMutable.asSharedFlow()
     override val incomingDataFrames = incomingDataFramesMutable.asSharedFlow()
+    override val incomingFileFrames = incomingFileFramesMutable.asSharedFlow()
     override val sessionEvents = sessionEventsMutable.asSharedFlow()
     override val avChannelEvents = avChannelEventsMutable.asSharedFlow()
     override val fileChannelEvents = fileChannelEventsMutable.asSharedFlow()
@@ -179,11 +208,13 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
     val addAvChannelCalls = mutableListOf<PeerId>()
     val removeAvChannelCalls = mutableListOf<PeerId>()
     val hasSessionCalls = mutableListOf<PeerId>()
-    val openFileChannelCalls = mutableListOf<Pair<PeerId, String>>()
-    val closeFileChannelCalls = mutableListOf<Pair<PeerId, String>>()
-    val setThresholdCalls = mutableListOf<Triple<PeerId, String, Long>>()
-    private val fileBufferedAmounts = mutableMapOf<Pair<PeerId, String>, Long>()
-    private val openFileChannels = mutableSetOf<Pair<PeerId, String>>()
+    val openFileChannelCalls = mutableListOf<PeerId>()
+    val openedChannels = mutableListOf<FileChannelId>()
+    val closeFileChannelCalls = mutableListOf<FileChannelId>()
+    val sendFileFrameCalls = mutableListOf<Pair<FileChannelId, ByteArray>>()
+    val awaitBufferedCalls = mutableListOf<Pair<FileChannelId, Long>>()
+    private val openFileChannels = mutableSetOf<FileChannelId>()
+    private var nextChannelIndex = 0
 
     /** Peers whose simulated envelope data channel is OPEN; only these report hasSession == true. */
     private val openChannelPeers = mutableSetOf<PeerId>()
@@ -217,10 +248,10 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
     override suspend fun closeSession(target: PeerId) {
         closeSessionCalls.add(target)
         openChannelPeers.remove(target)
-        val labels = openFileChannels.filter { it.first == target }.map { it.second }.toList()
-        openFileChannels.removeAll { it.first == target }
-        for (label in labels) {
-            fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Removed(target, label))
+        val ids = openFileChannels.filter { it.peer == target }.toList()
+        openFileChannels.removeAll { it.peer == target }
+        for (id in ids) {
+            fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Removed(id))
         }
     }
 
@@ -236,28 +267,28 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
         removeAvChannelCalls.add(target)
     }
 
-    override suspend fun openFileChannel(target: PeerId, channelLabel: String) {
-        openFileChannelCalls.add(target to channelLabel)
-        openFileChannels.add(target to channelLabel)
-        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Adding(target, channelLabel))
-        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Active(target, channelLabel))
+    override suspend fun openFileChannel(target: PeerId): FileChannelId {
+        openFileChannelCalls.add(target)
+        val id = FileChannelId(target, "${FILE_CHANNEL_PREFIX}fake-${nextChannelIndex++}")
+        openFileChannels.add(id)
+        openedChannels.add(id)
+        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Adding(id))
+        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Active(id))
+        return id
     }
 
-    override suspend fun closeFileChannel(target: PeerId, channelLabel: String) {
-        closeFileChannelCalls.add(target to channelLabel)
-        openFileChannels.remove(target to channelLabel)
-        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Removed(target, channelLabel))
+    override suspend fun closeFileChannel(channel: FileChannelId) {
+        closeFileChannelCalls.add(channel)
+        openFileChannels.remove(channel)
+        fileChannelEventsMutable.tryEmit(WebRtcFileChannelEvent.Removed(channel))
     }
 
-    override suspend fun setFileChannelBufferedThreshold(target: PeerId, channelLabel: String, thresholdBytes: Long) {
-        setThresholdCalls.add(Triple(target, channelLabel, thresholdBytes))
+    override suspend fun sendFileFrame(channel: FileChannelId, payload: ByteArray) {
+        sendFileFrameCalls.add(channel to payload)
     }
 
-    override fun fileChannelBufferedAmount(target: PeerId, channelLabel: String): Long? =
-        fileBufferedAmounts[target to channelLabel]
-
-    fun setFileBufferedAmount(target: PeerId, channelLabel: String, amount: Long) {
-        fileBufferedAmounts[target to channelLabel] = amount
+    override suspend fun awaitBufferedBelow(channel: FileChannelId, thresholdBytes: Long) {
+        awaitBufferedCalls.add(channel to thresholdBytes)
     }
 
     fun tryEmitOutgoingSignal(s: WebRtcSignal): Boolean = outgoingSignalsMutable.tryEmit(s)
@@ -266,5 +297,7 @@ internal class RecordingWebRtcBackend : WebRtcBackend {
 
     fun tryEmitFileChannelEvent(e: WebRtcFileChannelEvent): Boolean = fileChannelEventsMutable.tryEmit(e)
 
-    fun tryEmitFileFrame(frame: WebRtcDataFrame): Boolean = incomingDataFramesMutable.tryEmit(frame)
+    fun tryEmitFileFrame(frame: WebRtcFileFrame): Boolean = incomingFileFramesMutable.tryEmit(frame)
+
+    fun tryEmitDataFrame(frame: WebRtcDataFrame): Boolean = incomingDataFramesMutable.tryEmit(frame)
 }

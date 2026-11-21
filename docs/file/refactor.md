@@ -1158,6 +1158,34 @@ Replaces `DefaultFileReceiveEngine`.
   the block.
 
 - **Done when:** `FileFetchManager` (or its R5.4 replacement) never calls `ingest`.
+- **As landed:**
+    - `append` truncates a leftover uncommitted suffix when resuming from P after a drop without
+      restart (offset == P but the `.part` is longer); any other offset throws
+      `IllegalArgumentException`.
+    - Frames are written without an fsync; a checkpoint (a full `fileCheckpointBytes` past P, or
+      the file's end) fsyncs once, verifies the blocks it completes, then commits P. Recovery
+      truncates whatever an unsynced write left past P.
+    - A failed write, fsync or verify propagates (as R4 settled for drains): P stays where it was,
+      the requester ABORTs and the next attempt resumes from P. Only an unrecovered engine answers
+      `Defer`.
+    - `NoSpace` comes from a free-space check before each write (space was reserved at FETCH_OK
+      through `checkOffer`; this catches a disk that other apps filled since). It declines the
+      receive (DECLINED + Cancelled/Failed ends) inside the same file-lock commit, through the same
+      `declineRow` as the user's decline.
+    - `FileAppendResult.Ended` (not in the step's signature): a frame for a receive that ended
+      meanwhile (the user declined it, FAILED, forgotten) is an expected race, not an error; READY
+      answers `Ready`.
+    - `commitFetchPrefix` runs in the checkpoint sweep for `.part` bytes past P with no staged
+      rows; time checkpoints therefore move P without new frames.
+    - Review: `IllegalStateException` (unknown file, wrong status, missing block info, torn
+      `.part`) propagates like `IllegalArgumentException` instead of becoming `Defer`; the
+      short-serve EOF in `PlaintextChunkSource` returns `SourceLost`; the truncation branch is
+      specified in the `append` KDoc and tested; a holder parked past the window with no DATA
+      in flight ends via its idle timeout and the requester retries from the committed P.
+    - Second review: the first version mapped every `IOException` to `NoSpace` and declined the
+      receive (a transient I/O error deleted all progress for good), fsynced every frame, and threw
+      for an ended receive. Tests: one fsync per checkpoint, a write failure keeps the receive and
+      resumes, a full disk declines, an ended receive answers `Ended`.
 
 ### Step R5.2 — Streaming plaintext source (`routing/file/port`, `orchestrator/file`)
 
@@ -1204,6 +1232,17 @@ Replaces `DefaultFileReceiveEngine`.
     - a block changed between the two passes stops the serve.
 
 - **Done when:** `FileReadResult` does not exist; the test counting reads passes for a 1 GiB sparse file.
+- **As landed:**
+    - `PlaintextChunkSource` keeps one stream per transfer (opened at the first chunk, reused while
+      chunks are asked in order) so each block is verified once per serve; `ChunkSource` is
+      `AutoCloseable` and the actor/engine close it on termination.
+    - One production fix: `read(maxBytes)` clamps to the 256 KiB buffer (a 1 MiB read would have
+      crashed the positioned reader).
+    - Review: no functional change (stream, tests, and close discipline already covered).
+    - Second review: LRU is touched once per serve (on the read that hands out the last bytes);
+      an unreachable block-boundary path and an unused counter were removed; closing a stream never
+      throws, so its users close it without a catch. The push engine no longer closes a stream from
+      another coroutine while the actor may be reading it: the actor closes it in its own `finally`.
 
 ### Step R5.3 — Transport: ordered, reliable file channels (`transport/webrtc`, `jvmMain` backend)
 
@@ -1233,6 +1272,29 @@ Replaces `DefaultFileReceiveEngine`.
 
 - **Done when:** `grep -n "launch" JvmWebRtcBackend.kt` shows no per-message launch; routing has no channel label
   strings.
+- **As landed:**
+    - No Android backend exists in the tree (only JVM + fakes), so the ordering fix is JVM-only.
+    - `FileChannelId(peer, label)` + `WebRtcFileFrame(channel, payload)` replace the label-string
+      plumbing; `BufferedLow` is deleted.
+    - The backend's file-channel inbound side is `FileChannelInbox` (`jvmMain`): one queue and
+      drainer per channel, and `awaitBufferedBelow` as a `StateFlow` of the buffered amount fed by
+      the low-threshold callback (no waiter lists to leak). A close lets the drainer flush what the
+      channel already received, then reports `Removed`, so a frame sent right before a close (a
+      FETCH_DECLINED) is never dropped.
+    - Channel parameters come from `dataChannelInit(config, dataType)`: file channels ignore the
+      shared config. A remotely opened file channel that is not ordered and reliable is refused.
+    - Teardown takes the session's file channels from `Session.dispose()`, which refuses channels
+      attached after it, so a channel the remote opens during teardown never leaks its queue.
+    - Tests: real peer connections need the integration-gated suite, so the unit tests drive the
+      backend's own layer: `FileChannelInboxTest` feeds 4 × 10 000 frames from plain threads into
+      a consumer that suspends at random (a launch per message would reorder), checks that a close
+      flushes and that waiters wake on the callback and on close, and checks `dataChannelInit`
+      against an unreliable shared config. The envelope-isolation test now has a file subscriber
+      that really stalls.
+    - Second review: the first version's ordering and reliability tests ran against the recording
+      fake and a config literal, so they covered none of the backend; a close cancelled the drainer
+      and dropped queued frames; teardown snapshotted channels outside the lock; waiter lists were
+      walked without their lock.
 
 ### Step R5.4 — The fetch, one actor per channel (`routing/file/fetch`)
 
@@ -1244,8 +1306,8 @@ Replaces `FileFetchManager`.
   `FileFetchService` (routes frames by `FileChannelId` to the actor, exposes
   `suspend fun fetch(fileId, device): FetchResult` for R2.2's `Call`, and `abortFetch(fileId, reason)`).
   `enum class FetchResult { SATISFIED, DECLINED, UNANSWERED, NO_DIRECT_CONNECTION, NO_SPACE, MISMATCH }`; map to
-  `CallOutcome` in `FileFetchStrategy` (`NO_SPACE` → satisfied-and-drop plus engine `decline`; `MISMATCH` → retry same
-  device first).
+  `CallOutcome` in `FileFetchStrategy` (`NO_SPACE` → satisfied-and-drop plus engine `decline`; ~~`MISMATCH` → retry same
+  device first~~ `MISMATCH` → the usual candidate order, see "As landed").
 
 - **Holder actor:**
     - receives FETCH and runs the serve gate (through `FileServeGate`, by the peer device's account; also
@@ -1258,7 +1320,7 @@ Replaces `FileFetchManager`.
     - sends FETCH and checks the block list against the `fileId`;
     - feeds DATA to `append` in order and sends PROGRESS only when P moves;
     - finishes on `Ready`;
-    - on `Mismatch` it ABORTs and the request goes back to PENDING, asking the same holder first;
+  - on `Mismatch` it ABORTs and the request goes back to PENDING~~, asking the same holder first~~;
     - on `NoSpace` it ABORTs and the request ends (DECLINED locally);
     - on `Defer` it suspends: the window holds the holder back, and no frame is dropped.
 - **Lifecycle:**
@@ -1280,6 +1342,41 @@ Replaces `FileFetchManager`.
 
 - **Done when:** `FileFetchManager.kt` does not exist; no `runCatching` in `routing/file/fetch`; the 64 MB test passes
   with default config.
+- **As landed:**
+    - Holder and requester are per-channel actors inside `FileFetchService` (mailbox per requester,
+      volatile progress + serve loop per holder) rather than three top-level classes; the observable
+      behavior matches the step.
+    - `NO_SPACE` is declined by the engine inside `append` (same file-lock commit), so the strategy
+      only drops the row. `ENDED` (added) does the same for a receive that ended locally, and for a
+      FETCH_OK the engine refuses as `NOT_RETRYABLE`; neither emits `RequestSatisfied`.
+    - `MISMATCH` maps to `Unanswered`, the usual candidate order, not same holder first (no same
+      device first, see "Design changes"). A holder's ABORT is `UNANSWERED` too: the holder gave up,
+      which is not a mismatch on our side.
+    - A holder-side source corruption ABORTs without the receiver ever recording a mismatch (the
+      holder's two-pass check catches it first); the two-router test therefore asserts ABORT + retry,
+      not receiver FAILED.
+    - The requester enforces the window: a DATA frame that starts more than `fileStreamWindowBytes`
+      past the last PROGRESS closes the channel, so a holder that ignores the window cannot grow the
+      requester's queues without bound.
+    - A `Defer` retry stops when the channel closes or the fetch is aborted, so `fetch` stays bounded
+      by its channel. An exception from `append` ABORTs and ends the attempt (`UNANSWERED`); P did
+      not move, so the next one resumes.
+    - The 64 MB test uses default checkpoint/window config with 32 KiB frames (frame size is orthogonal
+      to the checkpoint/window under test); time-checkpoint behavior is covered in
+      `FileReceiveEngineJvmTest`. The two-router file pump forwards frames and closes on separate
+      coroutines of a multi-threaded scope, so a close can overtake frames as in the backend. That
+      exposed two races in `RecordingWebRtcTransport` (channel labels from an unguarded counter, and
+      recording lists appended from several threads): labels are now random and the pump consumes
+      thread-safe `Channel` feeds.
+    - Review: serve gate compares `IdentityStatus` (fail-closed on directory errors); pre-answer
+      close maps to `UNANSWERED` with a grace window for the racing answer frame (no more
+      blacklist-on-drop); holder ABORT/idle/backpressure-failure ends with close + cleanup so no
+      fetch hangs; `abortFileFetch` carries the real reason (`STALLED` vs `CANCELLED`); `NO_SPACE`
+      drops silently (no false `RequestSatisfied`); dead `FetchKey`/`PAUSE`/unused fields removed.
+    - Second review: the endless `Defer` loop, the missing window check, `MISMATCH` retrying the same
+      holder first, a failed serve read leaving the holder registered, and the swallowed send and
+      close failures (now logged) were fixed. Tests: an ended receive, an endless `Defer` ended by an
+      abort, and a holder overrunning the window.
 
 ---
 

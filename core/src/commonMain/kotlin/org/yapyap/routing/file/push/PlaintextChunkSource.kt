@@ -1,13 +1,15 @@
 package org.yapyap.routing.file.push
 
 import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReadResult
+import org.yapyap.routing.file.port.PlaintextRead
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FilePush
 import kotlin.uuid.Uuid
@@ -16,6 +18,10 @@ import kotlin.uuid.Uuid
  * Builds finished CHUNK and OFFER envelopes from the orchestrator's plaintext source.
  * Reads through [FilePlaintextSource] (block-checked at the source), encrypts with the row's
  * key and signs through protection. The orchestrator never sees a key.
+ *
+ * One stream per transfer, opened at the first chunk and reused while chunks are asked in
+ * order, so each block is verified once per serve instead of once per chunk. A seek
+ * (restart, re-queue) re-opens at that offset.
  */
 internal class PlaintextChunkSource(
     private val ctx: RoutingContext,
@@ -23,6 +29,9 @@ internal class PlaintextChunkSource(
     private val row: suspend () -> FilePush,
     private val manifest: suspend () -> FileManifest?,
 ) : ChunkSource {
+    private var stream: PlaintextStream? = null
+    private var streamPos: Long? = null
+
     override suspend fun offer(): BinaryEnvelope {
         val current = row()
         val info = manifest() ?: throw IllegalStateException("File not held for ${current.fileId}")
@@ -69,13 +78,8 @@ internal class PlaintextChunkSource(
         val offset = index.toLong() * current.chunkSizeBytes
         val length = minOf(current.chunkSizeBytes.toLong(), current.totalBytes - offset).toInt()
         if (length <= 0) return ChunkResult.SourceLost
-        val bytes = when (
-            val read = plaintext.read(current.fileId, offset, length)
-        ) {
-            is FileReadResult.Ok -> read.bytes
-            is FileReadResult.NotHeld -> return ChunkResult.SourceLost
-            is FileReadResult.SourceLost -> return ChunkResult.SourceLost
-        }
+        val bytes = readVerified(current.fileId, offset, length) ?: return ChunkResult.SourceLost
+        if (offset + bytes.size >= current.totalBytes) closeStream()
         val ciphertext = ctx.envelopeProtectionService.encryptFileChunk(
             current.transferId,
             index,
@@ -104,5 +108,53 @@ internal class PlaintextChunkSource(
                 payload = envelope.encode(),
             ),
         )
+    }
+
+    private suspend fun readVerified(fileId: FileId, offset: Long, length: Int): ByteArray? {
+        var s = stream
+        if (s == null || streamPos != offset) {
+            s?.close()
+            s = plaintext.open(fileId, offset) ?: run {
+                stream = null
+                streamPos = null
+                return null
+            }
+            stream = s
+            streamPos = offset
+        }
+        val out = ByteArray(length)
+        var got = 0
+        while (got < length) {
+            when (val r = s.read(length - got)) {
+                is PlaintextRead.Bytes -> {
+                    r.bytes.copyInto(out, got)
+                    got += r.bytes.size
+                    streamPos = (streamPos ?: offset) + r.bytes.size
+                }
+
+                is PlaintextRead.Eof -> {
+                    // The source shrank mid-serve: end it here instead of sending a short chunk.
+                    closeStream()
+                    return null
+                }
+
+                is PlaintextRead.SourceLost -> {
+                    closeStream()
+                    return null
+                }
+            }
+        }
+        return out
+    }
+
+    override fun close() {
+        closeStream()
+    }
+
+    private fun closeStream() {
+        val s = stream
+        stream = null
+        streamPos = null
+        s?.close()
     }
 }

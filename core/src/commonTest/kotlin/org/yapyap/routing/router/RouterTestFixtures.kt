@@ -64,18 +64,19 @@ import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.file.FilePushOps
 import org.yapyap.routing.file.FileRoutingPorts
+import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileIngestPort
 import org.yapyap.routing.file.port.FileIngestResult
 import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileReadResult
 import org.yapyap.routing.file.port.FileReceiveEnd
 import org.yapyap.routing.file.port.FileReceiveEnds
 import org.yapyap.routing.file.port.FileRefusalReason
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.file.port.FileServeGate
+import org.yapyap.routing.file.port.PlaintextStream
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.ping.FrontierSnapshotProvider
 import org.yapyap.routing.policy.LinkPreferencePolicy
@@ -633,12 +634,12 @@ internal class InMemoryFileRelayStore : FileRelayStore {
 /** Scriptable [FilePlaintextSource] for pusher tests. */
 internal class FakeFilePlaintextSource(
     var describeImpl: (FileId) -> FileManifest? = { null },
-    var readImpl: (FileId, Long, Int) -> FileReadResult = { _, _, _ -> FileReadResult.NotHeld },
+    var openImpl: (FileId, Long) -> PlaintextStream? = { _, _ -> null },
 ) : FilePlaintextSource {
     override suspend fun describe(fileId: FileId): FileManifest? = describeImpl(fileId)
 
-    override suspend fun read(fileId: FileId, offset: Long, maxBytes: Int): FileReadResult =
-        readImpl(fileId, offset, maxBytes)
+    override suspend fun open(fileId: FileId, fromOffset: Long): PlaintextStream? =
+        openImpl(fileId, fromOffset)
 }
 
 /** No-op [FilePushOps]: starting/cancelling pushes is the pusher's covered behavior. */
@@ -780,6 +781,9 @@ internal class RefusingFilePorts : FakeFilePorts {
         plaintext: ByteArray,
     ): FileIngestResult =
         FileIngestResult.Refused
+
+    override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult =
+        FileAppendResult.NoSpace
 
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = null
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> = emptyList()
