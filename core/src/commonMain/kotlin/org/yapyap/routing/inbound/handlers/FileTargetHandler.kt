@@ -4,6 +4,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
@@ -23,7 +24,6 @@ import org.yapyap.routing.inbound.logInboundProtectionFailure
 import org.yapyap.routing.router.InboundHandleResult
 import org.yapyap.routing.router.InboundSideEffect
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileIncomingStatus
 import org.yapyap.routing.store.FileIncomingTransfer
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -34,6 +34,7 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 internal class FileTargetHandler(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val incoming: FileIncomingTransfers,
     private val ingest: FileIngestPort,
     private val signals: FileTransferSignals,
@@ -59,7 +60,7 @@ internal class FileTargetHandler(
             }
         }
         val sealed = try {
-            ctx.envelopeProtectionService.openFileOffer(payload.sealedOfferBytes, fileEnvelope.source)
+            protection.openOffer(payload.sealedOfferBytes, fileEnvelope.source)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
@@ -93,7 +94,6 @@ internal class FileTargetHandler(
                         chunkSizeBytes = payload.chunkSizeBytes,
                         totalBytes = payload.totalBytes,
                         startIndex = payload.startIndex,
-                        status = FileIncomingStatus.ACTIVE,
                         createdAt = now,
                         expiresAt = now + ctx.routerConfig.value.fileTransferTtl,
                     ),
@@ -110,7 +110,7 @@ internal class FileTargetHandler(
 
             FileOfferVerdict.AlreadyReady -> {
                 val reply = buildFileControlEnvelope(
-                    protection = ctx.envelopeProtectionService,
+                    protection = protection,
                     transferId = fileEnvelope.transferId,
                     source = ctx.localDeviceId,
                     target = fileEnvelope.source,
@@ -151,9 +151,8 @@ internal class FileTargetHandler(
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
         val plaintext = try {
-            ctx.envelopeProtectionService.decryptFileChunk(
+            protection.decryptChunk(
                 transferId = fileEnvelope.transferId,
-                chunkIndex = payload.chunkIndex,
                 key = row.key,
                 chunk = payload,
             )
@@ -210,7 +209,7 @@ internal class FileTargetHandler(
         signals.coverageAck(
             fileEnvelope.transferId,
             fileEnvelope.source,
-            payload.contiguousChunks,
+            payload.highestContiguousIndex,
             payload.missingRanges
         )
     }
@@ -224,7 +223,7 @@ internal class FileTargetHandler(
     ): InboundHandleResult {
         val contiguous = coverageAckFor(contiguousBytes, totalBytes, row.chunkSizeBytes)
         val reply = buildFileControlEnvelope(
-            protection = ctx.envelopeProtectionService,
+            protection = protection,
             transferId = fileEnvelope.transferId,
             source = ctx.localDeviceId,
             target = fileEnvelope.source,

@@ -1,20 +1,20 @@
 import kotlin.time.Instant;
 import org.yapyap.protocol.FileId;
 import org.yapyap.protocol.PeerId;
+import org.yapyap.protocol.TransferId;
+import org.yapyap.protocol.TransferKey;
 
 -- Receiver-side per-transfer rows (design §13): chunk mapping, decryption and COMPLETE
 -- targets. Rows end with their transfer — COMPLETE sent, CANCEL either way, or expiry —
 -- and are dropped then; a later chunk for the transferId is unknown and gets DECLINED.
--- Status is a plain string mapped in the store (always ACTIVE while the row lives).
 CREATE TABLE file_incoming_transfers (
-    transfer_id TEXT NOT NULL PRIMARY KEY,
+    transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
     file_id TEXT AS FileId NOT NULL,
     author_device TEXT AS PeerId NOT NULL,
-    key BLOB NOT NULL,
+    key BLOB AS TransferKey NOT NULL,
     chunk_size_bytes INTEGER NOT NULL,
     total_bytes INTEGER NOT NULL,
     start_index INTEGER NOT NULL,
-    status TEXT NOT NULL,
     created_at INTEGER AS Instant NOT NULL,
     expires_at INTEGER AS Instant NOT NULL
 );
@@ -22,8 +22,8 @@ CREATE TABLE file_incoming_transfers (
 insertFileIncomingTransfer:
 INSERT INTO file_incoming_transfers (
     transfer_id, file_id, author_device, key, chunk_size_bytes, total_bytes,
-    start_index, status, created_at, expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    start_index, created_at, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectFileIncomingTransferById:
 SELECT * FROM file_incoming_transfers WHERE transfer_id = ?;

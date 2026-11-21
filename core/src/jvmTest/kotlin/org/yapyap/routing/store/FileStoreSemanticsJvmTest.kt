@@ -8,6 +8,7 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
@@ -56,7 +57,7 @@ class FileStoreSemanticsJvmTest {
         targetDevice = device,
         kind = FilePushKind.DIRECT,
         totalBytes = 10_000L,
-        key = ByteArray(32) { it.toByte() },
+        key = TransferKey(ByteArray(32) { it.toByte() }),
         chunkSizeBytes = 32 * 1024,
         startIndex = 0,
         nextChunkIndex = 1,
@@ -261,11 +262,10 @@ class FileStoreSemanticsJvmTest {
                     transferId = id,
                     fileId = fileId,
                     authorDevice = device,
-                    key = ByteArray(32),
+                    key = TransferKey(ByteArray(32)),
                     chunkSizeBytes = 1024,
                     totalBytes = 1000L,
                     startIndex = 0,
-                    status = FileIncomingStatus.ACTIVE,
                     createdAt = now,
                     expiresAt = expiresAt,
                 ),

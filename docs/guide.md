@@ -208,7 +208,8 @@ Rules:
   `protocol/identity`) and private keys (`SigningPrivateKey`, `EncryptionPrivateKey`, under `PrivateKey` in
   `crypto/keys`) are separate hierarchies, so a private key can never stand where a wire key is expected. All
   wrap the bytes, compare by content, and never print a private key. Prekey ids are `SignedPreKeyId` /
-  `OneTimePreKeyId`. Raw `ByteArray` keys appear only at the wire (codecs, payload classes)
+  `OneTimePreKeyId`. Per-transfer file keys are `TransferKey` (exactly 32 bytes, never printed) through
+  protection and the routing rows. Raw `ByteArray` keys appear only at the wire (codecs, payload classes)
   and inside the ratchet; convert at that boundary.
 - **Keyring entries are `KeySlot`s.** Each key the app holds outside the database has one slot; its keyring
   name never changes for an existing slot.
@@ -279,12 +280,13 @@ never a loss.
 ### Outcomes and delivery state
 
 - Every outbox entry that someone waits on carries a tag saying what it is for (a message push, a bootstrap
-  packet, a sync attempt, a file transfer). However the entry leaves the outbox — ACK, terminal NACK, expiry —
+  packet, a sync attempt, a file transfer: `FILE_PUSH` for our transfers, `FILE_FORWARD` for relay forwards,
+  `FILE_REQUEST` for REQUESTs). However the entry leaves the outbox — ACK, terminal NACK, expiry —
   the outcome is reported once, by tag, to whoever waits on it. New outbox traffic that needs its outcome gets
   a tag; it does not add another callback path. The due query loads only ids, targets, tags and retry classes (never
   blobs), claims non-file rows first, hides targets already at their per-target in-flight cap, and
-  FILE chunk rows retry at their own flat delay instead of the message
-  backoff.
+  FILE chunk rows retry at their own flat delay (`FLAT`) instead of the message
+  backoff (`STANDARD` for OFFER markers and REQUESTs, which keep the message schedule).
 - File relay backup is split by packet kind: whether a row backs up is its own `RelayBackup`
   flag — PENDING only on authoring markers and messages, never on chunks or control packets.
   FILE OFFER markers use the message triggers — no link at claim, a retry (the earlier attempt went
@@ -296,7 +298,8 @@ never a loss.
   source row), parallel over the relays the
   reliability policy returns; the sender never chases a failing relay and forwarding relays never
   re-deposit (one relay hop, ever).
-- Upward, the router reports only push-path ACKs, per account (`Router.deliveries`). An ACK proves delivery;
+- Upward, the router reports only push-path ACKs, per account (`MessageCarrier.deliveries` for messages,
+  `BootstrapCarrier.deliveries` for bootstrap packets). An ACK proves delivery;
   its absence proves nothing, since relays and the pull path never ACK to the original sender.
 - What the user sees is the orchestrator's: the delivery tracker records an account as holding a message on
   a push ACK, or when that account's ping frontier descends from the message (which covers relay and sync
@@ -366,14 +369,15 @@ Working:
 - Onboarding by invite, adding devices, recovery.
 - Small-file transfer, both paths: direct push, REQUEST/serve pull path, relay deposits
   with store-and-forward, stall deposit and the receiver gap trigger, receive engine with
-  file store; large files and the GUI file surface are still ahead.
+  file store (per-transfer keys via `TransferKey`, hardened codecs); large files pull-only over WebRTC data channels
+  (fetch protocol, no envelopes, no keys — DTLS plus the block list — and the receive engine shared with small files).
 - Compose desktop GUI.
 
 Not done yet:
 
-- File transfer remainder: large files and the GUI file surface (progress, accept/decline, open) — the
-  envelope family, file protection, the small-file
-  pipeline (direct, pull and relay) and storage are built; the order of the rest is in [`file/plan.md`](file/plan.md).
+- GUI file surface (progress, accept/decline, open) — the envelope family, file protection, both
+  transfer paths and storage are built; the order of the rest is in [`file/plan.md`](file/plan.md) steps 23–24.
+- File transfer soak and test matrix (multi-GB fetches with forced drops, receiver restarts).
 - Audio/video media (session contracts exist; media tracks do not).
 - Mobile: push and background behavior, network monitoring on Android/iOS.
 - Signed-prekey rotation and the remaining epoch lifecycle work (see [`e2ee.md`](e2ee.md)).

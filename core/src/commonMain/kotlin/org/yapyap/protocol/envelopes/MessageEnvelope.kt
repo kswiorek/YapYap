@@ -4,6 +4,10 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.MAX_FILE_NAME_BYTES
+import org.yapyap.protocol.MAX_FILE_NAME_CHARS
+import org.yapyap.protocol.MAX_MIME_TYPE_BYTES
+import org.yapyap.protocol.MAX_MIME_TYPE_CHARS
 import org.yapyap.protocol.MessagePayloadType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -306,19 +310,19 @@ internal sealed interface MessagePayload {
     ) {
         init {
             require(fileName.isNotBlank()) { "fileName must not be blank" }
-            require(fileName.length <= MAX_FILENAME_CHARS) {
-                "fileName exceeds $MAX_FILENAME_CHARS chars"
+            require(fileName.length <= MAX_FILE_NAME_CHARS) {
+                "fileName exceeds $MAX_FILE_NAME_CHARS chars"
             }
-            require(fileName.encodeToByteArray().size <= MAX_FILENAME_BYTES) {
-                "fileName exceeds $MAX_FILENAME_BYTES bytes"
+            require(fileName.encodeToByteArray().size <= MAX_FILE_NAME_BYTES) {
+                "fileName exceeds $MAX_FILE_NAME_BYTES bytes"
             }
             if (mimeType != null) {
                 require(mimeType.isNotBlank()) { "mimeType must not be blank when present" }
-                require(mimeType.length <= MAX_MIMETYPE_CHARS) {
-                    "mimeType exceeds $MAX_MIMETYPE_CHARS chars"
+                require(mimeType.length <= MAX_MIME_TYPE_CHARS) {
+                    "mimeType exceeds $MAX_MIME_TYPE_CHARS chars"
                 }
-                require(mimeType.encodeToByteArray().size <= MAX_MIMETYPE_BYTES) {
-                    "mimeType exceeds $MAX_MIMETYPE_BYTES bytes"
+                require(mimeType.encodeToByteArray().size <= MAX_MIME_TYPE_BYTES) {
+                    "mimeType exceeds $MAX_MIME_TYPE_BYTES bytes"
                 }
             }
             require(totalBytes >= 0) { "totalBytes must be >= 0" }
@@ -333,21 +337,19 @@ internal sealed interface MessagePayload {
 
         companion object {
             const val MAX_ATTACHMENTS: Int = 16
-            const val MAX_FILENAME_CHARS: Int = 80
-            const val MAX_FILENAME_BYTES: Int = 255
-            const val MAX_MIMETYPE_CHARS: Int = 128
-            const val MAX_MIMETYPE_BYTES: Int = 128
 
             /**
              * Worst-case encoded bytes per attachment:
              * fileId(2+64) + fileName(2+255) + mime(2+128 worst, 2 when null) + totalBytes(8).
              */
-            const val MAX_ENCODED_BYTES: Int = (2 + 64) + (2 + MAX_FILENAME_BYTES) + (2 + MAX_MIMETYPE_BYTES) + 8
+            const val MAX_ENCODED_BYTES: Int = (2 + 64) + (2 + MAX_FILE_NAME_BYTES) + (2 + MAX_MIME_TYPE_BYTES) + 8
 
             fun decode(reader: ByteReader): Attachment {
-                val fileId = FileId(reader.readString())
-                val fileName = reader.readString()
-                val mimeType = reader.readNullableString()
+                // Length prefixes are bounded before allocation: oversized names are
+                // rejected without allocating their bytes.
+                val fileId = FileId(reader.readBoundedString(64))
+                val fileName = reader.readBoundedString(MAX_FILE_NAME_BYTES)
+                val mimeType = reader.readBoundedNullableString(MAX_MIME_TYPE_BYTES)
                 val totalBytes = reader.readLong()
                 return Attachment(
                     fileId = fileId,

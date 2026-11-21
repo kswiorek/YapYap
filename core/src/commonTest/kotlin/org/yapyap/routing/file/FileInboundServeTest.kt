@@ -3,29 +3,24 @@ package org.yapyap.routing.file
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.testTransportLimits
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileOfferPublicHalf
+import org.yapyap.protection.envelope.FileOfferSealedManifest
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.ChunkRange
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
@@ -44,6 +39,7 @@ import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryFileRelayStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TrackingPacketOutbox
@@ -119,64 +115,46 @@ class FileInboundServeTest {
     private class OpenOnlyProtection(
         val request: FilePayload.Request,
         val createdAt: kotlin.time.Instant,
-    ) : EnvelopeProtectionService {
-        override suspend fun protectSignal(
-            input: WebRtcSignal,
-            context: EnvelopeProtectContext,
-        ): WebRtcSignalEnvelope = error("not used")
+    ) : FileEnvelopeProtection {
+        override suspend fun protect(
+            input: FilePayload,
+            context: FileProtectContext,
+        ): FileEnvelope = error("not used")
 
-        override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal = error("not used")
-        override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
-            error("not used")
-
-        override suspend fun openFile(envelope: FileEnvelope) = OpenedFileEnvelope(
-            transferId = envelope.transferId,
-            source = envelope.source.id,
-            target = envelope.target.id,
+        override suspend fun open(input: FileEnvelope) = OpenedFileEnvelope(
+            transferId = input.transferId,
+            source = input.source,
+            target = input.target,
             createdAt = createdAt,
-            securityScheme = envelope.securityScheme,
+            securityScheme = input.securityScheme,
             payload = request,
         )
 
-        override suspend fun decryptFileChunk(
+        override suspend fun protectOffer(
+            publicHalf: FileOfferPublicHalf,
+            sealed: FileOfferSealedManifest,
+            key: TransferKey,
+            ctx: FileProtectContext,
+        ): FileEnvelope = error("not used")
+
+        override suspend fun decryptChunk(
             transferId: TransferId,
-            chunkIndex: Int,
-            key: ByteArray,
+            key: TransferKey,
             chunk: FilePayload.EncryptedChunk,
         ): ByteArray = error("not used")
 
-        override suspend fun encryptFileChunk(
+        override suspend fun encryptChunk(
             transferId: TransferId,
             chunkIndex: Int,
-            key: ByteArray,
+            key: TransferKey,
             plaintext: ByteArray,
         ): ByteArray = error("not used")
 
-        override suspend fun sealFileOffer(
-            offer: FilePayload.SealedOffer,
-            target: PeerId,
-        ): ByteArray = error("not used")
 
-        override suspend fun openFileOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
+        override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
             error("not used")
 
-        override fun generateFileTransferKey(): ByteArray = error("not used")
-        override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
-            error("not used")
-
-        override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload = error("not used")
-        override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
-            error("not used")
-
-        override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload = error("not used")
-        override suspend fun protectBootstrap(
-            input: BootstrapPayload,
-            context: EnvelopeProtectContext,
-            sharedSecret: ByteArray?,
-        ): BootstrapEnvelope = error("not used")
-
-        override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload = error("not used")
-        override suspend fun isBootstrapSessionActive(): Boolean = false
+        override fun generateTransferKey(): TransferKey = error("not used")
     }
 
     private fun deviceIdentity(id: PeerId) = DeviceIdentity(
@@ -194,16 +172,17 @@ class FileInboundServeTest {
             peersByAccount = mapOf(holderAccount to listOf(holderDevice)),
         )
         val clock = FakeClock(now)
+        val protection = OpenOnlyProtection(
+            FilePayload.Request(fileId, 300_000L, emptyList()),
+            now,
+        )
         val ctx = RoutingContext(
             localIdentity = identity,
             localDeviceId = localDevice,
             devices = identity,
             routes = identity,
             packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = OpenOnlyProtection(
-                FilePayload.Request(fileId, 300_000L, emptyList()),
-                now,
-            ),
+            envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
             torTransport = RecordingTorTransport(),
             webRtcTransport = RecordingWebRtcTransport(),
             clock = clock,
@@ -217,7 +196,7 @@ class FileInboundServeTest {
             override suspend fun coverageAck(
                 transferId: TransferId,
                 from: PeerId,
-                contiguousChunks: Int,
+                highestContiguousIndex: Int,
                 missing: List<ChunkRange>,
             ) = Unit
 
@@ -230,11 +209,12 @@ class FileInboundServeTest {
         }
         val handler = FileInboundHandler(
             ctx = ctx,
+            protection = protection,
             target = FileTargetHandler(
-                ctx, incomingTransfers, ingest, signals, onOfferReceived = {},
+                ctx, protection, incomingTransfers, ingest, signals, onOfferReceived = {},
             ),
             door = FileRelayDoor(
-                ctx, InMemoryFileRelayStore(),
+                ctx, protection, InMemoryFileRelayStore(),
                 TrackingPacketOutbox(),
                 onRelayWhole = {},
             ),

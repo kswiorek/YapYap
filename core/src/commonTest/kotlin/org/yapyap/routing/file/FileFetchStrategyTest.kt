@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
@@ -214,6 +215,7 @@ class FileFetchStrategyTest {
         val sessionOpener = ProactiveSessionOpener(stack.ctx, registry)
         val processor = FileRequestProcessor(
             ctx = stack.ctx,
+            protection = PassthroughFileProtection(),
             attempts = attempts,
             requests = requesterGate,
             outboxProcessor = stack.outboxProcessor,

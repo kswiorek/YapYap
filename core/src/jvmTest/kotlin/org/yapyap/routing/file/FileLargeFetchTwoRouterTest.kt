@@ -49,14 +49,15 @@ import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.AccountRole
+import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
@@ -67,7 +68,6 @@ import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.blockSizeFor
-import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.router.DefaultRouter
@@ -211,7 +211,6 @@ class FileLargeFetchTwoRouterTest {
         val signer = DefaultSignatureProvider(identity, identity, crypto)
         val protection = DefaultEnvelopeProtectionService(
             webRtcSignalProtection = SignedAndEncryptedWebRtcSignalProtection(signer, sessionManager(identity), crypto),
-            fileProtection = SignedAndEncryptedFileProtection(signer, sessionManager(identity), crypto),
             messageProtection = SignedAndEncryptedMessageProtection(signer, sessionManager(identity), crypto),
             systemProtection = SignedSystemProtection(signer, crypto),
             bootstrapProtection = BootstrapProtection(crypto) { null },
@@ -262,6 +261,7 @@ class FileLargeFetchTwoRouterTest {
                 pushes = InMemoryFilePushStore(),
                 relay = InMemoryFileRelayStore(),
                 requestAttempts = InMemoryFileRequestAttemptStore(),
+                protection = PassthroughFileProtection(),
                 chunkSizeBytes = chunkSize,
                 fetchFrameBytes = chunkSize,
             ),

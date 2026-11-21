@@ -1,6 +1,8 @@
 package org.yapyap.orchestrator.runtime.file
 
 import kotlinx.io.files.Path
+import org.yapyap.orchestrator.file.FileReceiveStatus
+import org.yapyap.orchestrator.runtime.message.MessagingService
 import org.yapyap.protocol.FileId
 
 /**
@@ -10,16 +12,16 @@ import org.yapyap.protocol.FileId
  */
 public data class FileReceiveSnapshot(
     val fileId: FileId,
-    val status: org.yapyap.orchestrator.file.FileReceiveStatus,
+    val status: FileReceiveStatus,
     val contiguousBytes: Long,
     val totalBytes: Long,
 )
 
 /**
  * GUI-facing file surface (design §12): the runtime stays the GUI's whole API. Sending
- * goes through [org.yapyap.orchestrator.runtime.message.MessagingService.sendMessage] with
+ * goes through [MessagingService.sendMessage] with
  * picked files; this facade vends receive state, completed-file paths and the large-file
- * accept/decline decision. Progress reporting and open land with the GUI surface (step 23).
+ * accept/decline decision. Progress reporting and open land with the GUI surface.
  */
 public interface FileTransferService {
     /** Durable receive state for [fileId], or null when this device never took part in it. */

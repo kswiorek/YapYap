@@ -5,6 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.yapyap.crypto.e2ee.testTransportLimits
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
@@ -163,6 +164,7 @@ class UnknownDevicePolicyTest {
                 pushes = InMemoryFilePushStore(),
                 relay = InMemoryFileRelayStore(),
                 requestAttempts = InMemoryFileRequestAttemptStore(),
+                protection = PassthroughFileProtection(),
                 chunkSizeBytes = MutableStateFlow(220 * 1024),
                 fetchFrameBytes = MutableStateFlow(220 * 1024),
             ),

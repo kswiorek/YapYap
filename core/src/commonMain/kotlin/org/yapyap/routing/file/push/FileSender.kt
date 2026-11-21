@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -34,6 +35,7 @@ import kotlin.uuid.Uuid
  */
 internal class FileSender(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val plaintext: FilePlaintextSource,
     private val pushes: FilePushStore,
     private val engine: FilePushEngine,
@@ -107,7 +109,7 @@ internal class FileSender(
                 targetDevice = device,
                 kind = FilePushKind.SERVE,
                 totalBytes = info.totalBytes,
-                key = ctx.envelopeProtectionService.generateFileTransferKey(),
+                key = protection.generateTransferKey(),
                 chunkSizeBytes = chunkSize,
                 startIndex = start,
                 nextChunkIndex = start,
@@ -176,7 +178,7 @@ internal class FileSender(
             targetDevice = device,
             kind = FilePushKind.DIRECT,
             totalBytes = totalBytes,
-            key = ctx.envelopeProtectionService.generateFileTransferKey(),
+            key = protection.generateTransferKey(),
             chunkSizeBytes = chunkSizeBytes.value,
             startIndex = 0,
             nextChunkIndex = 0,

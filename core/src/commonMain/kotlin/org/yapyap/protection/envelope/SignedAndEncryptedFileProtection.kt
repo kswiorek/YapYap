@@ -9,92 +9,50 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.AuthenticationReason
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protocol.ByteReader
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.EnvelopeObservability
-import org.yapyap.protocol.FieldSensitivity
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
+import org.yapyap.protocol.TRANSFER_KEY_BYTES
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelopeKind
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.uuid.Uuid
 
 /**
- * Real small-path file protection (design §4), replacing `PlaintextFileProtection`.
- *
+ * Small-path file protection (design §4):
  * - OFFER sealed halves and REQUEST bodies go through the standard Double Ratchet
  *   session machinery (one small frame per transfer), like messages.
  * - Chunk content never touches the ratchet: per-transfer symmetric AEAD
  *   (ChaCha20-Poly1305, library-managed IV) with AAD = (`transferId`, `chunkIndex`),
  *   so a relay can neither reorder chunks nor splice them across transfers.
  * - Every FILE envelope is signed by its author; relays replay the original signature.
- * - Failures map to [ProtectionDisposition] (`PERMANENT` / `DEFER`) so crypto
+ * - Failures map to [ProtectionException] dispositions (`PERMANENT` / `DEFER`), so crypto
  *   exceptions never cross into routing (guide §3).
+ *
+ * Keys are [TransferKey] threaded explicitly per call: the pusher owns its
+ * `file_pushes` row key and passes it to [encryptChunk]; the inbound handler owns its
+ * `file_incoming_transfers` row key and passes it to [decryptChunk]. Protection never
+ * stores a key, and the orchestrator never sees one.
  */
 internal class SignedAndEncryptedFileProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,
-) : FileProtection {
+) : BaseProtection<FilePayload, FileEnvelope, OpenedFileEnvelope, FileProtectContext>(),
+    FileEnvelopeProtection {
 
-    override suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope {
-        val envelope = try {
-            doProtect(input, context)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ProtectionException) {
-            throw e
-        } catch (e: IllegalArgumentException) {
-            throw e
-        } catch (e: Exception) {
-            throw ProtectionException.map(e)
-        }
-        assertObservabilityContract(
-            observableHeaderValues = envelope.observableHeaderValues(),
-            policy = EnvelopeObservability.fileEnvelope.fields,
-        )
-        return envelope
-    }
-
-    override suspend fun open(input: FileEnvelope): OpenedFileEnvelope {
-        assertObservabilityContract(
-            observableHeaderValues = input.observableHeaderValues(),
-            policy = EnvelopeObservability.fileEnvelope.fields,
-        )
-        return try {
-            doOpen(input)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ProtectionException) {
-            throw e
-        } catch (e: IllegalArgumentException) {
-            throw e
-        } catch (e: Exception) {
-            throw ProtectionException.map(e)
-        }
-    }
-
-    private suspend fun doProtect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope {
-        require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
-            "Context security scheme must be ENCRYPTED_AND_SIGNED for SignedAndEncryptedFileProtection but got ${context.securityScheme}"
-        }
-        val transferId = requireNotNull(context.transferId) {
-            "File protection requires transferId in context"
-        }
+    override suspend fun doProtect(input: FilePayload, context: FileProtectContext): FileEnvelope {
         val payloadBytes = when (input) {
-            // The sealed half was sealed explicitly by the pusher (it owns the key);
-            // the REQUEST body is sealed here, like a message (session only, no key).
             is FilePayload.Offer -> input.encode()
             is FilePayload.Request -> sealRequestWire(input, context.targetDeviceId)
             else -> input.encode()
         }
         val unsigned = FileEnvelope(
-            transferId = transferId,
+            transferId = context.transferId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -105,6 +63,8 @@ internal class SignedAndEncryptedFileProtection(
         )
         val signature = try {
             signatureProvider.sign(unsigned.encodeForSigning())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: CryptoException) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -117,7 +77,7 @@ internal class SignedAndEncryptedFileProtection(
         return unsigned.copy(signature = signature)
     }
 
-    private suspend fun doOpen(envelope: FileEnvelope): OpenedFileEnvelope {
+    override suspend fun doOpen(envelope: FileEnvelope): OpenedFileEnvelope {
         val signature = envelope.signature
             ?: throw ProtectionException.AuthenticationFailed(AuthenticationReason.MISSING_SIGNATURE)
         require(envelope.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
@@ -134,6 +94,8 @@ internal class SignedAndEncryptedFileProtection(
         val kind = try {
             require(envelope.payload.isNotEmpty()) { "Empty file payload" }
             FileEnvelopeKind.fromWireValue(envelope.payload[0])
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             throw ProtectionException.InvalidEnvelope(e)
         }
@@ -146,6 +108,8 @@ internal class SignedAndEncryptedFileProtection(
                 FileEnvelopeKind.REQUEST -> openRequestWire(envelope.payload, envelope.source)
                 FileEnvelopeKind.CANCEL -> FilePayload.Cancel.decode(envelope.payload)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: ProtectionException) {
             throw e
         } catch (e: Exception) {
@@ -169,26 +133,80 @@ internal class SignedAndEncryptedFileProtection(
         )
         return OpenedFileEnvelope(
             transferId = envelope.transferId,
-            source = envelope.source.id,
-            target = envelope.target.id,
+            source = envelope.source,
+            target = envelope.target,
             createdAt = envelope.createdAt,
             securityScheme = envelope.securityScheme,
             payload = payload,
         )
     }
 
+    override fun observableHeaderValues(envelope: FileEnvelope): Map<String, Any?> =
+        envelope.observableHeaderValues()
+
+    override fun observabilityPolicy() = EnvelopeObservability.fileEnvelope.fields
+
+    override fun envelopeLabel(): String = "File envelope"
+
+    override fun observablePayloadValuesForProtect(input: FilePayload): Map<String, Any?> =
+        input.observablePublicValues()
+
+    override fun observablePayloadValuesForOpen(opened: OpenedFileEnvelope): Map<String, Any?> =
+        opened.payload.observablePublicValues()
+
+    override fun payloadObservabilityPolicy() = EnvelopeObservability.filePayload.fields
+
+    override suspend fun protectOffer(
+        publicHalf: FileOfferPublicHalf,
+        sealed: FileOfferSealedManifest,
+        key: TransferKey,
+        ctx: FileProtectContext,
+    ): FileEnvelope {
+        // Both halves' caps are checked here, inside protection: a bad name, block list or
+        // chunking is a PERMANENT protection failure, never a raw exception at the caller.
+        val sealedOffer = invalidAsProtection {
+            FilePayload.SealedOffer(
+                fileId = sealed.fileId,
+                blockSize = sealed.blockSize,
+                blockHashes = sealed.blockHashes,
+                transferKey = key,
+                fileName = sealed.fileName,
+                mimeType = sealed.mimeType,
+            )
+        }
+        val sealedBytes = sealOffer(sealedOffer, ctx.targetDeviceId)
+        val offer = invalidAsProtection {
+            FilePayload.Offer(
+                chunkSizeBytes = publicHalf.chunkSizeBytes,
+                totalBytes = publicHalf.totalBytes,
+                startIndex = publicHalf.startIndex,
+                sealedOfferBytes = sealedBytes,
+            )
+        }
+        return protect(offer, ctx)
+    }
+
+    private inline fun <T> invalidAsProtection(build: () -> T): T = try {
+        build()
+    } catch (e: IllegalArgumentException) {
+        throw ProtectionException.InvalidEnvelope(e)
+    }
+
     override suspend fun encryptChunk(
         transferId: TransferId,
         chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         plaintext: ByteArray,
     ): ByteArray {
-        require(key.size == TRANSFER_KEY_SIZE_BYTES) {
-            "Transfer key must be $TRANSFER_KEY_SIZE_BYTES bytes but was ${key.size}"
+        if (chunkIndex < 0) {
+            throw ProtectionException.InvalidEnvelope(
+                IllegalArgumentException("chunkIndex must be >= 0 but was $chunkIndex"),
+            )
         }
-        require(chunkIndex >= 0) { "chunkIndex must be >= 0 but was $chunkIndex" }
         return try {
-            cryptoProvider.encryptAead(key, plaintext, chunkAad(transferId, chunkIndex))
+            cryptoProvider.encryptAead(key.bytes, plaintext, chunkAad(transferId, chunkIndex))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -202,23 +220,13 @@ internal class SignedAndEncryptedFileProtection(
 
     override suspend fun decryptChunk(
         transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray {
-        require(key.size == TRANSFER_KEY_SIZE_BYTES) {
-            "Transfer key must be $TRANSFER_KEY_SIZE_BYTES bytes but was ${key.size}"
-        }
-        if (chunk.chunkIndex != chunkIndex) {
-            throw ProtectionException.AuthenticationFailed(
-                AuthenticationReason.DECRYPT_AUTH_FAILED,
-                IllegalArgumentException(
-                    "Chunk index ${chunk.chunkIndex} does not match expected $chunkIndex",
-                ),
-            )
-        }
         return try {
-            cryptoProvider.decryptAead(key, chunk.chunkCiphertext, chunkAad(transferId, chunkIndex))
+            cryptoProvider.decryptAead(key.bytes, chunk.chunkCiphertext, chunkAad(transferId, chunk.chunkIndex))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -230,12 +238,18 @@ internal class SignedAndEncryptedFileProtection(
         }
     }
 
-    override suspend fun sealOffer(offer: FilePayload.SealedOffer, target: PeerId): ByteArray {
+    /**
+     * Ratchet-seals an OFFER's sealed half to [target] (the key's only carrier). Not on the port:
+     * routing builds OFFERs with [protectOffer]; tests use this to craft OFFERs by hand.
+     */
+    suspend fun sealOffer(offer: FilePayload.SealedOffer, target: PeerId): ByteArray {
         return try {
             cryptoSessionManager.encryptMessage(
                 remoteDeviceId = target,
                 bytes = offer.encode(),
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -253,6 +267,8 @@ internal class SignedAndEncryptedFileProtection(
                 remoteDeviceId = source,
                 frameBytes = sealed,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -264,6 +280,8 @@ internal class SignedAndEncryptedFileProtection(
         }
         return try {
             FilePayload.SealedOffer.decode(plaintext)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -275,7 +293,7 @@ internal class SignedAndEncryptedFileProtection(
         }
     }
 
-    override fun generateTransferKey(): ByteArray = generateTransferKey(cryptoProvider)
+    override fun generateTransferKey(): TransferKey = generateTransferKey(cryptoProvider)
 
     /**
      * Sealed REQUEST wire form: kind byte in clear (dispatch + direct-only link sees
@@ -290,6 +308,8 @@ internal class SignedAndEncryptedFileProtection(
                 remoteDeviceId = target,
                 bytes = fields,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -309,6 +329,8 @@ internal class SignedAndEncryptedFileProtection(
                 remoteDeviceId = source,
                 frameBytes = sealed,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -320,6 +342,8 @@ internal class SignedAndEncryptedFileProtection(
         }
         return try {
             FilePayload.Request.decode(byteArrayOf(FileEnvelopeKind.REQUEST.wireValue) + fields)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -331,20 +355,7 @@ internal class SignedAndEncryptedFileProtection(
         }
     }
 
-    private fun assertObservabilityContract(
-        observableHeaderValues: Map<String, Any?>,
-        policy: Map<String, FieldSensitivity>,
-    ) {
-        val unexpectedProtectedCleartext = observableHeaderValues.keys
-            .filter { policy[it] == FieldSensitivity.PROTECTED }
-        require(unexpectedProtectedCleartext.isEmpty()) {
-            "File envelope exposes protected fields in cleartext: $unexpectedProtectedCleartext"
-        }
-    }
-
     companion object {
-        const val TRANSFER_KEY_SIZE_BYTES: Int = 32
-
         /**
          * Chunk AEAD associated data: the transfer id (16 bytes) plus the chunk index
          * (u32 BE). Pins every chunk to its transfer and position — a relay can neither
@@ -359,7 +370,7 @@ internal class SignedAndEncryptedFileProtection(
         }
 
         /** Fresh per-transfer symmetric key (design §4): one key never outlives one transfer. */
-        fun generateTransferKey(crypto: CryptoProvider): ByteArray =
-            crypto.randomBytes(TRANSFER_KEY_SIZE_BYTES)
+        fun generateTransferKey(crypto: CryptoProvider): TransferKey =
+            TransferKey(crypto.randomBytes(TRANSFER_KEY_BYTES))
     }
 }

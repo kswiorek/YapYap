@@ -13,9 +13,9 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
+import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent

@@ -3,7 +3,15 @@ package org.yapyap.protection.envelope
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.protection.*
+import org.yapyap.protection.FakeIdentityResolverForProtection
+import org.yapyap.protection.FixturePeerIds
+import org.yapyap.protection.ProtectionException
+import org.yapyap.protection.deviceRecordFor
+import org.yapyap.protection.nonce24
+import org.yapyap.protection.sampleEnvelopeContext
+import org.yapyap.protection.samplePacketAckPayload
+import org.yapyap.protection.samplePacketNackPayload
+import org.yapyap.protection.samplePeerTriplet
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.testfixtures.epochSeconds
@@ -53,7 +61,7 @@ class SystemProtectionTest {
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.protect(samplePacketAckPayload(), ctx)
         }
     }
@@ -145,7 +153,7 @@ class SystemProtectionTest {
             signature = ByteArray(64),
             payload = payload.encode(),
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.open(envelope)
         }
     }

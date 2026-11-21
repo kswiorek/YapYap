@@ -84,12 +84,16 @@ internal class FakeDescriptors : FileDescriptorReader {
             lastAccessAt = Instant.DISTANT_PAST,
         )
     }
+
+    override suspend fun copyDescriptorsLeastRecentlyUsed(): List<FileDescriptor> = emptyList()
+    override suspend fun copyBytesTotal(): Long = 0L
 }
 
 /** File receives: nothing held (tests seed through the engine or the store instead). */
 internal class FakeReceives : FileReceiveReader {
     override suspend fun find(fileId: FileId): FileReceiveRow? = null
     override suspend fun active(): List<FileReceiveRow> = emptyList()
+    override suspend fun all(): List<FileReceiveRow> = emptyList()
 }
 
 /** Held coverage: nothing held unless a test sets [coverage] (tests needing served bytes set it). */

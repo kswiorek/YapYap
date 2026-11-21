@@ -3,6 +3,7 @@ package org.yapyap.testfixtures
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
@@ -22,6 +23,6 @@ internal open class NoopFileCarrier : FileCarrier {
 
     override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) = Unit
 
-    override suspend fun abortFileFetch(fileId: FileId, reason: org.yapyap.protocol.envelopes.FileFetchAbortReason) =
+    override suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason) =
         Unit
 }

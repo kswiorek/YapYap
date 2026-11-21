@@ -26,6 +26,24 @@ public value class TransferId(public val value: Uuid)
 /** Network value, not config: small/large threshold (design §1). Until the network config exists. */
 internal const val SMALL_FILE_MAX_BYTES: Long = 10L * 1024L * 1024L
 
+/** Shared file-name cap: attachments, the sealed OFFER half and FETCH_OK (design §3). */
+internal const val MAX_FILE_NAME_CHARS: Int = 80
+internal const val MAX_FILE_NAME_BYTES: Int = 255
+
+/** Shared display-metadata caps for the sealed OFFER half and FETCH_OK. */
+internal const val MAX_MIME_TYPE_CHARS: Int = 128
+internal const val MAX_MIME_TYPE_BYTES: Int = 128
+
+/** Wire bounds before allocation: the sealed half stays within both transports' frames. */
+internal const val MAX_SEALED_OFFER_BYTES: Int = 64 * 1024
+
+/** Wire bound for one chunk's ciphertext: Tor's 4 MiB frame plus framing margin. */
+internal const val MAX_CHUNK_CIPHERTEXT_BYTES: Int = 5 * 1024 * 1024
+
+/** Exact byte length of every block hash and transfer key on the wire. */
+internal const val FILE_HASH_BYTES: Int = 32
+internal const val TRANSFER_KEY_BYTES: Int = 32
+
 /** Block-size rule constants (design §2): protocol constants, not config. */
 internal const val FILE_BLOCK_BASE_SIZE_BYTES: Int = 1024 * 1024
 internal const val FILE_BLOCK_MAX_COUNT: Int = 1024

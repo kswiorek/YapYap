@@ -1403,6 +1403,27 @@ Replaces `FileFetchManager`.
   `fileId` vectors (empty, one block, exact multiple, short last block, the 1024-block doubling) computed
   independently, not round-tripped (design §19).
 
+- **As landed:**
+    - Every decoded count and length is checked before it allocates: block lists and range counts
+      against their caps, hashes and transfer keys at exactly 32 bytes (`readHash`), names and MIME
+      types through `readBoundedString`. `ByteReader.readBytes` already refused lengths past the
+      input; the new bounds stop `List(count)` from pre-sizing on a hostile count.
+    - The caps are shared protocol constants in `FileIds.kt` (`MAX_FILE_NAME_*`, `MAX_MIME_TYPE_*`,
+      `MAX_SEALED_OFFER_BYTES`, `MAX_CHUNK_CIPHERTEXT_BYTES`, `FILE_HASH_BYTES`, `TRANSFER_KEY_BYTES`);
+      attachments, the sealed OFFER and FETCH_OK use the same name and MIME caps.
+    - The fetch frames live in `protocol/FileFetchFrame.kt` (package `org.yapyap.protocol`), with
+      `Data.ENCODED_OVERHEAD_BYTES`. ABORT keeps its diagnostic text, capped at
+      `Abort.MAX_REASON_TEXT_BYTES` on both encode and decode (fetch frames never reach a relay).
+    - `Ack.contiguousChunks` is `highestContiguousIndex` (`-1` when none); the meaning is unchanged.
+    - CANCEL carries only its reason. Relay-visible payload fields are listed in
+      `EnvelopeObservability.filePayload`; `BaseProtection` checks each payload's public values
+      against it on protect and open. That check only catches a payload that names a protected
+      field in its own public map; the guarantee that matters is the wire test in R6.2.
+    - Tests: each hostile input carries only the oversized prefix and asserts the bound's own
+      message, so a decoder that trusted the prefix would fail them (an `OutOfMemoryError` on a
+      count of `Int.MAX_VALUE`, or "Unexpected end of envelope"). The `fileId` vectors were computed
+      with Python's `hashlib`; the 1 GiB / 1 GiB + 1 pair pins the block-size doubling.
+
 ### Step R6.2 — Protection (`protection`, `crypto/keys`)
 
 - **Read first:** `protection/envelope/FileProtection.kt` (keep `CHUNK_OVERHEAD_BYTES`; `FileLimits` uses it),
@@ -1428,6 +1449,34 @@ Replaces `FileFetchManager`.
     - same transferId and index twice gives different ciphertext (random IV);
     - the protected wire bytes of every FILE kind, including the sealed REQUEST, don't contain the `fileId`.
 
+- **As landed:**
+    - `TransferKey` (32 bytes, redacted `toString`, content equality) replaces raw keys through
+      protection, the pusher, the inbound handler and the `file_pushes` / `file_incoming_transfers`
+      column adapters. The class is public only because SQLDelight's generated row classes are; its
+      constructor and bytes are internal, so nothing outside `core` can make or read a key.
+    - `SignedAndEncryptedFileProtection` extends `BaseProtection<I, E, O, C>`: the base gained an
+      opened type `O` (the file path returns `OpenedFileEnvelope`) and a context type `C`
+      (`FileProtectContext`, with a non-null `transferId`). The copied protect/open wrappers are gone.
+    - `FileEnvelopeProtection` is the file port: `protect`, `open`, `protectOffer`, `openOffer`,
+      `encryptChunk`, `decryptChunk`, `generateTransferKey`. It travels in `FileRoutingPorts`, so
+      only file routing holds it; `RoutingContext` does not. `protectOffer` validates both halves,
+      seals and then signs through `protect`, so the OFFER gets the same error mapping and
+      observability checks as every other kind. `sealOffer` is a class method, not on the port;
+      tests use it to craft OFFERs by hand.
+    - The five file methods and `EnvelopeProtectContext.transferId` are gone from
+      `EnvelopeProtectionService`.
+    - `IllegalArgumentException` from `doProtect`/`doOpen` maps to `InvalidEnvelope` (PERMANENT) for
+      every protection, so tests that expected a raw `IllegalArgumentException` now expect
+      `ProtectionException`. Every catch-all in protection rethrows `CancellationException` first,
+      on the message, system and signal paths too.
+    - Outside the step: `SignedAndEncryptedWebRtcSignalProtection` stamped its envelopes `SIGNED`
+      while its own open required `ENCRYPTED_AND_SIGNED`, so every encrypted signal failed to open;
+      it now stamps `ENCRYPTED_AND_SIGNED` and maps encrypt failures like the other paths.
+    - Tests: ciphertext from index 7 presented as index 8 fails; the same transfer and index twice
+      give different ciphertext; the fully encoded envelope of every FILE kind (OFFER through
+      `protectOffer`, and the sealed REQUEST) does not contain the `fileId`; a bad OFFER manifest is
+      a PERMANENT `ProtectionException`.
+
 ### Step R6.3 — Typing, logging, comments (all file packages)
 
 - **Read first:** `logging/LogComponent.kt`/`LogEvent.kt`. Known wrong events today: the receive engine logs under
@@ -1445,6 +1494,20 @@ Replaces `FileFetchManager`.
 - **Done when:** a grep for `catch (e: Exception)` and `runCatching` in file code returns only sites that
   rethrow or map to a typed result, each with a reason.
 
+- **As landed:**
+    - `TransferId` and `Uuid` column adapters replace the hand-written hex conversions in the file
+      stores (same hex encoding, so no data changes). `OpenedFileEnvelope.source`/`target` are
+      `PeerId`. `FileIncomingStatus` and its `status` column are gone (edited in the `.sq` and `6.sqm`).
+    - File code logs only under `LogComponent.FILE` and `FILE_*` events (a file envelope that
+      fails to decode keeps `ENVELOPE_DECODE_FAILED`); the formerly empty catches in
+      `FileFetchStrategy` and `FileRequestProcessor` log. The remaining `catch (e: Exception)` sites
+      are loop safety nets that rethrow cancellation and log, or map to a typed result (an
+      unreadable import source is `SourceUnreadable`).
+    - Outside the step: `FileRetention` reads through `FileReceiveReader`/`FileDescriptorReader` and
+      records an origin through `FileReceiveControl.updateOrigin`, so the receive engine stays the
+      only writer of `file_receives`. `DefaultOrchestratorRuntime` takes the four carriers instead of
+      `Router` (guide §2).
+
 ### Step R6.4 — Update the docs
 
 - **Changes:**
@@ -1455,6 +1518,9 @@ Replaces `FileFetchManager`.
     - **Design:** apply the changes listed below.
     - **`plan.md`:** mark steps 1–22 as superseded in part by this plan and point steps 23–24 here.
 - **Done when:** the guide's and the design's rows match the code, and the full suite is green.
+- **As landed:**
+    - Guide §4 (`TransferKey`), §6 (tag kinds and retry classes), §8 (feature status) and the
+      design's §3.2 table and §13 schema were updated; `plan.md` points here for steps 1–22.
 
 ---
 
@@ -1480,18 +1546,18 @@ at step 8 below.
 5. ~~R3.1 — push engine~~ (done)
 6. ~~R3.2 — inbound handler split~~ (done)
 7. ~~R3.3 — relay on the engine~~ (done)
-8. R4.1 — receive engine split
-9. R4.2 — store, quota, eviction
-10. R4.3 — coordinator and facade
-11. R4.4 — sending out of messaging
-12. R5.3 — ordered, reliable file channels
-13. R5.1 — append at P
-14. R5.2 — streaming plaintext source
-15. R5.4 — fetch actors
-16. R6.1 — protocol hardening
-17. R6.2 — protection
-18. R6.3 — typing, logging, comments
-19. R6.4 — docs
+8. ~~R4.1 — receive engine split~~ (done)
+9. ~~R4.2 — store, quota, eviction~~ (done)
+10. ~~R4.3 — coordinator and facade~~ (done)
+11. ~~R4.4 — sending out of messaging~~ (done)
+12. ~~R5.3 — ordered, reliable file channels~~ (done)
+13. ~~R5.1 — append at P~~ (done)
+14. ~~R5.2 — streaming plaintext source~~ (done)
+15. ~~R5.4 — fetch actors~~ (done)
+16. ~~R6.1 — protocol hardening~~ (done)
+17. ~~R6.2 — protection~~ (done)
+18. ~~R6.3 — typing, logging, comments~~ (done)
+19. ~~R6.4 — docs~~ (done)
 
 ## Design changes
 

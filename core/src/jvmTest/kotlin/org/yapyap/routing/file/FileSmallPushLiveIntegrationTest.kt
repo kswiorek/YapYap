@@ -36,8 +36,8 @@ import org.yapyap.orchestrator.file.receive.ReceivePaths
 import org.yapyap.orchestrator.runtime.file.DefaultFileTransferService
 import org.yapyap.orchestrator.store.DefaultMessageRepository
 import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedSystemProtection
@@ -147,7 +147,6 @@ class FileSmallPushLiveIntegrationTest {
             signer: DefaultSignatureProvider,
         ) = DefaultEnvelopeProtectionService(
             webRtcSignalProtection = SignedAndEncryptedWebRtcSignalProtection(signer, manager, crypto),
-            fileProtection = SignedAndEncryptedFileProtection(signer, manager, crypto),
             messageProtection = SignedAndEncryptedMessageProtection(signer, manager, crypto),
             systemProtection = SignedSystemProtection(signer, crypto),
             bootstrapProtection = BootstrapProtection(crypto) { null },
@@ -241,6 +240,7 @@ class FileSmallPushLiveIntegrationTest {
                 pushes = DefaultFilePushStore(aliceDb),
                 relay = DefaultFileRelayStore(aliceDb),
                 requestAttempts = DefaultFileRequestAttemptStore(aliceDb),
+                protection = PassthroughFileProtection(),
                 chunkSizeBytes = MutableStateFlow(chunkSize),
                 fetchFrameBytes = MutableStateFlow(chunkSize),
             ),
@@ -272,6 +272,7 @@ class FileSmallPushLiveIntegrationTest {
                 pushes = DefaultFilePushStore(bobDb),
                 relay = DefaultFileRelayStore(bobDb),
                 requestAttempts = DefaultFileRequestAttemptStore(bobDb),
+                protection = PassthroughFileProtection(),
                 chunkSizeBytes = MutableStateFlow(chunkSize),
                 fetchFrameBytes = MutableStateFlow(chunkSize),
             ),

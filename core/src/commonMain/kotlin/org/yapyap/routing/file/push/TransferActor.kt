@@ -7,6 +7,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.FileCancelReason
@@ -36,6 +37,7 @@ import kotlin.time.Instant
  */
 internal class TransferActor(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val pushes: FilePushStore,
     private val outbox: FileOutbox,
     private val events: MutableSharedFlow<FileEvent>,
@@ -139,7 +141,7 @@ internal class TransferActor(
     private suspend fun handle(input: PushInput) {
         when (input) {
             is PushInput.Outcome -> onOutcome(input.outcome)
-            is PushInput.CoverageAck -> onCoverage(input.contiguousChunks)
+            is PushInput.CoverageAck -> onCoverage(input.highestContiguousIndex)
             is PushInput.Complete -> onCompleteSignal()
             is PushInput.Cancelled -> onCancelled(input.reason)
             is PushInput.UserCancel -> onUserCancel()
@@ -477,13 +479,13 @@ internal class TransferActor(
 
     private suspend fun sendCancel() {
         val envelope = buildFileControlEnvelope(
-            protection = ctx.envelopeProtectionService,
+            protection = protection,
             transferId = transferId,
             source = ctx.localDeviceId,
             target = current.viaRelay ?: current.targetDevice,
             createdAt = ctx.clock.now(),
             expiresAt = current.expiresAt,
-            payload = FilePayload.Cancel(FileCancelReason.ABORT, reasonText = null),
+            payload = FilePayload.Cancel(FileCancelReason.ABORT),
         )
         outbox.enqueueDirect(envelope)
     }

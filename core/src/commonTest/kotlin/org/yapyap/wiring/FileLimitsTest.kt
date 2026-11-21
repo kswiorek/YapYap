@@ -1,9 +1,9 @@
 package org.yapyap.wiring
 
-import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.router.TransportLimits
 import kotlin.test.Test
@@ -19,7 +19,7 @@ class FileLimitsTest {
     fun chunkSize_isTheSmallerTransportFrameLessEveryLayersFraming() {
         val webRtc = RuntimeConfig().webRtc.maxPayloadBytes
         val framing = BinaryEnvelope.ENCODED_HEADER_BYTES + FileEnvelope.ENCODED_OVERHEAD_BYTES +
-                FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES + FileProtection.CHUNK_OVERHEAD_BYTES
+                FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES + FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES
         assertEquals(webRtc - framing, defaults.chunkSizeBytes)
         assertTrue(defaults.chunkSizeBytes in 240 * 1024..250 * 1024, "≈249 KiB, got ${defaults.chunkSizeBytes}")
     }

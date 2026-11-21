@@ -26,6 +26,7 @@ import org.yapyap.orchestrator.store.StoredMessage
 import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -638,7 +639,7 @@ class FileRequestCoordinatorTest {
 
         override suspend fun abortFileFetch(
             fileId: FileId,
-            reason: org.yapyap.protocol.envelopes.FileFetchAbortReason
+            reason: FileFetchAbortReason
         ) {
             abortedFiles += fileId
         }

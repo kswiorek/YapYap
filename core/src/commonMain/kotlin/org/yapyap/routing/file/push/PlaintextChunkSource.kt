@@ -1,9 +1,11 @@
 package org.yapyap.routing.file.push
 
-import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileOfferPublicHalf
+import org.yapyap.protection.envelope.FileOfferSealedManifest
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.port.FileManifest
@@ -25,6 +27,7 @@ import kotlin.uuid.Uuid
  */
 internal class PlaintextChunkSource(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val plaintext: FilePlaintextSource,
     private val row: suspend () -> FilePush,
     private val manifest: suspend () -> FileManifest?,
@@ -35,29 +38,24 @@ internal class PlaintextChunkSource(
     override suspend fun offer(): BinaryEnvelope {
         val current = row()
         val info = manifest() ?: throw IllegalStateException("File not held for ${current.fileId}")
-        val sealed = ctx.envelopeProtectionService.sealFileOffer(
-            FilePayload.SealedOffer(
-                fileId = info.fileId,
-                blockSize = info.blockSize,
-                blockHashes = info.blockHashes,
-                transferKey = current.key,
-                fileName = info.fileName,
-                mimeType = info.mimeType,
-            ),
-            current.targetDevice,
-        )
-        val envelope = ctx.envelopeProtectionService.protectFile(
-            FilePayload.Offer(
+        val envelope = protection.protectOffer(
+            publicHalf = FileOfferPublicHalf(
                 chunkSizeBytes = current.chunkSizeBytes,
                 totalBytes = current.totalBytes,
                 startIndex = current.startIndex,
-                sealedOfferBytes = sealed,
             ),
-            EnvelopeProtectContext(
-                createdAt = ctx.clock.now(),
+            sealed = FileOfferSealedManifest(
+                fileId = info.fileId,
+                blockSize = info.blockSize,
+                blockHashes = info.blockHashes,
+                fileName = info.fileName,
+                mimeType = info.mimeType,
+            ),
+            key = current.key,
+            ctx = FileProtectContext(
                 sourceDeviceId = ctx.localDeviceId,
                 targetDeviceId = current.targetDevice,
-                securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+                createdAt = ctx.clock.now(),
                 transferId = current.transferId,
             ),
         )
@@ -80,19 +78,18 @@ internal class PlaintextChunkSource(
         if (length <= 0) return ChunkResult.SourceLost
         val bytes = readVerified(current.fileId, offset, length) ?: return ChunkResult.SourceLost
         if (offset + bytes.size >= current.totalBytes) closeStream()
-        val ciphertext = ctx.envelopeProtectionService.encryptFileChunk(
+        val ciphertext = protection.encryptChunk(
             current.transferId,
             index,
             current.key,
             bytes,
         )
-        val envelope = ctx.envelopeProtectionService.protectFile(
+        val envelope = protection.protect(
             FilePayload.EncryptedChunk(index, ciphertext),
-            EnvelopeProtectContext(
-                createdAt = ctx.clock.now(),
+            FileProtectContext(
                 sourceDeviceId = ctx.localDeviceId,
                 targetDeviceId = current.targetDevice,
-                securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+                createdAt = ctx.clock.now(),
                 transferId = current.transferId,
             ),
         )

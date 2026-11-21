@@ -70,7 +70,6 @@ CREATE TABLE file_incoming_transfers (
     chunk_size_bytes INTEGER NOT NULL,
     total_bytes INTEGER NOT NULL,
     start_index INTEGER NOT NULL,
-    status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL
 );

@@ -6,13 +6,16 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
@@ -57,6 +60,7 @@ import kotlin.uuid.Uuid
  */
 internal class FileRequestProcessor(
     ctx: RoutingContext,
+    protection: FileEnvelopeProtection,
     private val attempts: FileRequestAttemptStore,
     private val requests: FileRequestSource,
     outboxProcessor: OutboxProcessor,
@@ -68,7 +72,7 @@ internal class FileRequestProcessor(
     sessionOpener: ProactiveSessionOpener,
     fetchService: FileFetchService,
 ) {
-    private val strategy = FileRequestStrategy(ctx, attempts, requests, outboxProcessor, events)
+    private val strategy = FileRequestStrategy(ctx, protection, attempts, requests, outboxProcessor, events)
     private val smallCore = CandidateRequestCore(
         ctx = ctx,
         strategy = strategy,
@@ -143,6 +147,7 @@ internal class FileRequestProcessor(
 /** Small-path plug into the shared candidate core: coverage-built REQUESTs, ACK→WAITING. */
 internal class FileRequestStrategy(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val store: FileRequestAttemptStore,
     private val requests: FileRequestSource,
     private val outbox: OutboxProcessor,
@@ -200,13 +205,12 @@ internal class FileRequestStrategy(
             contiguousBytes = coverage.contiguousBytes,
             missingRanges = coverage.missingRanges.take(FilePayload.Request.MAX_MISSING_RANGES),
         )
-        val envelope = ctx.envelopeProtectionService.protectFile(
+        val envelope = protection.protect(
             payload,
-            EnvelopeProtectContext(
-                createdAt = now,
+            FileProtectContext(
                 sourceDeviceId = ctx.localDeviceId,
                 targetDeviceId = device,
-                securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+                createdAt = now,
                 transferId = transferId,
             ),
         )
@@ -252,7 +256,13 @@ internal class FileRequestStrategy(
             events.emit(FileEvent.RequestUnavailable(id))
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLog.error(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Failed to emit request-unavailable event; the request is already dropped",
+                throwable = e,
+            )
         }
         return true
     }

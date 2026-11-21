@@ -6,25 +6,20 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withTimeout
 import org.yapyap.persistence.openMemoryDatabase
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileOfferPublicHalf
+import org.yapyap.protection.envelope.FileOfferSealedManifest
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.OpenedFileEnvelope
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.protocol.identity.EncryptionPublicKey
 import org.yapyap.protocol.identity.SigningPublicKey
@@ -39,6 +34,7 @@ import org.yapyap.routing.router.FakeFilePlaintextSource
 import org.yapyap.routing.router.FakeIdentityResolverForRouter
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.PassthroughFakeEnvelopeProtectionService
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.router.TransportLimits
@@ -75,19 +71,16 @@ private fun deviceRecord(id: PeerId): DeviceIdentity = DeviceIdentity(
 /** Deterministic file protection: identity chunk AEAD, encoded sealed halves, fixed keys. */
 internal class RecordingFileProtectionService(
     var nextKeyByte: Byte = 0,
-) : EnvelopeProtectionService {
+) : FileEnvelopeProtection {
     val sealedOffers = mutableListOf<FilePayload.SealedOffer>()
     var encryptChunkCalls = 0
 
-    override suspend fun protectSignal(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope =
-        error("not used in push tests")
-
-    override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
-        error("not used in push tests")
-
-    override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+    override suspend fun protect(
+        input: FilePayload,
+        context: FileProtectContext,
+    ): FileEnvelope =
         FileEnvelope(
-            transferId = requireNotNull(context.transferId),
+            transferId = context.transferId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -97,58 +90,55 @@ internal class RecordingFileProtectionService(
             payload = input.encode(),
         )
 
-    override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
+    override suspend fun open(envelope: FileEnvelope): OpenedFileEnvelope =
         error("not used in push tests")
 
-    override suspend fun decryptFileChunk(
+    override suspend fun protectOffer(
+        publicHalf: FileOfferPublicHalf,
+        sealed: FileOfferSealedManifest,
+        key: TransferKey,
+        ctx: FileProtectContext,
+    ): FileEnvelope {
+        val offer = FilePayload.SealedOffer(
+            fileId = sealed.fileId,
+            blockSize = sealed.blockSize,
+            blockHashes = sealed.blockHashes,
+            transferKey = key,
+            fileName = sealed.fileName,
+            mimeType = sealed.mimeType,
+        )
+        sealedOffers += offer
+        return protect(
+            FilePayload.Offer(
+                chunkSizeBytes = publicHalf.chunkSizeBytes,
+                totalBytes = publicHalf.totalBytes,
+                startIndex = publicHalf.startIndex,
+                sealedOfferBytes = offer.encode(),
+            ),
+            ctx,
+        )
+    }
+
+    override suspend fun decryptChunk(
         transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray = error("not used in push tests")
 
-    override suspend fun encryptFileChunk(
+    override suspend fun encryptChunk(
         transferId: TransferId,
         chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         plaintext: ByteArray,
     ): ByteArray {
         encryptChunkCalls += 1
         return plaintext
     }
 
-    override suspend fun sealFileOffer(offer: FilePayload.SealedOffer, target: PeerId): ByteArray {
-        sealedOffers += offer
-        return offer.encode()
-    }
-
-    override suspend fun openFileOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
+    override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
         error("not used in push tests")
 
-    override fun generateFileTransferKey(): ByteArray = ByteArray(32) { nextKeyByte++ }
-
-    override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope =
-        error("not used in push tests")
-
-    override suspend fun openMessage(envelope: MessageEnvelope): MessagePayload =
-        error("not used in push tests")
-
-    override suspend fun protectSystem(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope =
-        error("not used in push tests")
-
-    override suspend fun openSystem(envelope: SystemEnvelope): SystemPayload =
-        error("not used in push tests")
-
-    override suspend fun protectBootstrap(
-        input: BootstrapPayload,
-        context: EnvelopeProtectContext,
-        sharedSecret: ByteArray?,
-    ): BootstrapEnvelope = error("not used in push tests")
-
-    override suspend fun openBootstrap(envelope: BootstrapEnvelope): BootstrapPayload =
-        error("not used in push tests")
-
-    override suspend fun isBootstrapSessionActive(): Boolean = false
+    override fun generateTransferKey(): TransferKey = TransferKey(ByteArray(32) { nextKeyByte++ })
 }
 
 internal data class PushHarness(
@@ -219,7 +209,7 @@ internal fun pushHarness(
         devices = identity,
         routes = identity,
         packetDeduplicator = InMemoryPacketDeduplicator(),
-        envelopeProtectionService = protection,
+        envelopeProtectionService = PassthroughFakeEnvelopeProtectionService(),
         torTransport = RecordingTorTransport(),
         webRtcTransport = RecordingWebRtcTransport(),
         clock = clock,
@@ -252,6 +242,7 @@ internal fun pushHarness(
     }
     val engine = FilePushEngine(
         ctx = ctx,
+        protection = protection,
         plaintext = plaintext,
         pushes = pushes,
         outbox = outbox,
@@ -260,7 +251,7 @@ internal fun pushHarness(
         relay = DefaultFileRelayStore(openMemoryDatabase().database, Dispatchers.Unconfined),
         incoming = testIncomingTransfers(clock),
     )
-    val sender = FileSender(ctx, plaintext, pushes, engine, fileEvents, MutableStateFlow(chunkSize))
+    val sender = FileSender(ctx, protection, plaintext, pushes, engine, fileEvents, MutableStateFlow(chunkSize))
     return PushHarness(
         engine,
         sender,

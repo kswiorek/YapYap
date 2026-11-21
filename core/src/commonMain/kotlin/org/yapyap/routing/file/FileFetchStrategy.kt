@@ -1,6 +1,9 @@
 package org.yapyap.routing.file
 
 import kotlinx.coroutines.flow.MutableSharedFlow
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -130,14 +133,20 @@ internal class FileFetchStrategy(
 
     /**
      * Best-effort event emission: a cancelled collector must tear the fetch down (rethrow),
-     * while any other emission failure is ignored (the attempt is already recorded).
+     * while any other emission failure is logged and ignored (the attempt is already recorded).
      */
     private suspend fun emitBestEffort(event: FileEvent) {
         try {
             events.emit(event)
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLog.error(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Failed to emit fetch event; the attempt is already recorded",
+                throwable = e,
+            )
         }
     }
 }

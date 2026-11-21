@@ -2,11 +2,13 @@ package org.yapyap.routing.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.persistence.File_pushes
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -47,7 +49,7 @@ internal data class FilePush(
     val viaRelay: PeerId? = null,
     val kind: FilePushKind,
     val totalBytes: Long,
-    val key: ByteArray,
+    val key: TransferKey,
     val chunkSizeBytes: Int,
     val startIndex: Int,
     val nextChunkIndex: Int,
@@ -69,7 +71,7 @@ internal data class FilePush(
         if (viaRelay != other.viaRelay) return false
         if (kind != other.kind) return false
         if (totalBytes != other.totalBytes) return false
-        if (!key.contentEquals(other.key)) return false
+        if (key != other.key) return false
         if (chunkSizeBytes != other.chunkSizeBytes) return false
         if (startIndex != other.startIndex) return false
         if (nextChunkIndex != other.nextChunkIndex) return false
@@ -89,7 +91,7 @@ internal data class FilePush(
         result = 31 * result + viaRelay.hashCode()
         result = 31 * result + kind.hashCode()
         result = 31 * result + totalBytes.hashCode()
-        result = 31 * result + key.contentHashCode()
+        result = 31 * result + key.hashCode()
         result = 31 * result + chunkSizeBytes
         result = 31 * result + startIndex
         result = 31 * result + nextChunkIndex
@@ -148,7 +150,7 @@ internal class DefaultFilePushStore(
     override suspend fun insert(row: FilePush) {
         withContext(dbDispatcher) {
             queries.insertFilePush(
-                transfer_id = row.transferId.value.toHexString(),
+                transfer_id = row.transferId,
                 file_id = row.fileId,
                 target_device = row.targetDevice,
                 via_relay = row.viaRelay,
@@ -159,7 +161,7 @@ internal class DefaultFilePushStore(
                 start_index = row.startIndex.toLong(),
                 next_chunk_index = row.nextChunkIndex.toLong(),
                 contiguous_acked = row.contiguousAcked.toLong(),
-                marker_packet_id = row.markerPacketId?.toHexString(),
+                marker_packet_id = row.markerPacketId,
                 status = row.status.name,
                 created_at = row.createdAt,
                 expires_at = row.expiresAt,
@@ -169,7 +171,7 @@ internal class DefaultFilePushStore(
     }
 
     override suspend fun find(transferId: TransferId): FilePush? = withContext(dbDispatcher) {
-        queries.selectFilePushById(transferId.value.toHexString()).executeAsOneOrNull()?.toRow()
+        queries.selectFilePushById(transferId).executeAsOneOrNull()?.toRow()
     }
 
     override suspend fun findLiveByFileAndTarget(fileId: FileId, target: PeerId): List<FilePush> =
@@ -191,25 +193,25 @@ internal class DefaultFilePushStore(
 
     override suspend fun setStatus(transferId: TransferId, status: FilePushStatus) {
         withContext(dbDispatcher) {
-            queries.updateFilePushStatus(status.name, transferId.value.toHexString())
+            queries.updateFilePushStatus(status.name, transferId)
         }
     }
 
     override suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?) {
         withContext(dbDispatcher) {
-            queries.updateFilePushMarker(markerPacketId?.toHexString(), transferId.value.toHexString())
+            queries.updateFilePushMarker(markerPacketId, transferId)
         }
     }
 
     override suspend fun setProgress(transferId: TransferId, nextChunkIndex: Int, contiguousAcked: Int) {
         withContext(dbDispatcher) {
-            queries.updateFilePushProgress(nextChunkIndex.toLong(), contiguousAcked.toLong(), transferId.value.toHexString())
+            queries.updateFilePushProgress(nextChunkIndex.toLong(), contiguousAcked.toLong(), transferId)
         }
     }
 
     override suspend fun claimDeposited(transferId: TransferId, now: Instant): Boolean =
         withContext(dbDispatcher) {
-            queries.claimFilePushDeposited(now, transferId.value.toHexString()).value > 0L
+            queries.claimFilePushDeposited(now, transferId).value > 0L
         }
 
     override suspend fun terminalBefore(now: Instant): List<FilePush> = withContext(dbDispatcher) {
@@ -218,48 +220,48 @@ internal class DefaultFilePushStore(
 
     override suspend fun delete(transferId: TransferId) {
         withContext(dbDispatcher) {
-            queries.deleteFilePushChunksByTransfer(transferId.value.toHexString())
-            queries.deleteFilePushById(transferId.value.toHexString())
+            queries.deleteFilePushChunksByTransfer(transferId)
+            queries.deleteFilePushById(transferId)
         }
     }
 
     override suspend fun recordChunk(transferId: TransferId, chunkIndex: Int, packetId: Uuid) {
         withContext(dbDispatcher) {
             queries.insertFilePushChunk(
-                transfer_id = transferId.value.toHexString(),
+                transfer_id = transferId,
                 chunk_index = chunkIndex.toLong(),
-                packet_id = packetId.toHexString(),
+                packet_id = packetId,
             )
         }
     }
 
     override suspend fun chunksByTransfer(transferId: TransferId): Map<Int, Uuid> =
         withContext(dbDispatcher) {
-            queries.selectFilePushChunksByTransfer(transferId.value.toHexString()).executeAsList()
-                .associate { it.chunk_index.toInt() to Uuid.parseHex(it.packet_id) }
+            queries.selectFilePushChunksByTransfer(transferId).executeAsList()
+                .associate { it.chunk_index.toInt() to it.packet_id }
         }
 
     override suspend fun chunkByPacket(packetId: Uuid): Pair<TransferId, Int>? =
         withContext(dbDispatcher) {
-            queries.selectFilePushChunkByPacket(packetId.toHexString()).executeAsOneOrNull()?.let {
-                TransferId(Uuid.parseHex(it.transfer_id)) to it.chunk_index.toInt()
+            queries.selectFilePushChunkByPacket(packetId).executeAsOneOrNull()?.let {
+                it.transfer_id to it.chunk_index.toInt()
             }
         }
 
     override suspend fun deleteChunkByPacket(packetId: Uuid) {
         withContext(dbDispatcher) {
-            queries.deleteFilePushChunkByPacket(packetId.toHexString())
+            queries.deleteFilePushChunkByPacket(packetId)
         }
     }
 
     override suspend fun deleteChunksByTransfer(transferId: TransferId) {
         withContext(dbDispatcher) {
-            queries.deleteFilePushChunksByTransfer(transferId.value.toHexString())
+            queries.deleteFilePushChunksByTransfer(transferId)
         }
     }
 
-    private fun org.yapyap.persistence.File_pushes.toRow(): FilePush = FilePush(
-        transferId = TransferId(Uuid.parseHex(transfer_id)),
+    private fun File_pushes.toRow(): FilePush = FilePush(
+        transferId = transfer_id,
         fileId = file_id,
         targetDevice = target_device,
         viaRelay = via_relay,
@@ -270,7 +272,7 @@ internal class DefaultFilePushStore(
         startIndex = start_index.toInt(),
         nextChunkIndex = next_chunk_index.toInt(),
         contiguousAcked = contiguous_acked.toInt(),
-        markerPacketId = marker_packet_id?.let { Uuid.parseHex(it) },
+        markerPacketId = marker_packet_id,
         status = FilePushStatus.valueOf(status),
         createdAt = created_at,
         expiresAt = expires_at,

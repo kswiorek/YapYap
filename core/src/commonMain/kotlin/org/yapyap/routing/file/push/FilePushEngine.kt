@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
@@ -47,6 +48,7 @@ import kotlin.uuid.Uuid
  */
 internal class FilePushEngine(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val plaintext: FilePlaintextSource,
     private val pushes: FilePushStore,
     private val outbox: FileOutbox,
@@ -198,7 +200,7 @@ internal class FilePushEngine(
     override suspend fun coverageAck(
         transferId: TransferId,
         from: PeerId,
-        contiguousChunks: Int,
+        highestContiguousIndex: Int,
         missing: List<ChunkRange>,
     ) {
         val row = pushes.find(transferId) ?: return
@@ -212,7 +214,7 @@ internal class FilePushEngine(
             return
         }
         mutex.withLock { actors[transferId] }?.actor?.mailbox?.send(
-            PushInput.CoverageAck(contiguousChunks, missing),
+            PushInput.CoverageAck(highestContiguousIndex, missing),
         )
     }
 
@@ -321,9 +323,11 @@ internal class FilePushEngine(
             } ?: return false
             // Stopped: the row stays live and the next runIn starts it.
             val scope = runScope ?: return false
-            val fixedSource = PlaintextChunkSource(ctx, plaintext, { pushes.find(row.transferId) ?: row }, { info })
+            val fixedSource =
+                PlaintextChunkSource(ctx, protection, plaintext, { pushes.find(row.transferId) ?: row }, { info })
             val actor = TransferActor(
                 ctx = ctx,
+                protection = protection,
                 pushes = pushes,
                 outbox = outbox,
                 events = events,
@@ -609,7 +613,7 @@ internal class FilePushEngine(
                 viaRelay = relay,
                 kind = FilePushKind.DEPOSIT,
                 totalBytes = row.totalBytes,
-                key = ctx.envelopeProtectionService.generateFileTransferKey(),
+                key = protection.generateTransferKey(),
                 chunkSizeBytes = row.chunkSizeBytes,
                 startIndex = resumeFrom,
                 nextChunkIndex = resumeFrom,

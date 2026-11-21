@@ -18,20 +18,20 @@ import org.yapyap.crypto.store.BootstrapKeySource
 import org.yapyap.persistence.openMemoryDatabase
 import org.yapyap.protection.FakeIdentityResolverForProtection
 import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
-import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.ChunkRange
 import org.yapyap.protocol.envelopes.FileCancelReason
@@ -192,7 +192,6 @@ class FileRelayTest {
         )
         val relayService = DefaultEnvelopeProtectionService(
             webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            fileProtection = relayProtection,
             messageProtection = PlaintextMessageProtection(crypto),
             systemProtection = PlaintextSystemProtection(crypto),
             bootstrapProtection = BootstrapProtection(crypto, BootstrapKeySource { null }),
@@ -230,6 +229,7 @@ class FileRelayTest {
         )
         val engine = FilePushEngine(
             ctx = ctx,
+            protection = relayProtection,
             plaintext = plaintext,
             pushes = pushes,
             outbox = RecordingRelayOutbox(sent),
@@ -241,13 +241,14 @@ class FileRelayTest {
         val packetOutbox = TrackingPacketOutbox()
         val handler = FileInboundHandler(
             ctx = ctx,
+            protection = relayProtection,
             target = FileTargetHandler(
-                ctx, incomingTransfers, RefusingFilePorts(),
+                ctx, relayProtection, incomingTransfers, RefusingFilePorts(),
                 signals = object : FileTransferSignals {
                     override suspend fun coverageAck(
                         transferId: TransferId,
                         from: PeerId,
-                        contiguousChunks: Int,
+                        highestContiguousIndex: Int,
                         missing: List<ChunkRange>,
                     ) = Unit
 
@@ -260,7 +261,7 @@ class FileRelayTest {
                 },
                 onOfferReceived = {},
             ),
-            door = FileRelayDoor(ctx, relay, packetOutbox, onRelayWhole = { engine.onRelayWhole(it) }),
+            door = FileRelayDoor(ctx, relayProtection, relay, packetOutbox, onRelayWhole = { engine.onRelayWhole(it) }),
             serve = FileServeHandler(ctx, RefusingFilePorts(), NoopFilePushOps()),
         )
         return Harness(
@@ -274,7 +275,7 @@ class FileRelayTest {
         transferId: TransferId = TransferId(Uuid.random()),
         total: Long = totalBytes,
         startIndex: Int = 0,
-        key: ByteArray = ByteArray(32) { it.toByte() },
+        key: TransferKey = TransferKey(ByteArray(32) { it.toByte() }),
     ): BinaryEnvelope {
         val sealed = authorProtections.sealOffer(
             FilePayload.SealedOffer(
@@ -289,7 +290,7 @@ class FileRelayTest {
         )
         val inner = authorProtections.protect(
             FilePayload.Offer(chunkSize, total, startIndex, sealed),
-            EnvelopeProtectContext(now, authorId, targetId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FileProtectContext(authorId, targetId, now, transferId),
         )
         return BinaryEnvelope(
             packetId = Uuid.random(),
@@ -306,13 +307,13 @@ class FileRelayTest {
     private suspend fun Harness.depositChunk(
         transferId: TransferId,
         chunkIndex: Int,
-        key: ByteArray = ByteArray(32) { it.toByte() },
+        key: TransferKey = TransferKey(ByteArray(32) { it.toByte() }),
     ): BinaryEnvelope {
         val ciphertext =
             authorProtections.encryptChunk(transferId, chunkIndex, key, ByteArray(100) { chunkIndex.toByte() })
         val inner = authorProtections.protect(
             FilePayload.EncryptedChunk(chunkIndex, ciphertext),
-            EnvelopeProtectContext(now, authorId, targetId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FileProtectContext(authorId, targetId, now, transferId),
         )
         return BinaryEnvelope(
             packetId = Uuid.random(),
@@ -399,7 +400,7 @@ class FileRelayTest {
         // The stranger's signature verifies at the door, but it belongs to no known account:
         // the inner-source check (design §7.1) declines before anything is stored.
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         val sealed = h.strangerProtections.sealOffer(
             FilePayload.SealedOffer(
                 fileId = fileId,
@@ -413,13 +414,7 @@ class FileRelayTest {
         )
         val inner = h.strangerProtections.protect(
             FilePayload.Offer(chunkSize, totalBytes, 0, sealed),
-            EnvelopeProtectContext(
-                now,
-                h.strangerId,
-                h.targetId,
-                SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-                transferId
-            ),
+            FileProtectContext(h.strangerId, h.targetId, now, transferId),
         )
         val env = BinaryEnvelope(
             packetId = Uuid.random(),
@@ -480,7 +475,7 @@ class FileRelayTest {
         val h = harness()
 
         h.engine.runIn(backgroundScope)
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         val transferId = TransferId(Uuid.random())
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositOffer(transferId, key = key)))
         val chunkBlobs = (0 until 3).map { i ->
@@ -735,14 +730,8 @@ class FileRelayTest {
 
         // A CANCEL from anyone but the depositor is ignored (still ACKed): the deposit stays.
         val cancelInner = h.strangerProtections.protect(
-            FilePayload.Cancel(FileCancelReason.ABORT, null),
-            EnvelopeProtectContext(
-                now,
-                h.strangerId,
-                h.targetId,
-                SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-                transferId
-            ),
+            FilePayload.Cancel(FileCancelReason.ABORT),
+            FileProtectContext(h.strangerId, h.targetId, now, transferId),
         )
         val cancelOuter = BinaryEnvelope(
             packetId = Uuid.random(),
@@ -790,8 +779,8 @@ class FileRelayTest {
         val inner = FileEnvelope.decode(h.depositOffer(TransferId(Uuid.random())).payload)
         // A CANCEL for the stored transferId: drop + ACK so the sender stops.
         val cancelInner = h.authorProtections.protect(
-            FilePayload.Cancel(FileCancelReason.ABORT, null),
-            EnvelopeProtectContext(now, h.authorId, h.targetId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FilePayload.Cancel(FileCancelReason.ABORT),
+            FileProtectContext(h.authorId, h.targetId, now, transferId),
         )
         val cancelOuter = BinaryEnvelope(
             packetId = Uuid.random(),

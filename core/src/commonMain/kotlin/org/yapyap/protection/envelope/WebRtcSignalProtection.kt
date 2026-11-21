@@ -12,6 +12,7 @@ import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.WebRtcSignal
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
 /**
@@ -31,7 +32,7 @@ internal interface WebRtcSignalProtection {
 internal class PlaintextWebRtcSignalProtection(
     private val cryptoProvider: CryptoProvider,
 ) :
-    BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(),
+    BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>(),
     WebRtcSignalProtection {
     override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
@@ -79,7 +80,7 @@ internal class PlaintextWebRtcSignalProtection(
 internal class SignedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
+) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>(), WebRtcSignalProtection {
     override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
             "Context security scheme must be SIGNED for SignedWebRtcSignalProtection but got ${context.securityScheme}"
@@ -139,16 +140,28 @@ internal class SignedAndEncryptedWebRtcSignalProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>(), WebRtcSignalProtection {
+) : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>(), WebRtcSignalProtection {
     override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
         require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
-            "Context security scheme must be ENCRYPTED_AND_SIGNED for SignedMessageProtection but got ${context.securityScheme}"
+            "Context security scheme must be ENCRYPTED_AND_SIGNED for SignedAndEncryptedWebRtcSignalProtection but got ${context.securityScheme}"
         }
 
-        val wirePayload = cryptoSessionManager.encryptMessage(
-            remoteDeviceId = context.targetDeviceId,
-            bytes = input.payload,
-        )
+        val wirePayload = try {
+            cryptoSessionManager.encryptMessage(
+                remoteDeviceId = context.targetDeviceId,
+                bytes = input.payload,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.error(
+                component = LogComponent.CRYPTO,
+                event = LogEvent.ENCRYPTION_FAILED,
+                message = "Failed to encrypt WebRTC signal",
+                throwable = e,
+            )
+            throw ProtectionException.mapEncryptFailure(e)
+        }
 
         val unsigned = WebRtcSignalEnvelope(
             signalEnvelopeId = Uuid.random(),
@@ -156,8 +169,8 @@ internal class SignedAndEncryptedWebRtcSignalProtection(
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
-            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.SIGNED),
-            securityScheme = SignalSecurityScheme.SIGNED,
+            nonce = cryptoProvider.generateNonce(SignalSecurityScheme.ENCRYPTED_AND_SIGNED),
+            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = null,
             payload = wirePayload,
         )
@@ -181,6 +194,8 @@ internal class SignedAndEncryptedWebRtcSignalProtection(
                 remoteDeviceId = envelope.source,
                 frameBytes = envelope.payload,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,

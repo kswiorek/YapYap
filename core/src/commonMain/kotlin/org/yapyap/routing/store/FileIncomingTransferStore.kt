@@ -2,28 +2,24 @@ package org.yapyap.routing.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.persistence.File_incoming_transfers
 import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
-/** Receiver-side transfer state: ACTIVE while the row lives; rows are dropped on end. */
-internal enum class FileIncomingStatus {
-    ACTIVE,
-}
-
+/** Receiver-side transfer state: rows live until their transfer ends, then are dropped. */
 internal data class FileIncomingTransfer(
     val transferId: TransferId,
     val fileId: FileId,
     val authorDevice: PeerId,
-    val key: ByteArray,
+    val key: TransferKey,
     val chunkSizeBytes: Int,
     val totalBytes: Long,
     val startIndex: Int,
-    val status: FileIncomingStatus,
     val createdAt: Instant,
     val expiresAt: Instant,
 ) {
@@ -34,11 +30,10 @@ internal data class FileIncomingTransfer(
         if (transferId != other.transferId) return false
         if (fileId != other.fileId) return false
         if (authorDevice != other.authorDevice) return false
-        if (!key.contentEquals(other.key)) return false
+        if (key != other.key) return false
         if (chunkSizeBytes != other.chunkSizeBytes) return false
         if (totalBytes != other.totalBytes) return false
         if (startIndex != other.startIndex) return false
-        if (status != other.status) return false
         if (createdAt != other.createdAt) return false
         if (expiresAt != other.expiresAt) return false
         return true
@@ -48,11 +43,10 @@ internal data class FileIncomingTransfer(
         var result = transferId.hashCode()
         result = 31 * result + fileId.hashCode()
         result = 31 * result + authorDevice.hashCode()
-        result = 31 * result + key.contentHashCode()
+        result = 31 * result + key.hashCode()
         result = 31 * result + chunkSizeBytes
         result = 31 * result + totalBytes.hashCode()
         result = 31 * result + startIndex
-        result = 31 * result + status.hashCode()
         result = 31 * result + createdAt.hashCode()
         result = 31 * result + expiresAt.hashCode()
         return result
@@ -80,14 +74,13 @@ internal class DefaultFileIncomingTransferStore(
     override suspend fun insert(row: FileIncomingTransfer) {
         withContext(dbDispatcher) {
             queries.insertFileIncomingTransfer(
-                transfer_id = row.transferId.value.toHexString(),
+                transfer_id = row.transferId,
                 file_id = row.fileId,
                 author_device = row.authorDevice,
                 key = row.key,
                 chunk_size_bytes = row.chunkSizeBytes.toLong(),
                 total_bytes = row.totalBytes,
                 start_index = row.startIndex.toLong(),
-                status = row.status.name,
                 created_at = row.createdAt,
                 expires_at = row.expiresAt,
             )
@@ -95,7 +88,7 @@ internal class DefaultFileIncomingTransferStore(
     }
 
     override suspend fun find(transferId: TransferId): FileIncomingTransfer? = withContext(dbDispatcher) {
-        queries.selectFileIncomingTransferById(transferId.value.toHexString()).executeAsOneOrNull()?.toRow()
+        queries.selectFileIncomingTransferById(transferId).executeAsOneOrNull()?.toRow()
     }
 
     override suspend fun findByFile(fileId: FileId): List<FileIncomingTransfer> = withContext(dbDispatcher) {
@@ -104,7 +97,7 @@ internal class DefaultFileIncomingTransferStore(
 
     override suspend fun delete(transferId: TransferId) {
         withContext(dbDispatcher) {
-            queries.deleteFileIncomingTransferById(transferId.value.toHexString())
+            queries.deleteFileIncomingTransferById(transferId)
         }
     }
 
@@ -122,16 +115,15 @@ internal class DefaultFileIncomingTransferStore(
         expired
     }
 
-    private fun org.yapyap.persistence.File_incoming_transfers.toRow(): FileIncomingTransfer =
+    private fun File_incoming_transfers.toRow(): FileIncomingTransfer =
         FileIncomingTransfer(
-            transferId = TransferId(Uuid.parseHex(transfer_id)),
+            transferId = transfer_id,
             fileId = file_id,
             authorDevice = author_device,
             key = key,
             chunkSizeBytes = chunk_size_bytes.toInt(),
             totalBytes = total_bytes,
             startIndex = start_index.toInt(),
-            status = FileIncomingStatus.valueOf(status),
             createdAt = created_at,
             expiresAt = expires_at,
         )

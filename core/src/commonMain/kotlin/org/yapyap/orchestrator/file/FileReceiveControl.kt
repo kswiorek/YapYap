@@ -44,4 +44,10 @@ internal interface FileReceiveControl {
 
     /** Unreferenced retention: drop [fileId]'s receive, `.part` and staged rows, whatever its status. */
     suspend fun forgetUnreferenced(fileId: FileId)
+
+    /**
+     * A message now references [fileId]: record [messageId] as its origin (retention backstop).
+     * No-op when the receive already has an origin or is gone.
+     */
+    suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
 }

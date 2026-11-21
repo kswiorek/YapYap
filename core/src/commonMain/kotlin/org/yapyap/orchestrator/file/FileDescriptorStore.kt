@@ -23,6 +23,10 @@ internal fun decodeBlockHashes(blob: ByteArray): List<ByteArray> {
 /** Read-only view of `file_descriptors`, for everyone but its writer, the [FileStore]. */
 internal interface FileDescriptorReader {
     suspend fun findById(fileId: FileId): FileDescriptor?
+
+    /** Least recently accessed COPY descriptors first: true LRU for quota eviction (read-only). */
+    suspend fun copyDescriptorsLeastRecentlyUsed(): List<FileDescriptor>
+    suspend fun copyBytesTotal(): Long
 }
 
 /**
@@ -35,10 +39,6 @@ internal interface FileDescriptorStore : FileDescriptorReader {
     suspend fun setStatus(fileId: FileId, status: FileDescriptorStatus)
     suspend fun touch(fileId: FileId, now: Instant)
     suspend fun markHeld(descriptor: FileDescriptor)
-
-    /** Least recently accessed COPY descriptors first: true LRU for quota eviction. */
-    suspend fun copyDescriptorsLeastRecentlyUsed(): List<FileDescriptor>
-    suspend fun copyBytesTotal(): Long
 }
 
 internal class DefaultFileDescriptorStore(

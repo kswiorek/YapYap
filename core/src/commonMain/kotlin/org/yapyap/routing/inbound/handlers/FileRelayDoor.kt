@@ -4,6 +4,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
@@ -38,6 +39,7 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 internal class FileRelayDoor(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val relay: FileRelayStore,
     private val packetOutbox: PacketOutbox,
     /** [TransferId]'s relay row became WHOLE: the push engine starts its forward. */
@@ -45,7 +47,7 @@ internal class FileRelayDoor(
 ) {
     suspend fun handleRelay(env: BinaryEnvelope, fileEnvelope: FileEnvelope): InboundHandleResult {
         val opened = try {
-            ctx.envelopeProtectionService.openFile(fileEnvelope)
+            protection.open(fileEnvelope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
@@ -178,7 +180,7 @@ internal class FileRelayDoor(
         // depositor's window advances on ACKs; silence would stall it until the TTL.
         val contiguous = storedContiguous(transferId, row.startIndex)
         val reply = buildFileControlEnvelope(
-            protection = ctx.envelopeProtectionService,
+            protection = protection,
             transferId = transferId,
             source = ctx.localDeviceId,
             target = fileEnvelope.source,

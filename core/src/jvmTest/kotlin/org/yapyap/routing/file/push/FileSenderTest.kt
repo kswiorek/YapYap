@@ -40,8 +40,8 @@ class FileSenderTest {
         assertTrue(transfersA.single() != transfersB.single(), "one transfer per device")
         val rowA = h.pushes.find(transfersA.single())!!
         val rowB = h.pushes.find(transfersB.single())!!
-        assertTrue(rowA.key.contentEquals(ByteArray(32) { it.toByte() }))
-        assertTrue(rowB.key.contentEquals(ByteArray(32) { (it + 32).toByte() }))
+        assertTrue(rowA.key.bytes.contentEquals(ByteArray(32) { it.toByte() }))
+        assertTrue(rowB.key.bytes.contentEquals(ByteArray(32) { (it + 32).toByte() }))
         assertEquals(FilePushStatus.CREATED, rowA.status)
         val markers = h.sent.filter { FileEnvelope.decode(it.first.payload).decodePayload() is FilePayload.Offer }
         assertEquals(2, markers.size)
@@ -182,7 +182,7 @@ class FileSenderTest {
 
         val transfer = h.transferIdsFor(peerA).single()
         h.engine.onOutboxOutcome(h.ackMarker(transfer, peerA))
-        h.engine.coverageAck(transfer, peerA, contiguousChunks = 2, missing = emptyList())
+        h.engine.coverageAck(transfer, peerA, highestContiguousIndex = 2, missing = emptyList())
         kotlinx.coroutines.delay(100)
         val progress = h.sender.sendState(fixtureFileId)
         // Minimum covered bytes across the account's live device transfers.

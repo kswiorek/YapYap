@@ -67,7 +67,7 @@ class FilePushEngineTest {
                 firstChunk
             )
         )
-        h.engine.coverageAck(transfer, peerA, contiguousChunks = 2, missing = emptyList())
+        h.engine.coverageAck(transfer, peerA, highestContiguousIndex = 2, missing = emptyList())
         withTimeout(5.seconds) {
             while (h.pushes.find(transfer)?.contiguousAcked != 2) delay(10)
         }
@@ -295,7 +295,7 @@ class FilePushEngineTest {
         withTimeout(5.seconds) { while (h.chunkIndices().size < 16) delay(10) }
 
         repeat(50) { i ->
-            launch { h.engine.coverageAck(transfer, peerA, contiguousChunks = i % 5, missing = emptyList()) }
+            launch { h.engine.coverageAck(transfer, peerA, highestContiguousIndex = i % 5, missing = emptyList()) }
         }
         delay(500)
 

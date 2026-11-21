@@ -1,9 +1,16 @@
 package org.yapyap.protocol.envelopes
 
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.FILE_BLOCK_MAX_COUNT
+import org.yapyap.protocol.FileFetchAbortReason
+import org.yapyap.protocol.FileFetchDeclineReason
+import org.yapyap.protocol.FileFetchFrame
+import org.yapyap.protocol.FileFetchKind
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.testfixtures.epochSeconds
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -47,7 +54,7 @@ class FileEnvelopeCodecTest {
             fileId = fileId,
             blockSize = 1024 * 1024,
             blockHashes = listOf(ByteArray(32) { it.toByte() }),
-            transferKey = ByteArray(32) { 9 },
+            transferKey = TransferKey(ByteArray(32) { 9 }),
             fileName = "doc.bin",
             mimeType = "application/octet-stream",
         )
@@ -69,7 +76,7 @@ class FileEnvelopeCodecTest {
     @Test
     fun filePayload_ack_encodeDecode_roundTrip() {
         val original = FilePayload.Ack(
-            contiguousChunks = 3,
+            highestContiguousIndex = 3,
             missingRanges = listOf(ChunkRange(5, 2), ChunkRange(9, 1)),
         )
         val decoded = FilePayload.Ack.decode(original.encode())
@@ -96,18 +103,17 @@ class FileEnvelopeCodecTest {
 
     @Test
     fun filePayload_cancel_encodeDecode_roundTrip() {
-        val original = FilePayload.Cancel(reason = FileCancelReason.ABORT, reasonText = "user abort")
+        val original = FilePayload.Cancel(reason = FileCancelReason.ABORT)
         val decoded = FilePayload.Cancel.decode(original.encode())
         assertEquals(original.reason, decoded.reason)
-        assertEquals(original.reasonText, decoded.reasonText)
     }
 
     @Test
-    fun filePayload_cancel_nullReasonText_roundTrip() {
-        val original = FilePayload.Cancel(reason = FileCancelReason.DECLINED, reasonText = null)
-        val decoded = FilePayload.Cancel.decode(original.encode())
-        assertEquals(FileCancelReason.DECLINED, decoded.reason)
-        assertNull(decoded.reasonText)
+    fun filePayload_cancel_allReasons_roundTrip() {
+        for (reason in FileCancelReason.entries) {
+            val decoded = FilePayload.Cancel.decode(FilePayload.Cancel(reason).encode())
+            assertEquals(reason, decoded.reason)
+        }
     }
 
     @Test
@@ -193,7 +199,7 @@ class FileEnvelopeCodecTest {
         val complete = FilePayload.Complete.encode()
         assertFalse(complete.decodeToString().contains(fileId.value))
 
-        val cancel = FilePayload.Cancel(FileCancelReason.DECLINED, null).encode()
+        val cancel = FilePayload.Cancel(FileCancelReason.DECLINED).encode()
         assertFalse(cancel.decodeToString().contains(fileId.value))
 
         // Sealed plaintexts do carry it (checked separately, never on the wire in clear).
@@ -201,7 +207,7 @@ class FileEnvelopeCodecTest {
             fileId = fileId,
             blockSize = 1024 * 1024,
             blockHashes = emptyList(),
-            transferKey = ByteArray(32),
+            transferKey = TransferKey(ByteArray(32)),
             fileName = "a",
             mimeType = null,
         ).encode()
@@ -359,9 +365,129 @@ class FileEnvelopeCodecTest {
                 assertEquals(expected, actual)
             expected is FilePayload.Cancel && actual is FilePayload.Cancel -> {
                 assertEquals(expected.reason, actual.reason)
-                assertEquals(expected.reasonText, actual.reasonText)
             }
             else -> fail("FilePayload kinds differ: ${expected::class} vs ${actual::class}")
         }
+    }
+
+    // Each hostile input below carries only the oversized prefix, nothing after it. A decoder
+    // that trusted the prefix would either try to allocate it (an OutOfMemoryError for a count
+    // of Int.MAX_VALUE) or run off the end ("Unexpected end of envelope"); the bounded decoder
+    // rejects the prefix itself, which is what the message checks prove.
+
+    private fun assertRejectedByBound(expected: String, decode: () -> Unit) {
+        val e = assertFailsWith<IllegalArgumentException> { decode() }
+        assertTrue(e.message.orEmpty().contains(expected), "rejected by its bound, not later: ${e.message}")
+    }
+
+    private fun sealedOfferPrefix(): ByteWriter = ByteWriter(128).apply {
+        writeString(fileId.value)
+        writeInt(1024 * 1024)
+    }
+
+    private fun fetchOkPrefix(): ByteWriter = ByteWriter(128).apply {
+        writeByte(FileFetchKind.FETCH_OK.wireValue)
+        writeLong(100L)
+        writeInt(1024 * 1024)
+    }
+
+    @Test
+    fun request_hugeRangeCount_rejectedBeforeAllocating() {
+        val wire = ByteWriter(80).apply {
+            writeByte(FileEnvelopeKind.REQUEST.wireValue)
+            writeString(fileId.value)
+            writeLong(0L)
+            writeInt(Int.MAX_VALUE)
+        }.toByteArray()
+        assertRejectedByBound("out of bounds") { FilePayload.Request.decode(wire) }
+    }
+
+    @Test
+    fun ack_hugeRangeCount_rejectedBeforeAllocating() {
+        val wire = ByteWriter(16).apply {
+            writeByte(FileEnvelopeKind.ACK.wireValue)
+            writeInt(0)
+            writeInt(Int.MAX_VALUE)
+        }.toByteArray()
+        assertRejectedByBound("out of bounds") { FilePayload.Ack.decode(wire) }
+    }
+
+    @Test
+    fun sealedOffer_hugeBlockCount_rejectedBeforeAllocating() {
+        val wire = sealedOfferPrefix().apply { writeInt(Int.MAX_VALUE) }.toByteArray()
+        assertRejectedByBound("out of bounds") { FilePayload.SealedOffer.decode(wire) }
+    }
+
+    @Test
+    fun sealedOffer_oneOverMaxBlockCount_isRejected() {
+        val wire = sealedOfferPrefix().apply { writeInt(FILE_BLOCK_MAX_COUNT + 1) }.toByteArray()
+        assertRejectedByBound("out of bounds") { FilePayload.SealedOffer.decode(wire) }
+    }
+
+    @Test
+    fun sealedOffer_hugeHashLength_rejectedBeforeAllocating() {
+        val wire = sealedOfferPrefix().apply {
+            writeInt(1)
+            writeInt(Int.MAX_VALUE)
+        }.toByteArray()
+        assertRejectedByBound("exceeds max 32") { FilePayload.SealedOffer.decode(wire) }
+    }
+
+    @Test
+    fun sealedOffer_shortHash_isRejected() {
+        val wire = sealedOfferPrefix().apply {
+            writeInt(1)
+            writeByteArray(ByteArray(31) { 1 })
+            writeByteArray(ByteArray(32) { 2 })
+            writeString("a")
+            writeNullableString(null)
+        }.toByteArray()
+        assertRejectedByBound("exactly 32 bytes") { FilePayload.SealedOffer.decode(wire) }
+    }
+
+    @Test
+    fun sealedOffer_longFileName_rejectedBeforeAllocating() {
+        val wire = sealedOfferPrefix().apply {
+            writeInt(0)
+            writeByteArray(ByteArray(32) { 3 })
+            writeShort(0xfffe)
+        }.toByteArray()
+        assertRejectedByBound("exceeds max 255") { FilePayload.SealedOffer.decode(wire) }
+    }
+
+    @Test
+    fun fetchOk_hugeBlockCount_rejectedBeforeAllocating() {
+        val wire = fetchOkPrefix().apply { writeInt(Int.MAX_VALUE) }.toByteArray()
+        assertRejectedByBound("out of bounds") { FileFetchFrame.FetchOk.decode(wire) }
+    }
+
+    @Test
+    fun fetchOk_shortHash_isRejected() {
+        val wire = fetchOkPrefix().apply {
+            writeInt(1)
+            writeByteArray(ByteArray(31) { 4 })
+            writeString("a")
+            writeNullableString(null)
+        }.toByteArray()
+        assertRejectedByBound("exactly 32 bytes") { FileFetchFrame.FetchOk.decode(wire) }
+    }
+
+    @Test
+    fun fetchOk_longFileName_rejectedBeforeAllocating() {
+        val wire = fetchOkPrefix().apply {
+            writeInt(0)
+            writeShort(0xfffe)
+        }.toByteArray()
+        assertRejectedByBound("exceeds max 255") { FileFetchFrame.FetchOk.decode(wire) }
+    }
+
+    @Test
+    fun abort_longReasonText_rejectedBeforeAllocating() {
+        val wire = ByteWriter(8).apply {
+            writeByte(FileFetchKind.ABORT.wireValue)
+            writeByte(FileFetchAbortReason.STALLED.wireValue)
+            writeShort(0xfffe)
+        }.toByteArray()
+        assertRejectedByBound("exceeds max") { FileFetchFrame.Abort.decode(wire) }
     }
 }

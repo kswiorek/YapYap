@@ -11,16 +11,12 @@ import org.yapyap.crypto.e2ee.managerForPeer
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.FakeIdentityResolverForProtection
-import org.yapyap.protection.envelope.BootstrapProtection
-import org.yapyap.protection.envelope.PlaintextMessageProtection
-import org.yapyap.protection.envelope.PlaintextSystemProtection
-import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
@@ -29,7 +25,6 @@ import org.yapyap.routing.file.port.FileReceiveEnd
 import org.yapyap.routing.file.port.FileSendState
 import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
 import org.yapyap.routing.router.RouterConfig
-import org.yapyap.routing.store.FileIncomingStatus
 import org.yapyap.routing.store.FileIncomingTransfer
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -50,7 +45,7 @@ class DefaultFileCarrierTest {
 
     private data class Harness(
         val carrier: DefaultFileCarrier,
-        val service: DefaultEnvelopeProtectionService,
+        val protection: SignedAndEncryptedFileProtection,
         val incoming: InMemoryFileIncomingTransferStore,
         val sent: MutableList<org.yapyap.protocol.envelopes.BinaryEnvelope>,
         val localId: PeerId,
@@ -73,23 +68,13 @@ class DefaultFileCarrierTest {
             localSession,
             crypto,
         )
-        val service = DefaultEnvelopeProtectionService(
-            webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            fileProtection = protection,
-            messageProtection = PlaintextMessageProtection(crypto),
-            systemProtection = PlaintextSystemProtection(crypto),
-            bootstrapProtection = BootstrapProtection(
-                crypto,
-                org.yapyap.crypto.store.BootstrapKeySource { null },
-            ),
-        )
         val store = InMemoryFileIncomingTransferStore()
         val clock = FakeClock(epochSeconds(10_000L))
         val incoming = FileIncomingTransfers(store, clock)
         val sent = mutableListOf<org.yapyap.protocol.envelopes.BinaryEnvelope>()
         val carrier = DefaultFileCarrier(
             localDeviceId = localPeer.device.deviceId,
-            protection = service,
+            protection = protection,
             incoming = incoming,
             enqueue = { sent += it },
             clock = clock,
@@ -99,7 +84,7 @@ class DefaultFileCarrierTest {
             startRequest = { _, _ -> },
             abortFetch = { _, _ -> },
         )
-        return Harness(carrier, service, store, sent, localPeer.device.deviceId)
+        return Harness(carrier, protection, store, sent, localPeer.device.deviceId)
     }
 
     private fun row(
@@ -110,11 +95,10 @@ class DefaultFileCarrierTest {
         transferId = transferId,
         fileId = file,
         authorDevice = author,
-        key = ByteArray(32),
+        key = TransferKey(ByteArray(32)),
         chunkSizeBytes = 220 * 1024,
         totalBytes = 1000L,
         startIndex = 0,
-        status = FileIncomingStatus.ACTIVE,
         createdAt = epochSeconds(10_000L),
         expiresAt = epochSeconds(10_000L) + 2.days,
     )
@@ -177,7 +161,7 @@ class DefaultFileCarrierTest {
         var pushed: Pair<FileId, AccountId>? = null
         val carrier = DefaultFileCarrier(
             localDeviceId = h.localId,
-            protection = h.service,
+            protection = h.protection,
             incoming = FileIncomingTransfers(h.incoming, FakeClock(epochSeconds(10_000L))),
             enqueue = { h.sent += it },
             clock = FakeClock(epochSeconds(10_000L)),

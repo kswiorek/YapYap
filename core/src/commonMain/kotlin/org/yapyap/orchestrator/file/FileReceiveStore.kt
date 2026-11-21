@@ -2,6 +2,7 @@ package org.yapyap.orchestrator.file
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.receive.StagedSpan
 import org.yapyap.persistence.File_receives
 import org.yapyap.persistence.YapYapDatabase
@@ -13,7 +14,7 @@ import kotlin.uuid.Uuid
 /**
  * Receive state, `fileId`-scoped (design §14): PENDING → IN_FLIGHT (`.part` reserved) →
  * READY (coverage complete, last block verified, renamed); IN_FLIGHT → STALLED on a block
- * mismatch below [OrchestratorConfig.fileHashRetryLimit][org.yapyap.orchestrator.OrchestratorConfig.fileHashRetryLimit], FAILED at the limit or on ENOSPC;
+ * mismatch below [OrchestratorConfig.fileHashRetryLimit], FAILED at the limit or on ENOSPC;
  * PENDING → DECLINED (no space, or a large file this device did not fetch — local,
  * re-openable); IN_FLIGHT → STALLED on the gap trigger; READY → EVICTED on quota LRU.
  */
@@ -75,6 +76,9 @@ internal interface FileReceiveReader {
 
     /** Receives not yet READY and not terminal (PENDING, IN_FLIGHT, STALLED). */
     suspend fun active(): List<FileReceiveRow>
+
+    /** Every receive row, whatever its status (retention sweep). */
+    suspend fun all(): List<FileReceiveRow>
 }
 
 /**
@@ -89,7 +93,6 @@ internal interface FileReceiveStore : FileReceiveReader {
     suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
     suspend fun delete(fileId: FileId)
     suspend fun ready(): List<FileReceiveRow>
-    suspend fun all(): List<FileReceiveRow>
 
     suspend fun stageChunk(fileId: FileId, range: StagedRange)
     suspend fun stagedByFile(fileId: FileId): List<StagedRange>

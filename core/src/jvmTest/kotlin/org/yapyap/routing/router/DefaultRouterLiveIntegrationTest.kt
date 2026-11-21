@@ -13,6 +13,7 @@ import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
 import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.logging.AppLog
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
@@ -154,6 +155,7 @@ class DefaultRouterLiveIntegrationTest {
                     pushes = InMemoryFilePushStore(),
                     relay = InMemoryFileRelayStore(),
                     requestAttempts = InMemoryFileRequestAttemptStore(),
+                    protection = PassthroughFileProtection(),
                     chunkSizeBytes = MutableStateFlow(220 * 1024),
                     fetchFrameBytes = MutableStateFlow(220 * 1024),
                 ),
@@ -186,6 +188,7 @@ class DefaultRouterLiveIntegrationTest {
                     pushes = InMemoryFilePushStore(),
                     relay = InMemoryFileRelayStore(),
                     requestAttempts = InMemoryFileRequestAttemptStore(),
+                    protection = PassthroughFileProtection(),
                     chunkSizeBytes = MutableStateFlow(220 * 1024),
                     fetchFrameBytes = MutableStateFlow(220 * 1024),
                 ),

@@ -7,12 +7,12 @@ import kotlinx.coroutines.flow.asSharedFlow
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
@@ -46,7 +46,7 @@ internal interface FilePushOps {
  */
 internal class DefaultFileCarrier(
     private val localDeviceId: PeerId,
-    private val protection: EnvelopeProtectionService,
+    private val protection: FileEnvelopeProtection,
     private val incoming: FileIncomingTransfers,
     private val enqueue: suspend (BinaryEnvelope) -> Unit,
     private val clock: Clock,
@@ -79,7 +79,7 @@ internal class DefaultFileCarrier(
 
         is FileReceiveEnd.Cancelled -> endIncoming(
             end.fileId,
-            FilePayload.Cancel(end.reason, reasonText = null),
+            FilePayload.Cancel(end.reason),
             "File receive stopped: CANCEL sent to transfer author",
         )
     }

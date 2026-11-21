@@ -7,8 +7,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import org.yapyap.protection.service.EnvelopeProtectContext
-import org.yapyap.protection.service.EnvelopeProtectionService
+import org.yapyap.protection.PassthroughFileProtection
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
@@ -119,7 +120,7 @@ class FileRequestProcessorTest {
             devices = stack.ctx.devices,
             routes = stack.ctx.routes,
             packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = SealingFakeProtection(stack.ctx.envelopeProtectionService),
+            envelopeProtectionService = stack.ctx.envelopeProtectionService,
             torTransport = stack.tor,
             webRtcTransport = stack.webRtc,
             clock = clock,
@@ -132,6 +133,7 @@ class FileRequestProcessorTest {
         val policy = FixedSyncPeerPolicy(nextDevice = devices.firstOrNull())
         val processor = FileRequestProcessor(
             ctx = ctx,
+            protection = SealingFakeProtection(PassthroughFileProtection()),
             attempts = attempts,
             requests = gate,
             outboxProcessor = stack.outboxProcessor,
@@ -255,7 +257,7 @@ class FileRequestProcessorTest {
             devices = stack.ctx.devices,
             routes = stack.ctx.routes,
             packetDeduplicator = InMemoryPacketDeduplicator(),
-            envelopeProtectionService = SealingFakeProtection(stack.ctx.envelopeProtectionService),
+            envelopeProtectionService = stack.ctx.envelopeProtectionService,
             torTransport = stack.tor,
             webRtcTransport = stack.webRtc,
             clock = clock,
@@ -266,6 +268,7 @@ class FileRequestProcessorTest {
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val processor = FileRequestProcessor(
             ctx = ctx,
+            protection = SealingFakeProtection(PassthroughFileProtection()),
             attempts = attempts,
             requests = FakeFileSource(candidates = listOf(holderAccount)),
             outboxProcessor = stack.outboxProcessor,
@@ -336,13 +339,13 @@ class FileRequestProcessorTest {
     }
 
     private class SealingFakeProtection(
-        private val pass: EnvelopeProtectionService,
-    ) : EnvelopeProtectionService by pass {
-        override suspend fun protectFile(
+        private val pass: FileEnvelopeProtection,
+    ) : FileEnvelopeProtection by pass {
+        override suspend fun protect(
             input: FilePayload,
-            context: EnvelopeProtectContext,
+            context: FileProtectContext,
         ): FileEnvelope = FileEnvelope(
-            transferId = context.transferId ?: TransferId(Uuid.random()),
+            transferId = context.transferId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,

@@ -1,6 +1,10 @@
 package org.yapyap.protocol
 
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.FileEnvelope
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.SystemEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 
 internal enum class FieldSensitivity {
     ROUTING_VISIBLE,
@@ -44,6 +48,31 @@ internal object EnvelopeObservability {
             FileEnvelope.Companion.Fields.SECURITY_SCHEME to FieldSensitivity.ROUTING_VISIBLE,
             FileEnvelope.Companion.Fields.SIGNATURE to FieldSensitivity.ENDPOINT_VISIBLE,
             FileEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.PROTECTED,
+        ),
+    )
+
+    /**
+     * FILE payload visibility (design §3.2): the OFFER public half, the CHUNK index,
+     * ACK coverage, COMPLETE and the CANCEL reason are visible to relays; sealed halves,
+     * keys, block lists and REQUEST coverage are ratchet-sealed and never appear in clear.
+     */
+    val filePayload = ObservabilityProfile(
+        schemaId = "file-payload-v1",
+        fields = mapOf(
+            "chunkSizeBytes" to FieldSensitivity.ROUTING_VISIBLE,
+            "totalBytes" to FieldSensitivity.ROUTING_VISIBLE,
+            "startIndex" to FieldSensitivity.ROUTING_VISIBLE,
+            "chunkIndex" to FieldSensitivity.ROUTING_VISIBLE,
+            "highestContiguousIndex" to FieldSensitivity.ROUTING_VISIBLE,
+            "missingRanges" to FieldSensitivity.ROUTING_VISIBLE,
+            "complete" to FieldSensitivity.ROUTING_VISIBLE,
+            "cancelReason" to FieldSensitivity.ROUTING_VISIBLE,
+            "fileId" to FieldSensitivity.PROTECTED,
+            "blockHashes" to FieldSensitivity.PROTECTED,
+            "transferKey" to FieldSensitivity.PROTECTED,
+            "fileName" to FieldSensitivity.PROTECTED,
+            "mimeType" to FieldSensitivity.PROTECTED,
+            "contiguousBytes" to FieldSensitivity.PROTECTED,
         ),
     )
 

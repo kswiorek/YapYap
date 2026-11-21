@@ -9,7 +9,6 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 internal enum class FileRequestClass {
     SMALL,
@@ -107,7 +106,7 @@ internal class DefaultFileRequestAttemptStore(
 
     override suspend fun findByTransferId(transferId: TransferId): FileRequestAttempt? =
         withContext(dbDispatcher) {
-            queries.selectFileRequestByTransferId(transferId.value.toHexString()).executeAsOneOrNull()?.let { row ->
+            queries.selectFileRequestByTransferId(transferId).executeAsOneOrNull()?.let { row ->
                 row.toAttempt(queries.selectDeclinedFileRequestDevices(row.file_id).executeAsList().toSet())
             }
         }
@@ -127,7 +126,7 @@ internal class DefaultFileRequestAttemptStore(
 
     override suspend fun setWaiting(fileId: FileId, device: PeerId, until: Instant, requestTransferId: TransferId) {
         withContext(dbDispatcher) {
-            queries.setFileRequestWaiting(device, until, requestTransferId.value.toHexString(), fileId)
+            queries.setFileRequestWaiting(device, until, requestTransferId, fileId)
         }
     }
 
@@ -136,7 +135,7 @@ internal class DefaultFileRequestAttemptStore(
     }
 
     override suspend fun setRequestTransfer(fileId: FileId, transferId: TransferId) {
-        withContext(dbDispatcher) { queries.setFileRequestTransfer(transferId.value.toHexString(), fileId) }
+        withContext(dbDispatcher) { queries.setFileRequestTransfer(transferId, fileId) }
     }
 
     override suspend fun declinedDevices(fileId: FileId): Set<PeerId> =
@@ -163,7 +162,7 @@ internal class DefaultFileRequestAttemptStore(
         declinedDevices = declined,
         waitingDevice = waiting_device,
         waitingUntil = waiting_until,
-        requestTransferId = request_transfer_id?.let { TransferId(Uuid.parseHex(it)) },
+        requestTransferId = request_transfer_id,
         requestClass = FileRequestClass.valueOf(request_class),
     )
 }

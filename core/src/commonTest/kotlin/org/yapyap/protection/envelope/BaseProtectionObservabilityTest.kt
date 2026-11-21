@@ -6,8 +6,13 @@ import org.yapyap.protection.sampleEnvelopeContext
 import org.yapyap.protection.sampleTextPayload
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.EnvelopeObservability
+import org.yapyap.protocol.FieldSensitivity
 import org.yapyap.protocol.SignalSecurityScheme
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.WebRtcSignal
+import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.envelopes.WebRtcSignalKind
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.uuid.Uuid
@@ -66,10 +71,25 @@ class BaseProtectionObservabilityTest {
         }
     }
 
+    @Test
+    fun protect_rejectsPayloadMapThatExposesProtectedField() = runTest {
+        val protection = LeakyPayloadMessageProtection()
+        val payload = sampleTextPayload()
+        val ctx = sampleEnvelopeContext(
+            scheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+            source = FixturePeerIds.A,
+            target = FixturePeerIds.B,
+        )
+        assertFailsWith<IllegalArgumentException> {
+            protection.protect(payload, ctx)
+        }
+    }
+
     /**
      * Adds [MessageEnvelope.Companion.Fields.PAYLOAD] into the observable map while it remains PROTECTED in policy.
      */
-    private class LeakyPlaintextMessageProtection : BaseProtection<MessagePayload, MessageEnvelope>() {
+    private class LeakyPlaintextMessageProtection :
+        BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>() {
 
         override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
             require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
@@ -109,7 +129,8 @@ class BaseProtectionObservabilityTest {
         ): MessageEnvelope = doProtect(input, context)
     }
 
-    private class LeakyPlaintextWebRtcSignalProtection : BaseProtection<WebRtcSignal, WebRtcSignalEnvelope>() {
+    private class LeakyPlaintextWebRtcSignalProtection :
+        BaseProtection<WebRtcSignal, WebRtcSignalEnvelope, WebRtcSignal, EnvelopeProtectContext>() {
         override suspend fun doProtect(input: WebRtcSignal, context: EnvelopeProtectContext): WebRtcSignalEnvelope {
             require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
             return WebRtcSignalEnvelope(
@@ -142,5 +163,50 @@ class BaseProtectionObservabilityTest {
         override fun observabilityPolicy() = EnvelopeObservability.webRtcSignalEnvelope.fields
 
         override fun envelopeLabel(): String = "leaky WebRTC signal envelope (test)"
+    }
+
+    /**
+     * Leaks a PROTECTED payload key through the payload map while the header stays clean,
+     * proving the payload contract (not just the header contract) is checked.
+     */
+    private class LeakyPayloadMessageProtection :
+        BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>() {
+        override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
+            require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
+            val messageId = when (input) {
+                is MessagePayload.Text -> input.messageId
+                is MessagePayload.GlobalEvent -> input.messageId
+                is MessagePayload.RoomEvent -> input.messageId
+            }
+            return MessageEnvelope(
+                messageEnvelopeId = messageId,
+                source = context.sourceDeviceId,
+                target = context.targetDeviceId,
+                createdAt = context.createdAt,
+                nonce = ByteArray(SignalSecurityScheme.PLAINTEXT_TEST_ONLY.nonceSize) { 7 },
+                securityScheme = SignalSecurityScheme.PLAINTEXT_TEST_ONLY,
+                signature = null,
+                payload = input.encode(),
+            )
+        }
+
+        override suspend fun doOpen(envelope: MessageEnvelope): MessagePayload {
+            require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY)
+            return envelope.decodePayload()
+        }
+
+        override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
+            envelope.observableHeaderValues()
+
+        override fun observabilityPolicy() = EnvelopeObservability.messageEnvelope.fields
+
+        override fun payloadObservabilityPolicy() = mapOf(
+            "fileId" to FieldSensitivity.PROTECTED,
+        )
+
+        override fun observablePayloadValuesForProtect(input: MessagePayload): Map<String, Any?> =
+            mapOf("fileId" to "leaked")
+
+        override fun envelopeLabel(): String = "leaky payload (test)"
     }
 }

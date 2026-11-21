@@ -11,7 +11,6 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.store.BootstrapKeySource
-import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
@@ -71,7 +70,6 @@ class BootstrapInboundHandlerTest {
     private fun routingContext(activeSecret: ByteArray?): RoutingContext {
         val service = DefaultEnvelopeProtectionService(
             webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            fileProtection = PassthroughFileProtection(),
             messageProtection = PlaintextMessageProtection(crypto),
             systemProtection = PlaintextSystemProtection(crypto),
             bootstrapProtection = BootstrapProtection(crypto, BootstrapKeySource { activeSecret }),

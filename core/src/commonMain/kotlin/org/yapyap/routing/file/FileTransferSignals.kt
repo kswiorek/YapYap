@@ -14,7 +14,7 @@ internal interface FileTransferSignals {
     suspend fun coverageAck(
         transferId: TransferId,
         from: PeerId,
-        contiguousChunks: Int,
+        highestContiguousIndex: Int,
         missing: List<ChunkRange>,
     )
 

@@ -1,5 +1,9 @@
 # File transfer: implementation plan
 
+> Steps 1–22 are superseded in part by [`refactor.md`](refactor.md) (phases R1–R6 rebuild what phases A–F
+> built, fixing structure and bugs; see that plan's "As landed" notes). Steps 23–24 (GUI surface and
+> hardening) run after the refactor, on the reworked code.
+
 This plan turns [`design.md`](design.md) into a sequence of reviewable changes. The design stays the source of
 truth for *what* is built. This plan only orders the work and says where each piece goes. If a step and the
 design disagree, fix one of them before you write the code. [`../sprints.mmd`](../sprints.mmd) stays

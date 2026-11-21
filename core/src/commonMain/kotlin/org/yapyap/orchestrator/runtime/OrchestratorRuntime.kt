@@ -40,7 +40,10 @@ import org.yapyap.orchestrator.store.MessageDeliveryRepository
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.DeviceType
-import org.yapyap.routing.router.Router
+import org.yapyap.routing.router.BootstrapCarrier
+import org.yapyap.routing.router.MessageCarrier
+import org.yapyap.routing.router.Presence
+import org.yapyap.routing.router.SyncCarrier
 
 public interface OrchestratorRuntime {
     public val messaging: MessagingService
@@ -68,7 +71,10 @@ public interface OrchestratorRuntime {
 
 internal class DefaultOrchestratorRuntime(
     dagEngine: DagEngine,
-    router: Router,
+    messageCarrier: MessageCarrier,
+    syncCarrier: SyncCarrier,
+    bootstrapCarrier: BootstrapCarrier,
+    presence: Presence,
     pipeline: InboundMessagePipeline,
     messageRepository: MessageRepository,
     deliveryRepository: MessageDeliveryRepository,
@@ -95,8 +101,8 @@ internal class DefaultOrchestratorRuntime(
 
     override val messaging = DefaultMessagingService(
         dagEngine = dagEngine,
-        messageCarrier = router.messages,
-        syncCarrier = router.syncs,
+        messageCarrier = messageCarrier,
+        syncCarrier = syncCarrier,
         pipeline = pipeline,
         roomRepository = roomRepository,
         messageRepository = messageRepository,
@@ -118,8 +124,8 @@ internal class DefaultOrchestratorRuntime(
 
     override val onboarding = DefaultOnboardingService(
         provider = onboardingProvider,
-        bootstrapCarrier = router.bootstrap,
-        presence = router.presence,
+        bootstrapCarrier = bootstrapCarrier,
+        presence = presence,
         localIdentity = localIdentity,
         identityReader = identityReader,
         messageRepository = messageRepository,
@@ -158,7 +164,7 @@ internal class DefaultOrchestratorRuntime(
     // Read-only roster: rows + router presence + fold events.
     override val identity = DefaultIdentityService(
         identityReader = identityReader,
-        presence = router.presence,
+        presence = presence,
         projector = globalEventProjector,
         orchestratorConfig = orchestratorConfig,
     )

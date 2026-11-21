@@ -10,11 +10,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.persistence.openMemoryDatabase
+import org.yapyap.protection.PassthroughFileProtection
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.port.FileEvent
@@ -102,7 +104,7 @@ class FileOutcomeRoutingTest {
         viaRelay = null,
         kind = FilePushKind.DIRECT,
         totalBytes = 10_000L,
-        key = ByteArray(32) { it.toByte() },
+        key = TransferKey(ByteArray(32) { it.toByte() }),
         chunkSizeBytes = 32 * 1024,
         startIndex = 0,
         nextChunkIndex = 1,
@@ -144,6 +146,7 @@ class FileOutcomeRoutingTest {
         plaintext.describeImpl = { manifest() }
         val engine = FilePushEngine(
             ctx = stack.ctx,
+            protection = PassthroughFileProtection(),
             plaintext = plaintext,
             pushes = pushes,
             outbox = outbox,
@@ -220,6 +223,7 @@ class FileOutcomeRoutingTest {
         val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
         val engine = FilePushEngine(
             ctx = stack.ctx,
+            protection = PassthroughFileProtection(),
             plaintext = FakeFilePlaintextSource(),
             pushes = DefaultFilePushStore(openMemoryDatabase().database, Dispatchers.Unconfined),
             outbox = outbox,

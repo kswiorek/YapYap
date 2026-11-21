@@ -52,6 +52,17 @@ internal class ByteReader(private val bytes: ByteArray) {
         return readBytes(len).decodeToString()
     }
 
+    /**
+     * Bounded string read: the length prefix is checked against [maxBytes] before any
+     * allocation, so an oversized name is rejected without allocating its bytes.
+     */
+    fun readBoundedString(maxBytes: Int): String {
+        val len = readShort()
+        require(len != 0xffff) { "String cannot be null" }
+        require(len <= maxBytes) { "string of $len bytes exceeds max $maxBytes" }
+        return readBytes(len).decodeToString()
+    }
+
     fun readNullableUuid(): Uuid? {
         return when (val marker = readUnsignedByte()) {
             0 -> null
@@ -66,6 +77,17 @@ internal class ByteReader(private val bytes: ByteArray) {
         return readBytes(len).decodeToString()
     }
 
+    /**
+     * Bounded nullable string read: the length prefix is checked before allocation.
+     * A null marker (0xffff) stays null; otherwise [maxBytes] bounds the bytes.
+     */
+    fun readBoundedNullableString(maxBytes: Int): String? {
+        val len = readShort()
+        if (len == 0xffff) return null
+        require(len <= maxBytes) { "string of $len bytes exceeds max $maxBytes" }
+        return readBytes(len).decodeToString()
+    }
+
     fun readPeerId(): PeerId {
         return PeerId(readString())
     }
@@ -75,6 +97,17 @@ internal class ByteReader(private val bytes: ByteArray) {
         require(len >= 0) { "Byte array length must be >= 0" }
         require(len <= maxSize) { "byte array size $len exceeds max $maxSize" }
         return readBytes(len)
+    }
+
+    /**
+     * Exact 32-byte hash read: the length prefix is bounded before allocation, then the
+     * content length is required to be exactly 32. Short hashes are rejected after at most
+     * a 32-byte allocation.
+     */
+    fun readHash(): ByteArray {
+        val bytes = readByteArray(maxSize = 32)
+        require(bytes.size == 32) { "hash must be exactly 32 bytes but was ${bytes.size}" }
+        return bytes
     }
 
     fun readNullableByteArray(): ByteArray? {

@@ -6,6 +6,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
 import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.io.AppendHandle
 import org.yapyap.orchestrator.file.io.FileAccess
@@ -216,6 +219,13 @@ internal class DefaultFileStore(
             is FileImportSource.ContentUriSource -> files.openContentPositionedReader(source.uri)
         }
     } catch (e: IOException) {
+        // Unreadable import source: the import maps it to SourceUnreadable (typed refusal).
+        AppLog.error(
+            component = LogComponent.FILE,
+            event = LogEvent.FILE_TASK_FAILED,
+            message = "Failed to open import source",
+            throwable = e,
+        )
         null
     }
 
@@ -229,6 +239,13 @@ internal class DefaultFileStore(
                 got += n
             }
         } catch (e: IOException) {
+            // A mid-read I/O error: the import maps it to SourceUnreadable (typed refusal).
+            AppLog.error(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Failed to read import source",
+                throwable = e,
+            )
             return null
         }
         return got

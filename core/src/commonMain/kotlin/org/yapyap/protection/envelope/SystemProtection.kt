@@ -11,6 +11,7 @@ import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
 internal interface SystemProtection {
@@ -20,7 +21,7 @@ internal interface SystemProtection {
 
 internal class PlaintextSystemProtection(
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
+) : BaseProtection<SystemPayload, SystemEnvelope, SystemPayload, EnvelopeProtectContext>(), SystemProtection {
     override suspend fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextSystemProtection but got ${context.securityScheme}"
@@ -43,6 +44,8 @@ internal class PlaintextSystemProtection(
         }
         val systemPayload = try {
             SystemPayload.decode(envelope.payload)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -71,7 +74,7 @@ internal class PlaintextSystemProtection(
 internal class SignedSystemProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<SystemPayload, SystemEnvelope>(), SystemProtection {
+) : BaseProtection<SystemPayload, SystemEnvelope, SystemPayload, EnvelopeProtectContext>(), SystemProtection {
     override suspend fun doProtect(input: SystemPayload, context: EnvelopeProtectContext): SystemEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
             "Context security scheme must be SIGNED for SignedSystemProtection but got ${context.securityScheme}"
@@ -102,6 +105,8 @@ internal class SignedSystemProtection(
 
         val systemPayload = try {
             SystemPayload.decode(envelope.payload)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,

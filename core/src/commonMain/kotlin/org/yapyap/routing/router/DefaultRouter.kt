@@ -144,7 +144,7 @@ internal class DefaultRouter(
         relayCopies = { envelope ->
             when (envelope.packetType) {
                 PacketType.MESSAGE -> relayDepositor.deposit(envelope)
-                // OFFER markers use the message triggers (§5, step 19): the marker's
+                // OFFER markers use the message triggers (§5): the marker's
                 // packet maps back to its authoring transfer for a one-round deposit.
                 // Chunks never reach here (policy) and DEPOSIT markers no-op inside
                 // (never chase a failing relay, §6.4).

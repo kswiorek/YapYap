@@ -3,11 +3,22 @@ package org.yapyap.protection.envelope
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.protection.*
+import org.yapyap.protection.FakeIdentityResolverForProtection
+import org.yapyap.protection.FixturePeerIds
+import org.yapyap.protection.ProtectionException
+import org.yapyap.protection.deviceRecordFor
+import org.yapyap.protection.nonce24
+import org.yapyap.protection.sampleEnvelopeContext
+import org.yapyap.protection.samplePeerTriplet
+import org.yapyap.protection.sampleWebRtcSignal
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
 import org.yapyap.testfixtures.epochSeconds
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
 
 class WebRtcSignalProtectionTest {
@@ -39,7 +50,7 @@ class WebRtcSignalProtectionTest {
             target = FixturePeerIds.B,
         )
         val input = sampleWebRtcSignal(FixturePeerIds.A, FixturePeerIds.B)
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.protect(input, ctx)
         }
     }
@@ -59,7 +70,7 @@ class WebRtcSignalProtectionTest {
             signature = ByteArray(64),
             payload = input.payload,
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.open(envelope)
         }
     }
@@ -101,7 +112,7 @@ class WebRtcSignalProtectionTest {
             source = sourcePeer,
             target = targetPeer,
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.protect(sampleWebRtcSignal(sourcePeer, targetPeer), ctx)
         }
     }

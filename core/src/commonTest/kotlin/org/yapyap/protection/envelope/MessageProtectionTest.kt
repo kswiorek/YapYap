@@ -58,7 +58,7 @@ class MessageProtectionTest {
             source = FixturePeerIds.A,
             target = FixturePeerIds.B,
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.protect(payload, ctx)
         }
     }
@@ -77,7 +77,7 @@ class MessageProtectionTest {
             signature = ByteArray(64), // invalid but scheme check runs first
             payload = payload.encode(),
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.open(envelope)
         }
     }
@@ -118,7 +118,7 @@ class MessageProtectionTest {
             source = sourcePeer,
             target = targetPeer,
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             protection.protect(sampleTextPayload(), ctx)
         }
     }
@@ -175,7 +175,7 @@ class MessageProtectionTest {
             source = pair.sourcePeer,
             target = pair.targetPeer,
         )
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ProtectionException> {
             pair.sender.protect(sampleTextPayload(), ctx)
         }
     }

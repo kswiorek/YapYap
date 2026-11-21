@@ -172,7 +172,7 @@ internal class DefaultFileRelayStore(
     }
 
     override suspend fun find(transferId: TransferId): FileRelayTransfer? = withContext(dbDispatcher) {
-        queries.selectFileRelayTransferById(transferId.value.toHexString()).executeAsOneOrNull()?.toRow()
+        queries.selectFileRelayTransferById(transferId).executeAsOneOrNull()?.toRow()
     }
 
     override suspend fun live(): List<FileRelayTransfer> = withContext(dbDispatcher) {
@@ -181,23 +181,23 @@ internal class DefaultFileRelayStore(
 
     override suspend fun setStatus(transferId: TransferId, status: FileRelayStatus) {
         withContext(dbDispatcher) {
-            queries.updateFileRelayTransferStatus(status.name, transferId.value.toHexString())
+            queries.updateFileRelayTransferStatus(status.name, transferId)
         }
     }
 
     override suspend fun setMarker(transferId: TransferId, markerPacketId: Uuid?) {
         withContext(dbDispatcher) {
             queries.updateFileRelayTransferMarker(
-                marker_packet_id = markerPacketId?.toHexString(),
+                marker_packet_id = markerPacketId,
                 status = FileRelayStatus.FORWARDING.name,
-                transfer_id = transferId.value.toHexString(),
+                transfer_id = transferId,
             )
         }
     }
 
     override suspend fun touch(transferId: TransferId, now: Instant) {
         withContext(dbDispatcher) {
-            queries.touchFileRelayTransfer(now, transferId.value.toHexString())
+            queries.touchFileRelayTransfer(now, transferId)
         }
     }
 
@@ -207,7 +207,7 @@ internal class DefaultFileRelayStore(
 
     override suspend fun delete(transferId: TransferId) {
         withContext(dbDispatcher) {
-            queries.deleteFileRelayTransferById(transferId.value.toHexString())
+            queries.deleteFileRelayTransferById(transferId)
         }
     }
 
@@ -223,7 +223,7 @@ internal class DefaultFileRelayStore(
                     var remaining = used
                     for (candidate in queries.selectFileRelayEvictionOrder().executeAsList()) {
                         if (remaining + reserveBytes <= budget) break
-                        val id = TransferId(Uuid.parseHex(candidate.transfer_id))
+                        val id = candidate.transfer_id
                         if (id == row.transferId) continue
                         victims += id
                         remaining -= candidate.reserved_bytes
@@ -232,7 +232,7 @@ internal class DefaultFileRelayStore(
                         return@transactionWithResult AdmitResult(false, emptyList())
                     }
                     for (victim in victims) {
-                        queries.deleteFileRelayTransferById(victim.value.toHexString())
+                        queries.deleteFileRelayTransferById(victim)
                     }
                     insertRelayTransfer(row)
                     AdmitResult(true, victims)
@@ -245,7 +245,7 @@ internal class DefaultFileRelayStore(
 
     private fun insertRelayTransfer(row: FileRelayTransfer) {
         queries.insertFileRelayTransfer(
-            transfer_id = row.transferId.value.toHexString(),
+            transfer_id = row.transferId,
             source_device = row.sourceDevice,
             target_device = row.targetDevice,
             chunk_size_bytes = row.chunkSizeBytes.toLong(),
@@ -254,7 +254,7 @@ internal class DefaultFileRelayStore(
             offer_payload = row.offerPayload,
             status = row.status.name,
             reserved_bytes = row.reservedBytes,
-            marker_packet_id = row.markerPacketId?.toHexString(),
+            marker_packet_id = row.markerPacketId,
             created_at = row.createdAt,
             last_chunk_at = row.lastChunkAt,
             expires_at = row.expiresAt,
@@ -270,13 +270,13 @@ internal class DefaultFileRelayStore(
         db.transactionWithResult {
             // Parent first: a row evicted or dropped meanwhile writes nothing (and never trips
             // the chunk table's foreign key).
-            queries.selectFileRelayTransferById(transferId.value.toHexString())
+            queries.selectFileRelayTransferById(transferId)
                 .executeAsOneOrNull() ?: return@transactionWithResult null
-            queries.insertFileRelayChunk(transferId.value.toHexString(), chunkIndex.toLong(), null, blob)
-            queries.touchFileRelayTransfer(now, transferId.value.toHexString())
-            val row = queries.selectFileRelayTransferById(transferId.value.toHexString()).executeAsOne()
+            queries.insertFileRelayChunk(transferId, chunkIndex.toLong(), null, blob)
+            queries.touchFileRelayTransfer(now, transferId)
+            val row = queries.selectFileRelayTransferById(transferId).executeAsOne()
             if (row.status == FileRelayStatus.RESERVED.name && suffixComplete(row)) {
-                queries.updateFileRelayTransferStatus(FileRelayStatus.WHOLE.name, transferId.value.toHexString())
+                queries.updateFileRelayTransferStatus(FileRelayStatus.WHOLE.name, transferId)
                 FileRelayStatus.WHOLE
             } else {
                 FileRelayStatus.valueOf(row.status)
@@ -286,11 +286,11 @@ internal class DefaultFileRelayStore(
 
     override suspend fun promoteIfWhole(transferId: TransferId): Boolean = withContext(dbDispatcher) {
         db.transactionWithResult {
-            val row = queries.selectFileRelayTransferById(transferId.value.toHexString())
+            val row = queries.selectFileRelayTransferById(transferId)
                 .executeAsOneOrNull() ?: return@transactionWithResult false
             if (row.status == FileRelayStatus.WHOLE.name) return@transactionWithResult true
             if (row.status == FileRelayStatus.RESERVED.name && suffixComplete(row)) {
-                queries.updateFileRelayTransferStatus(FileRelayStatus.WHOLE.name, transferId.value.toHexString())
+                queries.updateFileRelayTransferStatus(FileRelayStatus.WHOLE.name, transferId)
                 true
             } else {
                 false
@@ -306,41 +306,41 @@ internal class DefaultFileRelayStore(
     }
 
     override suspend fun chunkRefs(transferId: TransferId): List<FileRelayChunkRef> = withContext(dbDispatcher) {
-        queries.selectFileRelayChunkRefsByTransfer(transferId.value.toHexString()).executeAsList().map { ref ->
-            FileRelayChunkRef(ref.chunk_index.toInt(), ref.packet_id?.let { Uuid.parseHex(it) })
+        queries.selectFileRelayChunkRefsByTransfer(transferId).executeAsList().map { ref ->
+            FileRelayChunkRef(ref.chunk_index.toInt(), ref.packet_id)
         }
     }
 
     override suspend fun chunkBlob(transferId: TransferId, chunkIndex: Int): ByteArray? = withContext(dbDispatcher) {
-        queries.selectFileRelayChunkBlob(transferId.value.toHexString(), chunkIndex.toLong()).executeAsOneOrNull()
+        queries.selectFileRelayChunkBlob(transferId, chunkIndex.toLong()).executeAsOneOrNull()
     }
 
     override suspend fun chunkCount(transferId: TransferId): Long = withContext(dbDispatcher) {
-        queries.countFileRelayChunksByTransfer(transferId.value.toHexString()).executeAsOne()
+        queries.countFileRelayChunksByTransfer(transferId).executeAsOne()
     }
 
     override suspend fun setChunkPacket(transferId: TransferId, chunkIndex: Int, packetId: Uuid) {
         withContext(dbDispatcher) {
             queries.updateFileRelayChunkPacketId(
-                packetId.toHexString(),
-                transferId.value.toHexString(),
+                packetId,
+                transferId,
                 chunkIndex.toLong(),
             )
         }
     }
 
     override suspend fun findChunkByPacket(packetId: Uuid): FileRelayChunk? = withContext(dbDispatcher) {
-        queries.selectFileRelayChunkByPacketId(packetId.toHexString()).executeAsOneOrNull()?.toRow()
+        queries.selectFileRelayChunkByPacketId(packetId).executeAsOneOrNull()?.toRow()
     }
 
     override suspend fun deleteChunkByPacket(packetId: Uuid) {
         withContext(dbDispatcher) {
-            queries.deleteFileRelayChunkByPacketId(packetId.toHexString())
+            queries.deleteFileRelayChunkByPacketId(packetId)
         }
     }
 
     private fun File_relay_transfers.toRow(): FileRelayTransfer = FileRelayTransfer(
-        transferId = TransferId(Uuid.parseHex(transfer_id)),
+        transferId = transfer_id,
         sourceDevice = source_device,
         targetDevice = target_device,
         chunkSizeBytes = chunk_size_bytes.toInt(),
@@ -349,16 +349,16 @@ internal class DefaultFileRelayStore(
         offerPayload = offer_payload,
         status = FileRelayStatus.valueOf(status),
         reservedBytes = reserved_bytes,
-        markerPacketId = marker_packet_id?.let { Uuid.parseHex(it) },
+        markerPacketId = marker_packet_id,
         createdAt = created_at,
         lastChunkAt = last_chunk_at,
         expiresAt = expires_at,
     )
 
     private fun File_relay_chunks.toRow(): FileRelayChunk = FileRelayChunk(
-        transferId = TransferId(Uuid.parseHex(transfer_id)),
+        transferId = transfer_id,
         chunkIndex = chunk_index.toInt(),
-        packetId = packet_id?.let { Uuid.parseHex(it) },
+        packetId = packet_id,
         blob = blob,
     )
 }

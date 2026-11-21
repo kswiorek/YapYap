@@ -15,12 +15,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protocol.FileFetchAbortReason
+import org.yapyap.protocol.FileFetchDeclineReason
+import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.IdentityStatus
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.envelopes.FileFetchAbortReason
-import org.yapyap.protocol.envelopes.FileFetchDeclineReason
-import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileEvent
@@ -764,6 +764,13 @@ internal class FileFetchService(
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
+                            AppLog.error(
+                                component = LogComponent.FILE,
+                                event = LogEvent.FILE_FETCH_FAILED,
+                                message = "Failed to send fetch DATA frame; ending serve",
+                                throwable = e,
+                                fields = mapOf("fileId" to info.fileId),
+                            )
                             false
                         }
                         if (!sent) {

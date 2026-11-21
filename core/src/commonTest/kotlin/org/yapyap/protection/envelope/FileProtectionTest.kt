@@ -11,12 +11,12 @@ import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.FakeIdentityResolverForProtection
 import org.yapyap.protection.ProtectionDisposition
 import org.yapyap.protection.ProtectionException
-import org.yapyap.protection.sampleEnvelopeContext
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.ByteRange
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.protocol.envelopes.FileEnvelopeKind
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.testfixtures.InMemoryOpkRepository
@@ -24,7 +24,9 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 class FileProtectionTest {
@@ -71,7 +73,7 @@ class FileProtectionTest {
         )
     }
 
-    private fun sampleSealedOffer(key: ByteArray = ByteArray(32) { it.toByte() }): FilePayload.SealedOffer =
+    private fun sampleSealedOffer(key: TransferKey = TransferKey(ByteArray(32) { it.toByte() })): FilePayload.SealedOffer =
         FilePayload.SealedOffer(
             fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
             blockSize = 1024 * 1024,
@@ -81,12 +83,18 @@ class FileProtectionTest {
             mimeType = "image/jpeg",
         )
 
+    private fun sampleManifest(): FileOfferSealedManifest {
+        val offer = sampleSealedOffer()
+        return FileOfferSealedManifest(offer.fileId, offer.blockSize, offer.blockHashes, offer.fileName, offer.mimeType)
+    }
+
     private fun fileContext(transferId: TransferId, source: PeerId, target: PeerId) =
-        sampleEnvelopeContext(
-            scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-            source = source,
-            target = target,
-        ).copy(transferId = transferId)
+        FileProtectContext(
+            sourceDeviceId = source,
+            targetDeviceId = target,
+            createdAt = Clock.System.now(),
+            transferId = transferId,
+        )
 
     @Test
     fun sealedOffer_sealOpen_roundTrip() = runTest {
@@ -119,6 +127,29 @@ class FileProtectionTest {
     }
 
     @Test
+    fun protectOffer_sealsAndSignsInOneCall() = runTest {
+        val pair = sampleFileProtectionPair()
+        val transferId = TransferId(Uuid.random())
+        val key = SignedAndEncryptedFileProtection.generateTransferKey(crypto)
+        val envelope = pair.sender.protectOffer(
+            publicHalf = FileOfferPublicHalf(220 * 1024, 1000L, 0),
+            sealed = FileOfferSealedManifest(
+                fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                blockSize = 1024 * 1024,
+                blockHashes = listOf(ByteArray(32) { 1 }),
+                fileName = "photo.jpg",
+                mimeType = "image/jpeg",
+            ),
+            key = key,
+            ctx = fileContext(transferId, pair.sourcePeer, pair.targetPeer),
+        )
+        val opened = pair.receiver.open(envelope)
+        val offer = opened.payload as FilePayload.Offer
+        assertEquals(220 * 1024, offer.chunkSizeBytes)
+        assertEquals(sampleSealedOffer(key), pair.receiver.openOffer(offer.sealedOfferBytes, pair.sourcePeer))
+    }
+
+    @Test
     fun request_protectOpen_roundTrip() = runTest {
         val pair = sampleFileProtectionPair()
         val transferId = TransferId(Uuid.random())
@@ -143,7 +174,7 @@ class FileProtectionTest {
         val chunk = FilePayload.EncryptedChunk(chunkIndex = 7, chunkCiphertext = ciphertext)
         assertContentEquals(
             plaintext,
-            pair.receiver.decryptChunk(transferId, 7, key, chunk),
+            pair.receiver.decryptChunk(transferId, key, chunk),
         )
     }
 
@@ -154,23 +185,70 @@ class FileProtectionTest {
         val otherTransfer = TransferId(Uuid.random())
         val key = SignedAndEncryptedFileProtection.generateTransferKey(crypto)
         val ciphertext = pair.sender.encryptChunk(transferId, 7, key, "chunk-bytes".encodeToByteArray())
-        val chunk = FilePayload.EncryptedChunk(chunkIndex = 7, chunkCiphertext = ciphertext)
+        // Ciphertext from index 7 presented as index 8: the index comes from the chunk only.
+        val replayedIndex = FilePayload.EncryptedChunk(chunkIndex = 8, chunkCiphertext = ciphertext)
         assertFailsWith<ProtectionException> {
-            pair.receiver.decryptChunk(transferId, 8, key, chunk)
+            pair.receiver.decryptChunk(transferId, key, replayedIndex)
         }
+        val sameIndex = FilePayload.EncryptedChunk(chunkIndex = 7, chunkCiphertext = ciphertext)
         assertFailsWith<ProtectionException> {
-            pair.receiver.decryptChunk(otherTransfer, 7, key, chunk)
+            pair.receiver.decryptChunk(otherTransfer, key, sameIndex)
         }
     }
 
     @Test
-    fun chunk_samePlaintextUnderTwoTransfers_givesDifferentCiphertext() = runTest {
+    fun chunk_samePlaintextSameTransferTwice_givesDifferentCiphertext() = runTest {
         val pair = sampleFileProtectionPair()
         val key = SignedAndEncryptedFileProtection.generateTransferKey(crypto)
+        val transferId = TransferId(Uuid.random())
         val plaintext = "same-bytes".encodeToByteArray()
-        val first = pair.sender.encryptChunk(TransferId(Uuid.random()), 0, key, plaintext)
-        val second = pair.sender.encryptChunk(TransferId(Uuid.random()), 0, key, plaintext)
+        val first = pair.sender.encryptChunk(transferId, 0, key, plaintext)
+        val second = pair.sender.encryptChunk(transferId, 0, key, plaintext)
         assertTrue(!first.contentEquals(second), "library-managed IV must randomize ciphertext")
+    }
+
+    @Test
+    fun protectedWireBytes_carryNoFileId() = runTest {
+        val pair = sampleFileProtectionPair()
+        val ctx = fileContext(TransferId(Uuid.random()), pair.sourcePeer, pair.targetPeer)
+        val fileId = sampleSealedOffer().fileId
+        val request = FilePayload.Request(fileId, 0L, emptyList())
+        // The check can see a fileId: the unprotected REQUEST body carries it in the clear.
+        assertTrue(request.encode().decodeToString().contains(fileId.value))
+
+        val envelopes = listOf(
+            FileEnvelopeKind.OFFER to pair.sender.protectOffer(
+                publicHalf = FileOfferPublicHalf(220 * 1024, 1000L, 0),
+                sealed = sampleManifest(),
+                key = TransferKey(ByteArray(32) { it.toByte() }),
+                ctx = ctx,
+            ),
+            FileEnvelopeKind.CHUNK to pair.sender.protect(FilePayload.EncryptedChunk(0, byteArrayOf(1, 2, 3)), ctx),
+            FileEnvelopeKind.ACK to pair.sender.protect(FilePayload.Ack(0, emptyList()), ctx),
+            FileEnvelopeKind.COMPLETE to pair.sender.protect(FilePayload.Complete, ctx),
+            FileEnvelopeKind.CANCEL to pair.sender.protect(FilePayload.Cancel(FileCancelReason.DECLINED), ctx),
+            FileEnvelopeKind.REQUEST to pair.sender.protect(request, ctx),
+        )
+        for ((kind, envelope) in envelopes) {
+            // The whole encoded envelope, header included, as it leaves this device.
+            val wire = envelope.encode().decodeToString()
+            assertFalse(wire.contains(fileId.value), "wire bytes of $kind must not contain the fileId")
+        }
+    }
+
+    @Test
+    fun protectOffer_badManifest_isPermanentProtectionFailure() = runTest {
+        val pair = sampleFileProtectionPair()
+        val ctx = fileContext(TransferId(Uuid.random()), pair.sourcePeer, pair.targetPeer)
+        val failure = assertFailsWith<ProtectionException> {
+            pair.sender.protectOffer(
+                publicHalf = FileOfferPublicHalf(220 * 1024, 1000L, 0),
+                sealed = sampleManifest().copy(fileName = "n".repeat(300)),
+                key = TransferKey(ByteArray(32)),
+                ctx = ctx,
+            )
+        }
+        assertEquals(ProtectionDisposition.PERMANENT, failure.disposition)
     }
 
     @Test
@@ -267,20 +345,5 @@ class FileProtectionTest {
             pair.receiver.open(tampered)
         }
         assertTrue(failure.message!!.contains("signature", ignoreCase = true))
-    }
-
-    @Test
-    fun protect_requiresTransferId() = runTest {
-        val pair = sampleFileProtectionPair()
-        assertFailsWith<IllegalArgumentException> {
-            pair.sender.protect(
-                FilePayload.Complete,
-                sampleEnvelopeContext(
-                    scheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
-                    source = pair.sourcePeer,
-                    target = pair.targetPeer,
-                ),
-            )
-        }
     }
 }

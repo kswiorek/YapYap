@@ -1,8 +1,8 @@
 package org.yapyap.wiring
 
-import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.router.TransportLimits
 
@@ -10,7 +10,7 @@ import org.yapyap.routing.router.TransportLimits
  * File-transfer sizes, derived from the transport backend configs like [MessageLimits], never
  * configured on their own. Each layer states its own framing next to its code
  * ([FileEnvelope.maxPayloadBytes], [FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES],
- * [FileProtection.CHUNK_OVERHEAD_BYTES], [FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES]); this only
+ * [FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES], [FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES]); this only
  * chains them. A transfer snapshots [chunkSizeBytes] when it is created; receivers are
  * chunking-agnostic (design §8), so a change never breaks transfers in flight.
  */
@@ -35,7 +35,7 @@ internal data class FileLimits(
         fun from(transport: TransportLimits): FileLimits {
             val chunkSize = FileEnvelope.maxPayloadBytes(transport.maxRoutableBytes) -
                     FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES -
-                    FileProtection.CHUNK_OVERHEAD_BYTES
+                    FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES
             val fetchFrame = transport.webRtcMaxPayloadBytes - FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES
             require(chunkSize >= MIN_CHUNK_SIZE_BYTES) {
                 "Transport frames (${transport.maxRoutableBytes} bytes) leave $chunkSize bytes per file chunk; " +

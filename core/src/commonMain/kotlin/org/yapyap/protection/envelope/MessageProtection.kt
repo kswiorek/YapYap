@@ -13,6 +13,7 @@ import org.yapyap.protocol.EnvelopeObservability
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
+import kotlin.coroutines.cancellation.CancellationException
 
 internal interface MessageProtection {
     suspend fun open(envelope: MessageEnvelope): MessagePayload
@@ -21,7 +22,7 @@ internal interface MessageProtection {
 
 internal class PlaintextMessageProtection(
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
+) : BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextMessageProtection but got ${context.securityScheme}"
@@ -44,6 +45,8 @@ internal class PlaintextMessageProtection(
         }
         val messagePayload = try {
             envelope.decodePayload()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -73,7 +76,7 @@ internal class PlaintextMessageProtection(
 internal class SignedMessageProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
+) : BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.SIGNED) {
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
@@ -104,6 +107,8 @@ internal class SignedMessageProtection(
 
         val messagePayload = try {
             envelope.decodePayload()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -139,10 +144,10 @@ internal class SignedAndEncryptedMessageProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,
-) : BaseProtection<MessagePayload, MessageEnvelope>(), MessageProtection {
+) : BaseProtection<MessagePayload, MessageEnvelope, MessagePayload, EnvelopeProtectContext>(), MessageProtection {
     override suspend fun doProtect(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         require(context.securityScheme == SignalSecurityScheme.ENCRYPTED_AND_SIGNED) {
-            "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
+            "Context security scheme must be ENCRYPTED_AND_SIGNED for SignedAndEncryptedMessageProtection but got ${context.securityScheme}"
         }
 
         val wirePayload = try {
@@ -150,6 +155,8 @@ internal class SignedAndEncryptedMessageProtection(
                 remoteDeviceId = context.targetDeviceId,
                 bytes = input.encode(),
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -200,6 +207,8 @@ internal class SignedAndEncryptedMessageProtection(
                 remoteDeviceId = envelope.source,
                 frameBytes = envelope.payload,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,
@@ -212,6 +221,8 @@ internal class SignedAndEncryptedMessageProtection(
 
         val messagePayload = try {
             MessagePayload.decode(decryptedInput)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.error(
                 component = LogComponent.CRYPTO,

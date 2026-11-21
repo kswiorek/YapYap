@@ -1,5 +1,7 @@
 import kotlin.time.Instant;
+import kotlin.uuid.Uuid;
 import org.yapyap.protocol.PeerId;
+import org.yapyap.protocol.TransferId;
 
 -- Routing-owned relay store (design §7, §13): transient ciphertext for foreign
 -- traffic. The relay is dumb to content: it verifies the original sender's
@@ -7,7 +9,7 @@ import org.yapyap.protocol.PeerId;
 -- toward wholeness over the covered suffix, and forwards only when whole.
 -- Plain-text file state never mixes in here (guide §4: one owner per table).
 CREATE TABLE file_relay_transfers (
-    transfer_id TEXT NOT NULL PRIMARY KEY,
+    transfer_id TEXT AS TransferId NOT NULL PRIMARY KEY,
     source_device TEXT AS PeerId NOT NULL,
     target_device TEXT AS PeerId NOT NULL,
     chunk_size_bytes INTEGER NOT NULL,
@@ -21,7 +23,7 @@ CREATE TABLE file_relay_transfers (
     status TEXT NOT NULL,
     -- Covered-suffix bytes reserved against relayStoragePledgeBytes at admission.
     reserved_bytes INTEGER NOT NULL,
-    marker_packet_id TEXT,
+    marker_packet_id TEXT AS Uuid,
     created_at INTEGER AS Instant NOT NULL,
     last_chunk_at INTEGER AS Instant NOT NULL,
     expires_at INTEGER AS Instant NOT NULL
@@ -30,11 +32,11 @@ CREATE TABLE file_relay_transfers (
 -- Stored CHUNK envelopes as they arrived (inner FileEnvelope bytes, original
 -- sender's signature intact — never re-signed). PK dedup makes re-deposits no-op.
 CREATE TABLE file_relay_chunks (
-    transfer_id TEXT NOT NULL,
+    transfer_id TEXT AS TransferId NOT NULL,
     chunk_index INTEGER NOT NULL,
     -- Outer packet id of the forwarded copy (NULL until the forward enqueues it);
     -- target ACKs map back through it so rows drain as they land.
-    packet_id TEXT,
+    packet_id TEXT AS Uuid,
     blob BLOB NOT NULL,
     PRIMARY KEY (transfer_id, chunk_index),
     FOREIGN KEY (transfer_id) REFERENCES file_relay_transfers(transfer_id) ON DELETE CASCADE

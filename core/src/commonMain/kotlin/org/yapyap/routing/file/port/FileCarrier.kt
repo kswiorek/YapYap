@@ -2,8 +2,8 @@ package org.yapyap.routing.file.port
 
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.FileFetchAbortReason
 import kotlin.time.Instant
 
 /**

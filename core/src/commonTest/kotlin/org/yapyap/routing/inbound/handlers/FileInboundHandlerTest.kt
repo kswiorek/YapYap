@@ -9,12 +9,13 @@ import org.yapyap.crypto.e2ee.testTransportLimits
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
 import org.yapyap.protection.FakeIdentityResolverForProtection
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protection.envelope.PlaintextMessageProtection
 import org.yapyap.protection.envelope.PlaintextSystemProtection
 import org.yapyap.protection.envelope.PlaintextWebRtcSignalProtection
 import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
 import org.yapyap.protection.service.DefaultEnvelopeProtectionService
-import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.ByteWriter
 import org.yapyap.protocol.FileId
@@ -23,6 +24,7 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.ChunkRange
 import org.yapyap.protocol.envelopes.FileCancelReason
@@ -151,10 +153,9 @@ class FileInboundHandlerTest {
         )
         val service = DefaultEnvelopeProtectionService(
             webRtcSignalProtection = PlaintextWebRtcSignalProtection(crypto),
-            fileProtection = receiverProtection,
             messageProtection = PlaintextMessageProtection(crypto),
             systemProtection = PlaintextSystemProtection(crypto),
-            bootstrapProtection = org.yapyap.protection.envelope.BootstrapProtection(
+            bootstrapProtection = BootstrapProtection(
                 crypto,
                 org.yapyap.crypto.store.BootstrapKeySource { null },
             ),
@@ -184,10 +185,10 @@ class FileInboundHandlerTest {
             override suspend fun coverageAck(
                 transferId: TransferId,
                 from: PeerId,
-                contiguousChunks: Int,
+                highestContiguousIndex: Int,
                 missing: List<ChunkRange>,
             ) {
-                coverageAcks += Triple(transferId, contiguousChunks, missing)
+                coverageAcks += Triple(transferId, highestContiguousIndex, missing)
             }
 
             override suspend fun complete(transferId: TransferId, from: PeerId) {
@@ -202,11 +203,12 @@ class FileInboundHandlerTest {
                 cancelled += transferId
             }
         }
-        val target = FileTargetHandler(ctx, transfers, ingest, signals, onOfferReceived = {})
-        val door = FileRelayDoor(ctx, InMemoryFileRelayStore(), TrackingPacketOutbox(), onRelayWhole = {})
+        val target = FileTargetHandler(ctx, receiverProtection, transfers, ingest, signals, onOfferReceived = {})
+        val door =
+            FileRelayDoor(ctx, receiverProtection, InMemoryFileRelayStore(), TrackingPacketOutbox(), onRelayWhole = {})
         val serve = FileServeHandler(ctx, ingest, NoopFilePushOps())
         return Harness(
-            handler = FileInboundHandler(ctx, target, door, serve),
+            handler = FileInboundHandler(ctx, receiverProtection, target, door, serve),
             target = target,
             senderProtection = senderProtection,
             incoming = incoming,
@@ -226,7 +228,7 @@ class FileInboundHandlerTest {
         chunkSize: Int = 220 * 1024,
         totalBytes: Long = 1000L,
         startIndex: Int = 0,
-        key: ByteArray = ByteArray(32) { it.toByte() },
+        key: TransferKey = TransferKey(ByteArray(32) { it.toByte() }),
     ): BinaryEnvelope {
         val sealed = senderProtection.sealOffer(
             FilePayload.SealedOffer(
@@ -241,7 +243,7 @@ class FileInboundHandlerTest {
         )
         val envelope = senderProtection.protect(
             FilePayload.Offer(chunkSize, totalBytes, startIndex, sealed),
-            EnvelopeProtectContext(now, remoteId, localId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FileProtectContext(remoteId, localId, now, transferId),
         )
         return BinaryEnvelope(
             packetId = Uuid.random(),
@@ -258,13 +260,13 @@ class FileInboundHandlerTest {
     private suspend fun Harness.chunkEnvelope(
         transferId: TransferId,
         chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         plaintext: ByteArray = "chunk-$chunkIndex".encodeToByteArray(),
     ): BinaryEnvelope {
         val ciphertext = senderProtection.encryptChunk(transferId, chunkIndex, key, plaintext)
         val envelope = senderProtection.protect(
             FilePayload.EncryptedChunk(chunkIndex, ciphertext),
-            EnvelopeProtectContext(now, remoteId, localId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FileProtectContext(remoteId, localId, now, transferId),
         )
         return BinaryEnvelope(
             packetId = Uuid.random(),
@@ -329,7 +331,7 @@ class FileInboundHandlerTest {
     fun chunk_beforeOffer_isNeverAcked() = runTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         val result = h.handler.handle(h.chunkEnvelope(transferId, 0, key))
         val rejected = assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
@@ -341,7 +343,7 @@ class FileInboundHandlerTest {
         val h = harness()
         // An OFFER for a different transfer exists; this chunk names one that was never offered.
         h.handler.handle(h.offerEnvelope(TransferId(Uuid.random())))
-        val result = h.handler.handle(h.chunkEnvelope(TransferId(Uuid.random()), 0, ByteArray(32)))
+        val result = h.handler.handle(h.chunkEnvelope(TransferId(Uuid.random()), 0, TransferKey(ByteArray(32))))
         val rejected = assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, rejected.reason)
         assertEquals(1, h.ingest.offers.size)
@@ -356,7 +358,7 @@ class FileInboundHandlerTest {
             ),
         )
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId, totalBytes = 1024L * 1024))
         val plaintext = "chunk-0".encodeToByteArray()
         val result = h.handler.handle(h.chunkEnvelope(transferId, 0, key, plaintext))
@@ -371,7 +373,7 @@ class FileInboundHandlerTest {
         assertEquals(transferId, ackEnvelope.transferId)
         assertEquals(h.remoteId, ackEnvelope.target)
         val ack = assertIs<FilePayload.Ack>(ackEnvelope.decodePayload())
-        assertEquals(1, ack.contiguousChunks)
+        assertEquals(1, ack.highestContiguousIndex)
         // Coverage callbacks fire on the sender's side when this ACK arrives there,
         // not on the receiver that emitted it.
         assertTrue(h.coverageAcks.isEmpty())
@@ -381,7 +383,7 @@ class FileInboundHandlerTest {
     fun chunk_duplicate_isAcked() = runTest {
         val h = harness(ingest = ScriptedFileIngestPort(ingestResult = FileIngestResult.Duplicate(0L, 0L)))
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId))
         // Chunk 0 of the offered 1-chunk file: covered, so the ingest reports a duplicate
         // and the target answers with a coverage ACK instead of nothing useful.
@@ -395,7 +397,7 @@ class FileInboundHandlerTest {
     fun chunk_outOfRange_isDeclined() = runTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId, totalBytes = 1000L))
         // A 1000-byte file in 220 KiB chunks has exactly one chunk: index 7 is outside
         // the transfer's covered suffix and is DECLINED before any decrypt is burned.
@@ -409,7 +411,7 @@ class FileInboundHandlerTest {
     fun cancel_fromNonAuthor_isIgnored() = runTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId))
         assertEquals(1, h.ingest.offers.size)
 
@@ -423,9 +425,9 @@ class FileInboundHandlerTest {
             nonce = ByteArray(24),
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = null,
-            payload = FilePayload.Cancel(FileCancelReason.ABORT, null).encode(),
+            payload = FilePayload.Cancel(FileCancelReason.ABORT).encode(),
         )
-        val result = h.target.handleCancel(stranger, FilePayload.Cancel(FileCancelReason.ABORT, null))
+        val result = h.target.handleCancel(stranger, FilePayload.Cancel(FileCancelReason.ABORT))
         assertIs<InboundHandleResult.Success>(result)
         assertTrue(h.cancelled.isEmpty(), "no cancel signal for a foreign CANCEL")
         assertNotNull(h.incoming.find(transferId), "a stranger's CANCEL leaves the author's row in place")
@@ -435,7 +437,7 @@ class FileInboundHandlerTest {
     fun chunk_deferred_isSilent() = runTest {
         val h = harness(ingest = ScriptedFileIngestPort(ingestResult = FileIngestResult.Defer))
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId))
         val result = h.handler.handle(h.chunkEnvelope(transferId, 0, key))
         assertIs<InboundHandleResult.Deferred>(result)
@@ -445,7 +447,7 @@ class FileInboundHandlerTest {
     fun chunk_refused_isDeclined() = runTest {
         val h = harness(ingest = ScriptedFileIngestPort(ingestResult = FileIngestResult.Refused))
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId))
         val result = h.handler.handle(h.chunkEnvelope(transferId, 0, key))
         val rejected = assertIs<InboundHandleResult.Rejected>(result)
@@ -455,7 +457,7 @@ class FileInboundHandlerTest {
     @Test
     fun chunk_tamperedSignature_isNeverAcked() = runTest {
         val h = harness()
-        val env = h.chunkEnvelope(TransferId(Uuid.random()), 0, ByteArray(32))
+        val env = h.chunkEnvelope(TransferId(Uuid.random()), 0, TransferKey(ByteArray(32)))
         val fileEnv = FileEnvelope.decode(env.payload)
         val tampered = fileEnv.copy(signature = fileEnv.signature!!.copyOf().also {
             it[0] = (it[0].toInt() xor 0xff).toByte()
@@ -471,7 +473,7 @@ class FileInboundHandlerTest {
     fun chunk_expiredRow_isDeclinedAndDropped() = runTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         h.handler.handle(h.offerEnvelope(transferId))
         h.clock.advanceTo(h.clock.now() + 3.days)
         val result = h.handler.handle(h.chunkEnvelope(transferId, 0, key))
@@ -483,7 +485,7 @@ class FileInboundHandlerTest {
     fun offer_resent_isIdempotent() = runTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
-        val key = ByteArray(32) { it.toByte() }
+        val key = TransferKey(ByteArray(32) { it.toByte() })
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.offerEnvelope(transferId, key = key)))
         // The sender retries until our ACK lands: the same OFFER arrives again. One row,
         // ACKed again — never a second row for the same transferId.
@@ -533,7 +535,7 @@ class FileInboundHandlerTest {
                 fileId = fileId,
                 blockSize = 1024 * 1024,
                 blockHashes = listOf(ByteArray(32) { 1 }),
-                transferKey = ByteArray(32) { it.toByte() },
+                transferKey = TransferKey(ByteArray(32) { it.toByte() }),
                 fileName = "photo.jpg",
                 mimeType = "image/jpeg",
             ),
@@ -590,10 +592,10 @@ class FileInboundHandlerTest {
     fun ack_forwardsCoverageToPusher() = runTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
-        val ack = FilePayload.Ack(contiguousChunks = 3, missingRanges = emptyList())
+        val ack = FilePayload.Ack(highestContiguousIndex = 3, missingRanges = emptyList())
         val envelope = h.senderProtection.protect(
             ack,
-            EnvelopeProtectContext(now, h.remoteId, h.localId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FileProtectContext(h.remoteId, h.localId, now, transferId),
         )
         val result = h.handler.handle(
             BinaryEnvelope(
@@ -617,7 +619,7 @@ class FileInboundHandlerTest {
         val transferId = TransferId(Uuid.random())
         val envelope = h.senderProtection.protect(
             FilePayload.Complete,
-            EnvelopeProtectContext(now, h.remoteId, h.localId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FileProtectContext(h.remoteId, h.localId, now, transferId),
         )
         val result = h.handler.handle(
             BinaryEnvelope(
@@ -642,8 +644,8 @@ class FileInboundHandlerTest {
         h.handler.handle(h.offerEnvelope(transferId))
         assertTrue(h.incoming.find(transferId) != null)
         val envelope = h.senderProtection.protect(
-            FilePayload.Cancel(FileCancelReason.ABORT, reasonText = null),
-            EnvelopeProtectContext(now, h.remoteId, h.localId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FilePayload.Cancel(FileCancelReason.ABORT),
+            FileProtectContext(h.remoteId, h.localId, now, transferId),
         )
         h.handler.handle(
             BinaryEnvelope(
@@ -666,8 +668,8 @@ class FileInboundHandlerTest {
         val h = harness()
         val transferId = TransferId(Uuid.random())
         val envelope = h.senderProtection.protect(
-            FilePayload.Cancel(FileCancelReason.ABORT, reasonText = null),
-            EnvelopeProtectContext(now, h.remoteId, h.localId, SignalSecurityScheme.ENCRYPTED_AND_SIGNED, transferId),
+            FilePayload.Cancel(FileCancelReason.ABORT),
+            FileProtectContext(h.remoteId, h.localId, now, transferId),
         )
         val result = h.handler.handle(
             BinaryEnvelope(
@@ -692,11 +694,10 @@ class FileInboundHandlerTest {
         val request = FilePayload.Request(fileId, 0L, emptyList())
         val envelope = h.senderProtection.protect(
             request,
-            EnvelopeProtectContext(
-                now,
+            FileProtectContext(
                 h.remoteId,
                 h.localId,
-                SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
+                now,
                 TransferId(Uuid.random()),
             ),
         )

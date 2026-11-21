@@ -46,11 +46,8 @@ import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.BootstrapSecurityScheme
-import org.yapyap.protocol.envelopes.FileEnvelope
-import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.OpenedFileEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
@@ -139,43 +136,6 @@ internal class PassthroughFakeEnvelopeProtectionService : EnvelopeProtectionServ
             payload = envelope.payload,
         )
 
-    override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
-        error("not used in router transport tests")
-
-    override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
-        error("not used in router transport tests")
-
-    override suspend fun decryptFileChunk(
-        transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
-        chunk: FilePayload.EncryptedChunk,
-    ): ByteArray =
-        error("not used in router transport tests")
-
-    override suspend fun encryptFileChunk(
-        transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
-        plaintext: ByteArray,
-    ): ByteArray =
-        error("not used in router transport tests")
-
-    override suspend fun sealFileOffer(
-        offer: FilePayload.SealedOffer,
-        target: PeerId,
-    ): ByteArray =
-        error("not used in router transport tests")
-
-    override suspend fun openFileOffer(
-        sealed: ByteArray,
-        source: PeerId,
-    ): FilePayload.SealedOffer =
-        error("not used in router transport tests")
-
-    override fun generateFileTransferKey(): ByteArray =
-        error("not used in router transport tests")
-
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         val messageId =
             when (input) {
@@ -251,43 +211,6 @@ internal class ConcurrencyTrackingEnvelopeProtectionService(
 
     override suspend fun openSignal(envelope: WebRtcSignalEnvelope): WebRtcSignal =
         delegate.openSignal(envelope)
-
-    override suspend fun protectFile(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
-        delegate.protectFile(input, context)
-
-    override suspend fun openFile(envelope: FileEnvelope): OpenedFileEnvelope =
-        delegate.openFile(envelope)
-
-    override suspend fun decryptFileChunk(
-        transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
-        chunk: FilePayload.EncryptedChunk,
-    ): ByteArray =
-        delegate.decryptFileChunk(transferId, chunkIndex, key, chunk)
-
-    override suspend fun encryptFileChunk(
-        transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
-        plaintext: ByteArray,
-    ): ByteArray =
-        delegate.encryptFileChunk(transferId, chunkIndex, key, plaintext)
-
-    override suspend fun sealFileOffer(
-        offer: FilePayload.SealedOffer,
-        target: PeerId,
-    ): ByteArray =
-        delegate.sealFileOffer(offer, target)
-
-    override suspend fun openFileOffer(
-        sealed: ByteArray,
-        source: PeerId,
-    ): FilePayload.SealedOffer =
-        delegate.openFileOffer(sealed, source)
-
-    override fun generateFileTransferKey(): ByteArray =
-        delegate.generateFileTransferKey()
 
     override suspend fun protectMessage(input: MessagePayload, context: EnvelopeProtectContext): MessageEnvelope {
         protectStatsMutex.withLock {
@@ -574,7 +497,7 @@ internal class InMemoryFileRelayStore : FileRelayStore {
             val victims = mutableListOf<TransferId>()
             var remaining = used
             for (candidate in transfers.values
-                .sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value.toHexString() }))
+                .sortedWith(compareBy({ it.lastChunkAt }, { it.transferId.value }))
             ) {
                 if (remaining + reserveBytes <= budget) break
                 if (candidate.transferId == row.transferId) continue
@@ -1293,7 +1216,6 @@ internal fun buildE2eeRouterStack(
     val signatureProvider = DefaultSignatureProvider(identity, identity, crypto)
     val protection = DefaultEnvelopeProtectionService(
         webRtcSignalProtection = SignedWebRtcSignalProtection(signatureProvider, crypto),
-        fileProtection = PassthroughFileProtection(),
         messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, sessionManager, crypto),
         systemProtection = SignedSystemProtection(signatureProvider, crypto),
         bootstrapProtection = BootstrapProtection(crypto, bootstrapKeySource),
@@ -1353,6 +1275,7 @@ internal fun e2eeRouterUnderTest(
             pushes = filePushStore,
             relay = fileRelayStore,
             requestAttempts = fileRequestAttemptStore,
+            protection = PassthroughFileProtection(),
             chunkSizeBytes = fileChunkSize,
             fetchFrameBytes = fileChunkSize,
         ),
@@ -1440,6 +1363,7 @@ internal fun defaultRouterUnderTest(
             pushes = filePushStore,
             relay = fileRelayStore,
             requestAttempts = fileRequestAttemptStore,
+            protection = PassthroughFileProtection(),
             chunkSizeBytes = fileChunkSize,
             fetchFrameBytes = fileChunkSize,
         ),

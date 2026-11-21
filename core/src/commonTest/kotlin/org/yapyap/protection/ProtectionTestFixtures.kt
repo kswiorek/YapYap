@@ -15,7 +15,10 @@ import org.yapyap.crypto.keys.SigningKeyPair
 import org.yapyap.crypto.keys.SigningPrivateKey
 import org.yapyap.crypto.primitives.DefaultCryptoProvider
 import org.yapyap.crypto.signature.DefaultSignatureProvider
-import org.yapyap.protection.envelope.FileProtection
+import org.yapyap.protection.envelope.FileEnvelopeProtection
+import org.yapyap.protection.envelope.FileOfferPublicHalf
+import org.yapyap.protection.envelope.FileOfferSealedManifest
+import org.yapyap.protection.envelope.FileProtectContext
 import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
 import org.yapyap.protection.service.EnvelopeProtectContext
 import org.yapyap.protocol.AccountId
@@ -26,6 +29,7 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.TransferKey
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.MessagePayload
@@ -235,18 +239,17 @@ internal class FakeIdentityResolverForProtection(
 
 /**
  * No real crypto — wraps payloads in [FileEnvelope] / [OpenedFileEnvelope] for contract tests only.
- * Production code has no [org.yapyap.protection.envelope.FileProtection] implementation yet.
  */
-internal class PassthroughFileProtection : FileProtection {
+internal class PassthroughFileProtection : FileEnvelopeProtection {
 
-    override suspend fun protect(input: FilePayload, context: EnvelopeProtectContext): FileEnvelope =
+    override suspend fun protect(input: FilePayload, context: FileProtectContext): FileEnvelope =
         FileEnvelope(
-            transferId = TransferId(Uuid.random()),
+            transferId = context.transferId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
-            nonce = ByteArray(context.securityScheme.nonceSize) { 7 },
-            securityScheme = context.securityScheme,
+            nonce = ByteArray(24) { 7 },
+            securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
             signature = null,
             payload = input.encode(),
         )
@@ -254,17 +257,38 @@ internal class PassthroughFileProtection : FileProtection {
     override suspend fun open(input: FileEnvelope): OpenedFileEnvelope =
         OpenedFileEnvelope(
             transferId = input.transferId,
-            source = input.source.id,
-            target = input.target.id,
+            source = input.source,
+            target = input.target,
             createdAt = input.createdAt,
             securityScheme = input.securityScheme,
             payload = input.decodePayload(),
         )
 
+    override suspend fun protectOffer(
+        publicHalf: FileOfferPublicHalf,
+        sealed: FileOfferSealedManifest,
+        key: TransferKey,
+        ctx: FileProtectContext,
+    ): FileEnvelope = protect(
+        FilePayload.Offer(
+            chunkSizeBytes = publicHalf.chunkSizeBytes,
+            totalBytes = publicHalf.totalBytes,
+            startIndex = publicHalf.startIndex,
+            sealedOfferBytes = FilePayload.SealedOffer(
+                fileId = sealed.fileId,
+                blockSize = sealed.blockSize,
+                blockHashes = sealed.blockHashes,
+                transferKey = key,
+                fileName = sealed.fileName,
+                mimeType = sealed.mimeType,
+            ).encode(),
+        ),
+        ctx,
+    )
+
     override suspend fun decryptChunk(
         transferId: TransferId,
-        chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray =
         chunk.chunkCiphertext
@@ -272,15 +296,12 @@ internal class PassthroughFileProtection : FileProtection {
     override suspend fun encryptChunk(
         transferId: TransferId,
         chunkIndex: Int,
-        key: ByteArray,
+        key: TransferKey,
         plaintext: ByteArray,
     ): ByteArray = plaintext
-
-    override suspend fun sealOffer(offer: FilePayload.SealedOffer, target: PeerId): ByteArray =
-        offer.encode()
 
     override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
         FilePayload.SealedOffer.decode(sealed)
 
-    override fun generateTransferKey(): ByteArray = ByteArray(32)
+    override fun generateTransferKey(): TransferKey = TransferKey(ByteArray(32))
 }

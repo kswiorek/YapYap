@@ -4,6 +4,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
@@ -22,16 +23,22 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 internal class FileInboundHandler(
     private val ctx: RoutingContext,
+    private val protection: FileEnvelopeProtection,
     private val target: FileTargetHandler,
     private val door: FileRelayDoor,
     private val serve: FileServeHandler,
 ) : InboundEnvelopeHandler {
     override suspend fun handle(env: BinaryEnvelope): InboundHandleResult {
-        val fileEnvelope = runCatching { FileEnvelope.decode(env.payload) }.getOrNull() ?: run {
+        val fileEnvelope = try {
+            FileEnvelope.decode(env.payload)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             AppLog.warn(
                 component = LogComponent.FILE,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
                 message = "Failed to decode file envelope",
+                fields = mapOf("error" to e.toString()),
             )
             return InboundHandleResult.Rejected(PacketNackReason.DECODE_FAILED)
         }
@@ -39,7 +46,7 @@ internal class FileInboundHandler(
             return door.handleRelay(env, fileEnvelope)
         }
         val opened = try {
-            ctx.envelopeProtectionService.openFile(fileEnvelope)
+            protection.open(fileEnvelope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {

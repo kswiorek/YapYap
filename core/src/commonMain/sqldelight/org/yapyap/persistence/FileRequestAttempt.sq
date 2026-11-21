@@ -2,6 +2,7 @@ import kotlin.uuid.Uuid;
 import kotlin.time.Instant;
 import org.yapyap.protocol.FileId;
 import org.yapyap.protocol.PeerId;
+import org.yapyap.protocol.TransferId;
 
 -- Router-owned: how a pending file request is being asked for. Mirrors SyncAttempt.sq,
 -- keyed by fileId instead of syncId, plus the WAITING state (ACK received, OFFER pending)
@@ -12,7 +13,7 @@ CREATE TABLE file_request_attempts(
     next_attempt_at INTEGER AS Instant NOT NULL,
     waiting_device TEXT AS PeerId,
     waiting_until INTEGER AS Instant,
-    request_transfer_id TEXT,
+    request_transfer_id TEXT AS TransferId,
     request_class TEXT NOT NULL
 );
 

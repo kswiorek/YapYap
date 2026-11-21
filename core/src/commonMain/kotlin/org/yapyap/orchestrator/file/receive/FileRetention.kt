@@ -14,10 +14,10 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.file.FileDescriptorStore
+import org.yapyap.orchestrator.file.FileDescriptorReader
 import org.yapyap.orchestrator.file.FileReceiveControl
 import org.yapyap.orchestrator.file.FileReceiveEvent
-import org.yapyap.orchestrator.file.FileReceiveStore
+import org.yapyap.orchestrator.file.FileReceiveReader
 import org.yapyap.orchestrator.file.FileStore
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.store.MessageRepository
@@ -44,8 +44,8 @@ internal interface FileQuota {
  *   Runs after every READY (from [receiveEvents]) and when the send path asks.
  */
 internal class FileRetention(
-    private val receives: FileReceiveStore,
-    private val descriptors: FileDescriptorStore,
+    private val receives: FileReceiveReader,
+    private val descriptors: FileDescriptorReader,
     private val messages: MessageRepository,
     private val engine: FileReceiveControl,
     private val fileStore: FileStore,
@@ -87,7 +87,7 @@ internal class FileRetention(
             runTask("Unreferenced receive check failed; will retry", row.fileId) {
                 val referencing = messages.findMessageIdsByFileId(row.fileId)
                 if (referencing.isNotEmpty()) {
-                    receives.updateOrigin(row.fileId, referencing.first(), now)
+                    engine.updateOrigin(row.fileId, referencing.first(), now)
                 } else if (row.createdAt + config.value.unreferencedFileRetention <= now) {
                     engine.forgetUnreferenced(row.fileId)
                     fileStore.forget(row.fileId)

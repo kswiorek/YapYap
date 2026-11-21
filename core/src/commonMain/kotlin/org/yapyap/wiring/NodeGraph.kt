@@ -200,7 +200,6 @@ internal class NodeGraph(
             cryptoSessionManager,
             crypto
         ),
-        fileProtection = SignedAndEncryptedFileProtection(signatureProvider, cryptoSessionManager, crypto),
         messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, cryptoSessionManager, crypto),
         systemProtection = SignedSystemProtection(signatureProvider, crypto),
         bootstrapProtection = BootstrapProtection(crypto, vault.bootstrapSessionStore),
@@ -246,6 +245,7 @@ internal class NodeGraph(
             pushes = filePushStore,
             relay = fileRelayStore,
             requestAttempts = fileRequestAttemptStore,
+            protection = SignedAndEncryptedFileProtection(signatureProvider, cryptoSessionManager, crypto),
             chunkSizeBytes = config.fileChunkSizeBytes,
             fetchFrameBytes = config.fileFetchFrameBytes,
         ),
@@ -370,7 +370,10 @@ internal class NodeGraph(
     override val runtime: DefaultOrchestratorRuntime? =
         if (bootConfig.mode != NodeMode.FULL_CLIENT) null else DefaultOrchestratorRuntime(
             dagEngine = dagEngine,
-            router = router,
+            messageCarrier = router.messages,
+            syncCarrier = router.syncs,
+            bootstrapCarrier = router.bootstrap,
+            presence = router.presence,
             pipeline = pipeline,
             messageRepository = messageRepository,
             deliveryRepository = deliveryRepository,

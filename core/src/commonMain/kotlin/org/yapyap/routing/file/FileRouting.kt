@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
@@ -56,6 +57,8 @@ internal class FileRoutingPorts(
     val pushes: FilePushStore,
     val relay: FileRelayStore,
     val requestAttempts: FileRequestAttemptStore,
+    /** File envelope protection: handed to file routing only, never to the shared routing context. */
+    val protection: FileEnvelopeProtection,
     /** Plaintext bytes per small-path chunk. */
     val chunkSizeBytes: StateFlow<Int>,
     /** File bytes per large-path DATA frame. */
@@ -110,6 +113,7 @@ internal class FileRouting(
 
     private val pushEngine = FilePushEngine(
         ctx = ctx,
+        protection = ports.protection,
         plaintext = ports.plaintext,
         pushes = ports.pushes,
         outbox = outbox,
@@ -121,6 +125,7 @@ internal class FileRouting(
 
     private val sender = FileSender(
         ctx = ctx,
+        protection = ports.protection,
         plaintext = ports.plaintext,
         pushes = ports.pushes,
         engine = pushEngine,
@@ -144,6 +149,7 @@ internal class FileRouting(
 
     private val requestProcessor = FileRequestProcessor(
         ctx = ctx,
+        protection = ports.protection,
         attempts = ports.requestAttempts,
         requests = ports.requests,
         outboxProcessor = outboxProcessor,
@@ -157,7 +163,7 @@ internal class FileRouting(
 
     private val carrier = DefaultFileCarrier(
         localDeviceId = ctx.localDeviceId,
-        protection = ctx.envelopeProtectionService,
+        protection = ports.protection,
         incoming = incomingTransfers,
         enqueue = { envelope -> outboxProcessor.enqueueAndWake(envelope, ctx.clock.now()) },
         clock = ctx.clock,
@@ -172,6 +178,7 @@ internal class FileRouting(
 
     private val targetHandler = FileTargetHandler(
         ctx = ctx,
+        protection = ports.protection,
         incoming = incomingTransfers,
         ingest = ports.ingest,
         signals = pushEngine,
@@ -180,6 +187,7 @@ internal class FileRouting(
 
     private val relayDoor = FileRelayDoor(
         ctx = ctx,
+        protection = ports.protection,
         relay = ports.relay,
         packetOutbox = packetOutbox,
         onRelayWhole = { transferId -> pushEngine.onRelayWhole(transferId) },
@@ -193,6 +201,7 @@ internal class FileRouting(
 
     val inboundHandler = FileInboundHandler(
         ctx = ctx,
+        protection = ports.protection,
         target = targetHandler,
         door = relayDoor,
         serve = serveHandler,

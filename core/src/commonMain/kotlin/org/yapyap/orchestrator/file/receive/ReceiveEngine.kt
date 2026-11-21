@@ -308,6 +308,15 @@ internal class ReceiveEngine(
         }
     }
 
+    override suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant) {
+        withFile(fileId) { _ ->
+            val row = receives.find(fileId) ?: return@withFile
+            if (row.originMessageId == null) {
+                receives.updateOrigin(fileId, messageId, now)
+            }
+        }
+    }
+
     // -- Checkpoints and restart -----------------------------------------------------
 
     /** Drains every active receive. A failing file is logged and retried on the next pass. */

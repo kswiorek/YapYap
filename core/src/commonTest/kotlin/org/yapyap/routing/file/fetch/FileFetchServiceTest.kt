@@ -12,12 +12,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileFetchAbortReason
+import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
-import org.yapyap.protocol.envelopes.FileFetchAbortReason
-import org.yapyap.protocol.envelopes.FileFetchFrame
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
