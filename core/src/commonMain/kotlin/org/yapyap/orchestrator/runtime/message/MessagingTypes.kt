@@ -67,6 +67,7 @@ public data class PickedFile(
 /** Where the bytes of a [PickedFile] live. */
 public sealed interface PickedFileSource {
     /** A platform file path. */
+    //TODO [File cleanup]: file path as kotlinx.io path, unify into one?
     public data class FilePath(val path: String) : PickedFileSource
 
     /** An Android content URI (persistable permission held by the GUI). */

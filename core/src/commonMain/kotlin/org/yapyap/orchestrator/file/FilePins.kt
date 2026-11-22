@@ -10,6 +10,7 @@ import org.yapyap.protocol.FileId
  * of a file may delete a copy a send created, so two concurrent sends of the same file never pull
  * it from under each other. Counts are per file, in memory: a restart has no sends in flight.
  */
+//TODO [File cleanup] Goes with removing TTL cleanup
 internal class FilePins {
     private val mutex = Mutex()
     private val counts = mutableMapOf<FileId, Int>()

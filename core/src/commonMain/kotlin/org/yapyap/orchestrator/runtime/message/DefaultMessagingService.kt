@@ -298,6 +298,7 @@ internal class DefaultMessagingService(
         roomId: RoomId,
         message: Message,
     ): SendMessageResult {
+        val scope = serviceScope ?: error("MessagingService not started")
         val localAccountId = localIdentity.getLocalAccountId()
         if (roomRepository.memberRowOf(roomId, localAccountId)?.status == RoomMemberStatus.REMOVED) {
             AppLog.warn(
@@ -336,7 +337,6 @@ internal class DefaultMessagingService(
         // Async preparing (design §10): return at once with a local send id; hashing runs
         // afterwards and the message lands when every fileId is known.
         val sendId = Uuid.random()
-        val scope = serviceScope ?: error("MessagingService not started")
         _preparingSends.update { it + (sendId to PreparingSend(sendId, roomId, 0L, 0L)) }
         val job = scope.launch {
             try {
@@ -346,7 +346,7 @@ internal class DefaultMessagingService(
                     // Show the refusal on the preparing item for a moment, then drop it.
                     _preparingSends.update { cur ->
                         cur[sendId]?.let { cur + (sendId to it.copy(error = refusal)) } ?: cur
-                    }
+                    } //TODO [File cleanup]: bad design, send state should not be dependent on timing
                     delay(PREPARING_ERROR_SHOWN)
                 }
             } finally {

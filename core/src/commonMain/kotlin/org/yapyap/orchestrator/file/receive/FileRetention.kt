@@ -47,6 +47,8 @@ internal interface FileQuota {
  *   file that just arrived, even when it alone is over the quota: evicting it would only make the
  *   user fetch it again (design §10).
  */
+
+//TODO [File cleanup] Remove TTL cleanup. Files live forever unless the user manually deletes them. Consider removing files unreferenced by any message.
 internal class FileRetention(
     private val receives: FileReceiveReader,
     private val descriptors: FileDescriptorReader,

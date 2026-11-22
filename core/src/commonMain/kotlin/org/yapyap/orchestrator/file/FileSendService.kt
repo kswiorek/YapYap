@@ -35,6 +35,7 @@ import org.yapyap.routing.file.port.FileCarrier
  * append fails. Only the last unpin of a file deletes it, so a concurrent send of the same file
  * keeps it.
  */
+//TODO:[File cleanup]: rename, services are in runtime
 internal interface FileSendService {
     /**
      * Imports [files] and returns their attachments, or the refusal. Never throws for unreadable
@@ -88,7 +89,7 @@ internal class DefaultFileSendService(
         val attachments = mutableListOf<MessagePayload.Attachment>()
         var ready = false
         try {
-            for (picked in files) {
+            for (picked in files) { //TODO [File cleanup]: async loop? Breaks if one of multiple is refused, return those whih are fine, the rest can error out in gui
                 val descriptor = when (val pinned = importPinned(picked) { bytes ->
                     hashedBytes += bytes
                     onProgress(hashedBytes, totalBytes)
@@ -159,9 +160,9 @@ internal class DefaultFileSendService(
     }
 
     override suspend fun confirm(attachments: List<MessagePayload.Attachment>) {
-        for (attachment in attachments) {
-            releasableGuard.withLock { releasable.remove(attachment.fileId) }
-            pins.unpin(attachment.fileId)
+        for ((fileId) in attachments) {
+            releasableGuard.withLock { releasable.remove(fileId) }
+            pins.unpin(fileId)
         }
     }
 
@@ -170,7 +171,7 @@ internal class DefaultFileSendService(
         attachments: List<MessagePayload.Attachment>,
         members: Collection<AccountId>,
     ) {
-        for (attachment in attachments) {
+        for (attachment in attachments) { //TODO [File cleanup] Async loops
             if (attachment.totalBytes > SMALL_FILE_MAX_BYTES) continue
             for (member in members) {
                 try {

@@ -72,6 +72,7 @@ import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -298,6 +299,8 @@ internal class DefaultRouter(
     private var syncRetryJob: Job? = null
     private var fileJobs: List<Job> = emptyList()
 
+    //TODO [File cleanup] consider extracting Carriers to separate class, have them do more instead of simple facades
+
     override val messages: MessageCarrier = object : MessageCarrier {
         override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
         override val deliveries: Flow<MessageAck> = messageDeliveryFlow.asSharedFlow()
@@ -383,6 +386,7 @@ internal class DefaultRouter(
             checkNotNull(torEndpoint) { "Router not started: local Tor endpoint unknown" }
     }
 
+    //TODO [File cleanup] file carrier can be accessed before router is started, inconsistent
     override val files: FileCarrier get() = fileRouting.fileCarrier
 
     override suspend fun start() {
@@ -500,7 +504,7 @@ internal class DefaultRouter(
         // it) and starve the Tor stop below, orphaning the daemon. Peers expire
         // us via sweep regardless.
         runCatching {
-            withTimeoutOrNull(8_000) { pingProvider.logOff() }
+            withTimeoutOrNull(8.seconds) { pingProvider.logOff() }
         }
 
         // Best-effort per transport: a failing WebRTC stop must never skip the

@@ -47,6 +47,7 @@ import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 /** The file stores and the orchestrator-side ports routing's file machinery runs against. */
+//TODO [File cleanup] why are genuine ports across the layers bundled together with stores?
 internal class FileRoutingPorts(
     val ingest: FileIngestPort,
     val requests: FileRequestSource,
@@ -72,6 +73,8 @@ internal class FileRoutingPorts(
  * routes to it: FILE packets to [inboundHandler], FILE and FILE_REQUEST outcomes to
  * [onOutboxOutcome], OFFER-marker relay copies to [depositByMarkerPacket].
  */
+
+//TODO [File cleanup] only file carrier is separated into routing? inconsistent, too many wrappers here
 internal class FileRouting(
     ctx: RoutingContext,
     ports: FileRoutingPorts,
@@ -87,6 +90,7 @@ internal class FileRouting(
     private val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
     private val outcomeChannel = Channel<OutboxOutcome>(Channel.UNLIMITED)
 
+    //TODO [File cleanup] why separate class that only wraps the existing outbox?
     private val outbox: FileOutbox = object : FileOutbox {
         override suspend fun enqueue(
             envelope: BinaryEnvelope,
