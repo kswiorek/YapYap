@@ -2,6 +2,7 @@ package org.yapyap.wiring
 
 import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.FileFetchFrame
+import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.routing.router.TransportLimits
@@ -11,8 +12,10 @@ import org.yapyap.routing.router.TransportLimits
  * configured on their own. Each layer states its own framing next to its code
  * ([FileEnvelope.maxPayloadBytes], [FilePayload.EncryptedChunk.ENCODED_OVERHEAD_BYTES],
  * [FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES], [FileFetchFrame.Data.ENCODED_OVERHEAD_BYTES]); this only
- * chains them. A transfer snapshots [chunkSizeBytes] when it is created; receivers are
- * chunking-agnostic (design §8), so a change never breaks transfers in flight.
+ * chains them. The transport sizes are not user settings, so these are fixed while the node
+ * runs. A transfer snapshots [chunkSizeBytes] when it is created and receivers are
+ * chunking-agnostic (design §8), so a different size in a later run reads fine; a size lowered
+ * under queued chunk rows would not, which is why the transport sizes stay out of the settings.
  */
 internal data class FileLimits(
     /** Plaintext bytes per small-path chunk: one chunk's envelope fits through either transport. */
@@ -22,7 +25,7 @@ internal data class FileLimits(
 ) {
     companion object {
         /** Smallest chunk or frame worth transferring; a transport too small for it fails at startup. */
-        const val MIN_CHUNK_SIZE_BYTES: Int = 64 * 1024
+        const val MIN_CHUNK_SIZE_BYTES: Int = MIN_FILE_CHUNK_SIZE_BYTES
 
         fun from(config: RuntimeConfig): FileLimits = from(
             TransportLimits(

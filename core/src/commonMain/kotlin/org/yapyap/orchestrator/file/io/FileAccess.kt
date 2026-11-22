@@ -36,6 +36,9 @@ internal interface PositionedHandle : AutoCloseable {
  */
 internal interface FileAccess {
     suspend fun exists(path: Path): Boolean
+
+    /** Names of the regular files directly in [dir]; empty when [dir] does not exist. */
+    suspend fun listFileNames(dir: Path): List<String>
     suspend fun createDirectories(path: Path)
     suspend fun fileSize(path: Path): Long?
     suspend fun freeSpaceBytes(directory: Path): Long
@@ -43,7 +46,7 @@ internal interface FileAccess {
     suspend fun openPositionedReader(path: Path, startOffset: Long = 0): PositionedHandle
     suspend fun delete(path: Path, mustExist: Boolean = false)
 
-    /** Atomic move: fails instead of falling back to a non-atomic move. */
+    /** Atomic move, replacing [target] if it exists: fails instead of falling back to a non-atomic move. */
     suspend fun move(source: Path, target: Path)
 
     /** Fsync the directory holding [path], so a READY rename survives a crash. */

@@ -107,7 +107,7 @@ internal sealed interface CallOutcome {
     data object Satisfied : CallOutcome          // drop the row
     data object Declined : CallOutcome           // addDeclined(device), ask the next one
     data object Unanswered : CallOutcome         // noteSilent(device), backoff
-    data object NoDirectConnection : CallOutcome // keep PENDING, backoff (design §6.6)
+    data object NoDirectConnection : CallOutcome // noteSilent(device), next device or backoff (design §6.6)
 }
 
 internal sealed interface SuccessAction {
@@ -556,7 +556,9 @@ internal class CandidateRequestCore<K>(
             is CallOutcome.Satisfied -> forget(row.id)
             is CallOutcome.Declined -> onDeclined(row.id, nextDevice)
             is CallOutcome.Unanswered -> onUnanswered(row.id, nextDevice)
-            is CallOutcome.NoDirectConnection -> Unit // keep PENDING, backoff already recorded
+            // Unreachable directly: like silence, it moves on to a device not yet tried instead
+            // of picking the same first-in-order device every attempt (backoff already recorded).
+            is CallOutcome.NoDirectConnection -> onUnanswered(row.id, nextDevice)
         }
     }
 

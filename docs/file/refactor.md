@@ -1522,6 +1522,54 @@ Replaces `FileFetchManager`.
     - Guide §4 (`TransferKey`), §6 (tag kinds and retry classes), §8 (feature status) and the
       design's §3.2 table and §13 schema were updated; `plan.md` points here for steps 1–22.
 
+### Whole-implementation review (after R6)
+
+A pass over all the file code after R6 found defects no single step owned. Fixed:
+
+- **Authorisation.** Only the target authors COMPLETE: a relay's COMPLETE for a deposit no longer
+  resolves the direct push. The target's CANCEL now ends a deposit (it was dropped as "unexpected
+  source"). A re-OFFER for a known `transferId` from a different author is DECLINED.
+- **Relay storage.** OFFERs chunked below `MIN_FILE_CHUNK_SIZE_BYTES` (64 KiB, a protocol constant
+  `FileLimits` uses) are DECLINED, and a stored CHUNK must be exactly the size its index allows.
+- **Ratchet redelivery.** Protection keeps the plaintext of sealed frames it opened for ten minutes (`OpenedFrameCache`,
+  memory only), so an OFFER or REQUEST we deferred after opening is not lost as a
+  replay on redelivery (design §3.3).
+- **Fetch outcomes.** A local refusal or Defer at FETCH_OK settles as itself (`Answer.Settled`), never
+  as a holder decline; `requesterLoop` always completes its result. Holders: at most four serves per
+  peer, only real PROGRESS keeps one alive, a parked or backpressured holder times out, a failed
+  FETCH_OK starts no serve, a FETCH on our own requester channel is ignored, and FETCH handling runs
+  off the shared frame collector. The backend's backpressure wait re-reads the live amount.
+- **Receive state.** A fetch write moves STALLED back to IN_FLIGHT; P is committed at the total before
+  the rename; the verified `.part` always replaces a stale final file; a READY file whose copy was
+  lost is received again; a drain that no longer fits declines the receive; prefix-extending chunks
+  stop at the staging bound plus one checkpoint. PENDING (never written) is gone from
+  `FileReceiveStatus`. Orphan `.part` files are deleted at recovery; deletes run bytes-first (or
+  through SOURCE_LOST) so a failed delete is retried, never leaked. Per-file locks are refcounted.
+- **Quota and sends.** `FilePins` pins every file a send is preparing: quota never evicts it, the
+  retention sweep skips it, and only its last unpin deletes a copy a send created. A READY quota run
+  spares the file that just arrived. `storeQuotaBytes` must hold `autoDownloadMaxBytes` and
+  `copyIntoStoreMaxBytes`. File names and MIME types are trimmed to the attachment caps before the
+  import hashes anything.
+- **Requests.** The sweep no longer re-arms an UNAVAILABLE request every 30 s; a fresh stall does.
+  `NoDirectConnection` moves on to an untried device. Coordinator marks are pruned to active receives.
+- **Push engine.** Status, progress and the deposit claim only touch live rows; a deposit inserted
+  after a COMPLETE is cancelled; actors are registered before they run; a lost marker outcome is
+  re-armed (push on its next tick, forward on its tick); orphaned forward actors are reaped; an empty
+  forward drops on its marker ACK; a push of a file no longer held ends at once; ACK coverage is
+  clamped to the file; a repeated REQUEST within one attempt reuses the live serve.
+- **Smaller.** Texts are capped at the u16 string limit; `localFilePath` returns null for content
+  URIs; `syncDirectory` only tolerates "unsupported"; wire bounds for nonce, signature and chunk
+  ciphertext; the drain's dead trim path and seven unused store methods are removed.
+- **Tests.** The outbox-tag check records tags at enqueue; the large-fetch mesh clock advances once
+  per tick and runs on the SQLite stores; the decoder, drop, slow-disk, long-sleep, crash and coverage
+  tests now fail without the behaviour they name; subscription sleeps became `onSubscription`; inline
+  fully qualified names are gone from the file tests. New tests cover each fix above.
+- **Left as is:** the fetch service's `scope` set in `runIn` (a lifecycle start, like the push
+  engine's); the carrier's best-effort CANCEL to authors after a receive ends; recovery re-announcing
+  READY rows (cheap and idempotent). Test work still open: lossy and reordering pumps, real
+  protection and outbox in the router tests, fakes that report P values the engine would not, the
+  mid-file drop test's timing, a restart test over the same database, and the §19 rows without a test.
+
 ---
 
 ## Order and parallelism

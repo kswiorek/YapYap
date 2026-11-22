@@ -17,6 +17,7 @@ import org.yapyap.transport.webrtc.types.WebRtcFileFrame
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import kotlin.random.Random
 import kotlin.test.AfterTest
@@ -100,28 +101,48 @@ class FileChannelInboxTest {
         val inbox = FileChannelInbox(scope) { }
         inbox.open(channel(0)) { }
         inbox.open(channel(1)) { }
+        val live0 = AtomicLong(500)
 
-        val belowNow = async { inbox.awaitBufferedBelow(channel(0), threshold = 1_000, current = 500) }
-        withTimeout(5.seconds) { belowNow.await() }
+        withTimeout(5.seconds) { inbox.awaitBufferedBelow(channel(0), threshold = 1_000) { live0.get() } }
 
+        live0.set(4_000)
         val waiting = async(Dispatchers.Default) {
-            inbox.awaitBufferedBelow(channel(0), threshold = 1_000, current = 4_000)
+            inbox.awaitBufferedBelow(channel(0), threshold = 1_000) { live0.get() }
         }
         delay(50)
+        live0.set(2_000)
         inbox.bufferedAmountChanged(channel(0), 2_000)
         delay(50)
         assertFalse(waiting.isCompleted, "still above the threshold")
-        thread { inbox.bufferedAmountChanged(channel(0), 900) }.join()
+        thread {
+            live0.set(900)
+            inbox.bufferedAmountChanged(channel(0), 900)
+        }.join()
         withTimeout(5.seconds) { waiting.await() }
 
         val closing = async(Dispatchers.Default) {
-            inbox.awaitBufferedBelow(channel(1), threshold = 1_000, current = 4_000)
+            inbox.awaitBufferedBelow(channel(1), threshold = 1_000) { 4_000 }
         }
         delay(50)
         inbox.close(channel(1))
         withTimeout(5.seconds) { closing.await() }
         // A closed channel never parks a waiter.
-        withTimeout(5.seconds) { inbox.awaitBufferedBelow(channel(1), threshold = 0, current = 4_000) }
+        withTimeout(5.seconds) { inbox.awaitBufferedBelow(channel(1), threshold = 0) { 4_000 } }
+    }
+
+    @Test
+    fun awaitBufferedBelow_seesADrainNoCallbackReported() = runBlocking {
+        val inbox = FileChannelInbox(scope) { }
+        inbox.open(channel(0)) { }
+        // The buffer drains between the sender's read and its wait, and the native callback (which
+        // fires only when the amount crosses its low threshold) never comes: the re-read wakes it.
+        val live = AtomicLong(4_000)
+        val waiting = async(Dispatchers.Default) {
+            inbox.awaitBufferedBelow(channel(0), threshold = 1_000) { live.get() }
+        }
+        delay(50)
+        live.set(0)
+        withTimeout(5.seconds) { waiting.await() }
     }
 
     @Test

@@ -1,5 +1,8 @@
 package org.yapyap.routing.file
 
+import org.yapyap.orchestrator.file.FileImportSource
+import org.yapyap.protocol.FileId
+import org.yapyap.routing.router.E2eeIdentityResolverForRouter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -127,7 +130,7 @@ class FileSmallPushLiveIntegrationTest {
         val clock = FakeClock(epochSeconds(10_000L))
 
         fun sessionManager(
-            identity: org.yapyap.routing.router.E2eeIdentityResolverForRouter,
+            identity: E2eeIdentityResolverForRouter,
         ) = DefaultCryptoSessionManager(
             crypto = crypto,
             x3dh = X3dhHandshake(crypto),
@@ -152,14 +155,14 @@ class FileSmallPushLiveIntegrationTest {
             bootstrapProtection = BootstrapProtection(crypto) { null },
         )
 
-        val aliceIdentity = org.yapyap.routing.router.E2eeIdentityResolverForRouter(
+        val aliceIdentity = E2eeIdentityResolverForRouter(
             local = alicePeer,
             peers = mapOf(bobPeer.device.deviceId to bobPeer),
             peersByAccount = mapOf(bobAccount to listOf(bobPeer.device.deviceId)),
             torByPeer = aliceTorMap,
             crypto = crypto,
         )
-        val bobIdentity = org.yapyap.routing.router.E2eeIdentityResolverForRouter(
+        val bobIdentity = E2eeIdentityResolverForRouter(
             local = bobPeer,
             peers = mapOf(alicePeer.device.deviceId to alicePeer),
             peersByAccount = mapOf(aliceAccount to listOf(alicePeer.device.deviceId)),
@@ -178,7 +181,7 @@ class FileSmallPushLiveIntegrationTest {
                 fileCheckpointInterval = 200.milliseconds,
             ),
         )
-        val chunkSize = 32 * 1024
+        val chunkSize = 64 * 1024
 
         // Sender side: real store + import.
         val aliceDb = openMemoryDatabase().database
@@ -283,8 +286,8 @@ class FileSmallPushLiveIntegrationTest {
             descriptors = bobDescriptors,
             files = files,
             requests = object : FileRequestControl {
-                override suspend fun acceptFile(fileId: org.yapyap.protocol.FileId) = error("not used")
-                override suspend fun declineFile(fileId: org.yapyap.protocol.FileId) = error("not used")
+                override suspend fun acceptFile(fileId: FileId) = error("not used")
+                override suspend fun declineFile(fileId: FileId) = error("not used")
             },
             store = bobFileStore,
         )
@@ -316,7 +319,7 @@ class FileSmallPushLiveIntegrationTest {
                     it.flushAndSync()
                 }
                 val descriptor = aliceFileStore.importHeld(
-                    source = org.yapyap.orchestrator.file.FileImportSource.PathSource(sourcePath),
+                    source = FileImportSource.PathSource(sourcePath),
                     fileName = "small.bin",
                     mimeType = "application/octet-stream",
                     keepCopy = true,

@@ -289,7 +289,7 @@ internal class JvmWebRtcBackend(
             session.signalMutex.withLock {
                 val rtc = session.takeFileChannel(channel.label)
                 if (rtc != null) {
-                    runCatching {
+                    closeNative("file channel ${channel.label}") {
                         rtc.unregisterObserver()
                         rtc.close()
                         rtc.dispose()
@@ -342,11 +342,12 @@ internal class JvmWebRtcBackend(
     override suspend fun awaitBufferedBelow(channel: FileChannelId, thresholdBytes: Long) {
         require(thresholdBytes >= 0) { "threshold must be >= 0" }
         val session = sessions[channel.peer] ?: return
-        // Read under the session lock: closes and teardown dispose the native channel under it.
-        val current = session.signalMutex.withLock {
-            if (session.disposed.get()) null else session.fileChannel(channel.label)?.bufferedAmount
-        } ?: return
-        fileInbox?.awaitBufferedBelow(channel, thresholdBytes, current)
+        fileInbox?.awaitBufferedBelow(channel, thresholdBytes) {
+            // Read under the session lock: closes and teardown dispose the native channel under it.
+            session.signalMutex.withLock {
+                if (session.disposed.get()) null else session.fileChannel(channel.label)?.bufferedAmount
+            }
+        }
     }
 
     override suspend fun addAvChannel(target: PeerId) {
@@ -988,25 +989,25 @@ internal class JvmWebRtcBackend(
                 if (!disposed.compareAndSet(false, true)) return emptyList()
                 fileChannels.keys.toList()
             }
-            runCatching {
+            closeNative("envelope channel") {
                 envelopeDataChannel?.unregisterObserver()
                 envelopeDataChannel?.close()
                 envelopeDataChannel?.dispose()
             }
-            runCatching {
+            closeNative("AV channel") {
                 avDataChannel?.unregisterObserver()
                 avDataChannel?.close()
                 avDataChannel?.dispose()
             }
-            for ((_, channel) in fileChannels) {
-                runCatching {
+            for ((label, channel) in fileChannels) {
+                closeNative("file channel $label") {
                     channel.unregisterObserver()
                     channel.close()
                     channel.dispose()
                 }
             }
             fileChannels.clear()
-            runCatching { peerConnection.close() }
+            closeNative("peer connection") { peerConnection.close() }
             return fileLabels
         }
 
@@ -1019,6 +1020,23 @@ internal class JvmWebRtcBackend(
                 }
             }
         }
+    }
+}
+
+/**
+ * Closes a native object during teardown. The native side may already have torn it down, so a
+ * failure here is logged and the teardown goes on with the next object.
+ */
+private inline fun closeNative(what: String, close: () -> Unit) {
+    try {
+        close()
+    } catch (e: Exception) {
+        AppLog.debug(
+            component = LogComponent.WEBRTC_BACKEND,
+            event = LogEvent.SESSION_STATE_CHANGED,
+            message = "Native close failed during teardown",
+            fields = mapOf("what" to what, "error" to e.toString()),
+        )
     }
 }
 

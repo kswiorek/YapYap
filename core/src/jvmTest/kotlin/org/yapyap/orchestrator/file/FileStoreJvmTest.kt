@@ -1,5 +1,8 @@
 package org.yapyap.orchestrator.file
 
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.RandomAccessFile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -54,7 +57,7 @@ class FileStoreJvmTest {
     }
 
     private fun storeFileNames(storeDir: Path): List<String> =
-        java.io.File(storeDir.toString()).list()?.sorted().orEmpty()
+        File(storeDir.toString()).list()?.sorted().orEmpty()
 
     private suspend fun quotaFor(
         db: YapYapDatabase,
@@ -118,7 +121,7 @@ class FileStoreJvmTest {
         // Edit one byte in the second block (block size is 1 MiB here).
         val editAt = 1_500_000L
         files.openAppendWriter(original, null).use { _ -> }
-        java.io.RandomAccessFile(original.toString(), "rw").use { raf ->
+        RandomAccessFile(original.toString(), "rw").use { raf ->
             raf.seek(editAt)
             raf.write(0xFF)
         }
@@ -132,7 +135,13 @@ class FileStoreJvmTest {
         val db = openMemoryDatabase().database
         val work = tempDir("yapyap-store-quota")
         val storeDir = Path(work.toString(), "store")
-        val config = MutableStateFlow(OrchestratorConfig(storeQuotaBytes = 2_500_000L))
+        val config = MutableStateFlow(
+            OrchestratorConfig(
+                storeQuotaBytes = 2_500_000L,
+                autoDownloadMaxBytes = 0L,
+                copyIntoStoreMaxBytes = 0L
+            )
+        )
         val descriptors = DefaultFileDescriptorStore(db)
         val store = DefaultFileStore(descriptors, crypto, files, storeDir, config, TickClock())
         val quota = quotaFor(db, store, work, storeDir, config)
@@ -158,7 +167,13 @@ class FileStoreJvmTest {
         val db = openMemoryDatabase().database
         val work = tempDir("yapyap-store-lostcopy")
         val storeDir = Path(work.toString(), "store")
-        val config = MutableStateFlow(OrchestratorConfig(storeQuotaBytes = 1L))
+        val config = MutableStateFlow(
+            OrchestratorConfig(
+                storeQuotaBytes = 1L,
+                autoDownloadMaxBytes = 0L,
+                copyIntoStoreMaxBytes = 0L
+            )
+        )
         val descriptors = DefaultFileDescriptorStore(db)
         val store = DefaultFileStore(descriptors, crypto, files, storeDir, config, TickClock())
         val bytes = ByteArray(2_000_000) { (it * 13).toByte() }
@@ -295,7 +310,7 @@ class FileStoreJvmTest {
         val original = writeSource(work, "orig.bin", bytes)
         val descriptor = store.importHeld(FileImportSource.PathSource(original), "orig.bin", null, keepCopy = false)
         // Rot the reference to mark SOURCE_LOST.
-        java.io.RandomAccessFile(original.toString(), "rw").use { raf ->
+        RandomAccessFile(original.toString(), "rw").use { raf ->
             raf.seek(1_500_000L)
             raf.write(0xFF)
         }
@@ -339,7 +354,7 @@ class FileStoreJvmTest {
     ): ByteArray {
         val stream = assertNotNull(source.open(fileId, offset), "expected a stream at $offset")
         try {
-            val out = java.io.ByteArrayOutputStream()
+            val out = ByteArrayOutputStream()
             var remaining = maxBytes
             while (remaining > 0) {
                 when (val r = stream.read(remaining)) {

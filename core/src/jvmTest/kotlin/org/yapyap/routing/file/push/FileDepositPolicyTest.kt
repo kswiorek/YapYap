@@ -1,5 +1,7 @@
 package org.yapyap.routing.file.push
 
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TransferId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -14,14 +16,14 @@ import kotlin.time.Duration.Companion.seconds
 class FileDepositPolicyTest {
 
     private fun depositHarness(
-        relays: List<org.yapyap.protocol.PeerId> = listOf(relay1, relay2),
+        relays: List<PeerId> = listOf(relay1, relay2),
     ): PushHarness = pushHarness(
         relaySelection = object : RelaySelectionPolicy {
-            override suspend fun selectRelays(targetDevice: org.yapyap.protocol.PeerId) = relays
+            override suspend fun selectRelays(targetDevice: PeerId) = relays
         },
     )
 
-    private suspend fun PushHarness.drivePushToInFlight(device: org.yapyap.protocol.PeerId = peerA): org.yapyap.protocol.TransferId {
+    private suspend fun PushHarness.drivePushToInFlight(device: PeerId = peerA): TransferId {
         sender.pushFile(fixtureFileId, fixtureAccount)
         awaitLive(device)
         val transfer = transferIdsFor(device).single { pushes.find(it)?.kind == FilePushKind.DIRECT }
@@ -30,7 +32,7 @@ class FileDepositPolicyTest {
         return transfer
     }
 
-    private suspend fun PushHarness.depositsFor(device: org.yapyap.protocol.PeerId = peerA) =
+    private suspend fun PushHarness.depositsFor(device: PeerId = peerA) =
         pushes.live().filter { it.targetDevice == device && it.kind == FilePushKind.DEPOSIT }
 
     @Test
@@ -45,7 +47,7 @@ class FileDepositPolicyTest {
         // Restart: the claim survives, so no second round.
         val h2 = pushHarness(
             relaySelection = object : RelaySelectionPolicy {
-                override suspend fun selectRelays(targetDevice: org.yapyap.protocol.PeerId) = listOf(relay1, relay2)
+                override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1, relay2)
             },
         )
         for (row in h.pushes.live()) h2.pushes.insert(row)

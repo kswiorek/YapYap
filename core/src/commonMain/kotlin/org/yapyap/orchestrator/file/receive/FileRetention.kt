@@ -15,6 +15,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.file.FileDescriptorReader
+import org.yapyap.orchestrator.file.FilePins
 import org.yapyap.orchestrator.file.FileReceiveControl
 import org.yapyap.orchestrator.file.FileReceiveEvent
 import org.yapyap.orchestrator.file.FileReceiveReader
@@ -28,8 +29,9 @@ import kotlin.time.Instant
 /** Keeps the store's copies within `storeQuotaBytes` (design §10). */
 internal interface FileQuota {
     /**
-     * Evicts the least recently accessed copies, never one in [keep], until the copies fit.
-     * Never called under a file lock or inside a completion transaction.
+     * Evicts the least recently accessed copies until the copies fit, never one in [keep] and
+     * never one a send has pinned ([FilePins]). Never called under a file lock or inside a
+     * completion transaction.
      */
     suspend fun enforceQuota(keep: Set<FileId> = emptySet())
 }
@@ -41,7 +43,9 @@ internal interface FileQuota {
  *   whatever its status.
  * - **Quota.** True LRU over copies only. A received file goes through the engine's `evicted` verb
  *   (EVICTED, never re-fetched automatically); a sent copy loses its descriptor, then its bytes.
- *   Runs after every READY (from [receiveEvents]) and when the send path asks.
+ *   Runs after every READY (from [receiveEvents]) and when the send path asks. A READY run spares the
+ *   file that just arrived, even when it alone is over the quota: evicting it would only make the
+ *   user fetch it again (design §10).
  */
 internal class FileRetention(
     private val receives: FileReceiveReader,
@@ -54,9 +58,10 @@ internal class FileRetention(
     private val receiveEvents: Flow<FileReceiveEvent>,
     private val config: StateFlow<OrchestratorConfig>,
     private val clock: Clock = Clock.System,
+    private val pins: FilePins = FilePins(),
 ) : FileQuota {
     private val quotaMutex = Mutex()
-    private val quotaRequests = Channel<Unit>(Channel.CONFLATED)
+    private val quotaRequests = Channel<FileId>(Channel.UNLIMITED)
     private val jobs = mutableListOf<Job>()
 
     fun start(scope: CoroutineScope) {
@@ -68,10 +73,12 @@ internal class FileRetention(
             }
         }
         jobs += scope.launch {
-            receiveEvents.collect { event -> if (event is FileReceiveEvent.Ready) quotaRequests.trySend(Unit) }
+            receiveEvents.collect { event -> if (event is FileReceiveEvent.Ready) quotaRequests.trySend(event.fileId) }
         }
         jobs += scope.launch {
-            for (request in quotaRequests) runTask("Quota enforcement failed; will retry") { enforceQuota() }
+            for (arrived in quotaRequests) {
+                runTask("Quota enforcement failed; will retry", arrived) { enforceQuota(setOf(arrived)) }
+            }
         }
     }
 
@@ -89,6 +96,11 @@ internal class FileRetention(
                 if (referencing.isNotEmpty()) {
                     engine.updateOrigin(row.fileId, referencing.first(), now)
                 } else if (row.createdAt + config.value.unreferencedFileRetention <= now) {
+                    // A send still preparing this file (its message not in the DAG yet) keeps it.
+                    if (row.fileId in pins.pinned()) return@runTask
+                    // Checked again right before deleting: a message that landed meanwhile keeps it.
+                    // One landing after the delete only makes the file be requested again.
+                    if (messages.findMessageIdsByFileId(row.fileId).isNotEmpty()) return@runTask
                     engine.forgetUnreferenced(row.fileId)
                     fileStore.forget(row.fileId)
                     AppLog.info(
@@ -106,14 +118,17 @@ internal class FileRetention(
         val quota = config.value.storeQuotaBytes
         var total = descriptors.copyBytesTotal()
         if (total <= quota) return@withLock
+        val spared = keep + pins.pinned()
         for (victim in descriptors.copyDescriptorsLeastRecentlyUsed()) {
             if (total <= quota) break
-            if (victim.fileId in keep) continue
+            if (victim.fileId in spared) continue
             if (!engine.evicted(victim.fileId, clock.now())) {
-                // A sent copy: descriptor first, so none is left HELD without its bytes. The bytes
-                // are deleted at the store path, never at a path read from the row.
-                fileStore.forget(victim.fileId)
+                // A sent copy: it stops serving first (SOURCE_LOST), so none is left HELD without its
+                // bytes; then the bytes, at the store path (never a path read from the row); then the
+                // descriptor, so a failed delete stays in the LRU and the next run retries it.
+                fileStore.markSourceLost(victim.fileId)
                 files.delete(paths.final(victim.fileId))
+                fileStore.forget(victim.fileId)
                 AppLog.info(
                     component = LogComponent.FILE,
                     event = LogEvent.FILE_EVICTED,

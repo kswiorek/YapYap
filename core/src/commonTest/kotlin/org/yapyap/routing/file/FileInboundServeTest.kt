@@ -114,7 +114,7 @@ class FileInboundServeTest {
 
     private class OpenOnlyProtection(
         val request: FilePayload.Request,
-        val createdAt: kotlin.time.Instant,
+        val createdAt: Instant,
     ) : FileEnvelopeProtection {
         override suspend fun protect(
             input: FilePayload,

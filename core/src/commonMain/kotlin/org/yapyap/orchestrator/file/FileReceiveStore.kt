@@ -12,14 +12,13 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
- * Receive state, `fileId`-scoped (design §14): PENDING → IN_FLIGHT (`.part` reserved) →
- * READY (coverage complete, last block verified, renamed); IN_FLIGHT → STALLED on a block
- * mismatch below [OrchestratorConfig.fileHashRetryLimit], FAILED at the limit or on ENOSPC;
- * PENDING → DECLINED (no space, or a large file this device did not fetch — local,
- * re-openable); IN_FLIGHT → STALLED on the gap trigger; READY → EVICTED on quota LRU.
+ * Receive state, `fileId`-scoped (design §14): an accepted OFFER starts IN_FLIGHT (`.part`
+ * reserved) → READY (coverage complete, last block verified, renamed); IN_FLIGHT → STALLED on a
+ * block mismatch below [OrchestratorConfig.fileHashRetryLimit] or on the gap trigger, FAILED at
+ * the limit; STALLED → IN_FLIGHT when a source resumes; DECLINED when there is no space or a
+ * large file this device did not fetch (local, re-openable); READY → EVICTED on quota LRU.
  */
 public enum class FileReceiveStatus {
-    PENDING,
     IN_FLIGHT,
     STALLED,
     READY,
@@ -74,7 +73,7 @@ internal data class StagedRange(
 internal interface FileReceiveReader {
     suspend fun find(fileId: FileId): FileReceiveRow?
 
-    /** Receives not yet READY and not terminal (PENDING, IN_FLIGHT, STALLED). */
+    /** Receives not yet READY and not terminal (IN_FLIGHT, STALLED). */
     suspend fun active(): List<FileReceiveRow>
 
     /** Every receive row, whatever its status (retention sweep). */
@@ -91,11 +90,8 @@ internal interface FileReceiveStore : FileReceiveReader {
     suspend fun updateProgress(fileId: FileId, contiguousBytes: Long, mismatches: Int, status: FileReceiveStatus, now: Instant)
     suspend fun updateStatus(fileId: FileId, status: FileReceiveStatus, now: Instant)
     suspend fun updateOrigin(fileId: FileId, messageId: Uuid, now: Instant)
-    suspend fun delete(fileId: FileId)
     suspend fun ready(): List<FileReceiveRow>
 
-    suspend fun stageChunk(fileId: FileId, range: StagedRange)
-    suspend fun stagedByFile(fileId: FileId): List<StagedRange>
 
     /** Staged rows overlapping `[from, until)`: the blobs a drain needs, nothing beyond the gap. */
     suspend fun stagedOverlapping(fileId: FileId, from: Long, until: Long): List<StagedRange>
@@ -105,29 +101,15 @@ internal interface FileReceiveStore : FileReceiveReader {
     suspend fun stagedBytes(fileId: FileId): Long
     suspend fun deleteStagedByFile(fileId: FileId)
     suspend fun deleteStagedBelow(fileId: FileId, endExclusive: Long)
-    suspend fun deleteStagedFrom(fileId: FileId, start: Long)
-    suspend fun deleteStagedEndingPast(fileId: FileId, start: Long)
-    suspend fun trimStagedRow(fileId: FileId, oldStart: Long, newStart: Long, newLength: Long, newPlaintext: ByteArray)
 
     /** Stage [ranges] and move to [status] in one transaction: P moves before anything is deleted. */
     suspend fun stageChunks(fileId: FileId, ranges: List<StagedRange>, status: FileReceiveStatus, now: Instant)
 
     /**
-     * Atomic checkpoint commit (design §8): P advances, drained rows are deleted and the
-     * straddling row trimmed, all in one transaction. [trimOldStart] is null when no row
-     * straddles [newP].
+     * Atomic checkpoint commit (design §8): P advances and the drained rows (every row ending at
+     * or below [newP]) are deleted, in one transaction.
      */
-    suspend fun commitDrain(
-        fileId: FileId,
-        newP: Long,
-        mismatches: Int,
-        status: FileReceiveStatus,
-        now: Instant,
-        trimOldStart: Long?,
-        trimNewStart: Long?,
-        trimNewLength: Long?,
-        trimNewPlaintext: ByteArray?,
-    )
+    suspend fun commitDrain(fileId: FileId, newP: Long, mismatches: Int, status: FileReceiveStatus, now: Instant)
 
     /**
      * Atomic mismatch commit: P rewinds to [blockStart] and every staged row is dropped
@@ -201,12 +183,6 @@ internal class DefaultFileReceiveStore(
         }
     }
 
-    override suspend fun delete(fileId: FileId) {
-        withContext(dbDispatcher) {
-            queries.deleteFileReceiveById(fileId)
-        }
-    }
-
     override suspend fun active(): List<FileReceiveRow> = withContext(dbDispatcher) {
         queries.selectActiveFileReceives().executeAsList().map { it.toRow() }
     }
@@ -217,18 +193,6 @@ internal class DefaultFileReceiveStore(
 
     override suspend fun all(): List<FileReceiveRow> = withContext(dbDispatcher) {
         queries.selectAllFileReceives().executeAsList().map { it.toRow() }
-    }
-
-    override suspend fun stageChunk(fileId: FileId, range: StagedRange) {
-        withContext(dbDispatcher) {
-            queries.insertFileReceiveChunk(fileId, range.startOffset, range.length, range.plaintext)
-        }
-    }
-
-    override suspend fun stagedByFile(fileId: FileId): List<StagedRange> = withContext(dbDispatcher) {
-        queries.selectFileReceiveChunksByFile(fileId).executeAsList().map {
-            StagedRange(it.start_offset, it.length, it.plaintext)
-        }
     }
 
     override suspend fun stagedOverlapping(fileId: FileId, from: Long, until: Long): List<StagedRange> =
@@ -260,30 +224,6 @@ internal class DefaultFileReceiveStore(
         }
     }
 
-    override suspend fun deleteStagedFrom(fileId: FileId, start: Long) {
-        withContext(dbDispatcher) {
-            queries.deleteFileReceiveChunksFrom(fileId, start)
-        }
-    }
-
-    override suspend fun deleteStagedEndingPast(fileId: FileId, start: Long) {
-        withContext(dbDispatcher) {
-            queries.deleteFileReceiveChunksEndingPast(fileId, start)
-        }
-    }
-
-    override suspend fun trimStagedRow(
-        fileId: FileId,
-        oldStart: Long,
-        newStart: Long,
-        newLength: Long,
-        newPlaintext: ByteArray,
-    ) {
-        withContext(dbDispatcher) {
-            queries.updateFileReceiveChunk(newStart, newLength, newPlaintext, fileId, oldStart)
-        }
-    }
-
     override suspend fun stageChunks(
         fileId: FileId,
         ranges: List<StagedRange>,
@@ -306,19 +246,12 @@ internal class DefaultFileReceiveStore(
         mismatches: Int,
         status: FileReceiveStatus,
         now: Instant,
-        trimOldStart: Long?,
-        trimNewStart: Long?,
-        trimNewLength: Long?,
-        trimNewPlaintext: ByteArray?,
     ) {
         withContext(dbDispatcher) {
             db.transaction {
                 // P moves before anything is deleted.
                 queries.updateFileReceiveProgress(newP, mismatches.toLong(), status, now, fileId)
                 queries.deleteFileReceiveChunksBelow(fileId, newP)
-                if (trimOldStart != null && trimNewStart != null && trimNewLength != null && trimNewPlaintext != null) {
-                    queries.updateFileReceiveChunk(trimNewStart, trimNewLength, trimNewPlaintext, fileId, trimOldStart)
-                }
             }
         }
     }

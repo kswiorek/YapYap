@@ -1,6 +1,7 @@
 package org.yapyap.routing.file.push
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -221,9 +222,9 @@ internal class FilePushEngine(
     override suspend fun complete(transferId: TransferId, from: PeerId) {
         val row = pushes.find(transferId)
         if (row != null) {
-            // Any COMPLETE for (file, target device) resolves the authoring rows — including
-            // one addressed to a deposit transferId from the ultimate target.
-            if (from != row.targetDevice && !authorised(row, from)) {
+            // Only the target authors COMPLETE (design §3.2): a relay holding a deposit never
+            // does, so a COMPLETE from it must not resolve the direct push it never delivered.
+            if (from != row.targetDevice) {
                 AppLog.debug(
                     component = LogComponent.FILE,
                     event = LogEvent.FILE_TASK_FAILED,
@@ -254,7 +255,9 @@ internal class FilePushEngine(
     override suspend fun cancelled(transferId: TransferId, from: PeerId, reason: FileCancelReason) {
         val row = pushes.find(transferId)
         if (row != null) {
-            if (!authorised(row, from)) {
+            // The relay of a deposit may refuse it, and the target may end its receive of
+            // any of our transfers (design §3.2: target → author).
+            if (!authorised(row, from) && from != row.targetDevice) {
                 AppLog.debug(
                     component = LogComponent.FILE,
                     event = LogEvent.FILE_TASK_FAILED,
@@ -320,7 +323,20 @@ internal class FilePushEngine(
                     fields = mapOf("transferId" to row.transferId),
                 )
                 return false
-            } ?: return false
+            }
+            if (info == null) {
+                // The file is no longer held (deleted, or a reference that moved): this transfer
+                // can never send, so it ends now instead of showing as sending until its TTL.
+                AppLog.warn(
+                    component = LogComponent.FILE,
+                    event = LogEvent.FILE_PUSH_ENDED,
+                    message = "File push ended: the file is no longer held",
+                    fields = mapOf("transferId" to row.transferId, "fileId" to row.fileId),
+                )
+                if (row.kind == FilePushKind.DEPOSIT) terminateSilent(row.transferId, FilePushStatus.ENDED)
+                else failTransfer(row.transferId, FilePushStatus.ENDED, FileFailureReason.ENDED)
+                return false
+            }
             // Stopped: the row stays live and the next runIn starts it.
             val scope = runScope ?: return false
             val fixedSource =
@@ -338,10 +354,12 @@ internal class FilePushEngine(
                 onDepositAsk = { ask -> depositForActor(ask) },
                 tagKind = OutboxTag.Kind.FILE_PUSH,
             )
-            // Recover runs before the actor reads its mailbox.
+            // Recover runs before the actor reads its mailbox. Registered before it runs: an
+            // outcome for its marker can arrive as soon as it is queued, and must find the actor.
             actor.recover()
-            val job = scope.launch { actor.run() }
+            val job = scope.launch(start = CoroutineStart.LAZY) { actor.run() }
             mutex.withLock { actors[row.transferId] = ActorEntry(actor, job) }
+            job.start()
             return true
         } finally {
             mutex.withLock { starting.remove(row.transferId) }
@@ -624,6 +642,13 @@ internal class FilePushEngine(
                 expiresAt = now + ctx.routerConfig.value.fileTransferTtl,
             )
             pushes.insert(deposit)
+            // A COMPLETE (or any end) may have landed while the relays were being chosen. Once
+            // the deposit row exists, an end that lands later cancels it with the other
+            // deposits; one that landed before must be checked here.
+            if (pushes.find(transferId)?.status?.isLive != true) {
+                terminateSilent(deposit.transferId, FilePushStatus.CANCELLED)
+                break
+            }
             if (startActor(deposit)) started += 1
         }
         AppLog.info(
@@ -655,7 +680,14 @@ internal class FilePushEngine(
         val store = relay
         val now = ctx.clock.now()
         val idleTtl = ctx.routerConfig.value.fileRelayIdleTtl
-        for (row in store.live()) {
+        val live = store.live()
+        // The relay door deletes rows on its own (eviction, CANCEL, expiry at a chunk): a forward
+        // actor whose row is gone would wait for input forever, so it is reaped here.
+        val liveIds = live.map { it.transferId }.toSet()
+        val orphans = mutex.withLock { forwardActors.keys.filter { it !in liveIds && it !in startingForwards } }
+        // Re-checked one by one: a row admitted after the snapshot is not an orphan.
+        for (id in orphans) if (store.find(id) == null) dropForwardActor(id)
+        for (row in live) {
             if (now >= row.expiresAt) {
                 dropForward(row.transferId)
                 continue
@@ -701,9 +733,18 @@ internal class FilePushEngine(
             val scope = runScope ?: return
             if (relay.find(id) == null) return
             val actor = ForwardActor(ctx, relay, outbox, id) { finished -> dropForwardActor(finished) }
-            actor.recoverAndStart()
-            val job = scope.launch { actor.run() }
+            // Registered before its marker goes out, so the marker's outcome finds the actor.
+            val job = scope.launch(start = CoroutineStart.LAZY) { actor.run() }
             mutex.withLock { forwardActors[id] = ForwardEntry(actor, job) }
+            try {
+                actor.recoverAndStart()
+            } catch (e: Throwable) {
+                // Never leave a registered actor that will not run.
+                mutex.withLock { if (forwardActors[id]?.job === job) forwardActors.remove(id) }
+                job.cancel()
+                throw e
+            }
+            job.start()
         } finally {
             mutex.withLock { startingForwards.remove(id) }
         }

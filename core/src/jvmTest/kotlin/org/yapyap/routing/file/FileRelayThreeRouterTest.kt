@@ -141,7 +141,7 @@ class FileRelayThreeRouterTest {
             opkRepository = InMemoryOpkRepository(crypto),
             clock = clock,
             upgradePolicy = SessionUpgradePolicy.NEVER,
-            sessionConfig = kotlinx.coroutines.flow.MutableStateFlow(
+            sessionConfig = MutableStateFlow(
                 CryptoSessionConfig()
             ),
             cryptoLimits = MutableStateFlow(testCryptoLimits()),

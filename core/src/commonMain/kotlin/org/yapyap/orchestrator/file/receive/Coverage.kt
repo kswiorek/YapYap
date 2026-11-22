@@ -10,13 +10,12 @@ import org.yapyap.routing.file.port.FileCoverage
  */
 internal data class StagedSpan(val start: Long, val length: Long)
 
-/** Which staged rows a drain appends, which straddling row it trims, and the new prefix. */
-internal data class DrainPlan(
-    val newP: Long,
-    val trimOldStart: Long?,
-    val trimNewStart: Long?,
-    val trimNewLength: Long?,
-)
+/**
+ * The new prefix a drain reaches. No staged row ever straddles it: the plan stops at the furthest
+ * end of the rows it walked, and every row starting before that was walked, so every staged row
+ * ends at or below [newP] or starts past it.
+ */
+internal data class DrainPlan(val newP: Long)
 
 internal object Coverage {
     /**
@@ -69,13 +68,7 @@ internal object Coverage {
             if (range.start + range.length <= cursor) continue
             cursor = range.start + range.length
         }
-        if (cursor == p) return DrainPlan(p, null, null, null)
-        val straddling = staged.firstOrNull { it.start < cursor && it.start + it.length > cursor }
-        return if (straddling != null) {
-            DrainPlan(cursor, straddling.start, cursor, straddling.start + straddling.length - cursor)
-        } else {
-            DrainPlan(cursor, null, null, null)
-        }
+        return DrainPlan(cursor)
     }
 
     /**

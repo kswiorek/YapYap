@@ -1,5 +1,8 @@
 package org.yapyap.orchestrator.file
 
+import org.yapyap.protocol.blockSizeFor
+import kotlinx.coroutines.Job
+import org.yapyap.persistence.YapYapDatabase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -107,24 +110,10 @@ private class CrashingReceiveStore(
         newP: Long,
         mismatches: Int,
         status: FileReceiveStatus,
-        now: Instant,
-        trimOldStart: Long?,
-        trimNewStart: Long?,
-        trimNewLength: Long?,
-        trimNewPlaintext: ByteArray?,
+        now: Instant
     ) {
         if (crashAt == "commitDrain") throw InjectedCrash(crashAt)
-        delegate.commitDrain(
-            fileId,
-            newP,
-            mismatches,
-            status,
-            now,
-            trimOldStart,
-            trimNewStart,
-            trimNewLength,
-            trimNewPlaintext
-        )
+        delegate.commitDrain(fileId, newP, mismatches, status, now)
     }
 
     override suspend fun markReady(fileId: FileId, newP: Long, mismatches: Int, now: Instant) {
@@ -148,7 +137,7 @@ class FileReceiveEngineJvmTest {
     )
 
     private data class Backend(
-        val db: org.yapyap.persistence.YapYapDatabase,
+        val db: YapYapDatabase,
         val incomingDir: Path,
         val storeDir: Path,
     )
@@ -196,7 +185,7 @@ class FileReceiveEngineJvmTest {
 
     private suspend fun sampleFile(totalBytes: Long): Triple<FileId, Int, List<ByteArray>> {
         val bytes = ByteArray(totalBytes.toInt()) { (it * 7).toByte() }
-        val blockSize = org.yapyap.protocol.blockSizeFor(totalBytes)
+        val blockSize = blockSizeFor(totalBytes)
         val hashes = TestFileIds.blockHashesForBytes(crypto, bytes, blockSize)
         val fileId = FileIds.fileIdForBlocks(crypto, totalBytes, blockSize, hashes)
         return Triple(fileId, blockSize, hashes)
@@ -386,6 +375,13 @@ class FileReceiveEngineJvmTest {
                 h.engine.ingest(fileId, 2L * 1024 * 1024, bytes.copyOfRange(2 * 1024 * 1024, total.toInt())),
             )
             assertTrue(acked.none { it is FileIngestResult.Defer || it is FileIngestResult.Refused }, "$step: $acked")
+            // The fault really fired: the completion stopped at that step.
+            if (step == "adopt") {
+                assertEquals(FileReceiveStatus.READY, h.receives.find(fileId)?.status, step)
+                assertNull(h.descriptors.findById(fileId), "$step: crashed before the descriptor")
+            } else {
+                assertTrue(h.receives.find(fileId)?.status != FileReceiveStatus.READY, "$step: crashed before READY")
+            }
 
             // Restart without the fault: nothing ACKed is lost, the file completes and is held.
             val h2 = harness(backend = h.backend, clock = h.clock)
@@ -661,7 +657,7 @@ class FileReceiveEngineJvmTest {
         kotlinx.coroutines.coroutineScope {
             val chunk = 256 * 1024
             var off = 0L
-            val jobs = mutableListOf<kotlinx.coroutines.Job>()
+            val jobs = mutableListOf<Job>()
             while (off < total) {
                 val start = off
                 val end = minOf(off + chunk, total)
@@ -742,7 +738,13 @@ class FileReceiveEngineJvmTest {
 
     @Test
     fun quotaEviction_receivedFile_goesEvictedAndReopens() = runTest {
-        val config = MutableStateFlow(OrchestratorConfig(storeQuotaBytes = 1_500_000L))
+        val config = MutableStateFlow(
+            OrchestratorConfig(
+                storeQuotaBytes = 1_500_000L,
+                autoDownloadMaxBytes = 0L,
+                copyIntoStoreMaxBytes = 0L
+            )
+        )
         val h = harness(config = config.value)
         val total = 1L * 1024 * 1024
         val (fileId, blockSize, hashes) = sampleFile(total)
@@ -1025,5 +1027,76 @@ class FileReceiveEngineJvmTest {
         h.engine.decline(fileId, null, h.clock.now())
         // A frame still in flight after the user's decline: an expected race, not an error.
         assertIs<FileAppendResult.Ended>(h.engine.append(fileId, 256 * 1024, bytes.copyOfRange(256 * 1024, 512 * 1024)))
+    }
+
+    @Test
+    fun fetchWrite_resumesAStalledReceive() = runTest {
+        val h = harness()
+        val total = 2L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        assertTrue(h.engine.markStalled(fileId, h.clock.now()))
+        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
+        // A source resumes delivery: the gap trigger must watch this receive again.
+        h.engine.append(fileId, 0, bytes.copyOfRange(0, 256 * 1024))
+        assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status)
+    }
+
+    @Test
+    fun readyFileWhoseStoredCopyWasLost_isReceivedAgain() = runTest {
+        val h = harness()
+        val total = 1L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        assertIs<FileAppendResult.Ready>(h.engine.append(fileId, 0, bytes))
+        assertEquals(FileDescriptorStatus.HELD, h.descriptors.findById(fileId)?.status)
+        // The stored copy rots: serving marks it SOURCE_LOST.
+        h.descriptors.setStatus(fileId, FileDescriptorStatus.SOURCE_LOST)
+        // A holder's OFFER is accepted again instead of being answered "already have it".
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        val row = assertNotNull(h.receives.find(fileId))
+        assertEquals(FileReceiveStatus.IN_FLIGHT, row.status)
+        assertEquals(0L, row.contiguousBytes)
+        assertIs<FileAppendResult.Ready>(h.engine.append(fileId, 0, bytes))
+        assertEquals(FileDescriptorStatus.HELD, h.descriptors.findById(fileId)?.status)
+    }
+
+    @Test
+    fun orphanPartFiles_areDeletedAtRecovery_activeOnesKept() = runTest {
+        val h = harness()
+        val total = 1L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        // A `.part` no receive refers to (a delete that failed before a crash).
+        val orphan = Path(h.paths.incomingDir.toString(), "${"ab".repeat(32)}.part")
+        h.files.openAppendWriter(orphan, null).use { it.flushAndSync() }
+        assertTrue(h.files.exists(orphan))
+
+        val h2 = harness(backend = h.backend, clock = h.clock)
+        assertFalse(h2.files.exists(orphan), "the orphan is deleted")
+        assertTrue(h2.files.exists(h2.paths.part(fileId)), "the active receive keeps its .part")
+    }
+
+    @Test
+    fun fetchCompletion_crashBetweenCommitAndRename_finishesWithoutRefetching() = runTest {
+        val total = 1L * 1024 * 1024
+        val (fileId, blockSize, hashes) = sampleFile(total)
+        val bytes = bytesFor(total)
+        val crashingMove = object : FileAccess by JvmFileAccess() {
+            override suspend fun move(source: Path, target: Path) = throw InjectedCrash("move")
+        }
+        val h = harness(files = crashingMove)
+        assertIs<FileOfferVerdict.Accept>(h.engine.checkOffer(offerFor(h, fileId, total, blockSize, hashes)))
+        assertFailsWith<InjectedCrash> { h.engine.append(fileId, 0, bytes) }
+        // P was committed before the rename: the restart has nothing left to fetch.
+        assertEquals(total, h.receives.find(fileId)?.contiguousBytes)
+
+        val h2 = harness(backend = h.backend, clock = h.clock)
+        h2.engine.checkpoint()
+        assertEquals(FileReceiveStatus.READY, h2.receives.find(fileId)?.status)
+        val descriptor = assertNotNull(h2.descriptors.findById(fileId))
+        assertContentEquals(bytes, readAll(h2.files, Path(descriptor.path), total.toInt()))
     }
 }

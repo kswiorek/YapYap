@@ -1,5 +1,9 @@
 package org.yapyap.testfixtures
 
+import org.yapyap.crypto.identity.LocalIdentity
+import org.yapyap.orchestrator.file.FilePathKind
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
 import org.yapyap.orchestrator.file.FileCoverageReader
 import org.yapyap.orchestrator.file.FileDescriptor
 import org.yapyap.orchestrator.file.FileDescriptorReader
@@ -77,7 +81,7 @@ internal class FakeDescriptors : FileDescriptorReader {
             blockSize = 1024 * 1024,
             blockHashes = emptyList(),
             storage = FileStorage.COPY,
-            pathKind = org.yapyap.orchestrator.file.FilePathKind.PATH,
+            pathKind = FilePathKind.PATH,
             path = "/tmp/f",
             status = FileDescriptorStatus.HELD,
             createdAt = Instant.DISTANT_PAST,
@@ -102,9 +106,9 @@ internal class FakeCoverage(var coverage: FileCoverage? = null) : FileCoverageRe
 }
 
 /** Local identity stub reporting a fixed account. */
-internal class FakeLocalIdentity(private val account: AccountId) : org.yapyap.crypto.identity.LocalIdentity {
-    override suspend fun getLocalDeviceIdentity(): org.yapyap.protocol.identity.DeviceIdentity = error("not used")
-    override suspend fun getLocalAccountIdentity(): org.yapyap.protocol.identity.AccountIdentity = error("not used")
+internal class FakeLocalIdentity(private val account: AccountId) : LocalIdentity {
+    override suspend fun getLocalDeviceIdentity(): DeviceIdentity = error("not used")
+    override suspend fun getLocalAccountIdentity(): AccountIdentity = error("not used")
     override suspend fun getLocalDeviceId(): PeerId = error("not used")
     override suspend fun getLocalAccountId(): AccountId = account
 }

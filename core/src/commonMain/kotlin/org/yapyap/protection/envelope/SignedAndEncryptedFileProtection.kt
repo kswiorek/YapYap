@@ -36,14 +36,22 @@ import kotlin.coroutines.cancellation.CancellationException
  * Keys are [TransferKey] threaded explicitly per call: the pusher owns its
  * `file_pushes` row key and passes it to [encryptChunk]; the inbound handler owns its
  * `file_incoming_transfers` row key and passes it to [decryptChunk]. Protection never
- * stores a key, and the orchestrator never sees one.
+ * persists a key (sealed frames it opened stay in memory for a few minutes, see
+ * [OpenedFrameCache]), and the orchestrator never sees one.
  */
 internal class SignedAndEncryptedFileProtection(
     private val signatureProvider: SignatureProvider,
     private val cryptoSessionManager: CryptoSessionManager,
     private val cryptoProvider: CryptoProvider,
+    /** Lets a redelivery of a sealed frame we deferred after opening through (see [OpenedFrameCache]). */
+    private val openedFrames: OpenedFrameCache = OpenedFrameCache(),
 ) : BaseProtection<FilePayload, FileEnvelope, OpenedFileEnvelope, FileProtectContext>(),
     FileEnvelopeProtection {
+
+    private suspend fun openSealed(source: PeerId, sealed: ByteArray): ByteArray =
+        openedFrames.openOnce(source, sealed, digest = { cryptoProvider.sha256(it) }) {
+            cryptoSessionManager.decryptMessage(remoteDeviceId = source, frameBytes = sealed)
+        }
 
     override suspend fun doProtect(input: FilePayload, context: FileProtectContext): FileEnvelope {
         val payloadBytes = when (input) {
@@ -263,10 +271,7 @@ internal class SignedAndEncryptedFileProtection(
 
     override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer {
         val plaintext = try {
-            cryptoSessionManager.decryptMessage(
-                remoteDeviceId = source,
-                frameBytes = sealed,
-            )
+            openSealed(source, sealed)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -325,10 +330,7 @@ internal class SignedAndEncryptedFileProtection(
     private suspend fun openRequestWire(payload: ByteArray, source: PeerId): FilePayload.Request {
         val sealed = payload.copyOfRange(1, payload.size)
         val fields = try {
-            cryptoSessionManager.decryptMessage(
-                remoteDeviceId = source,
-                frameBytes = sealed,
-            )
+            openSealed(source, sealed)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

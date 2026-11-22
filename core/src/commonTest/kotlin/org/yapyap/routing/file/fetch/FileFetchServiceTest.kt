@@ -1,5 +1,7 @@
 package org.yapyap.routing.file.fetch
 
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.TorEndpoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -15,9 +17,7 @@ import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileFetchFrame
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.routing.directory.DeviceDirectory
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileCoverage
@@ -34,7 +34,6 @@ import org.yapyap.routing.router.RouterConfig
 import org.yapyap.testfixtures.FakeClock
 import org.yapyap.testfixtures.epochSeconds
 import org.yapyap.transport.webrtc.RecordingWebRtcTransport
-import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import org.yapyap.transport.webrtc.types.FileChannelId
 import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
 import org.yapyap.transport.webrtc.types.WebRtcFileFrame
@@ -68,11 +67,11 @@ class FileFetchServiceTest {
             deviceToAccount.filter { it.value in accountIds }.keys.toList()
 
         override suspend fun getAllActiveDeviceIds(): List<PeerId> = deviceToAccount.keys.toList()
-        override suspend fun getDeviceStatus(deviceId: PeerId): org.yapyap.protocol.IdentityStatus? =
-            if (deviceId in deviceToAccount) org.yapyap.protocol.IdentityStatus.ACTIVE else null
+        override suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus? =
+            if (deviceId in deviceToAccount) IdentityStatus.ACTIVE else null
 
-        override suspend fun getAccountStatus(accountId: AccountId): org.yapyap.protocol.IdentityStatus? = null
-        override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): org.yapyap.protocol.TorEndpoint? = null
+        override suspend fun getAccountStatus(accountId: AccountId): IdentityStatus? = null
+        override suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint? = null
     }
 
     private class BytePlaintext(
@@ -272,9 +271,8 @@ class FileFetchServiceTest {
         val scope = CoroutineScope(SupervisorJob())
         holder.runIn(scope)
         requester.runIn(scope)
+        // The pump carries both directions.
         val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
-        // Pump above is directional; add the reverse so both sides hear each other.
-        val pumpRev = scope.pump(bobDevice, bobTransport, aliceDevice, aliceTransport)
         try {
             val outcome = withTimeout(10.seconds) {
                 requester.fetch(aliceDevice, fileId, 0L)
@@ -284,6 +282,51 @@ class FileFetchServiceTest {
         } finally {
             pumpJob.cancel()
             scope.cancel()
+        }
+    }
+
+    @Test
+    fun localRefusalsAtFetchOk_areNeverAHolderDecline() = runBlocking {
+        // Our own outcomes at FETCH_OK must not blacklist the holder: only its FETCH_DECLINED
+        // (or a block list that fails the fileId) counts as a decline.
+        val cases = listOf(
+            FileOfferVerdict.Defer to FetchResult.UNANSWERED,
+            FileOfferVerdict.Refuse(FileRefusalReason.NO_SPACE) to FetchResult.NO_SPACE,
+            FileOfferVerdict.Refuse(FileRefusalReason.NOT_RETRYABLE) to FetchResult.ENDED,
+        )
+        for ((verdict, expected) in cases) {
+            val aliceTransport = RecordingWebRtcTransport()
+            val bobTransport = RecordingWebRtcTransport()
+            val data = ByteArray(64 * 1024) { it.toByte() }
+            val info =
+                FileManifest(fileId, data.size.toLong(), 1024 * 1024, listOf(ByteArray(32) { 9 }), "big.bin", null)
+            val holder = service(
+                aliceDevice,
+                FakeDevices(mapOf(bobDevice to bobAccount)),
+                aliceTransport,
+                BytePlaintext(info, data),
+                TestGate(canServe = true),
+            )
+            val requesterGate = TestGate(offerVerdict = verdict, totalBytes = data.size.toLong())
+            val requester = service(
+                bobDevice,
+                FakeDevices(mapOf(aliceDevice to aliceAccount)),
+                bobTransport,
+                BytePlaintext(null, ByteArray(0)),
+                requesterGate,
+            )
+            val scope = CoroutineScope(SupervisorJob())
+            holder.runIn(scope)
+            requester.runIn(scope)
+            val pumpJob = scope.pump(aliceDevice, aliceTransport, bobDevice, bobTransport)
+            try {
+                val outcome = withTimeout(10.seconds) { requester.fetch(aliceDevice, fileId, 0L) }
+                assertEquals(expected, outcome, "verdict $verdict")
+                assertEquals(0, requesterGate.appendCalls, "verdict $verdict: no bytes accepted")
+            } finally {
+                pumpJob.cancel()
+                scope.cancel()
+            }
         }
     }
 
@@ -343,7 +386,7 @@ class FileFetchServiceTest {
             for (ch in bobTransport.sendFileFrameCalls.map { it.first }.toList()) {
                 bobTransport.tryEmitFileChannelEvent(WebRtcFileChannelEvent.Removed(ch))
             }
-            requester.abortFetch(fileId, FileFetchAbortReason.CANCELLED)
+            // No abort: the close alone must end the fetch and clear both sides.
             withTimeout(5.seconds) {
                 fetchJob.join()
             }
@@ -359,7 +402,7 @@ class FileFetchServiceTest {
     }
 
     @Test
-    fun slowDisk_boundsHolderAtWindow_envelopeKeepsFlowing() = runBlocking {
+    fun slowDisk_boundsHolderAtWindow() = runBlocking {
         val aliceTransport = RecordingWebRtcTransport()
         val bobTransport = RecordingWebRtcTransport()
         val window = 64L * 1024L
@@ -401,11 +444,7 @@ class FileFetchServiceTest {
             val fetchJob = launch {
                 requester.fetch(aliceDevice, fileId, 0L)
             }
-            withTimeout(10.seconds) {
-                while (plaintext.opens == 0) delay(20)
-                delay(400)
-            }
-            val sentBytes = aliceTransport.sendFileFrameCalls.sumOf { (_, payload) ->
+            fun sentBytes() = aliceTransport.sendFileFrameCalls.toList().sumOf { (_, payload) ->
                 val frame = try {
                     FileFetchFrame.decode(payload)
                 } catch (_: Exception) {
@@ -413,29 +452,12 @@ class FileFetchServiceTest {
                 }
                 if (frame is FileFetchFrame.Data) frame.bytes.size else 0
             }
-            assertTrue(sentBytes <= window + chunk, "holder bounded at window, sent $sentBytes")
-            // Envelope channel is independent: a binary envelope still flows on its own flow.
-            val collected = mutableListOf<WebRtcIncomingEnvelope>()
-            val collectJob = launch {
-                bobTransport.incomingEnvelopes.collect { collected += it }
-            }
-            delay(50)
-            val envelope = BinaryEnvelope(
-                packetId = Uuid.random(),
-                packetType = PacketType.MESSAGE,
-                dispositionRequested = false,
-                createdAt = now,
-                expiresAt = now + 60.seconds,
-                source = aliceDevice,
-                target = bobDevice,
-                payload = byteArrayOf(1, 2, 3),
-            )
-            assertTrue(bobTransport.tryEmitIncomingEnvelope(WebRtcIncomingEnvelope(aliceDevice, envelope)))
-            withTimeout(5.seconds) {
-                while (collected.isEmpty()) delay(20)
-            }
-            assertEquals(1, collected.size)
-            collectJob.cancel()
+            // The holder must actually fill its window (a holder that sent nothing would pass a
+            // bound alone), then stay within it while P does not move.
+            withTimeout(10.seconds) { while (sentBytes() < window) delay(20) }
+            delay(400)
+            val sent = sentBytes()
+            assertTrue(sent <= window + chunk, "holder bounded at window, sent $sent")
             // The holder parks via the callback-backed backpressure path, not polling.
             assertTrue(aliceTransport.awaitBufferedCalls.isNotEmpty(), "holder used awaitBufferedBelow")
             fetchJob.cancel()

@@ -3,10 +3,14 @@ package org.yapyap.orchestrator.file.io
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.file.AccessDeniedException
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
@@ -22,6 +26,14 @@ import java.nio.file.StandardOpenOption
 internal class JvmFileAccess : FileAccess {
     override suspend fun exists(path: Path): Boolean = withContext(Dispatchers.IO) {
         Files.exists(nio(path))
+    }
+
+    override suspend fun listFileNames(dir: Path): List<String> = withContext(Dispatchers.IO) {
+        val nioDir = nio(dir)
+        if (!Files.isDirectory(nioDir)) return@withContext emptyList()
+        Files.list(nioDir).use { entries ->
+            entries.filter { Files.isRegularFile(it) }.map { it.fileName.toString() }.toList()
+        }
     }
 
     override suspend fun createDirectories(path: Path): Unit = withContext(Dispatchers.IO) {
@@ -58,9 +70,23 @@ internal class JvmFileAccess : FileAccess {
         val dir = Paths.get(path.toString()).parent ?: return@withContext
         try {
             FileChannel.open(dir, StandardOpenOption.READ).use { it.force(true) }
-        } catch (_: Exception) {
-            // Best-effort: the rename above is what matters.
+        } catch (e: AccessDeniedException) {
+            // Windows cannot open a directory as a channel; its rename is durable without it.
+            AppLog.debug(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Directory fsync not supported here",
+                fields = mapOf("dir" to dir.toString(), "error" to e.toString()),
+            )
+        } catch (e: UnsupportedOperationException) {
+            AppLog.debug(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Directory fsync not supported here",
+                fields = mapOf("dir" to dir.toString(), "error" to e.toString()),
+            )
         }
+        // Any other failure (EIO) propagates: the rename may not be durable, so READY must wait.
     }
 
     override suspend fun openAppendWriter(path: Path, truncateToLength: Long?): AppendHandle =

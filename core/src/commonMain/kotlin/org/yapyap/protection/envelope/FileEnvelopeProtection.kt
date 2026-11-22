@@ -55,7 +55,11 @@ internal interface FileEnvelopeProtection {
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray
 
-    /** Opens the sealed half of an OFFER built by [protectOffer]; a sealed-half replay fails here. */
+    /**
+     * Opens the sealed half of an OFFER built by [protectOffer]. A redelivery of the same sealed
+     * bytes opens again only for a few minutes (our own Defer after opening); after that it fails
+     * as a ratchet replay (PERMANENT).
+     */
     suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer
 
     /** Fresh per-transfer symmetric key (design §4): one key never outlives one transfer. */

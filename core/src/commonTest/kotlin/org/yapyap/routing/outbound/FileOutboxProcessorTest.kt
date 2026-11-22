@@ -1,5 +1,6 @@
 package org.yapyap.routing.outbound
 
+import org.yapyap.routing.router.TrackingPacketOutbox
 import kotlinx.coroutines.test.runTest
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
@@ -64,15 +65,11 @@ class FileOutboxProcessorTest {
     @Test
     fun processDue_messagesGoOutBeforeFileChunks() = runTest {
         val tor = RecordingTorTransport()
-        val outbox = org.yapyap.routing.router.TrackingPacketOutbox()
+        val outbox = TrackingPacketOutbox()
         val now = 10_000L
         val messageId = Uuid.random()
-        outbox.enqueue(
-            envelope = envelope(messageId, PacketType.MESSAGE, OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()), now),
-            nextRetryAt = epochSeconds(now),
-            tag = OutboxTag(OutboxTag.Kind.MESSAGE, messageId),
-        )
-        repeat(3) { index ->
+        // The chunks are queued first: the message still goes out ahead of them.
+        repeat(3) {
             val chunkId = Uuid.random()
             outbox.enqueue(
                 envelope = envelope(chunkId, PacketType.FILE, fileTag(), now),
@@ -81,6 +78,11 @@ class FileOutboxProcessorTest {
                 retryClass = RetryClass.FLAT,
             )
         }
+        outbox.enqueue(
+            envelope = envelope(messageId, PacketType.MESSAGE, OutboxTag(OutboxTag.Kind.MESSAGE, Uuid.random()), now),
+            nextRetryAt = epochSeconds(now),
+            tag = OutboxTag(OutboxTag.Kind.MESSAGE, messageId),
+        )
         val processor = outboxProcessorUnderTest(
             tor = tor,
             outbox = outbox,
@@ -99,7 +101,7 @@ class FileOutboxProcessorTest {
     @Test
     fun fileChunk_retriesAtFlatDelay_outsideMessageBudgets() = runTest {
         val tor = RecordingTorTransport()
-        val outbox = org.yapyap.routing.router.TrackingPacketOutbox()
+        val outbox = TrackingPacketOutbox()
         val now = 10_000L
         val chunkId = Uuid.random()
         outbox.enqueue(
@@ -129,7 +131,7 @@ class FileOutboxProcessorTest {
     @Test
     fun duePass_loadsNoBlobsForRowsItDoesNotClaim() = runTest {
         val tor = RecordingTorTransport()
-        val outbox = org.yapyap.routing.router.TrackingPacketOutbox()
+        val outbox = TrackingPacketOutbox()
         val now = 10_000L
         repeat(5) {
             val id = Uuid.random()
@@ -157,7 +159,7 @@ class FileOutboxProcessorTest {
     @Test
     fun fileRows_retryIndefinitelyAtFlatDelay() = runTest {
         val tor = RecordingTorTransport()
-        val outbox = org.yapyap.routing.router.TrackingPacketOutbox()
+        val outbox = TrackingPacketOutbox()
         val now = 10_000L
         val chunkId = Uuid.random()
         outbox.enqueue(

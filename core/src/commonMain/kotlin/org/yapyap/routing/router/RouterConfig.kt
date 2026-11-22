@@ -130,7 +130,7 @@ internal data class RouterConfig(
      * `wiring/ConfigInvariants`).
      */
     val fileTransferTtl: Duration = 2.days,
-    /** The pusher's in-flight window: pending chunk rows per transfer (≈3.5 MB of outbox). */
+    /** The pusher's in-flight window: pending chunk rows per transfer (≈4.1 MB of outbox at 16 chunks). */
     val maxInFlightChunks: Int = 16,
     /**
      * Flat retry delay for FILE chunk rows (design §6.2), outside the message

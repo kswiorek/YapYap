@@ -1,5 +1,9 @@
 package org.yapyap.routing.file
 
+import org.yapyap.routing.store.DefaultFileRequestAttemptStore
+import org.yapyap.routing.store.DefaultFileRelayStore
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,10 +78,6 @@ import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.E2eeIdentityResolverForRouter
 import org.yapyap.routing.router.FakeFrontierSnapshotProvider
 import org.yapyap.routing.router.FakeSyncPayloadProvider
-import org.yapyap.routing.router.InMemoryFileIncomingTransferStore
-import org.yapyap.routing.router.InMemoryFilePushStore
-import org.yapyap.routing.router.InMemoryFileRelayStore
-import org.yapyap.routing.router.InMemoryFileRequestAttemptStore
 import org.yapyap.routing.router.InMemoryPacketDeduplicator
 import org.yapyap.routing.router.InMemorySyncAttemptStore
 import org.yapyap.routing.router.RouterConfig
@@ -257,10 +257,11 @@ class FileLargeFetchTwoRouterTest {
                 serveGate = requestSource,
                 plaintext = DefaultFilePlaintextSource(descriptors, fileStore, files, crypto),
                 receiveEnds = engine,
-                incoming = InMemoryFileIncomingTransferStore(),
-                pushes = InMemoryFilePushStore(),
-                relay = InMemoryFileRelayStore(),
-                requestAttempts = InMemoryFileRequestAttemptStore(),
+                // The real stores over this node's database, not hand-written fakes.
+                incoming = DefaultFileIncomingTransferStore(db),
+                pushes = DefaultFilePushStore(db),
+                relay = DefaultFileRelayStore(db),
+                requestAttempts = DefaultFileRequestAttemptStore(db),
                 protection = PassthroughFileProtection(),
                 chunkSizeBytes = chunkSize,
                 fetchFrameBytes = chunkSize,
@@ -382,8 +383,9 @@ class FileLargeFetchTwoRouterTest {
     private fun Mesh.advanceClock(): Job = scope.launch {
         while (true) {
             delay(50.milliseconds)
+            // Both nodes share one clock: advance it once per tick (twice ran it at 4x real time).
             alice.clock.advanceBy(100.milliseconds)
-            bob.clock.advanceBy(100.milliseconds)
+            if (bob.clock !== alice.clock) bob.clock.advanceBy(100.milliseconds)
         }
     }
 
@@ -500,14 +502,8 @@ class FileLargeFetchTwoRouterTest {
                 bob.tor.sendsExcludingHeartbeat().map { it.second })
             .map { it.packetType }
 
-    private fun Mesh.outboxFileTags(): List<OutboxTag> {
-        val tags = mutableListOf<OutboxTag>()
-        for (entry in alice.outbox.enqueued + bob.outbox.enqueued) {
-            val tag = (if (entry in alice.outbox.enqueued) alice else bob).outbox.tagOf(entry.packetId)
-            if (tag != null) tags += tag
-        }
-        return tags
-    }
+    /** Every tag either side ever enqueued, including rows long since delivered or removed. */
+    private fun Mesh.outboxFileTags(): List<OutboxTag> = alice.outbox.enqueuedTags + bob.outbox.enqueuedTags
 
     private suspend fun readFinal(node: Node, fileId: FileId, size: Int): ByteArray {
         val path = Path(node.work.toString(), "store", fileId.value)
@@ -543,17 +539,12 @@ class FileLargeFetchTwoRouterTest {
                 }
             } catch (e: TimeoutCancellationException) {
                 val row = mesh.bob.receives.find(fileId)
-                java.io.File("/tmp/yapyap-timeout.txt").writeText(
-                    "pending=" + mesh.bob.pending.find(fileId) + "\n" +
-                            "bobSends=" + mesh.bob.webRtc.sendFileFrameCalls.size + "\n" +
-                            "aliceSends=" + mesh.alice.webRtc.sendFileFrameCalls.size + "\n" +
-                            "status=" + row?.status + " P=" + row?.contiguousBytes + " mism=" + row?.hashMismatches + "\n" +
-                            "staged=" + mesh.bob.receives.stagedByFile(fileId).size + "\n" +
-                            "fetchOffsets=" + mesh.fetchFromOffsets + "\n" +
-                            "openSession=" + mesh.bob.webRtc.openSessionCalls + "\n" +
-                            "bobTor=" + mesh.bob.tor.sendsExcludingHeartbeat().map { it.second.packetType } + "\n"
+                throw AssertionError(
+                    "fetch did not complete: status=${row?.status} P=${row?.contiguousBytes} " +
+                            "mismatches=${row?.hashMismatches} staged=${mesh.bob.receives.stagedRefsByFile(fileId).size} " +
+                            "fetchOffsets=${mesh.fetchFromOffsets}",
+                    e,
                 )
-                throw e
             }
             val stored = readFinal(mesh.bob, fileId, fileBytesTotal.toInt())
             val original = ByteArray(fileBytesTotal.toInt()) { (it * 7).toByte() }
@@ -770,7 +761,7 @@ class FileLargeFetchTwoRouterTest {
                 val row = defaultMesh.bob.receives.find(descriptor.fileId)
                 throw AssertionError(
                     "64 MB fetch did not complete: status=${row?.status} P=${row?.contiguousBytes} " +
-                            "staged=${defaultMesh.bob.receives.stagedByFile(descriptor.fileId).size}"
+                            "staged=${defaultMesh.bob.receives.stagedRefsByFile(descriptor.fileId).size}"
                 )
             }
             val stored = readFinal(defaultMesh.bob, descriptor.fileId, size.toInt())

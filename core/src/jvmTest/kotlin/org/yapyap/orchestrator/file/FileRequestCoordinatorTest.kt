@@ -1,6 +1,12 @@
-@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@file:OptIn(ExperimentalCoroutinesApi::class)
 package org.yapyap.orchestrator.file
 
+import kotlin.time.Duration
+import kotlin.time.Instant
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import org.yapyap.orchestrator.dag.VerificationState
+import org.yapyap.orchestrator.file.io.JvmFileAccess
+import org.yapyap.routing.file.port.FileCarrier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -93,7 +99,7 @@ class FileRequestCoordinatorTest {
         val rooms = FakeRoomRepository(memberships)
         val router = RecordingFileRouter()
         val pipeline = FakePipeline()
-        val files = org.yapyap.orchestrator.file.io.JvmFileAccess()
+        val files = JvmFileAccess()
         val work = Path(SystemTemporaryDirectory.toString(), "yapyap-coordtest-${Uuid.random()}")
         files.createDirectories(work)
         val crypto = DefaultCryptoProvider()
@@ -333,7 +339,7 @@ class FileRequestCoordinatorTest {
         )
         h.coordinator.start(this)
         runCurrent()
-        h.timeSource += kotlin.time.Duration.parse("11m")
+        h.timeSource += Duration.parse("11m")
         advanceTimeBy(61.seconds)
         runCurrent()
         assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
@@ -357,7 +363,7 @@ class FileRequestCoordinatorTest {
         )
         h.coordinator.start(this)
         runCurrent()
-        h.timeSource += kotlin.time.Duration.parse("11m")
+        h.timeSource += Duration.parse("11m")
         advanceTimeBy(61.seconds)
         runCurrent()
         val row = assertNotNull(h.pending.find(fileId), "stalled prefix re-opens the request")
@@ -413,6 +419,57 @@ class FileRequestCoordinatorTest {
     }
 
     @Test
+    fun stalledReceive_whoseRequestRanOutOfHolders_isNotReArmedBySweeps() = runTest {
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.STALLED, totalBytes = 1_000L,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 1,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        // Every holder declined: UNAVAILABLE is terminal until a new message or the user re-opens.
+        h.pending.upsertPending(fileId, now, now)
+        h.pending.setUnavailable(fileId, now)
+        h.coordinator.start(this)
+        repeat(3) {
+            advanceTimeBy(61.seconds)
+            runCurrent()
+        }
+        assertEquals(PendingFileRequestStatus.UNAVAILABLE, h.pending.find(fileId)?.status)
+        assertTrue(h.router.startedFiles.isEmpty(), "no request re-armed every sweep")
+        h.coordinator.stop()
+    }
+
+    @Test
+    fun freshStall_reArmsARequestThatHadRunOutOfHolders() = runTest {
+        val h = harness()
+        h.receives.upsert(
+            FileReceiveRow(
+                fileId = fileId, status = FileReceiveStatus.IN_FLIGHT, totalBytes = 1_000L,
+                contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
+                fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
+                originMessageId = null,
+                createdAt = now, updatedAt = now,
+            )
+        )
+        h.pending.upsertPending(fileId, now, now)
+        h.pending.setUnavailable(fileId, now)
+        h.coordinator.start(this)
+        runCurrent()
+        // The transfer that was delivering goes silent past the stall timeout.
+        h.timeSource += 11.minutes
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(FileReceiveStatus.STALLED, h.receives.find(fileId)?.status)
+        assertEquals(PendingFileRequestStatus.PENDING, h.pending.find(fileId)?.status, "a fresh stall asks again")
+        assertTrue(h.router.startedFiles.isNotEmpty())
+        h.coordinator.stop()
+    }
+
+    @Test
     fun offerAcceptedAfterStart_thatNeverSendsAByte_stalls() = runTest {
         val h = harness()
         h.coordinator.start(this)
@@ -449,7 +506,8 @@ class FileRequestCoordinatorTest {
                 contiguousBytes = 100L, blockSize = 1024 * 1024, blockHashes = emptyList(),
                 fileName = "img.jpg", mimeType = "image/jpeg", hashMismatches = 0,
                 originMessageId = null,
-                createdAt = now, updatedAt = now,
+                // Last written long past the stall timeout: a check keyed on updatedAt would fire.
+                createdAt = now - 11.minutes, updatedAt = now - 11.minutes,
             )
         )
         h.coordinator.start(this)
@@ -458,7 +516,7 @@ class FileRequestCoordinatorTest {
         assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status)
         assertNull(h.pending.find(fileId))
         // Even advancing the monotonic clock by only half the timeout still leaves it alone.
-        h.timeSource += kotlin.time.Duration.parse("5m")
+        h.timeSource += 5.minutes
         advanceTimeBy(61.seconds)
         runCurrent()
         assertEquals(FileReceiveStatus.IN_FLIGHT, h.receives.find(fileId)?.status)
@@ -601,8 +659,12 @@ class FileRequestCoordinatorTest {
                 createdAt = now, updatedAt = now,
             )
         )
-        h.receives.stageChunk(fileId, StagedRange(100L, 50L, ByteArray(50)))
-        h.receives.stageChunk(fileId, StagedRange(200L, 50L, ByteArray(50)))
+        h.receives.stageChunks(
+            fileId,
+            listOf(StagedRange(100L, 50L, ByteArray(50)), StagedRange(200L, 50L, ByteArray(50))),
+            FileReceiveStatus.IN_FLIGHT,
+            now,
+        )
         val coverage = assertNotNull(h.source.heldCoverage(fileId))
         assertEquals(100L, coverage.contiguousBytes)
         assertEquals(1, coverage.missingRanges.size)
@@ -626,14 +688,14 @@ class FileRequestCoordinatorTest {
     }
 
     private class RecordingFileRouter(
-        val startedFiles: MutableList<Pair<FileId, kotlin.time.Instant>> = mutableListOf(),
+        val startedFiles: MutableList<Pair<FileId, Instant>> = mutableListOf(),
         val abortedFiles: MutableList<FileId> = mutableListOf(),
         val events: MutableSharedFlow<FileEvent> = MutableSharedFlow(extraBufferCapacity = 64),
     ) : NoopFileCarrier() {
-        val files: org.yapyap.routing.file.port.FileCarrier get() = this
+        val files: FileCarrier get() = this
         override val fileEvents: Flow<FileEvent> = events
 
-        override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: kotlin.time.Instant) {
+        override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) {
             startedFiles += fileId to firstAttemptAt
         }
 
@@ -664,7 +726,7 @@ class FileRequestCoordinatorTest {
             payload: MessagePayload,
             isOrphaned: Boolean,
             ancestryComplete: Boolean,
-            verificationState: org.yapyap.orchestrator.dag.VerificationState
+            verificationState: VerificationState
         ) = error("not used")
         override suspend fun findMessageIdsByFileId(fileId: FileId): List<Uuid> = attachments[fileId].orEmpty()
         override suspend fun findById(messageId: Uuid): StoredMessage? = rows[messageId]
@@ -709,7 +771,7 @@ class FileRequestCoordinatorTest {
         override suspend fun updateAncestryComplete(messageId: Uuid, complete: Boolean) = error("not used")
         override suspend fun updateVerificationState(
             messageId: Uuid,
-            state: org.yapyap.orchestrator.dag.VerificationState
+            state: VerificationState
         ) = error("not used")
 
         override suspend fun findPendingByAuthor(deviceId: PeerId): List<StoredMessage> = error("not used")

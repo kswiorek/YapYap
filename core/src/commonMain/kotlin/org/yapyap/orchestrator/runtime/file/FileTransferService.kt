@@ -27,7 +27,11 @@ public interface FileTransferService {
     /** Durable receive state for [fileId], or null when this device never took part in it. */
     public suspend fun receiveState(fileId: FileId): FileReceiveSnapshot?
 
-    /** Final store path when [fileId] is READY and held, else null. */
+    /**
+     * Where the held bytes of [fileId] are: the store copy, or the user's original for a sent
+     * path reference. Null while a receive is not READY, when the file is not held, and for a
+     * sent content-URI reference (no filesystem path; the GUI that picked it holds its URI).
+     */
     public suspend fun localFilePath(fileId: FileId): Path?
 
     /**

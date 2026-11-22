@@ -61,6 +61,9 @@ internal class TransferActor(
     private var lastAckAt: Instant = ctx.clock.now()
     private var markerAcked: Boolean = row.status == FilePushStatus.IN_FLIGHT
     private var markerSent: Boolean = row.markerPacketId != null
+
+    /** Set by [recover]: the marker's outbox row is gone without an outcome; the next tick re-arms it. */
+    private var markerLost = false
     private var current: FilePush = row
     private var ended = false
 
@@ -73,14 +76,24 @@ internal class TransferActor(
         return ((total - 1) / size + 1).toInt()
     }
 
-    /** Rebuilds `queued` from `file_push_chunks` + still-queued outbox rows. Never re-seals. */
+    /**
+     * Rebuilds `queued` from `file_push_chunks` + still-queued outbox rows. Never re-seals chunks.
+     * A CREATED row whose marker row is gone from the outbox lost the marker's outcome (outcomes are
+     * not replayed, and a crash can land between the outbox dropping the row and our status write):
+     * the marker is re-armed on the next tick (not at once: an outcome that started this actor is
+     * still queued and may be that very ACK), which the target answers idempotently by transferId.
+     */
     suspend fun recover() {
+        val stillQueued = outbox.packetIdsByTag(tag()).toSet()
+        val marker = current.markerPacketId
+        if (current.status == FilePushStatus.CREATED && marker != null && marker !in stillQueued) {
+            markerLost = true
+        }
         val byIndex = pushes.chunksByTransfer(transferId)
         if (byIndex.isEmpty()) {
             nextToQueue = resumeFrom
             return
         }
-        val stillQueued = outbox.packetIdsByTag(tag()).toSet()
         queued = byIndex.filter { it.value in stillQueued }.keys.toMutableSet()
         // Drop stale mappings for rows the outbox no longer holds.
         for ((_, packetId) in byIndex) {
@@ -141,8 +154,10 @@ internal class TransferActor(
     private suspend fun handle(input: PushInput) {
         when (input) {
             is PushInput.Outcome -> onOutcome(input.outcome)
+            // Missing ranges are informational: the target ACKs a chunk only once it is durably
+            // staged, and coverage it later drops (a block mismatch) comes back through the pull
+            // path, whose READY sends the COMPLETE that ends this transfer (design §8).
             is PushInput.CoverageAck -> onCoverage(input.highestContiguousIndex)
-            is PushInput.Complete -> onCompleteSignal()
             is PushInput.Cancelled -> onCancelled(input.reason)
             is PushInput.UserCancel -> onUserCancel()
             is PushInput.SilentCancel -> onSilentCancel()
@@ -258,11 +273,14 @@ internal class TransferActor(
             ended = true
             return
         }
-        if (contiguous > current.contiguousAcked) {
+        // A peer's number is bounded by the file: an index past the last chunk (Int.MAX_VALUE
+        // would overflow below) is read as "everything".
+        val covered = minOf(contiguous, fileCount() - 1)
+        if (covered > current.contiguousAcked) {
             // Coverage only moves the resume point and persists it; it never changes the
             // window count — queued rows drain on their own outcomes (§6.2).
-            resumeFrom = maxOf(resumeFrom, contiguous + 1)
-            pushes.setProgress(transferId, nextToQueue, contiguous)
+            resumeFrom = maxOf(resumeFrom, covered + 1)
+            pushes.setProgress(transferId, nextToQueue, covered)
             refresh()
             touchAck()
             emitProgress()
@@ -287,11 +305,6 @@ internal class TransferActor(
 
     private fun coveredBytes(row: FilePush): Long =
         minOf((row.contiguousAcked.toLong() + 1) * row.chunkSizeBytes, row.totalBytes).coerceAtLeast(0L)
-
-    private suspend fun onCompleteSignal() {
-        engine.completeTransfer(transferId)
-        ended = true
-    }
 
     private suspend fun onCancelled(reason: FileCancelReason) {
         when (reason) {
@@ -361,7 +374,8 @@ internal class TransferActor(
         // Only when this actor never got a marker out: expiry of a queued marker is
         // re-armed through its own Expired outcome instead, so one marker row never
         // multiplies into many.
-        if (!markerAcked && !markerSent && current.status == FilePushStatus.CREATED) {
+        if (!markerAcked && (!markerSent || markerLost) && current.status == FilePushStatus.CREATED) {
+            markerLost = false
             sendMarker()
         }
         // Deferred seal re-arm lives on the actor's own tick, not on the next push.

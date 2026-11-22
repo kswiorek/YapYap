@@ -30,6 +30,7 @@ import org.yapyap.orchestrator.file.DefaultFileReceiveStore
 import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
 import org.yapyap.orchestrator.file.DefaultFileRequestSource
 import org.yapyap.orchestrator.file.DefaultFileSendService
+import org.yapyap.orchestrator.file.FilePins
 import org.yapyap.orchestrator.file.DefaultFileStore
 import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
 import org.yapyap.orchestrator.file.receive.FileRetention
@@ -160,6 +161,7 @@ internal class NodeGraph(
         fileStore = fileStore,
         clock = clock,
     )
+    private val filePins = FilePins()
     private val fileRetention = FileRetention(
         receives = fileReceiveStore,
         descriptors = fileDescriptorStore,
@@ -171,6 +173,7 @@ internal class NodeGraph(
         receiveEvents = fileReceiveEngine.receiveEvents,
         config = config.orchestratorConfig,
         clock = clock,
+        pins = filePins,
     )
     private val fileRequestSource = DefaultFileRequestSource(
         messages = messageRepository,
@@ -361,6 +364,8 @@ internal class NodeGraph(
     private val fileSendService = DefaultFileSendService(
         fileStore = fileStore,
         quota = fileRetention,
+        pins = filePins,
+        descriptors = fileDescriptorStore,
         files = fileAccess,
         storeDirectory = layout.fileStoreDirectory,
         fileCarrier = router.files,

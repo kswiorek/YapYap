@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator.runtime.file
 
+import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,10 +69,10 @@ class FileTransferServiceTest {
 
     private class RecordingFacadeRouter : NoopFileCarrier() {
         val files: FileCarrier get() = this
-        val started = mutableListOf<Pair<FileId, kotlin.time.Instant>>()
+        val started = mutableListOf<Pair<FileId, Instant>>()
         val aborted = mutableListOf<FileId>()
 
-        override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: kotlin.time.Instant) {
+        override suspend fun startFileRequest(fileId: FileId, firstAttemptAt: Instant) {
             started += fileId to firstAttemptAt
         }
 

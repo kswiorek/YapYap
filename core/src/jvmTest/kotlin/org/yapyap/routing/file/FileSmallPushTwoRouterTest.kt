@@ -1,5 +1,12 @@
 package org.yapyap.routing.file
 
+import kotlin.test.assertTrue
+import org.yapyap.routing.store.FilePushKind
+import org.yapyap.routing.store.FilePushStatus
+import kotlin.time.Duration
+import org.yapyap.orchestrator.file.FileImportSource
+import org.yapyap.protocol.FileId
+import org.yapyap.routing.router.E2eeIdentityResolverForRouter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -98,7 +105,7 @@ class FileSmallPushTwoRouterTest {
                 fileCheckpointBytes = 16L * 1024L,
                 fileCheckpointInterval = 200.milliseconds,
             ),
-            chunkSize = 32 * 1024,
+            chunkSize = 64 * 1024,
             timeout = 60.seconds,
         )
     }
@@ -122,7 +129,7 @@ class FileSmallPushTwoRouterTest {
         originalBytes: Int,
         orchestratorConfig: OrchestratorConfig,
         chunkSize: Int,
-        timeout: kotlin.time.Duration,
+        timeout: Duration,
     ) {
         val crypto = DefaultCryptoProvider()
         val alicePeer = buildTestPeerIdentity(crypto, "file-local-alice")
@@ -137,7 +144,7 @@ class FileSmallPushTwoRouterTest {
         val bobWebRtc = RecordingWebRtcTransport()
 
         fun sessionManager(
-            identity: org.yapyap.routing.router.E2eeIdentityResolverForRouter,
+            identity: E2eeIdentityResolverForRouter,
         ) = DefaultCryptoSessionManager(
             crypto = crypto,
             x3dh = X3dhHandshake(crypto),
@@ -162,14 +169,14 @@ class FileSmallPushTwoRouterTest {
             bootstrapProtection = BootstrapProtection(crypto) { null },
         )
 
-        val aliceIdentity = org.yapyap.routing.router.E2eeIdentityResolverForRouter(
+        val aliceIdentity = E2eeIdentityResolverForRouter(
             local = alicePeer,
             peers = mapOf(bobPeer.device.deviceId to bobPeer),
             peersByAccount = mapOf(bobAccount to listOf(bobPeer.device.deviceId)),
             torByPeer = mutableMapOf(bobPeer.device.deviceId to bobTor.advertisedEndpoint),
             crypto = crypto,
         )
-        val bobIdentity = org.yapyap.routing.router.E2eeIdentityResolverForRouter(
+        val bobIdentity = E2eeIdentityResolverForRouter(
             local = bobPeer,
             peers = mapOf(alicePeer.device.deviceId to alicePeer),
             peersByAccount = mapOf(aliceAccount to listOf(alicePeer.device.deviceId)),
@@ -285,8 +292,8 @@ class FileSmallPushTwoRouterTest {
             descriptors = bobDescriptors,
             files = files,
             requests = object : FileRequestControl {
-                override suspend fun acceptFile(fileId: org.yapyap.protocol.FileId) = error("not used")
-                override suspend fun declineFile(fileId: org.yapyap.protocol.FileId) = error("not used")
+                override suspend fun acceptFile(fileId: FileId) = error("not used")
+                override suspend fun declineFile(fileId: FileId) = error("not used")
             },
             store = bobFileStore,
         )
@@ -326,7 +333,7 @@ class FileSmallPushTwoRouterTest {
                     it.flushAndSync()
                 }
                 val descriptor = aliceFileStore.importHeld(
-                    source = org.yapyap.orchestrator.file.FileImportSource.PathSource(sourcePath),
+                    source = FileImportSource.PathSource(sourcePath),
                     fileName = "small.bin",
                     mimeType = "application/octet-stream",
                     keepCopy = true,
@@ -360,6 +367,14 @@ class FileSmallPushTwoRouterTest {
                     out
                 }
                 assertContentEquals(original, stored)
+                // The sender's side resolves too: bob's COMPLETE ends alice's push, with no deposit.
+                val alicePushes = DefaultFilePushStore(aliceDb)
+                withTimeout(timeout) {
+                    while (alicePushes.allByFile(fileId).any { it.status != FilePushStatus.COMPLETED }) delay(50)
+                }
+                val rows = alicePushes.allByFile(fileId)
+                assertTrue(rows.isNotEmpty(), "alice pushed the file")
+                assertTrue(rows.none { it.kind == FilePushKind.DEPOSIT }, "a direct push never deposits")
             } finally {
                 pump.cancel()
                 engineScope.cancel()

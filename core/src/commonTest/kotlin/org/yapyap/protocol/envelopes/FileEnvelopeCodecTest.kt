@@ -16,7 +16,6 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -178,31 +177,12 @@ class FileEnvelopeCodecTest {
     }
 
     @Test
-    fun noEnvelopeKind_carriesFileIdInClear() {
-        // The fileId appears only in sealed bytes (OFFER sealed half, REQUEST sealed).
-        // Outer OFFER carries only chunkSize/totalBytes/startIndex + opaque sealed bytes.
-        val offer = FilePayload.Offer(
-            chunkSizeBytes = 220 * 1024,
-            totalBytes = 1000L,
-            startIndex = 0,
-            sealedOfferBytes = byteArrayOf(0x01),
-        )
-        val encoded = offer.encode().decodeToString()
-        assertFalse(encoded.contains(fileId.value))
-
-        val chunk = FilePayload.EncryptedChunk(0, byteArrayOf(1)).encode()
-        assertFalse(chunk.decodeToString().contains(fileId.value))
-
-        val ack = FilePayload.Ack(0, emptyList()).encode()
-        assertFalse(ack.decodeToString().contains(fileId.value))
-
-        val complete = FilePayload.Complete.encode()
-        assertFalse(complete.decodeToString().contains(fileId.value))
-
-        val cancel = FilePayload.Cancel(FileCancelReason.DECLINED).encode()
-        assertFalse(cancel.decodeToString().contains(fileId.value))
-
-        // Sealed plaintexts do carry it (checked separately, never on the wire in clear).
+    fun fileId_isEncodedOnlyByThePayloadsProtectionSeals() {
+        // The encoded REQUEST and sealed OFFER half carry the fileId in clear, which is why
+        // protection ratchet-seals exactly those two; FileProtectionTest checks the protected wire
+        // bytes of every kind. No public payload type has a fileId field at all.
+        val request = FilePayload.Request(fileId, 0L, emptyList()).encode()
+        assertTrue(request.decodeToString().contains(fileId.value))
         val sealed = FilePayload.SealedOffer(
             fileId = fileId,
             blockSize = 1024 * 1024,
@@ -211,7 +191,7 @@ class FileEnvelopeCodecTest {
             fileName = "a",
             mimeType = null,
         ).encode()
-        assertTrue(sealed.decodeToString().contains(fileId.value.take(8)))
+        assertTrue(sealed.decodeToString().contains(fileId.value))
     }
 
     @Test

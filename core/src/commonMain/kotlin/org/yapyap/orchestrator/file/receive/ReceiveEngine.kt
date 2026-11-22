@@ -70,7 +70,7 @@ private sealed interface DrainOutcome {
     data object Failed : DrainOutcome
 }
 
-private val ACTIVE = setOf(FileReceiveStatus.PENDING, FileReceiveStatus.IN_FLIGHT, FileReceiveStatus.STALLED)
+private val ACTIVE = setOf(FileReceiveStatus.IN_FLIGHT, FileReceiveStatus.STALLED)
 
 private val TERMINAL = setOf(
     FileReceiveStatus.FAILED,
@@ -118,7 +118,7 @@ internal class ReceiveEngine(
     override val receiveEnds: Flow<FileReceiveEnd> = ends.receiveAsFlow()
 
     private val locksGuard = Mutex()
-    private val locks = mutableMapOf<FileId, Mutex>()
+    private val locks = mutableMapOf<FileId, FileLock>()
     private val spaceMutex = Mutex()
 
     @Volatile
@@ -232,7 +232,8 @@ internal class ReceiveEngine(
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? {
         if (descriptors.findById(fileId)?.status == FileDescriptorStatus.HELD) return null
         return withFile(fileId) { _ ->
-            val row = receives.find(fileId) ?: return@withFile FileCoverage(0L, emptyList())
+            val row =
+                receives.find(fileId)?.let { forgetLostReady(it) } ?: return@withFile FileCoverage(0L, emptyList())
             if (row.status !in ACTIVE) return@withFile null
             Coverage.heldCoverage(
                 row.contiguousBytes,
@@ -272,7 +273,7 @@ internal class ReceiveEngine(
     }
 
     override suspend fun reopen(fileId: FileId): Boolean = withFile(fileId) { _ ->
-        val row = receives.find(fileId) ?: return@withFile true
+        val row = receives.find(fileId)?.let { forgetLostReady(it) } ?: return@withFile true
         when (row.status) {
             FileReceiveStatus.READY -> false
             in ACTIVE -> true
@@ -286,11 +287,13 @@ internal class ReceiveEngine(
     override suspend fun evicted(fileId: FileId, now: Instant): Boolean = withFile(fileId) { _ ->
         val row = receives.find(fileId) ?: return@withFile false
         if (row.status != FileReceiveStatus.READY) return@withFile false
-        // EVICTED first, then the descriptor, then the bytes: a failure part-way never leaves a
-        // READY row or a HELD descriptor pointing at a deleted file.
+        // EVICTED first, then the descriptor stops serving (SOURCE_LOST), then the bytes, then the
+        // descriptor: a failure part-way never leaves a READY row or a HELD descriptor pointing at a
+        // deleted file, and a failed delete keeps the copy in the quota's LRU, which retries it.
         receives.updateStatus(fileId, FileReceiveStatus.EVICTED, now)
-        fileStore.forget(fileId)
+        fileStore.markSourceLost(fileId)
         files.delete(paths.final(fileId))
+        fileStore.forget(fileId)
         AppLog.info(
             component = LogComponent.FILE,
             event = LogEvent.FILE_EVICTED,
@@ -302,9 +305,11 @@ internal class ReceiveEngine(
 
     override suspend fun forgetUnreferenced(fileId: FileId) {
         withFile(fileId) { _ ->
-            receives.deleteWithStaged(fileId)
+            // Bytes first: a failed delete keeps the row, so the next sweep retries it instead of
+            // leaving bytes no row refers to.
             files.delete(paths.part(fileId))
             files.delete(paths.final(fileId))
+            receives.deleteWithStaged(fileId)
         }
     }
 
@@ -372,6 +377,7 @@ internal class ReceiveEngine(
                 if (receives.stagedBytes(listed.fileId) > 0) receives.deleteStagedByFile(listed.fileId)
             }
         }
+        deleteOrphanParts()
         for (listed in receives.ready()) {
             withFile(listed.fileId) { out ->
                 if (descriptors.findById(listed.fileId) == null && files.exists(paths.final(listed.fileId))) {
@@ -382,6 +388,20 @@ internal class ReceiveEngine(
             }
         }
         recovered = true
+    }
+
+    /**
+     * `.part` files with no active receive (a delete that failed, or a crash between a row's end
+     * and its file's delete): nothing refers to them, so they would hold space forever. Only the
+     * engine writes `incoming/`, so this never races a receive.
+     */
+    private suspend fun deleteOrphanParts() {
+        val active = receives.active().map { it.fileId.value }.toSet()
+        for (name in files.listFileNames(paths.incomingDir)) {
+            if (!name.endsWith(PART_SUFFIX)) continue
+            if (name.removeSuffix(PART_SUFFIX) in active) continue
+            files.delete(Path(paths.incomingDir.toString(), name))
+        }
     }
 
     private suspend fun recoverPart(row: FileReceiveRow, now: Instant) {
@@ -414,14 +434,15 @@ internal class ReceiveEngine(
             return FileOfferVerdict.AlreadyReady
         }
         return withFile(offer.fileId) { _ ->
-            val existing = receives.find(offer.fileId)
+            // READY with no HELD descriptor (checked above): the stored bytes were lost
+            // (SOURCE_LOST, deleted), so the receive starts over.
+            val existing = receives.find(offer.fileId)?.let { forgetLostReady(it) }
             val validBlockList = FileIds.checkBlockList(
                 crypto, offer.fileId, offer.totalBytes, offer.blockSize, offer.blockHashes,
             )
             when {
                 existing == null && !validBlockList -> FileOfferVerdict.Refuse(FileRefusalReason.INVALID_OFFER)
                 existing == null -> spaceMutex.withLock { reserve(offer) }
-                existing.status == FileReceiveStatus.READY -> FileOfferVerdict.AlreadyReady
                 existing.status in TERMINAL -> FileOfferVerdict.Refuse(FileRefusalReason.NOT_RETRYABLE)
                 existing.totalBytes != offer.totalBytes || !validBlockList ->
                     FileOfferVerdict.Refuse(FileRefusalReason.INVALID_OFFER)
@@ -444,7 +465,7 @@ internal class ReceiveEngine(
      */
     private suspend fun reserve(offer: FileManifest): FileOfferVerdict {
         val now = clock.now()
-        val reserved = receives.all()
+        val reserved = receives.active()
             .filter { it.status == FileReceiveStatus.IN_FLIGHT || it.status == FileReceiveStatus.STALLED }
             .sumOf { maxOf(0L, it.totalBytes - it.contiguousBytes) }
         files.createDirectories(paths.incomingDir)
@@ -500,9 +521,16 @@ internal class ReceiveEngine(
             StagedRange(off, len, plaintext.copyOfRange(srcOff, srcOff + len.toInt()))
         }
         val added = toStage.map { StagedSpan(it.startOffset, it.length) }
-        if (!Coverage.extendsPrefix(p, staged, added) &&
-            staged.sumOf { it.length } + added.sumOf { it.length } > config.value.maxStagedBytes
-        ) {
+        // Chunks that extend the prefix are never held back by the bound (they drain at the next
+        // checkpoint), but a drain that keeps failing would let them stage without limit: past
+        // one more checkpoint's worth they wait too.
+        val stagedAfter = staged.sumOf { it.length } + added.sumOf { it.length }
+        val bound = if (Coverage.extendsPrefix(p, staged, added)) {
+            config.value.maxStagedBytes + config.value.fileCheckpointBytes
+        } else {
+            config.value.maxStagedBytes
+        }
+        if (stagedAfter > bound) {
             AppLog.debug(
                 component = LogComponent.FILE,
                 event = LogEvent.FILE_CHUNK_DEFERRED,
@@ -600,6 +628,11 @@ internal class ReceiveEngine(
                 return@withFile FileAppendResult.NoSpace
             }
             writer.writeAt(part, offset, bytes)
+            // A source resumed delivery (design §14: STALLED → IN_FLIGHT), so the gap trigger
+            // watches this receive again.
+            if (row.status == FileReceiveStatus.STALLED) {
+                receives.updateStatus(fileId, FileReceiveStatus.IN_FLIGHT, now)
+            }
             if (end < total && end - row.contiguousBytes < config.value.fileCheckpointBytes) {
                 return@withFile FileAppendResult.Appended(row.contiguousBytes)
             }
@@ -610,10 +643,17 @@ internal class ReceiveEngine(
                 return@withFile FileAppendResult.Mismatch(bad)
             }
             if (end >= total) {
+                // P first, then the rename: a crash in between finds P = total and the checkpoint
+                // finishes the rename, instead of finding P short with no `.part` and re-fetching.
+                receives.updateProgress(fileId, total, row.hashMismatches, FileReceiveStatus.IN_FLIGHT, now)
                 completeRow(row.copy(contiguousBytes = total), now, out)
                 return@withFile FileAppendResult.Ready
             }
-            receives.updateProgress(fileId, end, row.hashMismatches, row.status, now)
+            receives.updateProgress(fileId, end, row.hashMismatches, FileReceiveStatus.IN_FLIGHT, now)
+            // Staged small-path rows the fetch overtook: their bytes are below P now. Left in place
+            // they would count against the staging bound and keep the time checkpoint on the
+            // drain branch, which has nothing to drain.
+            receives.deleteStagedBelow(fileId, end)
             out.events += FileReceiveEvent.Progress(fileId, end, total)
             FileAppendResult.Appended(end)
         }
@@ -636,10 +676,12 @@ internal class ReceiveEngine(
             return
         }
         if (newP >= row.totalBytes) {
+            receives.updateProgress(row.fileId, newP, row.hashMismatches, FileReceiveStatus.IN_FLIGHT, now)
             completeRow(row.copy(contiguousBytes = newP), now, out)
             return
         }
-        receives.updateProgress(row.fileId, newP, row.hashMismatches, row.status, now)
+        receives.updateProgress(row.fileId, newP, row.hashMismatches, FileReceiveStatus.IN_FLIGHT, now)
+        receives.deleteStagedBelow(row.fileId, newP)
         out.events += FileReceiveEvent.Progress(row.fileId, newP, row.totalBytes)
     }
 
@@ -667,18 +709,24 @@ internal class ReceiveEngine(
         check(cursor == plan.newP) { "staged rows do not cover the drain plan" }
 
         val part = paths.part(row.fileId)
+        // The OFFER's reservation counted this file, but the disk can still fill from elsewhere:
+        // a drain that cannot fit ends the receive as no space, like the fetch path, instead of
+        // failing on every checkpoint while chunks keep arriving.
+        if (files.freeSpaceBytes(paths.incomingDir) < bytes.size) {
+            declineRow(row, now, out)
+            AppLog.info(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_RECEIVE_FAILED,
+                message = "Receive declined: no space for its drain",
+                fields = mapOf("fileId" to row.fileId),
+            )
+            return DrainOutcome.Failed
+        }
         writer.appendAt(part, p, bytes)
         val bad = firstBadBlock(part, row, plan.newP, blockSize, blockHashes)
         if (bad != null) return mismatch(row, bad, blockSize, now, out)
 
-        val trimPlaintext = plan.trimOldStart?.let { start ->
-            val straddling = staged.first { it.startOffset == start }
-            straddling.plaintext.copyOfRange((plan.newP - start).toInt(), straddling.plaintext.size)
-        }
-        receives.commitDrain(
-            row.fileId, plan.newP, row.hashMismatches, row.status, now,
-            plan.trimOldStart, plan.trimNewStart, plan.trimNewLength, trimPlaintext,
-        )
+        receives.commitDrain(row.fileId, plan.newP, row.hashMismatches, row.status, now)
         out.events += FileReceiveEvent.Progress(row.fileId, plan.newP, row.totalBytes)
         if (plan.newP >= row.totalBytes) {
             completeRow(row.copy(contiguousBytes = plan.newP), now, out)
@@ -749,12 +797,20 @@ internal class ReceiveEngine(
 
     /**
      * Rename the `.part` to the final path, fsync the directory, mark READY, adopt the descriptor.
-     * Idempotent: a crash after the rename restarts here with the final file in place; a crash
-     * between READY and adopt is repaired by [recover]. Quota runs elsewhere, never under this lock.
+     * P is already committed at total, so this is idempotent: a crash after the rename restarts here
+     * with no `.part` and the final file in place; a crash between READY and adopt is repaired by
+     * [recover]. The verified `.part` always wins over a file already at the final path (a stale
+     * copy whose descriptor went SOURCE_LOST): the atomic rename replaces it. Quota runs
+     * elsewhere, never under this lock.
      */
     private suspend fun completeRow(row: FileReceiveRow, now: Instant, out: Announcements) {
         val final = paths.final(row.fileId)
-        if (!files.exists(final)) files.move(paths.part(row.fileId), final)
+        val part = paths.part(row.fileId)
+        if (files.exists(part)) {
+            files.move(part, final)
+        } else {
+            check(files.exists(final)) { "receive ${row.fileId} has neither its .part nor its final file" }
+        }
         files.syncDirectory(final)
         receives.markReady(row.fileId, row.totalBytes, row.hashMismatches, now)
         fileStore.adopt(receivedDescriptor(row, createdAt = now, now = now))
@@ -769,6 +825,25 @@ internal class ReceiveEngine(
     }
 
     /** P reached the end and the `.part` was already renamed: only the READY commit is missing. */
+    /**
+     * A READY row whose descriptor is no longer HELD lost its stored bytes: the row is dropped so
+     * the file can be received again, and null returned. Any other row is returned as it is, and so
+     * is every row before recovery ran (a READY row may still be waiting for [recover] to adopt its
+     * descriptor). Caller holds the file lock.
+     */
+    private suspend fun forgetLostReady(row: FileReceiveRow): FileReceiveRow? {
+        if (row.status != FileReceiveStatus.READY || !recovered) return row
+        if (descriptors.findById(row.fileId)?.status == FileDescriptorStatus.HELD) return row
+        receives.deleteWithStaged(row.fileId)
+        AppLog.info(
+            component = LogComponent.FILE,
+            event = LogEvent.FILE_RECEIVE_FAILED,
+            message = "Received file no longer held; receiving it again",
+            fields = mapOf("fileId" to row.fileId),
+        )
+        return null
+    }
+
     private suspend fun renamedToFinal(row: FileReceiveRow): Boolean =
         row.contiguousBytes >= row.totalBytes && files.exists(paths.final(row.fileId))
 
@@ -781,18 +856,32 @@ internal class ReceiveEngine(
 
     // -- Locking --------------------------------------------------------------------
 
-    private suspend fun lockFor(fileId: FileId): Mutex = locksGuard.withLock {
-        locks.getOrPut(fileId) { Mutex() }
+    /** One file's lock and how many callers hold or wait for it ([locksGuard] guards both). */
+    private class FileLock {
+        val mutex = Mutex()
+        var users = 0
+    }
+
+    /** Takes a use of [fileId]'s lock; every call is paired with [releaseLock]. */
+    private suspend fun acquireLock(fileId: FileId): FileLock = locksGuard.withLock {
+        locks.getOrPut(fileId) { FileLock() }.also { it.users += 1 }
+    }
+
+    /** Drops a use; the last one removes the entry, so remote fileIds never accumulate locks. */
+    private suspend fun releaseLock(fileId: FileId, lock: FileLock) = locksGuard.withLock {
+        lock.users -= 1
+        if (lock.users == 0 && locks[fileId] === lock) locks.remove(fileId)
     }
 
     /** Runs [block] under [fileId]'s lock, then sends what it announced, also when it threw part-way. */
     private suspend inline fun <T> withFile(fileId: FileId, block: (Announcements) -> T): T {
-        val lock = lockFor(fileId)
+        val lock = acquireLock(fileId)
         val out = Announcements()
         try {
-            return lock.withLock { block(out) }
+            return lock.mutex.withLock { block(out) }
         } finally {
             withContext(NonCancellable) {
+                releaseLock(fileId, lock)
                 for (end in out.ends) ends.send(end)
                 for (event in out.events) events.emit(event)
             }

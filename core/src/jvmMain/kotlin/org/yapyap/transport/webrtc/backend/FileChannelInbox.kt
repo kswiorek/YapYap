@@ -5,9 +5,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.transport.webrtc.types.FileChannelId
 import org.yapyap.transport.webrtc.types.WebRtcFileFrame
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Inbound side of the backend's file channels (design §6.6): one queue per channel, drained by one
@@ -54,13 +56,24 @@ internal class FileChannelInbox(
 
     /**
      * Suspends until [id]'s buffered amount is at or below [threshold], or the channel closes.
-     * [current] is the live amount read by the caller: the native callback reports only decreases,
-     * so a send's increase is known only from that read.
+     * [liveAmount] reads the native amount (null once the channel is gone). The native callback
+     * reports only decreases, and only when the amount crosses its low threshold, so a value
+     * read before a callback can be stale: the wait wakes on every callback and also re-reads
+     * the live amount every [RECHECK], so a drain that happened between our read and our wait is
+     * never missed.
      */
-    suspend fun awaitBufferedBelow(id: FileChannelId, threshold: Long, current: Long) {
+    suspend fun awaitBufferedBelow(id: FileChannelId, threshold: Long, liveAmount: suspend () -> Long?) {
         val inbound = channels[id] ?: return
-        inbound.buffered.value = current
-        inbound.buffered.first { it == CLOSED || it <= threshold }
+        while (true) {
+            val live = liveAmount() ?: return
+            if (live <= threshold) return
+            // Seed the flow with the fresh read, so only a later callback (or close) can wake us.
+            inbound.buffered.compareAndSet(inbound.buffered.value.takeIf { it != CLOSED } ?: return, live)
+            val woke = withTimeoutOrNull(RECHECK) {
+                inbound.buffered.first { it == CLOSED || it <= threshold }
+            }
+            if (woke != null) return
+        }
     }
 
     /** Stops [id]: no new frames are accepted, queued ones still go out, waiters wake. */
@@ -80,5 +93,8 @@ internal class FileChannelInbox(
     private companion object {
         /** Buffered-amount sentinel for a closed channel: every waiter returns. */
         const val CLOSED = -1L
+
+        /** How often a backpressure wait re-reads the live amount between callbacks. */
+        val RECHECK = 250.milliseconds
     }
 }

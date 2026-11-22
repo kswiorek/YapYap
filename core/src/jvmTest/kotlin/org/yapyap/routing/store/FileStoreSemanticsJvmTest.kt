@@ -1,5 +1,6 @@
 package org.yapyap.routing.store
 
+import org.yapyap.persistence.DatabaseConnection
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
@@ -33,7 +34,7 @@ import kotlin.uuid.Uuid
  */
 class FileStoreSemanticsJvmTest {
 
-    private val connections = mutableListOf<org.yapyap.persistence.DatabaseConnection>()
+    private val connections = mutableListOf<DatabaseConnection>()
 
     private fun db() = openMemoryDatabase().also { connections += it }.database
 
@@ -256,7 +257,7 @@ class FileStoreSemanticsJvmTest {
         val incoming = DefaultFileIncomingTransferStore(db())
         val live = TransferId(Uuid.random())
         val dead = TransferId(Uuid.random())
-        suspend fun insert(id: TransferId, expiresAt: kotlin.time.Instant) =
+        suspend fun insert(id: TransferId, expiresAt: Instant) =
             incoming.insert(
                 FileIncomingTransfer(
                     transferId = id,

@@ -28,17 +28,15 @@ class CoverageTest {
     }
 
     @Test
-    fun drainPlan_contiguousPrefixAndTrim() {
+    fun drainPlan_contiguousPrefix_neverSplitsARow() {
         val staged = listOf(StagedSpan(0, 100), StagedSpan(100, 50), StagedSpan(200, 50))
-        // Gap at 150: drain to 150, no trim (rows end exactly at the new prefix).
-        val plan = Coverage.drainPlan(0, staged)
-        assertEquals(150L, plan.newP)
-        // deleteBelow removed: newP is the delete bound
-        assertEquals(null, plan.trimOldStart)
-        // Overlapping chain drains to the chain end with no trim.
-        val plan2 = Coverage.drainPlan(0, listOf(StagedSpan(0, 100), StagedSpan(50, 150)))
-        assertEquals(200L, plan2.newP)
-        assertEquals(null, plan2.trimOldStart)
+        // Gap at 150: drain to 150 (rows end exactly at the new prefix).
+        assertEquals(150L, Coverage.drainPlan(0, staged).newP)
+        // An overlapping chain drains to its furthest end, so no row straddles the new prefix.
+        val overlapping = listOf(StagedSpan(0, 100), StagedSpan(50, 150), StagedSpan(60, 20))
+        val plan = Coverage.drainPlan(0, overlapping)
+        assertEquals(200L, plan.newP)
+        assertTrue(overlapping.all { it.start + it.length <= plan.newP || it.start > plan.newP })
     }
 
     @Test

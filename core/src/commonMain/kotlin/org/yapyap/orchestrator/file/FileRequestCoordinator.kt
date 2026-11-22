@@ -224,9 +224,7 @@ internal class DefaultFileRequestCoordinator(
                     pending.drop(fileId)
                     return
                 }
-                FileReceiveStatus.PENDING,
-                FileReceiveStatus.IN_FLIGHT,
-                    -> return
+                FileReceiveStatus.IN_FLIGHT -> return
                 FileReceiveStatus.FAILED,
                 FileReceiveStatus.DECLINED,
                 FileReceiveStatus.CANCELLED,
@@ -280,7 +278,6 @@ internal class DefaultFileRequestCoordinator(
                         continue
                     }
 
-                    FileReceiveStatus.PENDING -> Unit
                     FileReceiveStatus.FAILED, FileReceiveStatus.DECLINED,
                     FileReceiveStatus.CANCELLED, FileReceiveStatus.EVICTED,
                         -> {
@@ -301,26 +298,43 @@ internal class DefaultFileRequestCoordinator(
         // the REQUEST with held coverage. Live transfers are left alone; a live large fetch
         // is ended with an ABORT since a dead source cannot be superseded.
         val stallAfter = config.value.fileStallTimeout
-        for (row in receives.active()) {
+        val active = receives.active()
+        // Receives that ended without a Ready or Failed event (declined, cancelled, evicted) leave
+        // their marks behind: only active receives keep one.
+        val activeIds = active.map { it.fileId }.toSet()
+        progressGuardLocked {
+            lastProgress.keys.retainAll(activeIds)
+            lastContiguous.keys.retainAll(activeIds)
+        }
+        for (row in active) {
             if (row.status != FileReceiveStatus.IN_FLIGHT) continue
             // A receive with no mark yet (an accepted OFFER that never sent a byte) starts its
             // gap window now.
             val mark = progressGuardLocked { lastProgress.getOrPut(row.fileId) { timeSource.markNow() } }
             if (mark.elapsedNow() < stallAfter) continue
-            if (control.markStalled(row.fileId, now) && row.totalBytes > SMALL_FILE_MAX_BYTES) {
-                fileCarrier.abortFileFetch(row.fileId, FileFetchAbortReason.STALLED)
+            if (control.markStalled(row.fileId, now)) {
+                if (row.totalBytes > SMALL_FILE_MAX_BYTES) {
+                    fileCarrier.abortFileFetch(row.fileId, FileFetchAbortReason.STALLED)
+                }
+                // A fresh stall re-opens the request, even one that ran out of holders before.
+                pending.upsertPending(row.fileId, now, now)
             }
             // A STALLED file re-opens the pending request below.
             progressGuardLocked { lastProgress[row.fileId] = timeSource.markNow() }
         }
         for (row in receives.active()) {
             if (row.status != FileReceiveStatus.STALLED) continue
-            if (pending.find(row.fileId)?.status == PendingFileRequestStatus.PENDING) {
-                fileCarrier.startFileRequest(row.fileId, now)
-                continue
+            when (pending.find(row.fileId)?.status) {
+                PendingFileRequestStatus.PENDING -> fileCarrier.startFileRequest(row.fileId, now)
+                // Stalled by a block mismatch: nothing asked for it yet.
+                null -> {
+                    pending.upsertPending(row.fileId, now, now)
+                    fileCarrier.startFileRequest(row.fileId, now)
+                }
+                // Every holder declined: terminal until a new message or the user re-opens it,
+                // never re-armed by the sweep.
+                PendingFileRequestStatus.UNAVAILABLE -> Unit
             }
-            pending.upsertPending(row.fileId, now, now)
-            fileCarrier.startFileRequest(row.fileId, now)
         }
     }
 

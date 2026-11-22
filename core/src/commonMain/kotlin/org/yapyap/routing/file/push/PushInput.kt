@@ -11,7 +11,6 @@ import org.yapyap.routing.router.OutboxOutcome
 internal sealed interface PushInput {
     data class Outcome(val outcome: OutboxOutcome) : PushInput
     data class CoverageAck(val highestContiguousIndex: Int, val missing: List<ChunkRange>) : PushInput
-    data object Complete : PushInput
     data class Cancelled(val reason: FileCancelReason) : PushInput
     data object UserCancel : PushInput
     data object SilentCancel : PushInput // supersede: CANCEL sent, row ends, no event

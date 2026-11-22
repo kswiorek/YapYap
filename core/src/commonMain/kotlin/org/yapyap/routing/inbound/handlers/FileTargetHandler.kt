@@ -53,6 +53,11 @@ internal class FileTargetHandler(
         // Idempotent re-OFFER: the row already exists (the sender retries until our ACK
         // landed). An expired row is dropped and the OFFER processed fresh instead.
         incoming.find(fileEnvelope.transferId)?.let { existing ->
+            // A transferId belongs to the author whose OFFER registered it: another device
+            // reusing it is refused, never mistaken for that author's retry.
+            if (existing.authorDevice != fileEnvelope.source) {
+                return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+            }
             if (ctx.clock.now() >= existing.expiresAt) {
                 incoming.end(fileEnvelope.transferId)
             } else {

@@ -121,6 +121,8 @@ internal class ForwardActor(
                 ) {
                     relay.setStatus(transferId, FileRelayStatus.STREAMING)
                     streamUnqueued()
+                    // An empty suffix has no chunk whose ACK would end the forward: it ends here.
+                    if (relay.chunkCount(transferId) == 0L) drop()
                 } else if (row.status == FileRelayStatus.STREAMING || row.status == FileRelayStatus.FORWARDING) {
                     relay.findChunkByPacket(outcome.packetId)?.let { chunk ->
                         if (chunk.transferId == transferId) {
@@ -160,6 +162,11 @@ internal class ForwardActor(
         }
         if (row.status == FileRelayStatus.WHOLE) {
             sendMarker()
+        } else if (row.status == FileRelayStatus.FORWARDING) {
+            // The marker's row left the outbox without an outcome reaching us (outcomes are not
+            // replayed): send it again rather than hold the relay's storage until the TTL.
+            val marker = row.markerPacketId
+            if (marker == null || marker !in outbox.packetIdsByTag(tag())) sendMarker()
         } else if (row.status == FileRelayStatus.STREAMING) {
             // Restream rows lost while down: anything stored without a queued outbox row
             // goes again (duplicates merge at the receiver). FORWARDING waits for its
@@ -192,7 +199,7 @@ internal class ForwardActor(
         relay.setMarker(transferId, packetId)
         AppLog.debug(
             component = LogComponent.FILE,
-            event = LogEvent.FILE_PUSH_ENDED,
+            event = LogEvent.FILE_FORWARDED,
             message = "Forwarding whole relay transfer",
             fields = mapOf("transferId" to transferId),
         )

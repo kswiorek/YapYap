@@ -1,5 +1,8 @@
 package org.yapyap.routing.inbound.handlers
 
+import org.yapyap.crypto.keys.SigningPrivateKey
+import org.yapyap.crypto.store.BootstrapKeySource
+import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.yapyap.crypto.e2ee.MapBackedCryptoSessionStore
@@ -117,7 +120,7 @@ class FileInboundHandlerTest {
         val ingest: ScriptedFileIngestPort,
         val localId: PeerId,
         val remoteId: PeerId,
-        val senderSigningKey: org.yapyap.crypto.keys.SigningPrivateKey,
+        val senderSigningKey: SigningPrivateKey,
         val clock: FakeClock,
         val coverageAcks: MutableList<Triple<TransferId, Int, List<ChunkRange>>>,
         val completed: MutableList<TransferId>,
@@ -157,7 +160,7 @@ class FileInboundHandlerTest {
             systemProtection = PlaintextSystemProtection(crypto),
             bootstrapProtection = BootstrapProtection(
                 crypto,
-                org.yapyap.crypto.store.BootstrapKeySource { null },
+                BootstrapKeySource { null },
             ),
         )
         val local = receiverPeer.device
@@ -515,13 +518,16 @@ class FileInboundHandlerTest {
                 startIndex = start,
                 sealedOfferBytes = ByteArray(1)
             )
-        assertTrue(isValidOfferPublicHalf(offer(1000, 3_500L, 0)))
-        assertTrue(isValidOfferPublicHalf(offer(1000, 3_500L, 4)), "start may equal the chunk count (nothing left)")
-        assertTrue(isValidOfferPublicHalf(offer(1000, 0L, 0)), "an empty file is valid: it has no chunks")
+        val c = MIN_FILE_CHUNK_SIZE_BYTES
+        val total = 3L * c + c / 2
+        assertTrue(isValidOfferPublicHalf(offer(c, total, 0)))
+        assertTrue(isValidOfferPublicHalf(offer(c, total, 4)), "start may equal the chunk count (nothing left)")
+        assertTrue(isValidOfferPublicHalf(offer(c, 0L, 0)), "an empty file is valid: it has no chunks")
         // Zero chunk size and negative size/start cannot be constructed (the Offer type
-        // refuses them), so only the range and size checks are reachable here.
-        assertFalse(isValidOfferPublicHalf(offer(1000, 3_500L, 5)), "start past the chunk count")
-        assertFalse(isValidOfferPublicHalf(offer(1000, SMALL_FILE_MAX_BYTES + 1, 0)), "above the small-file limit")
+        // refuses them), so only the range, size and minimum-chunk checks are reachable here.
+        assertFalse(isValidOfferPublicHalf(offer(c, total, 5)), "start past the chunk count")
+        assertFalse(isValidOfferPublicHalf(offer(c - 1, total, 0)), "chunks below the minimum")
+        assertFalse(isValidOfferPublicHalf(offer(c, SMALL_FILE_MAX_BYTES + 1, 0)), "above the small-file limit")
     }
 
     @Test

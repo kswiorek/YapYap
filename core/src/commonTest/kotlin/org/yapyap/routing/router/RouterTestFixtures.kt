@@ -912,6 +912,9 @@ internal class TrackingPacketOutbox : PacketOutbox {
     private val entries = linkedMapOf<Uuid, StoredEntry>()
     private val lock = SynchronizedObject()
     val enqueued = mutableListOf<BinaryEnvelope>()
+
+    /** Every tag ever enqueued, kept after the row leaves (delivered, removed, expired). */
+    val enqueuedTags = mutableListOf<OutboxTag>()
     val removeCalls = mutableListOf<Uuid>()
     val recordAttemptCalls = mutableListOf<Triple<Uuid, Instant, Instant>>()
     val setDueForTargetCalls = mutableListOf<Pair<PeerId, Instant>>()
@@ -938,6 +941,7 @@ internal class TrackingPacketOutbox : PacketOutbox {
                 tag = tag,
                 retryClass = retryClass,
             )
+            if (tag != null) enqueuedTags.add(tag)
         }
         enqueued.add(envelope)
     }

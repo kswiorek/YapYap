@@ -239,6 +239,8 @@ internal class FakeIdentityResolverForProtection(
 
 /**
  * No real crypto — wraps payloads in [FileEnvelope] / [OpenedFileEnvelope] for contract tests only.
+ * Chunk "ciphertext" is the plaintext plus [FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES] of padding,
+ * so every size a relay or receiver checks matches the real protection's.
  */
 internal class PassthroughFileProtection : FileEnvelopeProtection {
 
@@ -291,14 +293,14 @@ internal class PassthroughFileProtection : FileEnvelopeProtection {
         key: TransferKey,
         chunk: FilePayload.EncryptedChunk,
     ): ByteArray =
-        chunk.chunkCiphertext
+        chunk.chunkCiphertext.copyOfRange(0, chunk.chunkCiphertext.size - FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES)
 
     override suspend fun encryptChunk(
         transferId: TransferId,
         chunkIndex: Int,
         key: TransferKey,
         plaintext: ByteArray,
-    ): ByteArray = plaintext
+    ): ByteArray = plaintext + ByteArray(FileEnvelopeProtection.CHUNK_OVERHEAD_BYTES)
 
     override suspend fun openOffer(sealed: ByteArray, source: PeerId): FilePayload.SealedOffer =
         FilePayload.SealedOffer.decode(sealed)

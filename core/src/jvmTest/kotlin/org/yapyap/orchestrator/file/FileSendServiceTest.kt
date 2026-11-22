@@ -1,5 +1,9 @@
 package org.yapyap.orchestrator.file
 
+import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.MAX_FILE_NAME_BYTES
+import org.yapyap.protocol.MAX_FILE_NAME_CHARS
+import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -47,10 +51,11 @@ private class NoopCarrier : FileCarrier {
         Unit
 }
 
-private class RecordingQuota : FileQuota {
+/** Records what quota would spare at each call: the explicit keep set plus every pinned file. */
+private class RecordingQuota(private val pins: FilePins) : FileQuota {
     val keeps = mutableListOf<Set<FileId>>()
     override suspend fun enforceQuota(keep: Set<FileId>) {
-        keeps += keep
+        keeps += keep + pins.pinned()
     }
 }
 
@@ -74,8 +79,18 @@ class FileSendServiceTest {
         val storeDir = Path(work.toString(), "store")
         val descriptors = DefaultFileDescriptorStore(db)
         val store = DefaultFileStore(descriptors, crypto, access, storeDir, MutableStateFlow(OrchestratorConfig()))
-        val quota = RecordingQuota()
-        val svc = DefaultFileSendService(store, quota, access, storeDir, NoopCarrier(), DefaultMessageRepository(db))
+        val pins = FilePins()
+        val quota = RecordingQuota(pins)
+        val svc = DefaultFileSendService(
+            store,
+            quota,
+            pins,
+            descriptors,
+            access,
+            storeDir,
+            NoopCarrier(),
+            DefaultMessageRepository(db)
+        )
         return Rig(db, storeDir, work, descriptors, quota, svc)
     }
 
@@ -92,7 +107,7 @@ class FileSendServiceTest {
         PickedFile(path.name, null, PickedFileSource.FilePath(path.toString()), keepCopy)
 
     private fun storeFileNames(storeDir: Path): List<String> =
-        java.io.File(storeDir.toString()).list()?.sorted().orEmpty()
+        File(storeDir.toString()).list()?.sorted().orEmpty()
 
     @Test
     fun unreadableSource_isFileUnreadableNotException() = runTest {
@@ -194,5 +209,57 @@ class FileSendServiceTest {
         assertTrue(files.exists(tmp))
         r.svc.cleanTmp()
         assertTrue(!files.exists(tmp), "killed send partial cleaned on start")
+    }
+
+    @Test
+    fun twoSendsOfOneFile_theFailedOneNeverDeletesWhatTheOtherNeeds() = runTest {
+        val r = rig()
+        val source = writeSource(r.work, "shared.bin", 1_000_000)
+        // A creates the copy; B imports the same bytes while A is still on its way to the DAG.
+        val a = assertIs<PrepareResult.Ready>(r.svc.prepare(listOf(picked(source))) { _, _ -> })
+        val b = assertIs<PrepareResult.Ready>(r.svc.prepare(listOf(picked(source))) { _, _ -> })
+        val fileId = a.attachments.single().fileId
+        // A's append fails: B still holds a pin, so the copy stays.
+        r.svc.release(a.attachments)
+        assertTrue(r.descriptors.findById(fileId) != null, "B's file survives A's release")
+        assertEquals(listOf(fileId.value), storeFileNames(r.storeDir))
+        // B lands: the copy is referenced from now on.
+        r.svc.confirm(b.attachments)
+        assertTrue(r.descriptors.findById(fileId) != null)
+    }
+
+    @Test
+    fun theLastFailedSendOfAFile_deletesTheCopyItCreated() = runTest {
+        val r = rig()
+        val source = writeSource(r.work, "shared.bin", 1_000_000)
+        val a = assertIs<PrepareResult.Ready>(r.svc.prepare(listOf(picked(source))) { _, _ -> })
+        val b = assertIs<PrepareResult.Ready>(r.svc.prepare(listOf(picked(source))) { _, _ -> })
+        r.svc.release(a.attachments)
+        r.svc.release(b.attachments)
+        assertNull(r.descriptors.findById(a.attachments.single().fileId))
+        assertEquals(emptyList(), storeFileNames(r.storeDir))
+    }
+
+    @Test
+    fun longNamesAndOddMimeTypes_areTrimmedBeforeImport_neverRefusedAfterHashing() {
+        val long = "a".repeat(200) + ".jpeg"
+        val trimmed = DefaultFileSendService.displayFileName(long)
+        assertTrue(trimmed.length <= MAX_FILE_NAME_CHARS && trimmed.endsWith(".jpeg"), trimmed)
+        // Multi-byte names are capped in bytes too, and never split a surrogate pair.
+        val emoji = "😀".repeat(100) + ".png"
+        val trimmedEmoji = DefaultFileSendService.displayFileName(emoji)
+        assertTrue(trimmedEmoji.encodeToByteArray().size <= MAX_FILE_NAME_BYTES, trimmedEmoji)
+        assertTrue(trimmedEmoji.endsWith(".png"))
+        val lonePair = trimmedEmoji.indices.any { i ->
+            trimmedEmoji[i].isHighSurrogate() && trimmedEmoji.getOrNull(i + 1)?.isLowSurrogate() != true
+        }
+        assertTrue(!lonePair, "no half surrogate pair left: $trimmedEmoji")
+        assertEquals("file", DefaultFileSendService.displayFileName("   "))
+        assertEquals("photo.jpg", DefaultFileSendService.displayFileName("photo.jpg"))
+        assertNull(DefaultFileSendService.displayMimeType(""))
+        assertNull(DefaultFileSendService.displayMimeType("x".repeat(200)))
+        assertEquals("image/png", DefaultFileSendService.displayMimeType("image/png"))
+        // Whatever comes out is a valid attachment.
+        MessagePayload.Attachment(FileId("f".repeat(64)), trimmedEmoji, null, 1)
     }
 }

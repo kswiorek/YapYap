@@ -1,5 +1,6 @@
 package org.yapyap.routing.file.relay
 
+import org.yapyap.protocol.MIN_FILE_CHUNK_SIZE_BYTES
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -93,8 +94,8 @@ class FileRelayTest {
     private val crypto = DefaultCryptoProvider()
     private val now = epochSeconds(10_000L)
     private val fileId = FileId("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    private val chunkSize = 1000
-    private val totalBytes = 3000L // 3 chunks of 1000
+    private val chunkSize = MIN_FILE_CHUNK_SIZE_BYTES
+    private val totalBytes = 3L * chunkSize // 3 full chunks
 
     private inner class Harness(
         val handler: FileInboundHandler,
@@ -276,6 +277,7 @@ class FileRelayTest {
         total: Long = totalBytes,
         startIndex: Int = 0,
         key: TransferKey = TransferKey(ByteArray(32) { it.toByte() }),
+        chunkSizeBytes: Int = chunkSize,
     ): BinaryEnvelope {
         val sealed = authorProtections.sealOffer(
             FilePayload.SealedOffer(
@@ -289,7 +291,7 @@ class FileRelayTest {
             targetId,
         )
         val inner = authorProtections.protect(
-            FilePayload.Offer(chunkSize, total, startIndex, sealed),
+            FilePayload.Offer(chunkSizeBytes, total, startIndex, sealed),
             FileProtectContext(authorId, targetId, now, transferId),
         )
         return BinaryEnvelope(
@@ -308,9 +310,14 @@ class FileRelayTest {
         transferId: TransferId,
         chunkIndex: Int,
         key: TransferKey = TransferKey(ByteArray(32) { it.toByte() }),
+        plaintextBytes: Int = chunkSize,
     ): BinaryEnvelope {
         val ciphertext =
-            authorProtections.encryptChunk(transferId, chunkIndex, key, ByteArray(100) { chunkIndex.toByte() })
+            authorProtections.encryptChunk(
+                transferId,
+                chunkIndex,
+                key,
+                ByteArray(plaintextBytes) { chunkIndex.toByte() })
         val inner = authorProtections.protect(
             FilePayload.EncryptedChunk(chunkIndex, ciphertext),
             FileProtectContext(authorId, targetId, now, transferId),
@@ -586,27 +593,27 @@ class FileRelayTest {
 
     @Test
     fun oversizeOffer_refusedWithoutEvicting() = runTest {
-        // Just enough pledge for one 3000-byte deposit.
-        val h = harness(pledgeBytes = 4000L)
+        // Just enough pledge for one three-chunk deposit.
+        val h = harness(pledgeBytes = 4L * chunkSize)
         val first = TransferId(Uuid.random())
         assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositOffer(first)))
-        assertEquals(3000L, h.relay.reservedBytes())
+        assertEquals(totalBytes, h.relay.reservedBytes())
 
         // A deposit that fits nowhere, even after evicting everything, is DECLINED —
         // and the eviction it would need never happens.
         val huge = TransferId(Uuid.random())
-        val result = h.handler.handle(h.depositOffer(huge, total = 5000L))
+        val result = h.handler.handle(h.depositOffer(huge, total = 5L * chunkSize))
         assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, (result as InboundHandleResult.Rejected).reason)
         assertNotNull(h.relay.find(first), "a refused admission never disturbs the store")
-        assertEquals(3000L, h.relay.reservedBytes())
+        assertEquals(totalBytes, h.relay.reservedBytes())
         assertNull(h.relay.find(huge))
     }
 
     @Test
     fun evictionMidDeposit_declinedAtNextChunk() = runTest {
-        // Just enough pledge for one 3000-byte deposit.
-        val h = harness(pledgeBytes = 4000L)
+        // Just enough pledge for one three-chunk deposit.
+        val h = harness(pledgeBytes = 4L * chunkSize)
 
         h.engine.runIn(backgroundScope)
         val first = TransferId(Uuid.random())
@@ -623,6 +630,30 @@ class FileRelayTest {
         val result = h.handler.handle(h.depositChunk(first, 1))
         assertIs<InboundHandleResult.Rejected>(result)
         assertEquals(PacketNackReason.DECLINED, (result as InboundHandleResult.Rejected).reason)
+    }
+
+    @Test
+    fun chunkOfTheWrongLength_isDeclined() = runTest {
+        val h = harness()
+
+        h.engine.runIn(backgroundScope)
+        val transferId = TransferId(Uuid.random())
+        assertIs<InboundHandleResult.Success>(h.handler.handle(h.depositOffer(transferId)))
+        // Ciphertext the relay cannot read is bounded only by its length: one byte too many is refused.
+        val oversized = h.handler.handle(h.depositChunk(transferId, 0, plaintextBytes = chunkSize + 1))
+        assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(oversized).reason)
+        val short = h.handler.handle(h.depositChunk(transferId, 1, plaintextBytes = 100))
+        assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(short).reason)
+        assertEquals(0L, h.relay.chunkCount(transferId))
+    }
+
+    @Test
+    fun offerChunkedBelowTheMinimum_isDeclined() = runTest {
+        val h = harness()
+        // One-byte chunks would let a 10 MiB reservation hold ten million envelopes.
+        val result = h.handler.handle(h.depositOffer(TransferId(Uuid.random()), chunkSizeBytes = 1))
+        assertEquals(PacketNackReason.DECLINED, assertIs<InboundHandleResult.Rejected>(result).reason)
+        assertEquals(0L, h.relay.reservedBytes())
     }
 
     @Test

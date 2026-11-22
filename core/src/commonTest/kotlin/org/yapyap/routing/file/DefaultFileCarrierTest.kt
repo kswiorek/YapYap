@@ -1,5 +1,9 @@
 package org.yapyap.routing.file
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.routing.file.FilePushOps
+import org.yapyap.routing.router.NoopFilePushOps
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -36,7 +40,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.uuid.Uuid
 
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class DefaultFileCarrierTest {
 
     private val crypto = DefaultCryptoProvider()
@@ -47,7 +51,7 @@ class DefaultFileCarrierTest {
         val carrier: DefaultFileCarrier,
         val protection: SignedAndEncryptedFileProtection,
         val incoming: InMemoryFileIncomingTransferStore,
-        val sent: MutableList<org.yapyap.protocol.envelopes.BinaryEnvelope>,
+        val sent: MutableList<BinaryEnvelope>,
         val localId: PeerId,
     )
 
@@ -71,7 +75,7 @@ class DefaultFileCarrierTest {
         val store = InMemoryFileIncomingTransferStore()
         val clock = FakeClock(epochSeconds(10_000L))
         val incoming = FileIncomingTransfers(store, clock)
-        val sent = mutableListOf<org.yapyap.protocol.envelopes.BinaryEnvelope>()
+        val sent = mutableListOf<BinaryEnvelope>()
         val carrier = DefaultFileCarrier(
             localDeviceId = localPeer.device.deviceId,
             protection = protection,
@@ -79,7 +83,7 @@ class DefaultFileCarrierTest {
             enqueue = { sent += it },
             clock = clock,
             routerConfig = MutableStateFlow(RouterConfig()),
-            pushOps = org.yapyap.routing.router.NoopFilePushOps(),
+            pushOps = NoopFilePushOps(),
             events = MutableSharedFlow(extraBufferCapacity = 64),
             startRequest = { _, _ -> },
             abortFetch = { _, _ -> },
@@ -166,7 +170,7 @@ class DefaultFileCarrierTest {
             enqueue = { h.sent += it },
             clock = FakeClock(epochSeconds(10_000L)),
             routerConfig = MutableStateFlow(RouterConfig()),
-            pushOps = object : org.yapyap.routing.file.FilePushOps {
+            pushOps = object : FilePushOps {
                 override suspend fun pushFile(fileId: FileId, target: AccountId) {
                     pushed = fileId to target
                 }

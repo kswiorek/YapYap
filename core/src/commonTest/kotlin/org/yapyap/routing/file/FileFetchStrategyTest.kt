@@ -1,5 +1,9 @@
 package org.yapyap.routing.file
 
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.routing.file.port.FileIngestResult
+import org.yapyap.routing.router.FakeFilePorts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -104,7 +108,7 @@ class FileFetchStrategyTest {
         var defaultTotalBytes: Long? = null,
         var totalBytesByFile: Map<FileId, Long?> = emptyMap(),
         var appendImpl: (suspend (offset: Long, bytes: ByteArray) -> FileAppendResult)? = null,
-    ) : org.yapyap.routing.router.FakeFilePorts {
+    ) : FakeFilePorts {
         var checkOffers = 0
         var ingestedBytes = 0L
         override suspend fun checkOffer(offer: FileManifest): FileOfferVerdict =
@@ -114,10 +118,10 @@ class FileFetchStrategyTest {
             fileId: FileId,
             byteOffset: Long,
             plaintext: ByteArray
-        ): org.yapyap.routing.file.port.FileIngestResult {
+        ): FileIngestResult {
             ingestedBytes += plaintext.size
             val total = totalBytesByFile[fileId] ?: defaultTotalBytes ?: (byteOffset + plaintext.size)
-            return org.yapyap.routing.file.port.FileIngestResult.Staged(byteOffset + plaintext.size, total)
+            return FileIngestResult.Staged(byteOffset + plaintext.size, total)
         }
 
         override suspend fun append(fileId: FileId, offset: Long, bytes: ByteArray): FileAppendResult {
@@ -144,7 +148,7 @@ class FileFetchStrategyTest {
 
         override suspend fun getAllActiveDeviceIds(): List<PeerId> = map.keys.toList()
         override suspend fun getDeviceStatus(deviceId: PeerId) =
-            if (deviceId in map) org.yapyap.protocol.IdentityStatus.ACTIVE else null
+            if (deviceId in map) IdentityStatus.ACTIVE else null
         override suspend fun getAccountStatus(accountId: AccountId) = null
         override suspend fun getDeclaredTorEndpoint(deviceId: PeerId) = null
     }
@@ -168,7 +172,7 @@ class FileFetchStrategyTest {
         }
 
         /** Every envelope the requester put on Tor during the test. */
-        fun torSends(): List<org.yapyap.protocol.envelopes.BinaryEnvelope> =
+        fun torSends(): List<BinaryEnvelope> =
             requesterTor.sendsExcludingHeartbeat().map { it.second }
     }
 

@@ -1,5 +1,7 @@
 package org.yapyap.routing.file.push
 
+import org.yapyap.protocol.TransferId
+import org.yapyap.protocol.PeerId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,7 +51,8 @@ class FilePushEngineTest {
 
     @Test
     fun coverageAck_movesResume_notWindow() = runTest {
-        val h = pushHarness()
+        // More chunks than the window (16), so a window that coverage moved would show.
+        val h = pushHarness(totalBytes = 32L * 220 * 1024)
 
         h.engine.runIn(backgroundScope)
         h.sender.pushFile(fixtureFileId, fixtureAccount)
@@ -67,15 +70,19 @@ class FilePushEngineTest {
                 firstChunk
             )
         )
+        // The transport ACK frees one slot; let its refill land before measuring.
+        delay(300)
+        val queuedBefore = h.chunkIndices().size
         h.engine.coverageAck(transfer, peerA, highestContiguousIndex = 2, missing = emptyList())
         withTimeout(5.seconds) {
             while (h.pushes.find(transfer)?.contiguousAcked != 2) delay(10)
         }
+        delay(300)
 
         val row = h.pushes.find(transfer)!!
         assertEquals(2, row.contiguousAcked)
-        // The window still counts queued rows: no new chunk is forced by coverage alone
-        // beyond refilling the window as rows drain.
+        // The window counts queued rows only: coverage moves the resume point, never the window.
+        assertEquals(queuedBefore, h.chunkIndices().size, "coverage alone queued more chunks")
         assertTrue(h.chunkIndices().toSet().size == h.chunkIndices().size, "no chunk index enqueued twice")
     }
 
@@ -220,7 +227,7 @@ class FilePushEngineTest {
     @Test
     fun complete_resolvesOnce_depositsCancelled() = runTest {
         val relays = object : RelaySelectionPolicy {
-            override suspend fun selectRelays(targetDevice: org.yapyap.protocol.PeerId) = listOf(relay1, relay2)
+            override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1, relay2)
         }
         val h = pushHarness(relaySelection = relays)
 
@@ -235,21 +242,63 @@ class FilePushEngineTest {
         h.engine.depositRemainder(transfer)
         withTimeout(5.seconds) { while (h.pushes.live().count { it.kind == FilePushKind.DEPOSIT } < 2) delay(10) }
         val deposits = h.pushes.live().filter { it.kind == FilePushKind.DEPOSIT }
-        h.engine.complete(deposits.first().transferId, relay1)
-        withTimeout(5.seconds) {
-            while (h.pushes.find(deposits.first().transferId)?.status?.isLive == true) delay(10)
-        }
-        // The deposit's COMPLETE before the direct one gives COMPLETED once overall.
-        h.engine.complete(transfer, peerA)
+        // The target got the file through relay1 and COMPLETEs that deposit first.
+        h.engine.complete(deposits.first().transferId, peerA)
         h.awaitStatus(transfer, FilePushStatus.COMPLETED)
+        withTimeout(5.seconds) {
+            while (h.pushes.live().any { it.kind == FilePushKind.DEPOSIT }) delay(10)
+        }
+        // Its COMPLETE for the direct transfer then changes nothing: COMPLETED once overall.
+        h.engine.complete(transfer, peerA)
         delay(200)
         assertEquals(1, seen.filterIsInstance<FileEvent.OutgoingComplete>().size)
     }
 
     @Test
+    fun completeFromARelay_isIgnored() = runTest {
+        val relays = object : RelaySelectionPolicy {
+            override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1)
+        }
+        val h = pushHarness(relaySelection = relays)
+
+        h.engine.runIn(backgroundScope)
+        val seen = mutableListOf<FileEvent>()
+        backgroundScope.launch { h.fileEvents.collect { seen += it } }
+        h.sender.pushFile(fixtureFileId, fixtureAccount)
+        val transfer = h.transferIdsFor(peerA).single()
+        h.engine.depositRemainder(transfer)
+        withTimeout(5.seconds) { while (h.pushes.live().none { it.kind == FilePushKind.DEPOSIT }) delay(10) }
+        val deposit = h.pushes.live().single { it.kind == FilePushKind.DEPOSIT }
+        // Only the target authors COMPLETE: the relay holding the deposit cannot claim delivery.
+        h.engine.complete(deposit.transferId, relay1)
+        delay(200)
+        assertTrue(h.pushes.find(transfer)!!.status.isLive, "the direct push stays live")
+        assertTrue(h.pushes.find(deposit.transferId)!!.status.isLive, "the deposit stays live")
+        assertTrue(seen.none { it is FileEvent.OutgoingComplete })
+    }
+
+    @Test
+    fun cancelFromTheTarget_endsADeposit() = runTest {
+        val relays = object : RelaySelectionPolicy {
+            override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1)
+        }
+        val h = pushHarness(relaySelection = relays)
+
+        h.engine.runIn(backgroundScope)
+        h.sender.pushFile(fixtureFileId, fixtureAccount)
+        val transfer = h.transferIdsFor(peerA).single()
+        h.engine.depositRemainder(transfer)
+        withTimeout(5.seconds) { while (h.pushes.live().none { it.kind == FilePushKind.DEPOSIT }) delay(10) }
+        val deposit = h.pushes.live().single { it.kind == FilePushKind.DEPOSIT }
+        // The target stops its receive and CANCELs every transfer of ours, deposits included.
+        h.engine.cancelled(deposit.transferId, peerA, FileCancelReason.DECLINED)
+        withTimeout(5.seconds) { while (h.pushes.find(deposit.transferId)?.status?.isLive == true) delay(10) }
+    }
+
+    @Test
     fun completeForDepositFromTarget_resolvesAuthoringRow() = runTest {
         val relays = object : RelaySelectionPolicy {
-            override suspend fun selectRelays(targetDevice: org.yapyap.protocol.PeerId) = listOf(relay1)
+            override suspend fun selectRelays(targetDevice: PeerId) = listOf(relay1)
         }
         val h = pushHarness(relaySelection = relays)
 
@@ -414,7 +463,7 @@ class FilePushEngineTest {
         h.engine.onOutboxOutcome(
             OutboxOutcome.Acked(OutboxTag(OutboxTag.Kind.FILE_PUSH, Uuid.random()), peerA, Uuid.random()),
         )
-        h.engine.complete(org.yapyap.protocol.TransferId(Uuid.random()), peerA)
+        h.engine.complete(TransferId(Uuid.random()), peerA)
         assertTrue(h.pushes.live().isEmpty())
     }
 }

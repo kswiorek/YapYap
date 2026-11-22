@@ -6,6 +6,8 @@ import org.yapyap.protocol.FILE_BLOCK_MAX_COUNT
 import org.yapyap.protocol.FILE_HASH_BYTES
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.MAX_CHUNK_CIPHERTEXT_BYTES
+import org.yapyap.protocol.MAX_ENVELOPE_NONCE_BYTES
+import org.yapyap.protocol.MAX_ENVELOPE_SIGNATURE_BYTES
 import org.yapyap.protocol.MAX_FILE_NAME_BYTES
 import org.yapyap.protocol.MAX_FILE_NAME_CHARS
 import org.yapyap.protocol.MAX_MIME_TYPE_BYTES
@@ -103,9 +105,9 @@ internal data class FileEnvelope(
             val source = reader.readPeerId()
             val target = reader.readPeerId()
             val createdAt = Instant.fromEpochSeconds(reader.readLong())
-            val nonce = reader.readByteArray()
+            val nonce = reader.readByteArray(maxSize = MAX_ENVELOPE_NONCE_BYTES)
             val securityScheme = SignalSecurityScheme.fromWireValue(reader.readByte())
-            val signature = reader.readNullableByteArray()
+            val signature = reader.readNullableByteArray(maxSize = MAX_ENVELOPE_SIGNATURE_BYTES)
             val encodedPayload = reader.readByteArray()
             reader.requireFullyRead()
 
@@ -149,6 +151,7 @@ internal data class ByteRange(
     init {
         require(startBytes >= 0) { "startBytes must be >= 0" }
         require(lengthBytes > 0) { "lengthBytes must be > 0" }
+        require(startBytes <= Long.MAX_VALUE - lengthBytes) { "range end overflows" }
     }
 }
 

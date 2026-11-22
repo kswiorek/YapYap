@@ -3,6 +3,7 @@ package org.yapyap.orchestrator.runtime.file
 import kotlinx.io.files.Path
 import org.yapyap.orchestrator.file.FileDescriptorReader
 import org.yapyap.orchestrator.file.FileDescriptorStatus
+import org.yapyap.orchestrator.file.FilePathKind
 import org.yapyap.orchestrator.file.FileReceiveReader
 import org.yapyap.orchestrator.file.FileReceiveStatus
 import org.yapyap.orchestrator.file.FileRequestControl
@@ -36,6 +37,8 @@ internal class DefaultFileTransferService(
         if (row != null && row.status != FileReceiveStatus.READY) return null
         val descriptor = descriptors.findById(fileId) ?: return null
         if (descriptor.status != FileDescriptorStatus.HELD) return null
+        // A content-URI reference has no filesystem path; the GUI that picked it holds its URI.
+        if (descriptor.pathKind != FilePathKind.PATH) return null
         val path = Path(descriptor.path)
         if (files.fileSize(path) == null) return null
         store.touch(fileId)

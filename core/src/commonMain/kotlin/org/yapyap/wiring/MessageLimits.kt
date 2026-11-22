@@ -33,8 +33,13 @@ internal data class MessageLimits(
             // Crypto must handle anything any transport can carry → use max.
             val crypto = cryptoLimitsFor(transport.maxTransportableBytes)
             // Messages must fit through EITHER transport → use min.
-            val maxText = (cryptoLimitsFor(transport.maxRoutableBytes).maxInnerPlaintextBytes
-                    - MessagePayload.Text.ENCODED_HEADER_RESERVE_BYTES)
+            // The text travels as a u16-length string, so the frame's room is capped at what
+            // that prefix can carry: a longer text would pass this check and fail to encode.
+            val maxText = minOf(
+                cryptoLimitsFor(transport.maxRoutableBytes).maxInnerPlaintextBytes -
+                        MessagePayload.Text.ENCODED_HEADER_RESERVE_BYTES,
+                Short.MAX_VALUE.toInt(),
+            )
             return MessageLimits(transport, crypto, maxText)
         }
 

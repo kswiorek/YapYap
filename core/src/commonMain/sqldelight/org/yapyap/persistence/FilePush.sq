@@ -69,18 +69,22 @@ SELECT * FROM file_pushes WHERE status = 'CREATED' OR status = 'IN_FLIGHT';
 selectFilePushesByFile:
 SELECT * FROM file_pushes WHERE file_id = :fileId;
 
+-- Terminal rows never change again: a late write from an actor that has not seen a COMPLETE
+-- yet must not bring a finished transfer back.
 updateFilePushStatus:
-UPDATE file_pushes SET status = ? WHERE transfer_id = ?;
+UPDATE file_pushes SET status = ? WHERE transfer_id = ? AND status IN ('CREATED', 'IN_FLIGHT');
 
 updateFilePushMarker:
 UPDATE file_pushes SET marker_packet_id = ? WHERE transfer_id = ?;
 
 updateFilePushProgress:
-UPDATE file_pushes SET next_chunk_index = ?, contiguous_acked = ? WHERE transfer_id = ?;
+UPDATE file_pushes SET next_chunk_index = ?, contiguous_acked = ? WHERE transfer_id = ? AND status IN ('CREATED', 'IN_FLIGHT');
 
 -- Deposit-round claim (design §6.4): exactly one claimant per source transfer, restart-safe.
+-- Only a live transfer deposits: a COMPLETE that landed meanwhile wins over the claim.
 claimFilePushDeposited:
-UPDATE file_pushes SET deposited_at = :now WHERE transfer_id = :id AND deposited_at IS NULL;
+UPDATE file_pushes SET deposited_at = :now WHERE transfer_id = :id AND deposited_at IS NULL
+    AND status IN ('CREATED', 'IN_FLIGHT');
 
 -- Terminal rows past their TTL: the ticker deletes them with their key (invariant 5).
 selectTerminalFilePushesBefore:

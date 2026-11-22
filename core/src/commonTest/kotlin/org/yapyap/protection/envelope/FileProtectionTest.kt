@@ -27,6 +27,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.TestTimeSource
 import kotlin.uuid.Uuid
 
 class FileProtectionTest {
@@ -40,7 +42,9 @@ class FileProtectionTest {
         val targetPeer: PeerId,
     )
 
-    private suspend fun sampleFileProtectionPair(): FileProtectionPair {
+    private suspend fun sampleFileProtectionPair(
+        receiverCache: OpenedFrameCache = OpenedFrameCache(),
+    ): FileProtectionPair {
         val senderPeer = buildTestPeerIdentity(crypto, "saf-sender")
         val receiverPeer = buildTestPeerIdentity(crypto, "saf-receiver")
         val senderSession = managerForPeer(
@@ -67,7 +71,12 @@ class FileProtectionTest {
         ).let { DefaultSignatureProvider(it, it, crypto) }
         return FileProtectionPair(
             sender = SignedAndEncryptedFileProtection(senderSignatureProvider, senderSession, crypto),
-            receiver = SignedAndEncryptedFileProtection(receiverSignatureProvider, receiverSession, crypto),
+            receiver = SignedAndEncryptedFileProtection(
+                receiverSignatureProvider,
+                receiverSession,
+                crypto,
+                receiverCache
+            ),
             sourcePeer = senderPeer.device.deviceId,
             targetPeer = receiverPeer.device.deviceId,
         )
@@ -315,17 +324,22 @@ class FileProtectionTest {
     }
 
     @Test
-    fun sealedHalf_replayFails() = runTest {
-        val pair = sampleFileProtectionPair()
-        val sealed = pair.sender.sealOffer(sampleSealedOffer(), pair.targetPeer)
-        assertEquals(sampleSealedOffer(), pair.receiver.openOffer(sealed, pair.sourcePeer))
-        val failure = assertFailsWith<ProtectionException> {
-            pair.receiver.openOffer(sealed, pair.sourcePeer)
-        }
+    fun sealedHalf_redeliveredWithinTheWindow_opensAgain_andAfterItFails() = runTest {
+        val time = TestTimeSource()
+        val base = sampleFileProtectionPair(OpenedFrameCache(capacity = 8, ttl = 10.minutes, timeSource = time))
+        val receiver = base.receiver
+        val sealed = base.sender.sealOffer(sampleSealedOffer(), base.targetPeer)
+        assertEquals(sampleSealedOffer(), receiver.openOffer(sealed, base.sourcePeer))
+        // Our own Defer after opening: the sender redelivers the same bytes.
+        time += 9.minutes
+        assertEquals(sampleSealedOffer(), receiver.openOffer(sealed, base.sourcePeer))
+        // Past the window the ratchet sees a replay.
+        time += 2.minutes
+        val failure = assertFailsWith<ProtectionException> { receiver.openOffer(sealed, base.sourcePeer) }
         assertEquals(
             ProtectionDisposition.PERMANENT,
             failure.disposition,
-            "a sealed-half replay must be permanent, never a silent retry",
+            "a sealed-half replay past the window must be permanent, never a silent retry",
         )
     }
 

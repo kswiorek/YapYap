@@ -13,6 +13,7 @@ import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.buildFileControlEnvelope
+import org.yapyap.routing.file.expectedChunkCiphertextBytes
 import org.yapyap.routing.file.fileChunkCount
 import org.yapyap.routing.file.isValidOfferPublicHalf
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
@@ -168,6 +169,12 @@ internal class FileRelayDoor(
         }
         val count = fileChunkCount(row.totalBytes, row.chunkSizeBytes)
         if (payload.chunkIndex < row.startIndex || payload.chunkIndex >= count) {
+            return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
+        }
+        // The relay stores ciphertext it cannot read: only its length bounds what a depositor can
+        // make it hold, so a chunk must be exactly the size its index allows.
+        val expected = expectedChunkCiphertextBytes(row.totalBytes, row.chunkSizeBytes, payload.chunkIndex)
+        if (payload.chunkCiphertext.size.toLong() != expected) {
             return InboundHandleResult.Rejected(PacketNackReason.DECLINED)
         }
         // PK dedup: a re-deposited chunk after a stall is a no-op (design §7.2).

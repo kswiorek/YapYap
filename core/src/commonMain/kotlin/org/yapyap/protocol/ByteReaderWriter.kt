@@ -110,10 +110,10 @@ internal class ByteReader(private val bytes: ByteArray) {
         return bytes
     }
 
-    fun readNullableByteArray(): ByteArray? {
+    fun readNullableByteArray(maxSize: Int = Int.MAX_VALUE): ByteArray? {
         return when (val marker = readUnsignedByte()) {
             0 -> null
-            1 -> readByteArray()
+            1 -> readByteArray(maxSize)
             else -> error("invalid nullable byte array marker: $marker")
         }
     }

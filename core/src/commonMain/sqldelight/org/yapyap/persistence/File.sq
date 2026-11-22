@@ -123,9 +123,6 @@ insertFileReceiveChunk:
 INSERT OR IGNORE INTO file_receive_chunks (file_id, start_offset, length, plaintext)
 VALUES (?, ?, ?, ?);
 
-selectFileReceiveChunksByFile:
-SELECT * FROM file_receive_chunks WHERE file_id = ? ORDER BY start_offset ASC;
-
 selectFileReceiveChunksOverlapping:
 SELECT * FROM file_receive_chunks
 WHERE file_id = ? AND start_offset < :untilExclusive AND start_offset + length > :fromInclusive
@@ -142,16 +139,5 @@ DELETE FROM file_receive_chunks WHERE file_id = ?;
 
 deleteFileReceiveChunksBelow:
 DELETE FROM file_receive_chunks WHERE file_id = ? AND start_offset + length <= ?;
-
-deleteFileReceiveChunksFrom:
-DELETE FROM file_receive_chunks WHERE file_id = ? AND start_offset >= ?;
-
-deleteFileReceiveChunksEndingPast:
-DELETE FROM file_receive_chunks WHERE file_id = ? AND start_offset + length > ?;
-
-updateFileReceiveChunk:
-UPDATE file_receive_chunks
-SET start_offset = ?, length = ?, plaintext = ?
-WHERE file_id = ? AND start_offset = ?;
 
 CREATE INDEX file_receive_chunks_file_idx ON file_receive_chunks(file_id);

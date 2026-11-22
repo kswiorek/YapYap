@@ -4,7 +4,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -59,11 +62,11 @@ class FileChannelTransportTest {
             assertEquals(listOf(peer, peer), backend.openFileChannelCalls)
 
             // Two file frames on different channels both land.
+            val framesSubscribed = CompletableDeferred<Unit>()
             val collected = async {
-                withTimeout(5.seconds) { transport.incomingFileFrames.take(2).toList() }
+                withTimeout(5.seconds) { transport.incomingFileFrames.subscribed(framesSubscribed).take(2).toList() }
             }
-            // Small yield so the collector is active before emitting.
-            delay(10)
+            framesSubscribed.await()
             assertTrue(backend.tryEmitFileFrame(WebRtcFileFrame(channel1, byteArrayOf(1, 2))))
             assertTrue(backend.tryEmitFileFrame(WebRtcFileFrame(channel2, byteArrayOf(3, 4))))
             val frames = collected.await()
@@ -71,10 +74,11 @@ class FileChannelTransportTest {
 
             // Envelope channel still flows alongside file channels.
             val envelope = testEnvelope()
+            val envelopesSubscribed = CompletableDeferred<Unit>()
             val inboundCollected = async {
-                withTimeout(5.seconds) { transport.incomingEnvelopes.first() }
+                withTimeout(5.seconds) { transport.incomingEnvelopes.subscribed(envelopesSubscribed).first() }
             }
-            delay(10)
+            envelopesSubscribed.await()
             assertTrue(
                 backend.tryEmitDataFrame(
                     WebRtcDataFrame(peer, self, WebRtcDataType.ENVELOPE_BINARY, envelope.encode()),
@@ -121,14 +125,15 @@ class FileChannelTransportTest {
         transport.start(self)
         try {
             val removed = mutableListOf<WebRtcFileChannelEvent.Removed>()
+            val eventsSubscribed = CompletableDeferred<Unit>()
             val job = launch {
-                transport.fileChannelEvents.collect { event ->
+                transport.fileChannelEvents.subscribed(eventsSubscribed).collect { event ->
                     if (event is WebRtcFileChannelEvent.Removed) {
                         removed.add(event)
                     }
                 }
             }
-            delay(10)
+            eventsSubscribed.await()
             val channel1 = transport.openFileChannel(peer)
             val channel2 = transport.openFileChannel(peer)
             withTimeout(5.seconds) {
@@ -199,10 +204,11 @@ class FileChannelTransportTest {
 
             // Envelopes ride a separate flow and must still arrive promptly.
             val envelope = testEnvelope()
+            val envelopesSubscribed = CompletableDeferred<Unit>()
             val inboundCollected = async {
-                withTimeout(5.seconds) { transport.incomingEnvelopes.first() }
+                withTimeout(5.seconds) { transport.incomingEnvelopes.subscribed(envelopesSubscribed).first() }
             }
-            delay(10)
+            envelopesSubscribed.await()
             assertTrue(
                 backend.tryEmitDataFrame(
                     WebRtcDataFrame(peer, self, WebRtcDataType.ENVELOPE_BINARY, envelope.encode()),
@@ -216,3 +222,10 @@ class FileChannelTransportTest {
         }
     }
 }
+
+/**
+ * The transport's flows are shared flows: [signal] completes once this collector is subscribed,
+ * so a test emits only after it, instead of sleeping and hoping.
+ */
+private fun <T> Flow<T>.subscribed(signal: CompletableDeferred<Unit>): Flow<T> =
+    (this as SharedFlow<T>).onSubscription { signal.complete(Unit) }

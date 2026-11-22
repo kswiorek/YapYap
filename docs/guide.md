@@ -6,7 +6,8 @@ in one of them and raise it, don't silently follow the code.
 
 Deeper references: [`transport.md`](transport.md) (Tor/WebRTC links), [`router.md`](router.md) (router
 internals), [`e2ee.md`](e2ee.md) (sessions and ratchets), [`file/design.md`](file/design.md) (file transfer
-design, ready to implement; order in [`file/plan.md`](file/plan.md)), [`global events.md`](global%20events.md)
+design; built, with the refactor's notes in [`file/refactor.md`](file/refactor.md)), [
+`global events.md`](global%20events.md)
 (accounts,
 devices, admin chain), [`room events.md`](room%20events.md) (rooms and membership), [`gui-api.md`](gui-api.md)
 (what the GUI may use).
@@ -375,7 +376,8 @@ Working:
 
 Not done yet:
 
-- GUI file surface (progress, accept/decline, open) — the envelope family, file protection, both
+- GUI file surface (progress, accept/decline, open: the core's `FileTransferService` has them, no screen calls them
+  yet) — the envelope family, file protection, both
   transfer paths and storage are built; the order of the rest is in [`file/plan.md`](file/plan.md) steps 23–24.
 - File transfer soak and test matrix (multi-GB fetches with forced drops, receiver restarts).
 - Audio/video media (session contracts exist; media tracks do not).

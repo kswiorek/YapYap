@@ -37,8 +37,22 @@ internal const val MAX_MIME_TYPE_BYTES: Int = 128
 /** Wire bounds before allocation: the sealed half stays within both transports' frames. */
 internal const val MAX_SEALED_OFFER_BYTES: Int = 64 * 1024
 
-/** Wire bound for one chunk's ciphertext: Tor's 4 MiB frame plus framing margin. */
-internal const val MAX_CHUNK_CIPHERTEXT_BYTES: Int = 5 * 1024 * 1024
+/**
+ * Wire bound for one chunk's ciphertext. Chunks are sized to fit the smaller transport frame
+ * (about 250 KiB at the default sizes, `FileLimits`); this is a sanity bound well above that.
+ */
+internal const val MAX_CHUNK_CIPHERTEXT_BYTES: Int = 1024 * 1024
+
+/** Wire bounds for a FILE envelope's nonce and author signature (24 and 64 bytes today). */
+internal const val MAX_ENVELOPE_NONCE_BYTES: Int = 64
+internal const val MAX_ENVELOPE_SIGNATURE_BYTES: Int = 128
+
+/**
+ * Smallest small-path chunk (and large-path frame) a device sends or accepts. A receiver or relay
+ * refuses an OFFER chunked finer: one byte per chunk would turn a 10 MiB reservation into ten
+ * million stored envelopes.
+ */
+internal const val MIN_FILE_CHUNK_SIZE_BYTES: Int = 64 * 1024
 
 /** Exact byte length of every block hash and transfer key on the wire. */
 internal const val FILE_HASH_BYTES: Int = 32

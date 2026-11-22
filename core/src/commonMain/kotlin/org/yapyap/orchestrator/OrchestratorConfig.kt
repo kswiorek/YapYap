@@ -82,6 +82,10 @@ internal data class OrchestratorConfig(
         require(maxStagedBytes > 0) { "maxStagedBytes must be > 0" }
         require(fileHashRetryLimit > 0) { "fileHashRetryLimit must be > 0" }
         require(autoDownloadMaxBytes >= 0) { "autoDownloadMaxBytes must be >= 0" }
+        // A file fetched or copied without asking must fit the quota, or the next quota run
+        // evicts it right after it arrived (design §10).
+        require(storeQuotaBytes >= autoDownloadMaxBytes) { "storeQuotaBytes must hold an auto-downloaded file" }
+        require(storeQuotaBytes >= copyIntoStoreMaxBytes) { "storeQuotaBytes must hold a copied send" }
         require(fileCheckpointBytes > 0) { "fileCheckpointBytes must be > 0" }
         require(fileCheckpointInterval > Duration.ZERO) { "fileCheckpointInterval must be > 0" }
         require(maxStagedBytes >= fileCheckpointBytes) { "maxStagedBytes must hold a checkpoint's worth" }

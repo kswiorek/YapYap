@@ -101,8 +101,15 @@ internal class FileSender(
             val chunkSize = chunkSizeBytes.value
             val count = fileChunkCount(info.totalBytes, chunkSize)
             val start = (fromOffset / chunkSize).toInt().coerceIn(0, maxOf(count - 1, 0))
-            engine.supersede(fileId, device)
             val now = ctx.clock.now()
+            // A REQUEST repeated within one attempt is answered by the serve already under way
+            // (it covers this suffix), so a peer looping REQUESTs cannot mint a transfer per frame.
+            val fresh = liveRows(fileId, device).firstOrNull {
+                it.kind == FilePushKind.SERVE && it.startIndex <= start &&
+                        now - it.createdAt < ctx.routerConfig.value.fileRequestAttemptTimeout
+            }
+            if (fresh != null) return@withLock true
+            engine.supersede(fileId, device)
             val row = FilePush(
                 transferId = TransferId(Uuid.random()),
                 fileId = info.fileId,
@@ -195,8 +202,9 @@ internal class FileSender(
     private suspend fun peerDevices(target: AccountId): List<PeerId> =
         ctx.devices.getAllPeerDevicesForAccount(target).filter { it != ctx.localDeviceId }
 
+    /** Live authoring rows (direct and serve) to [device]: deposits are their own transfers. */
     private suspend fun liveRows(fileId: FileId, device: PeerId): List<FilePush> =
-        pushes.findLiveByFileAndTarget(fileId, device)
+        pushes.findLiveByFileAndTarget(fileId, device).filter { it.kind != FilePushKind.DEPOSIT }
 
     private suspend fun accountOf(device: PeerId): AccountId? =
         ctx.devices.getAccountIdForDevice(device)

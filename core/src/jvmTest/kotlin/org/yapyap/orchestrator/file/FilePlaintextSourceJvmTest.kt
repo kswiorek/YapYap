@@ -1,5 +1,6 @@
 package org.yapyap.orchestrator.file
 
+import java.io.RandomAccessFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
@@ -245,7 +246,7 @@ class FilePlaintextSourceJvmTest {
         }
         val descriptor = f.store.importHeld(FileImportSource.PathSource(src), "rot.bin", null, keepCopy = true)
         // Rot the stored copy inside block 1.
-        java.io.RandomAccessFile(Path(descriptor.path).toString(), "rw").use { raf ->
+        RandomAccessFile(Path(descriptor.path).toString(), "rw").use { raf ->
             raf.seek(1_200_000L)
             raf.write(0x00)
             raf.write(0x01)
