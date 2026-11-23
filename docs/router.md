@@ -36,7 +36,7 @@ routing/
   inbound/                InboundEnvelopeHandler, InboundEnvelopeProcessor, and the two
                           kernel-owned family handlers: SystemInboundHandler, SignalInboundHandler
   outbound/               EnvelopeDispatcher, OutboxProcessor, RetryLoop, SystemSender,
-                          ProactiveSessionOpener, RelayCopies, WebRtcSignaler
+                          RelayCopies, WebRtcSignaler
   presence/               PresenceService, PingProvider, PeerAvailabilityRegistry
   link/                   PeerLinks, LinkKeeper
   policy/                 outbound/relay/sync policies

@@ -17,11 +17,19 @@ import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
-import org.yapyap.routing.router.*
+import org.yapyap.routing.router.AccountPushReport
+import org.yapyap.routing.router.InboundHandleResult
+import org.yapyap.routing.router.MessageAck
+import org.yapyap.routing.router.MessageCarrier
+import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.OutcomeMailbox
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.RouterLifecycle
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.router.TypingIndicatorEvent
 import org.yapyap.routing.store.OutboxTag
 import org.yapyap.routing.store.SyncAttemptStore
 import kotlin.time.Duration
@@ -42,13 +50,13 @@ internal class MessageService(
     private val lifecycle: RouterLifecycle,
     private val outboxProcessor: OutboxProcessor,
     private val systemSender: SystemSender,
-    private val sessionOpener: ProactiveSessionOpener,
     relaySelection: RelaySelectionPolicy,
     private val syncAttemptStore: SyncAttemptStore,
     private val syncProvider: SyncPayloadProvider,
     private val peerPolicy: SyncPeerPolicy,
     private val maxIdlePoll: StateFlow<Duration>,
-    linkKeeper: LinkKeeper,
+    torLinkKeeper: LinkKeeper,
+    private val webRtcLinkKeeper: LinkKeeper,
     override val frontiers: Flow<PingFrontiers>,
 ) : MessageCarrier, MessageInbound {
 
@@ -58,11 +66,11 @@ internal class MessageService(
 
     private val outcomes = OutcomeMailbox()
 
-    private val outboundMessenger = OutboundMessenger(ctx, outboxProcessor, sessionOpener)
+    private val outboundMessenger = OutboundMessenger(ctx, outboxProcessor, webRtcLinkKeeper)
     private val relayDepositor = RelayDepositor(ctx, relaySelection) { envelope, at ->
         outboxProcessor.enqueueAndWake(envelope, at)
     }
-    private val typingDispatcher = TypingIndicatorDispatcher(ctx, systemSender, sessionOpener)
+    private val typingDispatcher = TypingIndicatorDispatcher(ctx, systemSender, webRtcLinkKeeper)
     private val pullProcessor = MessagePullProcessor(
         ctx = ctx,
         attempts = syncAttemptStore,
@@ -71,7 +79,7 @@ internal class MessageService(
         outboxProcessor = outboxProcessor,
         peerPolicy = peerPolicy,
         maxIdlePoll = maxIdlePoll,
-        linkKeeper = linkKeeper,
+        linkKeeper = torLinkKeeper,
     )
 
     val inboundHandler = MessageInboundHandler(ctx, incomingMessageFlow, this)

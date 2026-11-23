@@ -1,6 +1,7 @@
 package org.yapyap.routing.router
 
 import kotlinx.serialization.Serializable
+import org.yapyap.routing.link.LinkKeeperConfig
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
@@ -18,14 +19,25 @@ internal data class RouterConfig(
     val standbyRetryDelay: Duration = 1.hours,
     val retryLoopMaxIdlePoll: Duration = 60.seconds,
     val dedupRetention: Duration = 30.days,
-    /** A peer must have sent us traffic within this window for proactive session pre-warming. */
+    /**
+     * The WebRTC link keeper's "sure online and expected traffic" gate: a peer becomes a target
+     * only after it sent us traffic within this window. A WebRTC open costs Tor signaling
+     * round-trips plus ICE, so it is never spent on a peer we have no recent evidence for.
+     */
     val proactiveSessionFreshness: Duration = 60.seconds,
-    /** Minimum interval between proactive open attempts to the same peer after a failed/closed session. */
+    /** WebRTC links: initial backoff after a failed open, doubling per consecutive failure. */
     val proactiveSessionRetryDelay: Duration = 30.seconds,
-    /** Default budget for `ProactiveSessionOpener.awaitSession` (best-effort REQUIRED mode). */
+    /** WebRTC links: cap on the exponential backoff between open attempts to a peer that keeps failing. */
+    val webrtcLinkMaxRetryDelay: Duration = 10.minutes,
+    /** WebRTC links: opens (signaling round-trips + ICE) in progress at once. */
+    val webrtcLinkMaxConcurrentOpens: Int = 2,
+    /**
+     * Default budget for a budgeted link await (`LinkKeeper.await`, REQUIRED mode), and the
+     * WebRTC keeper's per-attempt open budget. Signaling round-trips take seconds.
+     */
     val sessionAwaitTimeout: Duration = 45.seconds,
     /**
-     * Cadence at which `ProactiveSessionOpener.awaitSession` re-issues the idempotent
+     * Cadence at which a budgeted link await (`LinkKeeper.await`) re-issues the idempotent
      * open while waiting. The wait itself is event-driven; this is only the safety net
      * for silently lost signaling (no event ever arrives) and the rate limit for
      * re-opening after terminal states. Signaling round-trips take seconds, so this is
@@ -157,7 +169,7 @@ internal data class RouterConfig(
     val chunkAckTimeout: Duration = 45.seconds,
     /**
      * Large-fetch session budget (design §15): a large request opens a
-     * WebRTC session through `ProactiveSessionOpener.awaitSession` with this timeout.
+     * WebRTC link through `LinkKeeper.await` with this timeout.
      * Matches the generic session-await budget: signaling round-trips take seconds.
      */
     val fileSessionOpenTimeout: Duration = 45.seconds,
@@ -192,6 +204,10 @@ internal data class RouterConfig(
         require(ackLifetime > Duration.ZERO) { "ackLifetime must be > 0" }
         require(proactiveSessionFreshness > Duration.ZERO) { "proactiveSessionFreshness must be > 0" }
         require(proactiveSessionRetryDelay > Duration.ZERO) { "proactiveSessionRetryDelay must be > 0" }
+        require(webrtcLinkMaxRetryDelay >= proactiveSessionRetryDelay) {
+            "webrtcLinkMaxRetryDelay must be >= proactiveSessionRetryDelay"
+        }
+        require(webrtcLinkMaxConcurrentOpens > 0) { "webrtcLinkMaxConcurrentOpens must be > 0" }
         require(onionRefreshRetryDelay > Duration.ZERO) { "onionRefreshRetryDelay must be > 0" }
         require(outboxMaxInFlight > 0) { "outboxMaxInFlight must be > 0" }
         require(outboxMaxInFlightPerTarget > 0) { "outboxMaxInFlightPerTarget must be > 0" }
@@ -240,6 +256,32 @@ internal data class RouterConfig(
     /** Bytes of relayed messages this device keeps in its outbox (the rest of the pledge). */
     val messageRelayBudgetBytes: Long
         get() = relayStoragePledgeBytes - fileRelayBudgetBytes
+
+    /** The Tor link keeper's piece of these rules: it keeps a link open to every active peer. */
+    val torLinkKeeperConfig: LinkKeeperConfig
+        get() = LinkKeeperConfig(
+            retryDelay = torLinkRetryDelay,
+            maxRetryDelay = torLinkMaxRetryDelay,
+            maxConcurrentOpens = torLinkMaxConcurrentOpens,
+            openTimeout = torLinkOpenTimeout,
+            recheckInterval = linkKeeperRecheckInterval,
+            retryJitter = linkKeeperRetryJitter,
+            minWait = linkKeeperMinWait,
+            reopenCadence = sessionAwaitReopenDelay,
+        )
+
+    /** The WebRTC link keeper's piece: same mechanism, guarded opens (sure online and expected traffic). */
+    val webrtcLinkKeeperConfig: LinkKeeperConfig
+        get() = LinkKeeperConfig(
+            retryDelay = proactiveSessionRetryDelay,
+            maxRetryDelay = webrtcLinkMaxRetryDelay,
+            maxConcurrentOpens = webrtcLinkMaxConcurrentOpens,
+            openTimeout = sessionAwaitTimeout,
+            recheckInterval = linkKeeperRecheckInterval,
+            retryJitter = linkKeeperRetryJitter,
+            minWait = linkKeeperMinWait,
+            reopenCadence = sessionAwaitReopenDelay,
+        )
 
     fun getRetryDelay(transport: RouterTransport): Duration = when (transport) {
         RouterTransport.WEBRTC -> webRtcRetryDelay

@@ -485,8 +485,8 @@ the transport's channel and the file code, the same kind of direct path AV will 
 One fetch = one data channel between the requesting device and one holder.
 
 1. **The requester opens the session.** Its request processor (§9) asks for a WebRTC session with the
-   candidate through the router's existing on-demand opener (`ProactiveSessionOpener.awaitSession`, signaled
-   over Tor as today). Sends never opened connections; a large fetch does, because the requesting device is
+   candidate through the router's budgeted link await (`LinkKeeper.await`, signaled over Tor as today).
+   Sends never opened connections; a large fetch does, because the requesting device is
    the one with the user's intent. No session within `fileSessionOpenTimeout` → that candidate is unreachable
    and the next is asked.
 2. **The requester opens a fetch channel** on that peer connection (no renegotiation; either side may add a
@@ -1299,7 +1299,7 @@ GUI-API contract for the send/progress/decline surface (to be written with the G
 | `routing/outbound/RelayDepositor.kt`, `OutboxProcessor` triggers                       | the trigger policy extracted for shared use; the marker uses the message triggers, chunk rows their own set (§5, §6.3)                                                        |
 | `routing/store/PacketOutbox.kt` (`OutboxTag`), `Outbox.sq`, `OutboxProcessor`          | new `Kind.FILE`; `OutboxOutcome` gains `packetId`; the due query stops loading blobs and orders messages first; FILE rows get a flat retry (§6.2)                             |
 | `routing/policy/LinkPreferencePolicy.kt` (retry delays)                                | unchanged for messages; chunk rows do not use its `fastRetryBudget` / `standbyRetryDelay` (§6.2)                                                                              |
-| `routing/outbound/ProactiveSessionOpener.kt` (`awaitSession`)                          | used as it is to open a session for a large fetch; its doc's "fallback to Tor" for files is removed (§6.6)                                                                    |
+| `routing/link/LinkKeeper.kt` (`await`)                                                 | used as it is to open a session for a large fetch; its doc's "fallback to Tor" for files is removed (§6.6)                                                                    |
 | `protocol/envelopes/MessageEnvelope.kt` (`Text`, `PAYLOAD_HEADER_VERSION`)             | `Text` gains `attachments` in the signed bytes; the header version goes 2 → 3; test data is reset (§3.1)                                                                      |
 | `JvmWebRtcBackend` channel labels (`envelope`, `av`)                                   | add a per-fetch file channel kind carrying raw frames, `bufferedAmount` low-threshold (the `onBufferedAmountChange` hook exists, unused) and channel close events (§6.6, §12) |
 | `wiring/MessageLimits.kt`                                                              | joined by `FileLimits` (derived chunk size) and the storage-pledge split (§15)                                                                                                |

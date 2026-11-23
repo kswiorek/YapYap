@@ -1,20 +1,32 @@
 package org.yapyap.routing.link
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
-import org.yapyap.transport.session.*
+import org.yapyap.transport.session.SessionPhase
+import org.yapyap.transport.session.SessionStatus
+import org.yapyap.transport.session.SessionTransport
+import org.yapyap.transport.session.disconnectedKeys
+import org.yapyap.transport.session.isTerminal
 import kotlin.concurrent.Volatile
 import kotlin.math.pow
 import kotlin.random.Random
@@ -36,18 +48,32 @@ internal data class LinkKeeperConfig(
     val retryJitter: Double,
     /** Shortest sleep between passes. */
     val minWait: Duration,
+    /** Budgeted awaits re-issue the idempotent open at most this often (lost-signaling safety net). */
+    val reopenCadence: Duration,
 )
 
+/** Result of a budgeted link request ([LinkKeeper.await]). Failure reasons are logged, not returned. */
+internal sealed interface SessionOutcome {
+    data object Connected : SessionOutcome
+    data object Timeout : SessionOutcome
+}
+
 /**
- * Keeps a link open to every peer in [targets] over one session transport, in the
- * background and independently of any message: opening a link is the slow part (a Tor dial,
- * a WebRTC negotiation), so it must not sit in the path of the packets that need it.
+ * Keeps links open over one session transport, in the background and independently of any
+ * message: opening a link is the slow part (a Tor dial, a WebRTC negotiation), so it must not
+ * sit in the path of the packets that need it.
  *
- * Each peer without a link is opened when due; a failed open backs off exponentially (with
- * jitter) up to `maxRetryDelay`, and a link that drops is re-opened at once. Nothing is
- * attempted while [ready] is false; becoming ready (e.g. the network came back) clears all
- * backoff. Transport-agnostic: the transport-specific reactions go in [onOpened] /
- * [onFailed].
+ * Each peer in [targets] without a link is opened when due; a failed open backs off
+ * exponentially (with jitter) up to `maxRetryDelay`, and a link that drops is re-opened at
+ * once. Nothing is attempted while [ready] is false; becoming ready (e.g. the network came
+ * back) clears all backoff. Transport-agnostic: the transport-specific reactions go in
+ * [onOpened] / [onFailed].
+ *
+ * The whole policy is the wiring. The router runs one instance for Tor (every active peer) and
+ * one for WebRTC (only peers it is sure are online and expects traffic with — a WebRTC open
+ * costs Tor signaling round-trips plus ICE). [await] is the explicit-intent door for a budgeted
+ * wait (a large fetch, a call): it bypasses [targets] and backoff for that peer. Links are never
+ * closed here; each transport owns its sessions' lifetime.
  */
 internal class LinkKeeper(
     private val name: String,
@@ -122,10 +148,10 @@ internal class LinkKeeper(
 
     /**
      * Re-evaluates [peer] now. Any component that needed a link it did not have knocks here —
-     * a due outbox entry, a candidate ask with no candidate connected — and passes the default:
-     * the only evidence is that the link was missing, so their backoff schedule stays.
-     * [resetBackoff] only on fresh evidence the peer is reachable
-     * (see [org.yapyap.routing.presence.PresenceService.announceOnline]).
+     * a due outbox entry, a candidate ask with no candidate connected, a send or typing tick
+     * that wants the fast path — and passes the default: the only evidence is that the link was
+     * missing, so their backoff schedule stays. [resetBackoff] only on fresh evidence the peer
+     * is reachable (see [org.yapyap.routing.presence.PresenceService.announceOnline]).
      */
     suspend fun nudge(peer: PeerId, resetBackoff: Boolean = false) {
         if (resetBackoff) lock.withLock { peers[peer]?.clearBackoff() }
@@ -135,6 +161,44 @@ internal class LinkKeeper(
     suspend fun nudgeAll(resetBackoff: Boolean) {
         if (resetBackoff) lock.withLock { peers.values.forEach { it.clearBackoff() } }
         wakeups.trySend(Unit)
+    }
+
+    /**
+     * REQUIRED: best effort to establish a usable link to [peer] within [timeout]. Ignores
+     * [targets] and the peer's backoff — the caller explicitly needs the link (a large file
+     * fetch, a call), so the expensive open is worth attempting even for a peer the background
+     * policy would not pick. Re-issues the idempotent open every [LinkKeeperConfig.reopenCadence]
+     * as a safety net for silently lost signaling and as the rate limit after terminal states.
+     * Racing the background pass is harmless: the transport's session map makes
+     * [SessionTransport.openSession] idempotent.
+     */
+    suspend fun await(peer: PeerId, timeout: Duration): SessionOutcome {
+        if (sessions.hasSession(peer)) return SessionOutcome.Connected
+        val deadline = clock.now() + timeout
+        while (true) {
+            if (clock.now() >= deadline) return SessionOutcome.Timeout
+
+            try {
+                sessions.openSession(peer)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.warn(
+                    component = LogComponent.ROUTER,
+                    event = LogEvent.SESSION_FAILED,
+                    message = "$name link open attempt failed while awaiting the link",
+                    fields = mapOf("peerId" to peer, "error" to e.toString()),
+                )
+            }
+
+            val wait = minOf(config.value.reopenCadence, (deadline - clock.now()).coerceAtLeast(Duration.ZERO))
+            val connected = withTimeoutOrNull(wait) {
+                sessions.sessionStatesOf(peer).first {
+                    it.phase == SessionPhase.CONNECTED && sessions.hasSession(peer)
+                }
+            }
+            if (connected != null) return SessionOutcome.Connected
+        }
     }
 
     private fun PeerState.clearBackoff() {

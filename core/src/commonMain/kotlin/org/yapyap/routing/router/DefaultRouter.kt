@@ -9,6 +9,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,13 +29,11 @@ import org.yapyap.routing.inbound.InboundEnvelopeProcessor
 import org.yapyap.routing.inbound.SignalInboundHandler
 import org.yapyap.routing.inbound.SystemInboundHandler
 import org.yapyap.routing.link.LinkKeeper
-import org.yapyap.routing.link.LinkKeeperConfig
 import org.yapyap.routing.message.MessageService
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
 import org.yapyap.routing.outbound.EnvelopeDispatcher
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.outbound.RelayCopies
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.outbound.WebRtcSignaler
@@ -123,7 +122,8 @@ internal class DefaultRouter(
 
     /**
      * Keeps a Tor link open to every active peer, so sends, pings and replies ride an open
-     * stream instead of dialing. WebRTC sessions stay on-demand ([proactiveSessionOpener]).
+     * stream instead of dialing. Its WebRTC counterpart ([webRtcLinkKeeper]) is the same class
+     * with a guarded target set.
      */
     private val torLinkKeeper: LinkKeeper = LinkKeeper(
         name = "Tor",
@@ -131,8 +131,8 @@ internal class DefaultRouter(
         targets = { ctx.devices.getAllActiveDeviceIds().filter { it != ctx.localDeviceId } },
         ready = ctx.torTransport.health.map { it == TorHealth.Ready },
         config = ctx.routerConfig
-            .map { it.torLinkKeeperConfig() }
-            .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.torLinkKeeperConfig()),
+            .map { it.torLinkKeeperConfig }
+            .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.torLinkKeeperConfig),
         clock = ctx.clock,
         onOpened = { peer ->
             // Their app accepted our stream: they're up. The ping carries our frontiers
@@ -151,9 +151,30 @@ internal class DefaultRouter(
         },
     )
 
-    private val proactiveSessionOpener = ProactiveSessionOpener(
-        ctx = ctx,
-        peerAvailabilityRegistry = peerAvailabilityRegistry,
+    /**
+     * The WebRTC counterpart of [torLinkKeeper]: same mechanism, different policy. An open is
+     * expensive (Tor signaling round-trips plus ICE), so a peer becomes a target only when it is
+     * surely online and we expect traffic — it sent us something within the freshness window.
+     * Explicit intent (a large fetch, a call) bypasses the gate through [LinkKeeper.await].
+     * There is no idle close: each transport owns its sessions' lifetime.
+     */
+    private val webRtcLinkKeeper: LinkKeeper = LinkKeeper(
+        name = "WebRTC",
+        sessions = ctx.webRtcTransport,
+        targets = {
+            val now = ctx.clock.now()
+            val freshness = ctx.routerConfig.value.proactiveSessionFreshness
+            ctx.devices.getAllActiveDeviceIds().filter { peer ->
+                peer != ctx.localDeviceId &&
+                        peerAvailabilityRegistry.isOnline(peer) &&
+                        peerAvailabilityRegistry.lastSeen(peer)?.let { now - it < freshness } == true
+            }
+        },
+        ready = flowOf(true),
+        config = ctx.routerConfig
+            .map { it.webrtcLinkKeeperConfig }
+            .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.webrtcLinkKeeperConfig),
+        clock = ctx.clock,
     )
     private val relaySelectionPolicy = DefaultRelaySelectionPolicy(
         ctx = ctx,
@@ -185,13 +206,13 @@ internal class DefaultRouter(
         lifecycle = lifecycle,
         outboxProcessor = outboxProcessor,
         systemSender = systemSender,
-        sessionOpener = proactiveSessionOpener,
         relaySelection = relaySelectionPolicy,
         syncAttemptStore = syncAttemptStore,
         syncProvider = syncPayloadProvider,
         peerPolicy = peerPolicy,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
-        linkKeeper = torLinkKeeper,
+        torLinkKeeper = torLinkKeeper,
+        webRtcLinkKeeper = webRtcLinkKeeper,
         frontiers = pingProvider.frontiers,
     )
 
@@ -225,8 +246,8 @@ internal class DefaultRouter(
         packetOutbox = packetOutbox,
         relaySelection = relaySelectionPolicy,
         peerPolicy = peerPolicy,
-        sessionOpener = proactiveSessionOpener,
-        linkKeeper = torLinkKeeper,
+        webRtcLinkKeeper = webRtcLinkKeeper,
+        torLinkKeeper = torLinkKeeper,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
     )
 
@@ -255,6 +276,7 @@ internal class DefaultRouter(
     private var webRtcIncomingEnvelopeJob: Job? = null
     private var webRtcSignalerJob: Job? = null
     private var torLinkKeeperJob: Job? = null
+    private var webRtcLinkKeeperJob: Job? = null
     private var outboxRetryJob: Job? = null
     private var outboxOutcomeJob: Job? = null
     private var serviceJobs: List<Job> = emptyList()
@@ -337,6 +359,7 @@ internal class DefaultRouter(
         pingProvider.runIn(scope)
         peerAvailabilityRegistry.start(scope, ctx.localDeviceId)
         torLinkKeeperJob = torLinkKeeper.runIn(scope)
+        webRtcLinkKeeperJob = webRtcLinkKeeper.runIn(scope)
 
         AppLog.info(
             component = LogComponent.ROUTER,
@@ -354,6 +377,7 @@ internal class DefaultRouter(
         inboundEnvelopeProcessor.stopDispositions()
 
         torLinkKeeper.stop()
+        webRtcLinkKeeper.stop()
         pingProvider.stop()
         peerAvailabilityRegistry.stop()
         // Bounded: logOff only goes to linked peers, but a stalled stream write
@@ -389,6 +413,7 @@ internal class DefaultRouter(
             webRtcIncomingEnvelopeJob,
             webRtcSignalerJob,
             torLinkKeeperJob,
+            webRtcLinkKeeperJob,
             outboxRetryJob,
             outboxOutcomeJob,
         ).plus(serviceJobs).forEach { it.cancelAndJoin() }
@@ -397,6 +422,7 @@ internal class DefaultRouter(
         webRtcIncomingEnvelopeJob = null
         webRtcSignalerJob = null
         torLinkKeeperJob = null
+        webRtcLinkKeeperJob = null
         outboxRetryJob = null
         outboxOutcomeJob = null
         serviceJobs = emptyList()
@@ -426,14 +452,3 @@ internal class DefaultRouter(
         }
     }
 }
-
-//TODO [File cleanup] messy? what is it for?
-private fun RouterConfig.torLinkKeeperConfig() = LinkKeeperConfig(
-    retryDelay = torLinkRetryDelay,
-    maxRetryDelay = torLinkMaxRetryDelay,
-    maxConcurrentOpens = torLinkMaxConcurrentOpens,
-    openTimeout = torLinkOpenTimeout,
-    recheckInterval = linkKeeperRecheckInterval,
-    retryJitter = linkKeeperRetryJitter,
-    minWait = linkKeeperMinWait,
-)

@@ -31,7 +31,6 @@ import org.yapyap.routing.file.push.FilePushEngine
 import org.yapyap.routing.file.push.FileSender
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.FileLimits
@@ -72,8 +71,8 @@ internal class FileService(
     private val packetOutbox: PacketOutbox,
     relaySelection: RelaySelectionPolicy,
     private val peerPolicy: SyncPeerPolicy,
-    private val sessionOpener: ProactiveSessionOpener,
-    private val linkKeeper: LinkKeeper,
+    private val webRtcLinkKeeper: LinkKeeper,
+    private val torLinkKeeper: LinkKeeper,
     private val maxIdlePoll: StateFlow<Duration>,
 ) : FileCarrier {
 
@@ -134,8 +133,8 @@ internal class FileService(
         peerPolicy = peerPolicy,
         maxIdlePoll = maxIdlePoll,
         events = events,
-        linkKeeper = linkKeeper,
-        sessionOpener = sessionOpener,
+        linkKeeper = torLinkKeeper,
+        webRtcLinks = webRtcLinkKeeper,
         fetchService = fetchService,
     )
 

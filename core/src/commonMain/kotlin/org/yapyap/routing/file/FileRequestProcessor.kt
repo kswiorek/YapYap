@@ -11,16 +11,28 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protection.envelope.FileProtectContext
-import org.yapyap.protocol.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.FileId
+import org.yapyap.protocol.PacketType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
+import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.routing.candidate.*
+import org.yapyap.routing.candidate.AttemptExecutor
+import org.yapyap.routing.candidate.AttemptState
+import org.yapyap.routing.candidate.BuiltAttempt
+import org.yapyap.routing.candidate.CandidateAttemptStore
+import org.yapyap.routing.candidate.CandidateRequestCore
+import org.yapyap.routing.candidate.CandidateRow
+import org.yapyap.routing.candidate.CandidateStrategy
+import org.yapyap.routing.candidate.CandidateWaiting
+import org.yapyap.routing.candidate.SuccessAction
 import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.SyncPeerPolicy
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -55,9 +67,10 @@ internal class FileRequestProcessor(
     peerPolicy: SyncPeerPolicy,
     maxIdlePoll: StateFlow<Duration>,
     private val events: MutableSharedFlow<FileEvent>,
-    /** No candidate has an open link: whoever keeps links open may want to try these now. */
+    /** No candidate has an open link: whoever keeps links open may want to try these now (Tor, small path). */
     linkKeeper: LinkKeeper,
-    sessionOpener: ProactiveSessionOpener,
+    /** The WebRTC keeper: a large fetch needs that link, so its core nudges it and awaits it. */
+    webRtcLinks: LinkKeeper,
     fetchService: FileFetchService,
 ) {
     private val strategy = FileRequestStrategy(ctx, protection, attempts, requests, outboxProcessor, events)
@@ -69,7 +82,7 @@ internal class FileRequestProcessor(
         maxIdlePoll = maxIdlePoll,
         linkKeeper = linkKeeper,
     )
-    private val fetchStrategy = FileFetchStrategy(ctx, attempts, requests, sessionOpener, fetchService, events)
+    private val fetchStrategy = FileFetchStrategy(ctx, attempts, requests, webRtcLinks, fetchService, events)
     private val fetchCore = CandidateRequestCore(
         ctx = ctx,
         strategy = fetchStrategy,
@@ -79,7 +92,7 @@ internal class FileRequestProcessor(
             fetchStrategy::runFetch,
         ),
         maxIdlePoll = maxIdlePoll,
-        linkKeeper = linkKeeper,
+        linkKeeper = webRtcLinks,
     )
 
     fun runIn(scope: CoroutineScope): Job = scope.launch {

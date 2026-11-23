@@ -9,7 +9,7 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.outbound.ProactiveSessionOpener
+import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.outbound.SystemSender
 import org.yapyap.routing.router.RoutingContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -23,14 +23,14 @@ import kotlin.time.Duration
  * value, so the router never needs it from config.
  *
  * Per device, delivers now over the preferred open link (WebRTC first, then a Tor session),
- * and asks the [ProactiveSessionOpener] to pre-warm a WebRTC session when there is none, so a
- * later tick can deliver faster. Never dials or persists: a typing indicator that has to wait
- * for a connection or store-and-forward would be stale on arrival.
+ * and knocks the WebRTC [LinkKeeper], which pre-warms the session when the peer passes its
+ * target gate, so a later tick can deliver faster. Never dials or persists: a typing indicator
+ * that has to wait for a connection or store-and-forward would be stale on arrival.
  */
 internal class TypingIndicatorDispatcher(
     private val ctx: RoutingContext,
     private val systemSender: SystemSender,
-    private val sessionOpener: ProactiveSessionOpener,
+    private val webRtcLinks: LinkKeeper,
 ) {
     suspend fun dispatch(
         targets: Collection<AccountId>,
@@ -62,7 +62,7 @@ internal class TypingIndicatorDispatcher(
                     // propagate to the caller nor cancel the sibling sends.
                     try {
                         systemSender.sendTypingIndicator(device, payload)
-                        sessionOpener.ensureSession(device)
+                        webRtcLinks.nudge(device)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {

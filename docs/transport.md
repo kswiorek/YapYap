@@ -22,8 +22,12 @@ kept open in the background, and sends only use connections that are already ope
   its backup state (`relay_backup`), so copies are made at most once, across restarts too. While a link
   delivers, relays carry nothing.
 - `LinkKeeper` keeps links open to a target set over any session transport, with per-peer exponential
-  backoff, capped concurrent opens, prompt reopen when a link drops, and a readiness gate. The router runs one
-  for Tor (all active peers, gated on `TorHealth.Ready`). WebRTC sessions stay on-demand (`ProactiveSessionOpener`).
+  backoff, capped concurrent opens, prompt reopen when a link drops, and a readiness gate. The router runs two:
+  one for Tor (all active peers, gated on `TorHealth.Ready`) and one for WebRTC (only peers that sent us
+  traffic within the freshness window — sure-online and expected traffic; its opens cost Tor signaling
+  round-trips and ICE). A caller that explicitly needs a WebRTC link (a large fetch, a call) uses
+  `LinkKeeper.await`, which bypasses the target set and backoff for that peer. Links are never closed by a
+  keeper: each transport owns its sessions' lifetime.
 - Pings go only to linked peers. A successful link open pings the peer, which exchanges frontiers on connect.
   A failed open counts as an unanswered probe for availability scoring.
 
@@ -102,7 +106,7 @@ kept open in the background, and sends only use connections that are already ope
   protects them and carries them as envelopes. The WebRTC transport never talks to Tor itself.
 - Session state contract: the shared `SessionTransport` one (`CONNECTED` iff the envelope data channel is
   open); the backend is the single writer of state, so subscribers may treat replayed states as ground truth.
-  `ProactiveSessionOpener.awaitSession` is event-driven on this stream (with a slow re-open safety net for
+  `LinkKeeper.await` is event-driven on this stream (with a slow re-open safety net for
   silently lost signaling).
 - AV session contracts (request/accept/reject/state/control) exist at the transport API; media-track handling
   in the backend is not complete.

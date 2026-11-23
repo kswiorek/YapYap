@@ -16,8 +16,8 @@ import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.PeerSendOutcome
 import org.yapyap.routing.router.RoutingContext
@@ -30,7 +30,7 @@ import kotlin.uuid.Uuid
 internal class OutboundMessenger(
     private val ctx: RoutingContext,
     private val outboxProcessor: OutboxProcessor,
-    private val sessionOpener: ProactiveSessionOpener,
+    private val webRtcLinks: LinkKeeper,
 ) {
     suspend fun sendMessage(
         target: AccountId,
@@ -105,9 +105,11 @@ internal class OutboundMessenger(
         payload: DagPayload,
         supplementRelays: Boolean = true,
     ): PeerSendOutcome {
-        // Pre-warm a WebRTC session even when protection below fails: a deferred message still
-        // benefits from a session that is opening while its crypto session lands.
-        sessionOpener.ensureSession(target)
+        // Knock the WebRTC keeper even when protection below fails: a deferred message still
+        // benefits from a session that is opening while its crypto session lands. The knock is
+        // not a request — the keeper's target gate decides whether the peer is surely online and
+        // worth an expensive open.
+        webRtcLinks.nudge(target)
 
         val binaryEnvelope = try {
             buildEnvelope(target, payload)

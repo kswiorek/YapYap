@@ -18,8 +18,8 @@ import org.yapyap.routing.file.fetch.FetchResult
 import org.yapyap.routing.file.fetch.FileFetchService
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileRequestSource
-import org.yapyap.routing.outbound.ProactiveSessionOpener
-import org.yapyap.routing.outbound.SessionOutcome
+import org.yapyap.routing.link.LinkKeeper
+import org.yapyap.routing.link.SessionOutcome
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FileRequestAttemptStore
@@ -40,7 +40,7 @@ internal class FileFetchStrategy(
     private val ctx: RoutingContext,
     private val store: FileRequestAttemptStore,
     private val requests: FileRequestSource,
-    private val sessionOpener: ProactiveSessionOpener,
+    private val webRtcLinks: LinkKeeper,
     private val fetchService: FileFetchService,
     private val events: MutableSharedFlow<FileEvent>,
 ) : CandidateStrategy<FileId> {
@@ -105,8 +105,8 @@ internal class FileFetchStrategy(
     suspend fun runFetch(id: FileId, device: PeerId): CallOutcome {
         // READY meanwhile: nothing to ask for.
         val coverage = requests.heldCoverage(id) ?: return CallOutcome.Satisfied
-        val session = sessionOpener.awaitSession(device, ctx.routerConfig.value.fileSessionOpenTimeout)
-        if (session != SessionOutcome.Connected) {
+        val link = webRtcLinks.await(device, ctx.routerConfig.value.fileSessionOpenTimeout)
+        if (link != SessionOutcome.Connected) {
             // Timeout opening the session: offline stays PENDING silently;
             // online-but-unconnectable is "no direct connection" (never Tor).
             if (ctx.peerLinks.linksOf(device).isNotEmpty()) {
