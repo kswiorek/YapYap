@@ -96,7 +96,7 @@ flowchart TB
 `RoutingContext` is the ambient routing world, built by the composition root (`NodeGraph`) and handed
 to `DefaultRouter` as one constructor parameter: who we are (`localIdentity`, `localDeviceId`), the
 device world (`devices`), how we reach peers (`torTransport`, `webRtcTransport`, `peerLinks`,
-`transportLimits`), sealing (`envelopeProtectionService`), time and rules (`clock`, `routerConfig`).
+`transportLimits`), sealing (`envelopeProtections`), time and rules (`clock`, `routerConfig`).
 It carries **no** stores, engines or policies: routing-owned state (`routes`, the packet
 deduplicator, the outbox) and everything routing builds are explicit dependencies of their owners.
 

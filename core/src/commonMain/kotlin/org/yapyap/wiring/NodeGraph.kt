@@ -13,12 +13,26 @@ import org.yapyap.crypto.store.DefaultOpkRepository
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.*
+import org.yapyap.orchestrator.BootPhase
+import org.yapyap.orchestrator.BootProgress
+import org.yapyap.orchestrator.LocalIdentityWatch
+import org.yapyap.orchestrator.LocalTransportStatus
+import org.yapyap.orchestrator.NodeMode
+import org.yapyap.orchestrator.OnboardingState
+import org.yapyap.orchestrator.TransportStatusMonitor
 import org.yapyap.orchestrator.boot.BootConfig
 import org.yapyap.orchestrator.boot.Node
 import org.yapyap.orchestrator.boot.ResetRequest
 import org.yapyap.orchestrator.dag.DefaultDagEngine
-import org.yapyap.orchestrator.file.*
+import org.yapyap.orchestrator.file.DefaultFileDescriptorStore
+import org.yapyap.orchestrator.file.DefaultFilePlaintextSource
+import org.yapyap.orchestrator.file.DefaultFileReceiveStore
+import org.yapyap.orchestrator.file.DefaultFileRequestCoordinator
+import org.yapyap.orchestrator.file.DefaultFileRequestSource
+import org.yapyap.orchestrator.file.DefaultFileSendService
+import org.yapyap.orchestrator.file.DefaultFileStore
+import org.yapyap.orchestrator.file.DefaultPendingFileRequestStore
+import org.yapyap.orchestrator.file.FilePins
 import org.yapyap.orchestrator.file.receive.FileRetention
 import org.yapyap.orchestrator.file.receive.ReceiveEngine
 import org.yapyap.orchestrator.file.receive.ReceivePaths
@@ -30,18 +44,34 @@ import org.yapyap.orchestrator.onboarding.DefaultRecoveryResponder
 import org.yapyap.orchestrator.onboarding.LocalSetup
 import org.yapyap.orchestrator.pipeline.DefaultInboundMessagePipeline
 import org.yapyap.orchestrator.runtime.DefaultOrchestratorRuntime
-import org.yapyap.orchestrator.store.*
+import org.yapyap.orchestrator.store.DefaultCausalHoldRepository
+import org.yapyap.orchestrator.store.DefaultMessageDeliveryRepository
+import org.yapyap.orchestrator.store.DefaultMessageRepository
+import org.yapyap.orchestrator.store.DefaultPendingSyncRepository
+import org.yapyap.orchestrator.store.DefaultRoomRepository
 import org.yapyap.orchestrator.sync.DefaultFrontierSnapshotProvider
 import org.yapyap.orchestrator.sync.DefaultRoomVisibility
 import org.yapyap.orchestrator.sync.DefaultSyncCoordinator
 import org.yapyap.orchestrator.sync.DefaultSyncPayloadProvider
-import org.yapyap.protection.envelope.*
-import org.yapyap.protection.service.DefaultEnvelopeProtectionService
+import org.yapyap.protection.envelope.BootstrapProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedFileProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedMessageProtection
+import org.yapyap.protection.envelope.SignedAndEncryptedWebRtcSignalProtection
+import org.yapyap.protection.envelope.SignedSystemProtection
+import org.yapyap.protection.service.DefaultEnvelopeProtections
 import org.yapyap.protocol.PeerId
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.router.DefaultRouter
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.DefaultDeviceRouteStore
+import org.yapyap.routing.store.DefaultFileIncomingTransferStore
+import org.yapyap.routing.store.DefaultFilePushStore
+import org.yapyap.routing.store.DefaultFileRelayStore
+import org.yapyap.routing.store.DefaultFileRequestAttemptStore
+import org.yapyap.routing.store.DefaultPacketDeduplicator
+import org.yapyap.routing.store.DefaultPacketOutbox
+import org.yapyap.routing.store.DefaultSyncAttemptStore
+import org.yapyap.routing.store.PacketStoreMaintenance
 import org.yapyap.transport.tor.transport.DefaultTorTransport
 import org.yapyap.transport.webrtc.transport.DefaultWebRtcTransport
 import kotlin.time.Clock
@@ -168,15 +198,16 @@ internal class NodeGraph(
         sessionConfig = config.cryptoConfig,
     )
     private val signatureProvider = DefaultSignatureProvider(localKeys, peerKeys, crypto)
-    private val envelopeProtectionService = DefaultEnvelopeProtectionService(
-        webRtcSignalProtection = SignedAndEncryptedWebRtcSignalProtection(
+    private val envelopeProtections = DefaultEnvelopeProtections(
+        signal = SignedAndEncryptedWebRtcSignalProtection(
             signatureProvider,
             cryptoSessionManager,
             crypto
         ),
-        messageProtection = SignedAndEncryptedMessageProtection(signatureProvider, cryptoSessionManager, crypto),
-        systemProtection = SignedSystemProtection(signatureProvider, crypto),
-        bootstrapProtection = BootstrapProtection(crypto, vault.bootstrapSessionStore),
+        message = SignedAndEncryptedMessageProtection(signatureProvider, cryptoSessionManager, crypto),
+        system = SignedSystemProtection(signatureProvider, crypto),
+        bootstrap = BootstrapProtection(crypto, vault.bootstrapSessionStore),
+        file = SignedAndEncryptedFileProtection(signatureProvider, cryptoSessionManager, crypto),
     )
 
     private val maintenance = MaintenanceScheduler(
@@ -200,7 +231,8 @@ internal class NodeGraph(
         webRtcTransport = webRtcTransport,
         peerLinks = peerLinks,
         transportLimits = config.transportLimits,
-        envelopeProtectionService = envelopeProtectionService,
+        fileLimits = config.fileLimits,
+        envelopeProtections = envelopeProtections,
         clock = clock,
         routerConfig = config.routerConfig,
     )
@@ -219,7 +251,6 @@ internal class NodeGraph(
             visibility = roomVisibility,
         ),
         frontierSnapshotProvider = DefaultFrontierSnapshotProvider(roomRepository, messageRepository, localDeviceId),
-        fileProtection = SignedAndEncryptedFileProtection(signatureProvider, cryptoSessionManager, crypto),
         fileIngest = fileReceiveEngine,
         fileRequests = fileRequestSource,
         filePlaintext = DefaultFilePlaintextSource(fileDescriptorStore, fileStore, fileAccess, crypto),
@@ -227,7 +258,6 @@ internal class NodeGraph(
         filePushStore = filePushStore,
         fileRelayStore = fileRelayStore,
         fileRequestAttemptStore = fileRequestAttemptStore,
-        fileLimits = config.fileLimits,
     )
 
     // History, folds and sync

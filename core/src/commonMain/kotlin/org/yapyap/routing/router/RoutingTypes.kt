@@ -2,8 +2,12 @@ package org.yapyap.routing.router
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.LocalIdentity
-import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.*
+import org.yapyap.protection.service.EnvelopeProtections
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.IdentityStatus
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
 import org.yapyap.protocol.envelopes.PacketNackReason
@@ -82,7 +86,7 @@ internal data class PingFrontiers(
 
 /**
  * An authenticated bootstrap-family packet received over the wire. The envelope has already passed
- * its kind-specific authentication ([org.yapyap.protection.service.EnvelopeProtectionService.openBootstrap] —
+ * its kind-specific authentication ([org.yapyap.protection.envelope.BootstrapProtection] —
  * the AEAD intro gate or the account-sig recovery request check); the payload kind selects the
  * handling role: INTRO → the newcomer-side onboarding provider, RECOVERY_REQUEST → the recovery
  * responder (INVITE never travels on the wire — it is an out-of-band QR/CLI artifact).
@@ -212,7 +216,8 @@ internal interface DeviceRouteStore {
  * The ambient world of a routing component: who we are ([localIdentity], [localDeviceId]), the
  * device world as the orchestrator reports it ([devices]), how we reach peers ([torTransport],
  * [webRtcTransport] and the open [peerLinks]), how we seal envelopes
- * ([envelopeProtectionService]), time and rules ([clock], [routerConfig]).
+ * ([envelopeProtections]), the sizes the transports leave us ([transportLimits], [fileLimits]),
+ * time and rules ([clock], [routerConfig]).
  *
  * No stores, engines, or policies: routing-owned state (`routes`, the packet deduplicator, the
  * outbox) and everything routing builds are explicit constructor dependencies of their owners.
@@ -225,7 +230,8 @@ internal class RoutingContext(
     val webRtcTransport: WebRtcTransport,
     val peerLinks: PeerLinks,
     val transportLimits: StateFlow<TransportLimits>,
-    val envelopeProtectionService: EnvelopeProtectionService,
+    val fileLimits: StateFlow<FileLimits>,
+    val envelopeProtections: EnvelopeProtections,
     val clock: Clock,
     val routerConfig: StateFlow<RouterConfig>,
 )

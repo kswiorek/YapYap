@@ -6,7 +6,11 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.protocol.envelopes.MessageEnvelope
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.SyncPayload
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
@@ -71,7 +75,7 @@ internal class MessageInboundHandler(
         }
 
         val content = try {
-            ctx.envelopeProtectionService.openMessage(messageEnvelope)
+            ctx.envelopeProtections.message.open(messageEnvelope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {

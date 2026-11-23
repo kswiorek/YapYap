@@ -1,6 +1,7 @@
 package org.yapyap.protocol
 
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
 import org.yapyap.protocol.envelopes.FileEnvelope
 import org.yapyap.protocol.envelopes.MessageEnvelope
 import org.yapyap.protocol.envelopes.SystemEnvelope
@@ -34,6 +35,29 @@ internal object EnvelopeObservability {
             BinaryEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
             BinaryEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.ENDPOINT_VISIBLE,
+        ),
+    )
+
+    /**
+     * Bootstrap envelope visibility. The header is plaintext by necessity — `scheme` selects how
+     * to open the payload before anything is decoded ([BootstrapEnvelope] carries no payload kind
+     * in clear) and the whole header is bound as AEAD AAD, so it cannot be swapped or re-targeted.
+     *
+     * `PAYLOAD` is the honest floor, `ENDPOINT_VISIBLE`: RECOVERY_REQUEST is account-signed
+     * plaintext *by design* (the responder has no session yet — the signature is the
+     * authentication), while INTRO payloads are additionally AEAD-sealed, which trivially exceeds
+     * this floor. No payload profile: unlike FILE, bootstrap payload visibility is uniform per
+     * kind, never mixed within one payload.
+     */
+    val bootstrapEnvelope = ObservabilityProfile(
+        schemaId = "bootstrap-envelope-v1",
+        fields = mapOf(
+            BootstrapEnvelope.Companion.Fields.SCHEME to FieldSensitivity.ROUTING_VISIBLE,
+            BootstrapEnvelope.Companion.Fields.BOOTSTRAP_ENVELOPE_ID to FieldSensitivity.ROUTING_VISIBLE,
+            BootstrapEnvelope.Companion.Fields.SOURCE to FieldSensitivity.ROUTING_VISIBLE,
+            BootstrapEnvelope.Companion.Fields.TARGET to FieldSensitivity.ROUTING_VISIBLE,
+            BootstrapEnvelope.Companion.Fields.CREATED_AT to FieldSensitivity.ROUTING_VISIBLE,
+            BootstrapEnvelope.Companion.Fields.PAYLOAD to FieldSensitivity.ENDPOINT_VISIBLE,
         ),
     )
 

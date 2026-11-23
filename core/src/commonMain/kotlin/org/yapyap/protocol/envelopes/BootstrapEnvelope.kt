@@ -1,7 +1,17 @@
 package org.yapyap.protocol.envelopes
 
-import org.yapyap.protocol.*
-import org.yapyap.protocol.identity.*
+import org.yapyap.protocol.AccountId
+import org.yapyap.protocol.ByteReader
+import org.yapyap.protocol.ByteWriter
+import org.yapyap.protocol.DeviceType
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.identity.AccountIdentity
+import org.yapyap.protocol.identity.DeviceIdentity
+import org.yapyap.protocol.identity.EncryptionPublicKey
+import org.yapyap.protocol.identity.SignedPreKey
+import org.yapyap.protocol.identity.SignedPreKeyId
+import org.yapyap.protocol.identity.SigningPublicKey
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -48,6 +58,14 @@ internal data class BootstrapEnvelope(
         return writer.toByteArray()
     }
 
+    fun observableHeaderValues(): Map<String, Any?> = mapOf(
+        Fields.SCHEME to scheme,
+        Fields.BOOTSTRAP_ENVELOPE_ID to bootstrapEnvelopeId,
+        Fields.SOURCE to source,
+        Fields.TARGET to target,
+        Fields.CREATED_AT to createdAt,
+    )
+
     fun decodePayload(): BootstrapPayload = BootstrapPayload.decode(payload)
 
     private fun writeHeader(writer: ByteWriter) {
@@ -83,6 +101,15 @@ internal data class BootstrapEnvelope(
     }
 
     companion object {
+        object Fields {
+            const val SCHEME = "scheme"
+            const val BOOTSTRAP_ENVELOPE_ID = "bootstrapEnvelopeId"
+            const val SOURCE = "source"
+            const val TARGET = "target"
+            const val CREATED_AT = "createdAt"
+            const val PAYLOAD = "payload"
+        }
+
         private val MAGIC = byteArrayOf('Y'.code.toByte(), 'B'.code.toByte(), 'P'.code.toByte(), '1'.code.toByte())
         private const val VERSION: Byte = 1
 

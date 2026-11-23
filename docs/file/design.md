@@ -274,9 +274,11 @@ A DECLINED is read by **what it answers**, never on its own:
 - Encryption and decryption happen in routing (through protection), which holds the transfer's key in its
   push row or incoming-transfer row; the orchestrator only ever supplies and sees plaintext and coverage (§6,
   §8).
-- File routing alone holds the `FileEnvelopeProtection` port (ratchet-sealed OFFER half and REQUEST,
-  signing, per-chunk AEAD via `CryptoProvider`); `protectOffer` seals and signs an OFFER in one call, and
-  no crypto exception leaves protection (failures are `PERMANENT` or `DEFER`).
+- File routing alone holds the `FileEnvelopeProtection` port — one member of the `EnvelopeProtections`
+  bundle the composition root builds and hands the router, so no other routing component reaches it. It
+  covers ratchet-sealed OFFER halves and REQUESTs, signing, and per-chunk AEAD via `CryptoProvider`;
+  `protectOffer` seals and signs an OFFER in one call, and no crypto exception leaves protection (failures are
+  `PERMANENT` or `DEFER`).
 - **A large fetch relies on the channel.** Its bytes cross exactly one hop, a WebRTC data channel between the
   two devices: DTLS encrypts it, and the DTLS fingerprints are exchanged in signaling that is signed and
   encrypted to the peer device, so the channel is authenticated to that device. No relay ever holds the bytes.

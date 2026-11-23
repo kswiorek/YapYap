@@ -38,7 +38,7 @@ internal class SignalInboundHandler(
             return InboundHandleResult.Rejected(PacketNackReason.WRONG_TARGET)
         }
         val signal = try {
-            ctx.envelopeProtectionService.openSignal(signalEnvelope)
+            ctx.envelopeProtections.signal.open(signalEnvelope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {

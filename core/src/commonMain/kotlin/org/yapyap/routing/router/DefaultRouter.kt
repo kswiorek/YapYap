@@ -1,14 +1,21 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TransferId
 import org.yapyap.routing.bootstrap.BootstrapService
@@ -25,7 +32,12 @@ import org.yapyap.routing.link.LinkKeeperConfig
 import org.yapyap.routing.message.MessageService
 import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import org.yapyap.routing.message.port.SyncPayloadProvider
-import org.yapyap.routing.outbound.*
+import org.yapyap.routing.outbound.EnvelopeDispatcher
+import org.yapyap.routing.outbound.OutboxProcessor
+import org.yapyap.routing.outbound.ProactiveSessionOpener
+import org.yapyap.routing.outbound.RelayCopies
+import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.outbound.WebRtcSignaler
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
@@ -33,7 +45,15 @@ import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.presence.PingProvider
 import org.yapyap.routing.presence.PresenceService
-import org.yapyap.routing.store.*
+import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileRequestAttemptStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketDeduplicator
+import org.yapyap.routing.store.PacketOutbox
+import org.yapyap.routing.store.PeerAvailabilityStore
+import org.yapyap.routing.store.SyncAttemptStore
 import org.yapyap.transport.tor.TorSessionState
 import org.yapyap.transport.tor.backend.TorHealth
 import kotlin.coroutines.cancellation.CancellationException
@@ -65,16 +85,14 @@ internal class DefaultRouter(
     private val syncPayloadProvider: SyncPayloadProvider,
     private val frontierSnapshotProvider: FrontierSnapshotProvider,
     // File orchestrator ports (content out, content in, request/serve policy).
-    private val fileProtection: FileEnvelopeProtection,
     private val fileIngest: FileIngestPort,
     private val fileRequests: FileRequestSource,
     private val filePlaintext: FilePlaintextSource,
-    // File stores routing owns, and the file-transfer sizes chained by the composition root.
+    // File stores routing owns.
     private val fileIncomingStore: FileIncomingTransferStore,
     private val filePushStore: FilePushStore,
     private val fileRelayStore: FileRelayStore,
     private val fileRequestAttemptStore: FileRequestAttemptStore,
-    private val fileLimits: StateFlow<FileLimits>,
 ) : Router {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -196,7 +214,6 @@ internal class DefaultRouter(
     private val fileService = FileService(
         ctx = ctx,
         lifecycle = lifecycle,
-        protection = fileProtection,
         plaintext = filePlaintext,
         ingest = fileIngest,
         requests = fileRequests,
@@ -204,7 +221,6 @@ internal class DefaultRouter(
         incomingStore = fileIncomingStore,
         relayStore = fileRelayStore,
         requestAttempts = fileRequestAttemptStore,
-        fileLimits = fileLimits,
         outboxProcessor = outboxProcessor,
         packetOutbox = packetOutbox,
         relaySelection = relaySelectionPolicy,
@@ -411,6 +427,7 @@ internal class DefaultRouter(
     }
 }
 
+//TODO [File cleanup] messy? what is it for?
 private fun RouterConfig.torLinkKeeperConfig() = LinkKeeperConfig(
     retryDelay = torLinkRetryDelay,
     maxRetryDelay = torLinkMaxRetryDelay,

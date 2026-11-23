@@ -181,7 +181,7 @@ internal class OutboundMessenger(
             createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.ENCRYPTED_AND_SIGNED,
         )
-        val messageEnvelope = ctx.envelopeProtectionService.protectMessage(payload, context)
+        val messageEnvelope = ctx.envelopeProtections.message.protect(payload, context)
         val now = ctx.clock.now()
         return BinaryEnvelope(
             packetId = Uuid.random(),

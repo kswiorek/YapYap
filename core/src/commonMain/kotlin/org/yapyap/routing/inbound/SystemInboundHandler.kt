@@ -56,7 +56,7 @@ internal class SystemInboundHandler(
         }
 
         val payload = try {
-            ctx.envelopeProtectionService.openSystem(systemEnvelope)
+            ctx.envelopeProtections.system.open(systemEnvelope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {

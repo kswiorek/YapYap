@@ -6,7 +6,11 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.ProtectionException
 import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.envelopes.*
+import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.protocol.envelopes.BootstrapEnvelope
+import org.yapyap.protocol.envelopes.Intro
+import org.yapyap.protocol.envelopes.PacketNackReason
+import org.yapyap.protocol.envelopes.RecoveryRequest
 import org.yapyap.routing.inbound.InboundEnvelopeHandler
 import org.yapyap.routing.inbound.inboundResultForProtectionFailure
 import org.yapyap.routing.inbound.logInboundProtectionFailure
@@ -60,7 +64,7 @@ internal class BootstrapInboundHandler(
         }
 
         val payload = try {
-            ctx.envelopeProtectionService.openBootstrap(bootstrapEnvelope)
+            ctx.envelopeProtections.bootstrap.open(bootstrapEnvelope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProtectionException) {
@@ -113,7 +117,7 @@ internal class BootstrapInboundHandler(
         // Same read the AEAD intro gate uses (the armed onboarding session doubles as the
         // "this node is itself onboarding" signal); recovery requests skip that gate
         // (ACCOUNT_SIGNED), so the check runs here instead.
-        if (ctx.envelopeProtectionService.isBootstrapSessionActive()) {
+        if (ctx.envelopeProtections.bootstrap.hasActiveSession()) {
             AppLog.info(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_HANDLE_FAILED,

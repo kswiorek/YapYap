@@ -47,7 +47,7 @@ internal class WebRtcSignaler(
             createdAt = ctx.clock.now(),
             securityScheme = SignalSecurityScheme.SIGNED,
         )
-        val envelope = ctx.envelopeProtectionService.protectSignal(signal, protectContext)
+        val envelope = ctx.envelopeProtections.signal.protect(signal, protectContext)
         dispatcher.dispatch(
             envelope = BinaryEnvelope(
                 packetId = Uuid.random(),

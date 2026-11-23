@@ -219,7 +219,7 @@ internal class SystemSender(
         dispositionRequested: Boolean = false,
         lifetime: Duration = ctx.routerConfig.value.ackLifetime,
     ): BinaryEnvelope {
-        val protected = ctx.envelopeProtectionService.protectSystem(payload, context)
+        val protected = ctx.envelopeProtections.system.protect(payload, context)
         val now = ctx.clock.now()
         return BinaryEnvelope(
             packetId = Uuid.random(),

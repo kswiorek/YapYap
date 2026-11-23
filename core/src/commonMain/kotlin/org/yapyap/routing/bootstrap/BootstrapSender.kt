@@ -1,9 +1,8 @@
 package org.yapyap.routing.bootstrap
 
-import org.yapyap.protection.service.EnvelopeProtectContext
+import org.yapyap.protection.envelope.BootstrapProtectContext
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SignalSecurityScheme
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
@@ -34,13 +33,13 @@ internal class BootstrapSender(
         targetEndpoint: TorEndpoint? = null,
         sharedSecret: ByteArray? = null,
     ): Uuid {
-        val context = EnvelopeProtectContext(
+        val context = BootstrapProtectContext(
             sourceDeviceId = ctx.localDeviceId,
             targetDeviceId = target,
             createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
+            sharedSecret = sharedSecret,
         )
-        val protected = ctx.envelopeProtectionService.protectBootstrap(payload, context, sharedSecret)
+        val protected = ctx.envelopeProtections.bootstrap.protect(payload, context)
         val now = ctx.clock.now()
         val envelope = BinaryEnvelope(
             packetId = Uuid.random(),

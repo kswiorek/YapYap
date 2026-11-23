@@ -20,7 +20,13 @@ import org.yapyap.routing.file.inbound.FileInboundHandler
 import org.yapyap.routing.file.inbound.FileRelayDoor
 import org.yapyap.routing.file.inbound.FileServeHandler
 import org.yapyap.routing.file.inbound.FileTargetHandler
-import org.yapyap.routing.file.port.*
+import org.yapyap.routing.file.port.FileCarrier
+import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileIngestPort
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileReceiveEnd
+import org.yapyap.routing.file.port.FileRequestSource
+import org.yapyap.routing.file.port.FileSendState
 import org.yapyap.routing.file.push.FilePushEngine
 import org.yapyap.routing.file.push.FileSender
 import org.yapyap.routing.link.LinkKeeper
@@ -28,8 +34,17 @@ import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.ProactiveSessionOpener
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.policy.SyncPeerPolicy
-import org.yapyap.routing.router.*
-import org.yapyap.routing.store.*
+import org.yapyap.routing.router.FileLimits
+import org.yapyap.routing.router.OutboxOutcome
+import org.yapyap.routing.router.OutcomeMailbox
+import org.yapyap.routing.router.RouterLifecycle
+import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.store.FileIncomingTransferStore
+import org.yapyap.routing.store.FilePushStore
+import org.yapyap.routing.store.FileRelayStore
+import org.yapyap.routing.store.FileRequestAttemptStore
+import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.PacketOutbox
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -46,7 +61,6 @@ import kotlin.time.Instant
 internal class FileService(
     private val ctx: RoutingContext,
     private val lifecycle: RouterLifecycle,
-    private val protection: FileEnvelopeProtection,
     private val plaintext: FilePlaintextSource,
     private val ingest: FileIngestPort,
     private val requests: FileRequestSource,
@@ -54,7 +68,6 @@ internal class FileService(
     private val incomingStore: FileIncomingTransferStore,
     private val relayStore: FileRelayStore,
     private val requestAttempts: FileRequestAttemptStore,
-    private val fileLimits: StateFlow<FileLimits>,
     private val outboxProcessor: OutboxProcessor,
     private val packetOutbox: PacketOutbox,
     relaySelection: RelaySelectionPolicy,
@@ -66,6 +79,12 @@ internal class FileService(
 
     private val events = MutableSharedFlow<FileEvent>(extraBufferCapacity = 64)
     private val outcomes = OutcomeMailbox()
+
+    /** The FILE family's protection port: reached through the context like every other service's. */
+    private val protection: FileEnvelopeProtection = ctx.envelopeProtections.file
+
+    /** The sizes the transports leave the file paths, likewise from the context. */
+    private val fileLimits: StateFlow<FileLimits> = ctx.fileLimits
 
     private val incomingTransfers = FileIncomingTransfers(incomingStore, ctx.clock)
 
