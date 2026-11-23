@@ -42,6 +42,9 @@ internal interface TorTransport : SessionTransport<TorEndpoint> {
     /** Mirrors the backend's current recovery step (loopback: never recovering). */
     val recovery: StateFlow<TorRecoveryStep?>
 
+    /** Our published onion endpoint while started; null before [start] and after [stop]. */
+    val localTorEndpoint: TorEndpoint?
+
     suspend fun start(): TorEndpoint
 
     suspend fun stop()

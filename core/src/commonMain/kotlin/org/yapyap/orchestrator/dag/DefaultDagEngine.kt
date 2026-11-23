@@ -12,15 +12,11 @@ import org.yapyap.crypto.signature.SignatureProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.orchestrator.store.CausalHoldRepository
-import org.yapyap.orchestrator.store.Gap
-import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.orchestrator.store.RoomRepository
-import org.yapyap.orchestrator.store.StoredMessage
+import org.yapyap.orchestrator.store.*
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -68,7 +64,7 @@ internal class DefaultDagEngine(
         changes.forEach { _verificationStateChanges.emit(it) }
     }
 
-    override suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload = mutex.withLock {
+    override suspend fun append(roomId: RoomId, draft: MessageDraft): DagPayload = mutex.withLock {
         val senderAccountId = localIdentity.getLocalAccountId()
         val authorDeviceId = localIdentity.getLocalDeviceId()
         val createdAt = clock.now()
@@ -100,7 +96,7 @@ internal class DefaultDagEngine(
 
         // Create an unsigned payload (signature is null)
         val unsignedPayload = when (draft) {
-            is MessageDraft.Text -> MessagePayload.Text(
+            is MessageDraft.Text -> DagPayload.Text(
                 messageId = messageId,
                 roomId = roomId,
                 senderAccountId = senderAccountId,
@@ -111,7 +107,7 @@ internal class DefaultDagEngine(
                 attachments = draft.attachments,
             )
 
-            is MessageDraft.GlobalEvent -> MessagePayload.GlobalEvent(
+            is MessageDraft.GlobalEvent -> DagPayload.GlobalEvent(
                 messageId = messageId,
                 senderAccountId = senderAccountId,
                 authorDeviceId = authorDeviceId,
@@ -125,7 +121,7 @@ internal class DefaultDagEngine(
                 require(draft.event !is RoomEventPayload.RoomCreated) {
                     "RoomCreated must be appended via createRoom, never append"
                 }
-                MessagePayload.RoomEvent(
+                DagPayload.RoomEvent(
                     messageId = messageId,
                     roomId = roomId,
                     senderAccountId = senderAccountId,
@@ -171,7 +167,7 @@ internal class DefaultDagEngine(
         payload
     }
 
-    override suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent = mutex.withLock {
+    override suspend fun createRoom(draft: RoomCreatedDraft): DagPayload.RoomEvent = mutex.withLock {
         val senderAccountId = localIdentity.getLocalAccountId()
         val authorDeviceId = localIdentity.getLocalDeviceId()
         val createdAt = clock.now()
@@ -232,7 +228,7 @@ internal class DefaultDagEngine(
         payload
     }
 
-    override suspend fun ingest(payload: MessagePayload): IngestResult? {
+    override suspend fun ingest(payload: DagPayload): IngestResult? {
         val result = mutex.withLock {
             // Dedup: if we already have this message, treat as already-inserted (no new gaps closed).
             if (messageRepository.findById(payload.messageId) != null) {
@@ -337,7 +333,7 @@ internal class DefaultDagEngine(
         return result
     }
 
-    private suspend fun classifyVerification(payload: MessagePayload): VerificationState {
+    private suspend fun classifyVerification(payload: DagPayload): VerificationState {
         if (payload.roomId == RoomId.GLOBAL) {
             return VerificationState.PENDING
         }
@@ -360,8 +356,8 @@ internal class DefaultDagEngine(
      * derivation check on its own — no extra rule. Returns the sticky
      * `REJECTED` verdict, or null when authorship decides.
      */
-    private suspend fun structuralCheck(payload: MessagePayload): VerificationState? {
-        if (payload !is MessagePayload.RoomEvent) {
+    private suspend fun structuralCheck(payload: DagPayload): VerificationState? {
+        if (payload !is DagPayload.RoomEvent) {
             return if (payload.prevIds.isEmpty()) VerificationState.REJECTED else null
         }
         val event = try {

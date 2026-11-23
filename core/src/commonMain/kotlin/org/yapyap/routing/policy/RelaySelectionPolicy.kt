@@ -2,7 +2,7 @@ package org.yapyap.routing.policy
 
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.RoutingContext
 

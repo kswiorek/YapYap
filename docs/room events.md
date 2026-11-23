@@ -114,7 +114,7 @@ the information a verdict would.
 | `RemoveAdmin`  | target account id                                         | Admin-gated (seal-subject); owner irrevocable                                                                                                                                                                                  |
 
 Codec style mirrors `SystemPayload`/`GlobalEventPayload`: sealed interface, kind byte,
-encode/decode per type, carried inside a new `MessagePayload.RoomEvent` variant (`MessagePayloadType.ROOM_EVENT(3)`).
+encode/decode per type, carried inside a new `DagPayload.RoomEvent` variant (`DagPayloadType.ROOM_EVENT(3)`).
 Protocol note: old nodes fail decode on the new payload
 type and NACK `DECODE_FAILED` without storing — acceptable pre-fleet; bump nothing, document it.
 
@@ -409,7 +409,7 @@ room admins.
 
 ## 6. Sync & discovery — ping threading
 
-Problem today: `pingPayloads` carries `(roomId, tips)` with the sender discarded (`PingProvider.handlePing` →
+Problem today: `frontiers` carries `(roomId, tips)` with the sender discarded (`PingProvider.handlePing` →
 `DefaultOrchestrator` collector → `requestFrontierSync`). A ping
 advertising room `R` is the pinger's assertion that *we* are in `R` (frontiers are
 `roomsOfPeer(recipient)`-filtered), so from the responder's perspective the requester is a
@@ -422,9 +422,9 @@ Fix:
 1. **Resolve the sender to an account in the router.** `PingProvider.handlePing` holds the
    authenticated `peerId` (post ban/unknown gate); resolve via
    `ctx.identityResolver.getAccountIdForDevice(peerId)` and emit
-   `(senderAccount, roomId, tips)` on `pingPayloads` (peerId keeps flowing to
+   `(senderAccount, roomId, tips)` on `frontiers` (peerId keeps flowing to
    `peerAvailabilityRegistry` separately, as today). Account granularity is correct:
-   `PendingSyncRow.candidateAccounts` and `SyncRetryProcessor`'s
+   `PendingSyncRow.candidateAccounts` and the message pull processor's
    `getAllPeerDevicesForAccounts` are already account-keyed.
 2. **Unknown room → candidates = [senderAccount].** In `requestFrontierSync`: room known →
    existing members-minus-local path; room unknown (no `rooms` row / no members) → the ping
@@ -446,7 +446,7 @@ Fix:
    case). Relay deposits and direct pushes are
    unaffected — discovery is push (creator sends `RoomCreated` + `MemberAdd` to the invitee),
    then normal frontier sync takes over.
-5. Unrelated but adjacent TODO while touching this area: prune unsolvable pending-sync rows (`SyncRetryProcessor`
+5. Unrelated but adjacent TODO while touching this area: prune unsolvable pending-sync rows (the message pull processor
    `TODO`), which candidate accumulation makes more attractive to keep
    bounded.
 
@@ -642,7 +642,7 @@ unless noted.
   requesting **account**; the router declares them as `SyncPayloadProvider` / `FrontierSnapshotProvider`.
 - Attempt state (`attempts`, `next_attempt_at`, attempted devices) moved from `pending_syncs` to the router's
   `sync_attempts` / `sync_declined_devices`. A sync request now goes through the outbox and asks for a disposition;
-  a decline is a `DECLINED` NACK instead of `SyncNack` (still sent to, and accepted from, older builds). Only
+  a decline is a `DECLINED` NACK (the legacy `SyncNack` envelope is gone). Only
   devices with an open link are asked (the "online but unlinked" tier is gone); an unanswered attempt
   (`syncAttemptTimeout`) is not a decline, it just lets the next candidate go first.
 - The re-open hook (`reopenAttemptedPeerForRoom`) became `Router.reopenSync(syncId, account)`, called by the sync
@@ -676,7 +676,7 @@ reachable + inline eligibility with projector-owned flag promotion, sync trichot
 comment. No extraction in prep — global first, `fold/graph/` stays deferred:
 
 1. **Codec**: `RoomEventPayload` (5 kinds; `MemberRemove` carries the optional successor),
-   `MessagePayload.RoomEvent` variant, `MessagePayloadType.ROOM_EVENT(3)`,
+   `DagPayload.RoomEvent` variant, `DagPayloadType.ROOM_EVENT(3)`,
    `roomIdFromGenesis` derivation + engine-side genesis assertion (§3).
 2. **Ingest substrate**: `ensureRoomExists` on ingest; engine-side classification of
    `RoomEvent` payloads (decode / structural genesis rule / derivation + the existing
@@ -717,7 +717,7 @@ comment. No extraction in prep — global first, `fold/graph/` stays deferred:
     `ACTIVE`; negative tests for the hide-policy (done-criteria d3); reverify-hook
     regression (unchanged behavior).
 6. **Ping threading** (§6 as built): flow type change `(senderAccount, roomFrontiers)` through
-   `Router.pingPayloads` / `PingProvider` / `DefaultOrchestrator` collector /
+   `MessageCarrier.frontiers` / `PingProvider` / `DefaultOrchestrator` collector /
    `SyncCoordinator.requestFrontierSync` (nullable sender; onboarding passes
    none); unknown-room candidates + skip-and-log for unresolvable senders;
    universal ping-sender accumulation; message-author candidates;
@@ -858,7 +858,7 @@ discipline) plus room-specific cases:
 - E2EE sender keys (sprint 5) consume the same fold-derived member list — sequence the fold
   before 5b key rotation work.
 - Provenance bit (§7) and unsolicited-traffic rate limiting — post-PoC.
-- Prune unsolvable pending-sync rows (`SyncRetryProcessor` TODO) — **decided in
+- Prune unsolvable pending-sync rows (the message pull processor TODO) — **decided in
   sprint 4, see §6 "As built"**: backoff, never age-prune; the blind re-ask is
   subsumed by the ping-contradiction re-open. Candidate accumulation (now
   universal) and the membership refresh keep rows live instead.

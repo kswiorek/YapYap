@@ -8,9 +8,9 @@ import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.PendingSyncRepository
 import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
-import org.yapyap.routing.sync.SyncPayloadProvider
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.protocol.envelopes.SyncPayload
+import org.yapyap.routing.message.port.SyncPayloadProvider
 import kotlin.uuid.Uuid
 
 internal class DefaultSyncPayloadProvider(
@@ -20,7 +20,7 @@ internal class DefaultSyncPayloadProvider(
     private val visibility: RoomVisibility,
 ) : SyncPayloadProvider {
 
-    override suspend fun syncRequest(syncId: Uuid): SyncRequest? =
+    override suspend fun syncRequest(syncId: Uuid): SyncPayload.Request? =
         pendingSyncRepository.buildSyncRequest(syncId)
 
     override suspend fun syncCandidates(syncId: Uuid): List<AccountId> =
@@ -29,7 +29,7 @@ internal class DefaultSyncPayloadProvider(
     override suspend fun syncsWithCandidate(account: AccountId): List<Uuid> =
         pendingSyncRepository.syncIdsWithCandidate(account)
 
-    override suspend fun syncMessages(request: SyncRequest, requester: AccountId): List<MessagePayload> {
+    override suspend fun serveSync(request: SyncPayload.Request, requester: AccountId): List<DagPayload> {
         val roomId = request.roomId
         // Membership gate (docs/room events.md §5, narrowed to the removal boundary), decided
         // once per request by the shared RoomVisibility rule: ACTIVE members are served the
@@ -81,7 +81,7 @@ internal class DefaultSyncPayloadProvider(
         // missing ids. The removal event itself always serves (a fresh removed device needs
         // it to flip its own row), and everything collected is member-era history by
         // construction: the walk only goes to parents, so it can never leave the closure.
-        val collected = LinkedHashMap<Uuid, MessagePayload>()
+        val collected = LinkedHashMap<Uuid, DagPayload>()
         val visited = HashSet<Uuid>()
         val queue = ArrayDeque<Uuid>()
         val seeds = removalRoot?.let { listOf(it) } ?: request.missingIds
@@ -120,7 +120,7 @@ internal class DefaultSyncPayloadProvider(
         for (id in collected.keys.sortedWith(compareBy({ collected.getValue(it).createdAt }, { it }))) {
             if (id !in pendingParents) ready.add(id)
         }
-        val ordered = ArrayList<MessagePayload>(collected.size)
+        val ordered = ArrayList<DagPayload>(collected.size)
         while (ready.isNotEmpty()) {
             val id = ready.removeFirst()
             ordered += collected.getValue(id)

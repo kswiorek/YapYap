@@ -108,15 +108,46 @@ public enum class RoomType(public val wireValue: Byte) {
     }
 }
 
-public enum class MessagePayloadType(public val wireValue: Byte) {
+/**
+ * Which family of payload a message envelope carries — the first byte of every message payload.
+ * The family byte selects the decoder; each family then reads its own type byte
+ * ([DagPayloadType] for [DAG], [SyncPayloadType] for [SYNC]), so the two vocabularies never mix.
+ */
+public enum class MessagePayloadFamily(public val wireValue: Byte) {
+    DAG(1),
+    SYNC(2);
+
+    internal companion object {
+        fun fromWireValue(value: Byte): MessagePayloadFamily =
+            entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported message payload family: $value")
+    }
+}
+
+/** The DAG node types — the second byte of a [MessagePayloadFamily.DAG] payload. */
+public enum class DagPayloadType(public val wireValue: Byte) {
     TEXT(1),
     GLOBAL_EVENT(2),
     ROOM_EVENT(3);
 
     internal companion object {
-        fun fromWireValue(value: Byte): MessagePayloadType =
+        fun fromWireValue(value: Byte): DagPayloadType =
             entries.firstOrNull { it.wireValue == value }
-                ?: error("Unsupported message payload type wire value: $value")
+                ?: error("Unsupported DAG payload type wire value: $value")
+    }
+}
+
+/**
+ * The pull-path control types — the second byte of a [MessagePayloadFamily.SYNC] payload.
+ * One value today; the byte is reserved so further sync verbs can be added without a new family.
+ */
+public enum class SyncPayloadType(public val wireValue: Byte) {
+    REQUEST(1);
+
+    internal companion object {
+        fun fromWireValue(value: Byte): SyncPayloadType =
+            entries.firstOrNull { it.wireValue == value }
+                ?: error("Unsupported sync payload type wire value: $value")
     }
 }
 

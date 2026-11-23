@@ -1,17 +1,9 @@
 package org.yapyap.routing.file.push
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -28,16 +20,11 @@ import org.yapyap.routing.file.fileChunkCount
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileFailureReason
 import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.policy.RelaySelectionPolicy
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FilePush
-import org.yapyap.routing.store.FilePushKind
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.FileRelayStatus
-import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.OutboxTag
+import org.yapyap.routing.store.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -52,7 +39,8 @@ internal class FilePushEngine(
     private val protection: FileEnvelopeProtection,
     private val plaintext: FilePlaintextSource,
     private val pushes: FilePushStore,
-    private val outbox: FileOutbox,
+    private val outbox: OutboxProcessor,
+    private val outboxStore: PacketOutbox,
     private val events: MutableSharedFlow<FileEvent>,
     private val relaySelection: RelaySelectionPolicy,
     private val relay: FileRelayStore,
@@ -108,7 +96,7 @@ internal class FilePushEngine(
     /** Terminal hygiene: terminal rows past their TTL go, with their key and outbox rows. */
     private suspend fun dropTerminal(now: Instant) {
         for (dead in pushes.terminalBefore(now)) {
-            outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, dead.transferId.value))
+            outboxStore.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, dead.transferId.value))
             pushes.delete(dead.transferId)
             removeActor(dead.transferId)
         }
@@ -194,7 +182,7 @@ internal class FilePushEngine(
                 startActor(row)
                 mutex.withLock { actors[id] }?.actor?.mailbox?.send(PushInput.Outcome(outcome))
             }
-            // Forward outcomes for unknown rows are the relay forwarder's (handled by FileRouting).
+            // Forward outcomes for unknown rows are the relay forwarder's (handled by FileService).
         }
     }
 
@@ -346,6 +334,7 @@ internal class FilePushEngine(
                 protection = protection,
                 pushes = pushes,
                 outbox = outbox,
+                outboxStore = outboxStore,
                 events = events,
                 row = row,
                 source = fixedSource,
@@ -502,7 +491,7 @@ internal class FilePushEngine(
     }
 
     private suspend fun dropPushOutbox(transferId: TransferId) {
-        outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value))
+        outboxStore.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_PUSH, transferId.value))
     }
 
     private suspend fun depositForActor(ask: TransferActor) {
@@ -732,7 +721,7 @@ internal class FilePushEngine(
         try {
             val scope = runScope ?: return
             if (relay.find(id) == null) return
-            val actor = ForwardActor(ctx, relay, outbox, id) { finished -> dropForwardActor(finished) }
+            val actor = ForwardActor(ctx, relay, outbox, outboxStore, id) { finished -> dropForwardActor(finished) }
             // Registered before its marker goes out, so the marker's outcome finds the actor.
             val job = scope.launch(start = CoroutineStart.LAZY) { actor.run() }
             mutex.withLock { forwardActors[id] = ForwardEntry(actor, job) }
@@ -754,7 +743,7 @@ internal class FilePushEngine(
         // Relay rows first, then outbox rows (documented order): a crash in between leaves
         // outbox rows whose outcome the engine ignores because no actor exists.
         relay.delete(id)
-        outbox.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, id.value))
+        outboxStore.deleteByTag(OutboxTag(OutboxTag.Kind.FILE_FORWARD, id.value))
         val self = currentCoroutineContext()[Job]
         val entry = mutex.withLock { forwardActors.remove(id) }
         if (entry != null && entry.job != self) entry.job.cancel()

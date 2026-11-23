@@ -1,4 +1,4 @@
-﻿package org.yapyap.orchestrator.store
+package org.yapyap.orchestrator.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -11,16 +11,16 @@ import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
- * DB row mapped from [org.yapyap.persistence.Messages]: the decoded [MessagePayload]
+ * DB row mapped from [org.yapyap.persistence.Messages]: the decoded [DagPayload]
  * plus local-only metadata not carried on the wire.
  */
 internal data class StoredMessage(
-    val payload: MessagePayload,
+    val payload: DagPayload,
     val isOrphaned: Boolean,
     val verificationState: VerificationState = VerificationState.VERIFIED,
     /** Transitively complete ancestry (every parent present and itself complete). */
@@ -43,7 +43,7 @@ internal interface MessageRepository {
 
     /** Insert a message; returns false if a row with the same message_id already exists (dedup). */
     suspend fun insert(
-        payload: MessagePayload,
+        payload: DagPayload,
         isOrphaned: Boolean,
         ancestryComplete: Boolean,
         verificationState: VerificationState
@@ -134,7 +134,7 @@ internal class DefaultMessageRepository(
     private val queries = database.messageQueries
 
     override suspend fun insert(
-        payload: MessagePayload,
+        payload: DagPayload,
         isOrphaned: Boolean,
         ancestryComplete: Boolean,
         verificationState: VerificationState,
@@ -154,7 +154,7 @@ internal class DefaultMessageRepository(
             )
             val inserted = queries.selectMessageById(payload.messageId).executeAsOneOrNull() != null
             if (inserted) {
-                insertAttachmentRows(payload.messageId, (payload as? MessagePayload.Text)?.attachments)
+                insertAttachmentRows(payload.messageId, (payload as? DagPayload.Text)?.attachments)
                 AppLog.debug(
                     component = LogComponent.DATABASE,
                     event = LogEvent.MESSAGE_INSERTED,
@@ -188,7 +188,7 @@ internal class DefaultMessageRepository(
 
     private fun insertAttachmentRows(
         messageId: Uuid,
-        attachments: List<MessagePayload.Attachment>?,
+        attachments: List<DagPayload.Attachment>?,
     ) {
         attachments?.forEach { attachment ->
             queries.insertMessageAttachment(message_id = messageId, file_id = attachment.fileId)
@@ -404,7 +404,7 @@ internal class DefaultMessageRepository(
     }
 
     private fun org.yapyap.persistence.Messages.toRow(): StoredMessage {
-        val payload = runCatching { MessagePayload.decode(this.message_payload) }.getOrElse { error ->
+        val payload = runCatching { DagPayload.decode(this.message_payload) }.getOrElse { error ->
             AppLog.error(
                 component = LogComponent.DATABASE,
                 event = LogEvent.MESSAGE_DECODE_FAILED,

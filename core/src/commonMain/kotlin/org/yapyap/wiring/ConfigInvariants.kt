@@ -35,7 +35,7 @@ internal object ConfigInvariants {
         // The push keeps up to maxInFlightChunks chunks in flight; staging must hold a full
         // window that arrives out of order, or a reordered window can never land.
         val limits = try {
-            FileLimits.from(config)
+            fileLimitsFor(config)
         } catch (e: IllegalArgumentException) {
             add(e.message ?: "Transport frames are too small for file chunks")
             null

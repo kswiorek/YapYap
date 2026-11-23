@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
+import org.yapyap.protocol.envelopes.FileCancelReason
 import kotlin.time.Instant
 
 /**
@@ -80,6 +81,18 @@ internal enum class FileFailureReason {
 }
 
 /**
+ * How a receive ended. The orchestrator (the receive engine's single lifecycle owner) reports it
+ * through [FileCarrier.endIncoming]; routing owns the resulting signaling and row cleanup.
+ */
+internal sealed interface FileReceiveEnd {
+    /** The file is complete and verified: send COMPLETE to every live transfer author. */
+    data object Ready : FileReceiveEnd
+
+    /** The receive stopped: send CANCEL with [reason] to every live transfer author. */
+    data class Cancelled(val reason: FileCancelReason) : FileReceiveEnd
+}
+
+/**
  * Account-level file operations and events (design §12), declared by routing and implemented
  * by the router. The orchestrator speaks files and accounts; routing fans out per device and
  * signals per transfer. Source devices may appear in events as facts, never as addresses.
@@ -112,6 +125,18 @@ internal interface FileCarrier {
      * nothing (its gap trigger cancels no transfer).
      */
     suspend fun abortFileFetch(fileId: FileId, reason: FileFetchAbortReason)
+
+    /**
+     * The receive of [fileId] ended ([end]). Routing answers every live **incoming** transfer
+     * author — COMPLETE for [FileReceiveEnd.Ready], CANCEL for [FileReceiveEnd.Cancelled] — and
+     * drops the incoming rows. Incoming only: our outgoing pushes and serves of the same file are
+     * separate sends, ended by their own targets' COMPLETE (design §6.5) or TTL.
+     *
+     * File-scoped, never peer-scoped: the orchestrator never names devices. The answer is
+     * politeness — an unanswered author's transfer ends on its own TTL — so this is idempotent
+     * and may be called again for the same file.
+     */
+    suspend fun endIncoming(fileId: FileId, end: FileReceiveEnd)
 }
 
 /** Per-account send state for one file, aggregated over its device transfers. */

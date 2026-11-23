@@ -5,7 +5,7 @@ import org.yapyap.crypto.identity.PeerKeyDirectory
 import org.yapyap.protocol.*
 import org.yapyap.protocol.identity.AccountIdentity
 import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.routing.router.DeviceDirectory
 
 /**
  * The whole `accounts`/`devices`/prekey store. Only the composition root holds this type; every

@@ -4,14 +4,7 @@ import org.yapyap.protection.envelope.BootstrapProtection
 import org.yapyap.protection.envelope.MessageProtection
 import org.yapyap.protection.envelope.SystemProtection
 import org.yapyap.protection.envelope.WebRtcSignalProtection
-import org.yapyap.protocol.envelopes.BootstrapEnvelope
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.protocol.envelopes.SystemEnvelope
-import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.WebRtcSignal
-import org.yapyap.protocol.envelopes.WebRtcSignalEnvelope
+import org.yapyap.protocol.envelopes.*
 
 internal class DefaultEnvelopeProtectionService(
     val webRtcSignalProtection: WebRtcSignalProtection,

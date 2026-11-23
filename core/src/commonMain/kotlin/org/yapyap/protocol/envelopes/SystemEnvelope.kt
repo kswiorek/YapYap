@@ -177,89 +177,6 @@ internal sealed interface SystemPayload {
         }
     }
 
-    data class SyncRequest(
-        val roomId: RoomId,
-        val syncId: Uuid,
-        /**
-         * Message IDs the requester is missing (gap parents from causal holds and/or
-         * frontier tips learned from a ping). The responder serves these messages plus
-         * their ancestry down to [knownIds].
-         */
-        val missingIds: List<Uuid>,
-        /**
-         * The requester's chainable frontier at dispatch time: tips whose ancestry is
-         * transitively complete locally. The responder stops its ancestor walk at these
-         * IDs (everything below them is present at the requester). Recomputed fresh on
-         * every attempt, never stored. Empty for a fresh device (serve down to genesis).
-         */
-        val knownIds: List<Uuid>,
-    ) : SystemPayload {
-        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_REQUEST
-
-        override fun encode(): ByteArray {
-            val writer =
-                ByteWriter(1 + Uuid.SIZE_BYTES + Uuid.SIZE_BYTES + 8 + (missingIds.size + knownIds.size) * Uuid.SIZE_BYTES)
-            writer.writeByte(kind.wireValue)
-            writer.writeUuid(roomId.value)
-            writer.writeUuid(syncId)
-            writer.writeInt(missingIds.size)
-            missingIds.forEach { writer.writeUuid(it) }
-            writer.writeInt(knownIds.size)
-            knownIds.forEach { writer.writeUuid(it) }
-            return writer.toByteArray()
-        }
-
-        companion object {
-            fun decode(bytes: ByteArray): SyncRequest {
-                val reader = ByteReader(bytes)
-                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_REQUEST) {
-                    "Expected SYNC_REQUEST payload kind"
-                }
-                val roomId = RoomId(reader.readUuid())
-                val syncId = reader.readUuid()
-                val missingIds = List(reader.readInt()) { reader.readUuid() }
-                val knownIds = List(reader.readInt()) { reader.readUuid() }
-                reader.requireFullyRead()
-                return SyncRequest(
-                    roomId = roomId,
-                    syncId = syncId,
-                    missingIds = missingIds,
-                    knownIds = knownIds,
-                )
-            }
-        }
-    }
-
-    data class SyncNack(
-        val syncId: Uuid,
-        val reason: String,
-    ) : SystemPayload {
-        override val kind: SystemEnvelopeKind = SystemEnvelopeKind.SYNC_NACK
-        override fun encode(): ByteArray {
-            val writer = ByteWriter(1 + Uuid.SIZE_BYTES + 2 + reason.length)
-            writer.writeByte(kind.wireValue)
-            writer.writeUuid(syncId)
-            writer.writeString(reason)
-            return writer.toByteArray()
-        }
-
-        companion object {
-            fun decode(bytes: ByteArray): SyncNack {
-                val reader = ByteReader(bytes)
-                require(SystemEnvelopeKind.fromWireValue(reader.readByte()) == SystemEnvelopeKind.SYNC_NACK) {
-                    "Expected SYNC_NACK payload kind"
-                }
-                val syncId = reader.readUuid()
-                val reason = reader.readString()
-                reader.requireFullyRead()
-                return SyncNack(
-                    syncId = syncId,
-                    reason = reason,
-                )
-            }
-        }
-    }
-
     /**
      * Fire-and-forget presence signal sent periodically over an open WebRTC session while the
      * author is composing a message. The presence of the indicator means "typing"; there is no
@@ -388,8 +305,6 @@ internal sealed interface SystemPayload {
             return when (kind) {
                 SystemEnvelopeKind.PACKET_ACK -> PacketAck.decode(bytes)
                 SystemEnvelopeKind.PACKET_NACK -> PacketNack.decode(bytes)
-                SystemEnvelopeKind.SYNC_REQUEST -> SyncRequest.decode(bytes)
-                SystemEnvelopeKind.SYNC_NACK -> SyncNack.decode(bytes)
                 SystemEnvelopeKind.TYPING_INDICATOR -> TypingIndicator.decode(bytes)
                 SystemEnvelopeKind.PING -> Ping.decode(bytes)
                 SystemEnvelopeKind.LOG_OFF -> LogOff.decode(bytes)
@@ -401,8 +316,9 @@ internal sealed interface SystemPayload {
 internal enum class SystemEnvelopeKind(val wireValue: Byte) {
     PACKET_ACK(1),
     PACKET_NACK(2),
-    SYNC_REQUEST(3),
-    SYNC_NACK(4),
+
+    // 3 and 4 were the old SYNC_REQUEST/SYNC_NACK kinds, retired: sync requests now travel as
+    // sealed MESSAGE-family content (SyncPayload.Request). Do not reuse these values.
     TYPING_INDICATOR(5),
     PING(6),
     LOG_OFF(7);

@@ -1,27 +1,15 @@
 package org.yapyap.routing.file.fetch
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protocol.FileFetchAbortReason
-import org.yapyap.protocol.FileFetchDeclineReason
-import org.yapyap.protocol.FileFetchFrame
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.PeerId
-import org.yapyap.routing.directory.DeviceDirectory
+import org.yapyap.protocol.*
 import org.yapyap.routing.file.port.FileAppendResult
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileIngestPort
@@ -29,13 +17,16 @@ import org.yapyap.routing.file.port.FileManifest
 import org.yapyap.routing.file.port.FileOfferVerdict
 import org.yapyap.routing.file.port.FilePlaintextSource
 import org.yapyap.routing.file.port.FileRefusalReason
-import org.yapyap.routing.file.port.FileServeGate
+import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.file.port.PlaintextRead
+import org.yapyap.routing.router.DeviceDirectory
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import org.yapyap.transport.webrtc.types.FileChannelId
 import org.yapyap.transport.webrtc.types.WebRtcFileChannelEvent
 import org.yapyap.transport.webrtc.types.WebRtcFileFrame
+import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -112,10 +103,10 @@ internal class FileFetchService(
     private val transport: WebRtcTransport,
     private val plaintext: FilePlaintextSource,
     private val ingest: FileIngestPort,
-    private val serveGate: FileServeGate,
+    private val requests: FileRequestSource,
     private val routerConfig: StateFlow<RouterConfig>,
-    /** File bytes per DATA frame. */
-    private val frameBytes: StateFlow<Int>,
+    /** The router's file-transfer sizes (chained by the composition root). */
+    private val fileLimits: StateFlow<FileLimits>,
     private val events: MutableSharedFlow<FileEvent>,
     private val clock: Clock = Clock.System,
 ) {
@@ -712,7 +703,7 @@ internal class FileFetchService(
             return false
         }
         val allowed = try {
-            serveGate.canServe(frame.fileId, account)
+            requests.canServe(frame.fileId, account)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -838,7 +829,7 @@ internal class FileFetchService(
                     break
                 }
                 if (!drained) break
-                val maxBytes = minOf(frameBytes.value.toLong(), info.totalBytes - offset).toInt().coerceAtLeast(1)
+                val maxBytes = minOf(fileLimits.value.fetchFrameBytes.toLong(), info.totalBytes - offset).toInt().coerceAtLeast(1)
                 val read = try {
                     stream.read(maxBytes)
                 } catch (e: CancellationException) {

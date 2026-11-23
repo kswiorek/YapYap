@@ -16,9 +16,12 @@ import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.protocol.FileFetchAbortReason
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
+import org.yapyap.protocol.envelopes.FileCancelReason
 import org.yapyap.routing.file.port.FileCarrier
 import org.yapyap.routing.file.port.FileEvent
+import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.file.port.FileReceiveEnd
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -139,6 +142,7 @@ internal class DefaultFileRequestCoordinator(
                                 fields = mapOf("fileId" to event.fileId),
                             )
                         }
+                        answerTransferAuthors(event.fileId, FileReceiveEnd.Ready)
                     }
 
                     is FileReceiveEvent.Failed -> {
@@ -146,6 +150,10 @@ internal class DefaultFileRequestCoordinator(
                             lastProgress.remove(event.fileId)
                             lastContiguous.remove(event.fileId)
                         }
+                        answerTransferAuthors(
+                            event.fileId,
+                            FileReceiveEnd.Cancelled(event.reason.toCancelReason()),
+                        )
                     }
                 }
             }
@@ -197,8 +205,8 @@ internal class DefaultFileRequestCoordinator(
         jobs.clear()
     }
 
-    private suspend fun onIngest(payload: MessagePayload) {
-        val text = payload as? MessagePayload.Text ?: return
+    private suspend fun onIngest(payload: DagPayload) {
+        val text = payload as? DagPayload.Text ?: return
         if (text.attachments.isEmpty()) return
         for (attachment in text.attachments) {
             if (attachment.totalBytes <= SMALL_FILE_MAX_BYTES) {
@@ -363,4 +371,35 @@ internal class DefaultFileRequestCoordinator(
             else -> Unit
         }
     }
+
+    /**
+     * The receive ended: routing answers the transfer authors. The orchestrator decides
+     * *when* (it owns receive lifecycle); routing owns the signaling and its rows.
+     */
+    private suspend fun answerTransferAuthors(fileId: FileId, end: FileReceiveEnd) {
+        try {
+            fileCarrier.endIncoming(fileId, end)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Politeness only: the authors' transfers end on their own TTL.
+            AppLog.error(
+                component = LogComponent.FILE,
+                event = LogEvent.FILE_TASK_FAILED,
+                message = "Answering the transfer authors of an ended receive failed",
+                throwable = e,
+                fields = mapOf("fileId" to fileId),
+            )
+        }
+    }
+}
+
+private fun FileFailureReason.toCancelReason(): FileCancelReason = when (this) {
+    FileFailureReason.DECLINED -> FileCancelReason.DECLINED
+    FileFailureReason.NO_SPACE -> FileCancelReason.NO_SPACE
+    FileFailureReason.EXPIRED,
+    FileFailureReason.CANCELLED,
+    FileFailureReason.ENDED,
+    FileFailureReason.FAILED,
+    -> FileCancelReason.ABORT
 }

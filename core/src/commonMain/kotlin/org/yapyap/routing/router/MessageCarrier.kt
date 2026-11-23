@@ -3,17 +3,25 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /** A push-path ACK reported by [MessageCarrier.deliveries], resolved to the acknowledging account. */
 internal data class MessageAck(val messageId: Uuid, val account: AccountId)
 
-/** Messages and typing indicators, account-level: routing fans out per device. */
+/**
+ * Messages in both directions: push (send and its receipts) and pull (asking for missing
+ * history and serving it). Routing fans out per device; the orchestrator owns what is missing
+ * and who may serve it.
+ */
 internal interface MessageCarrier {
-    /** Hot stream of messages received from peers, after authentication and decryption. */
-    val incomingMessages: Flow<MessagePayload>
+    /**
+     * Hot stream of DAG nodes received from peers, after authentication and decryption.
+     * Never pull-path control: only [DagPayload] can reach it.
+     */
+    val incomingMessages: Flow<DagPayload>
 
     /**
      * Pushes [payload] to every device of [target]. Transport selection is owned by the
@@ -25,7 +33,7 @@ internal interface MessageCarrier {
      * target (own-account sends reach the account's other devices only); an
      * own-account send with no other devices is a normal, quiet outcome.
      */
-    suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport
+    suspend fun sendMessage(target: AccountId, payload: DagPayload): AccountPushReport
 
     /**
      * Push-path ACKs, resolved to the acknowledging account: a message pushed by [sendMessage]
@@ -51,4 +59,26 @@ internal interface MessageCarrier {
      * Session opening for recently-reachable peers is a side effect of this call.
      */
     suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration)
+
+    /**
+     * Hot stream of inbound pings' frontiers, resolved to the sender's account (null when
+     * the device is unknown). One element per received ping, probes and replies alike, since
+     * both carry the sender's latest frontiers. What they mean (new syncs, reopening declined
+     * ones, re-pushing a removal) is decided upstream.
+     */
+    val frontiers: Flow<PingFrontiers>
+
+    /**
+     * Starts asking candidate devices for pending sync [syncId] (idempotent), first at
+     * [firstAttemptAt]. What to ask for and which accounts may answer come from the
+     * [org.yapyap.routing.message.port.SyncPayloadProvider]; the router asks until that
+     * reports the sync satisfied or gone.
+     */
+    suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant)
+
+    /**
+     * [account] asserts it can serve [syncId] after all (e.g. its ping advertises the sync's
+     * room): if every candidate device has declined, that account's devices are asked again.
+     */
+    suspend fun reopenSync(syncId: Uuid, account: AccountId)
 }

@@ -7,11 +7,7 @@ import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.dag.DagEngine
-import org.yapyap.orchestrator.file.FileDescriptorReader
-import org.yapyap.orchestrator.file.FileReceiveReader
-import org.yapyap.orchestrator.file.FileRequestControl
-import org.yapyap.orchestrator.file.FileSendService
-import org.yapyap.orchestrator.file.FileStore
+import org.yapyap.orchestrator.file.*
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.orchestrator.fold.global.GlobalEventProjector
 import org.yapyap.orchestrator.fold.room.RoomEventProjector
@@ -43,7 +39,6 @@ import org.yapyap.protocol.DeviceType
 import org.yapyap.routing.router.BootstrapCarrier
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.Presence
-import org.yapyap.routing.router.SyncCarrier
 
 public interface OrchestratorRuntime {
     public val messaging: MessagingService
@@ -72,7 +67,6 @@ public interface OrchestratorRuntime {
 internal class DefaultOrchestratorRuntime(
     dagEngine: DagEngine,
     messageCarrier: MessageCarrier,
-    syncCarrier: SyncCarrier,
     bootstrapCarrier: BootstrapCarrier,
     presence: Presence,
     pipeline: InboundMessagePipeline,
@@ -102,7 +96,6 @@ internal class DefaultOrchestratorRuntime(
     override val messaging = DefaultMessagingService(
         dagEngine = dagEngine,
         messageCarrier = messageCarrier,
-        syncCarrier = syncCarrier,
         pipeline = pipeline,
         roomRepository = roomRepository,
         messageRepository = messageRepository,

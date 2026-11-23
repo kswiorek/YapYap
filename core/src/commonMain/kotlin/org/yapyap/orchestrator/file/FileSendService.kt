@@ -15,14 +15,8 @@ import org.yapyap.orchestrator.runtime.message.PickedFile
 import org.yapyap.orchestrator.runtime.message.PickedFileSource
 import org.yapyap.orchestrator.runtime.message.SendRefusal
 import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.MAX_FILE_NAME_BYTES
-import org.yapyap.protocol.MAX_FILE_NAME_CHARS
-import org.yapyap.protocol.MAX_MIME_TYPE_BYTES
-import org.yapyap.protocol.MAX_MIME_TYPE_CHARS
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileCarrier
 
 /**
@@ -48,20 +42,20 @@ internal interface FileSendService {
     ): PrepareResult
 
     /** The DAG append failed: delete the descriptors (and copies) [attachments]' prepare created. */
-    suspend fun release(attachments: List<MessagePayload.Attachment>)
+    suspend fun release(attachments: List<DagPayload.Attachment>)
 
     /** The DAG append succeeded: [attachments] are now referenced, not releasable. */
-    suspend fun confirm(attachments: List<MessagePayload.Attachment>)
+    suspend fun confirm(attachments: List<DagPayload.Attachment>)
 
     /** Start per-device pushes for small files in [attachments] to [members]. */
-    suspend fun startPushes(attachments: List<MessagePayload.Attachment>, members: Collection<AccountId>)
+    suspend fun startPushes(attachments: List<DagPayload.Attachment>, members: Collection<AccountId>)
 
     /** Delete partial copies left by sends a previous run killed mid-hash. */
     suspend fun cleanTmp()
 }
 
 internal sealed interface PrepareResult {
-    data class Ready(val attachments: List<MessagePayload.Attachment>) : PrepareResult
+    data class Ready(val attachments: List<DagPayload.Attachment>) : PrepareResult
     data class Refused(val refusal: SendRefusal) : PrepareResult
 }
 
@@ -86,7 +80,7 @@ internal class DefaultFileSendService(
         val sizes = files.map { sourceSize(it) ?: return PrepareResult.Refused(SendRefusal.FileUnreadable) }
         val totalBytes = sizes.sum()
         var hashedBytes = 0L
-        val attachments = mutableListOf<MessagePayload.Attachment>()
+        val attachments = mutableListOf<DagPayload.Attachment>()
         var ready = false
         try {
             for (picked in files) { //TODO [File cleanup]: async loop? Breaks if one of multiple is refused, return those whih are fine, the rest can error out in gui
@@ -97,7 +91,7 @@ internal class DefaultFileSendService(
                     is Pinned.Held -> pinned.descriptor
                     is Pinned.Refused -> return PrepareResult.Refused(pinned.refusal)
                 }
-                attachments += MessagePayload.Attachment(
+                attachments += DagPayload.Attachment(
                     fileId = descriptor.fileId,
                     fileName = descriptor.fileName,
                     mimeType = descriptor.mimeType,
@@ -147,7 +141,7 @@ internal class DefaultFileSendService(
         return Pinned.Refused(SendRefusal.FileUnreadable)
     }
 
-    override suspend fun release(attachments: List<MessagePayload.Attachment>) {
+    override suspend fun release(attachments: List<DagPayload.Attachment>) {
         for (attachment in attachments) {
             pins.unpin(attachment.fileId) {
                 val storage = releasableGuard.withLock { releasable.remove(attachment.fileId) } ?: return@unpin
@@ -159,7 +153,7 @@ internal class DefaultFileSendService(
         }
     }
 
-    override suspend fun confirm(attachments: List<MessagePayload.Attachment>) {
+    override suspend fun confirm(attachments: List<DagPayload.Attachment>) {
         for ((fileId) in attachments) {
             releasableGuard.withLock { releasable.remove(fileId) }
             pins.unpin(fileId)
@@ -168,7 +162,7 @@ internal class DefaultFileSendService(
 
     /** A push that fails to start is logged: the receiver's pull path still fetches the file. */
     override suspend fun startPushes(
-        attachments: List<MessagePayload.Attachment>,
+        attachments: List<DagPayload.Attachment>,
         members: Collection<AccountId>,
     ) {
         for (attachment in attachments) { //TODO [File cleanup] Async loops

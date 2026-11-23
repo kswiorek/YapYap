@@ -24,7 +24,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
 import org.yapyap.protocol.RoomType
 import org.yapyap.routing.router.MessageCarrier
-import org.yapyap.routing.router.SyncCarrier
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -49,7 +48,6 @@ internal class DefaultSyncCoordinator(
     private val messageRepository: MessageRepository,
     private val pendingSyncRepository: PendingSyncRepository,
     private val messageCarrier: MessageCarrier,
-    private val syncCarrier: SyncCarrier,
     /** Room-fold commits: every change re-appends the room's members to its live rows. */
     private val roomChanges: Flow<RoomStateChange>,
     /** Global-fold commits: any identity change re-appends the global members to GLOBAL's rows. */
@@ -73,7 +71,7 @@ internal class DefaultSyncCoordinator(
         // (idempotent: a sync it already tracks keeps its attempt state).
         jobs += scope.launch {
             val now = clock.now()
-            pendingSyncRepository.allSyncIds().forEach { syncCarrier.startSync(it, now) }
+            pendingSyncRepository.allSyncIds().forEach { messageCarrier.startSync(it, now) }
         }
         jobs += scope.launch {
             pipeline.ingestResults.collect { result ->
@@ -84,7 +82,7 @@ internal class DefaultSyncCoordinator(
             }
         }
         jobs += scope.launch {
-            syncCarrier.pingPayloads.collect { ping ->
+            messageCarrier.frontiers.collect { ping ->
                 ping.roomFrontiers.forEach { (roomId, tips) ->
                     // One room failing must not end this collector: every later ping's
                     // frontiers would go unsynced until restart.
@@ -148,7 +146,7 @@ internal class DefaultSyncCoordinator(
         if (senderAccount == null) return
         // A ping about the room is the sender's assertion that its projection has us in the
         // room, contradicting any earlier decline (docs/room events.md §6): it may be asked again.
-        pendingSyncRepository.syncIdsInRoom(roomId).forEach { syncCarrier.reopenSync(it, senderAccount) }
+        pendingSyncRepository.syncIdsInRoom(roomId).forEach { messageCarrier.reopenSync(it, senderAccount) }
         rePushRemoval(roomId, senderAccount)
     }
 
@@ -309,6 +307,6 @@ internal class DefaultSyncCoordinator(
             targetMessageId = targetMessageId,
             candidateAccounts = candidates,
         )
-        syncCarrier.startSync(syncId, firstAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod)
+        messageCarrier.startSync(syncId, firstAttemptAt = clock.now() + orchestratorConfig.value.syncGracePeriod)
     }
 }

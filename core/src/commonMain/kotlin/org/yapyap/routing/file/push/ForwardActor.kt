@@ -7,12 +7,10 @@ import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PacketType
 import org.yapyap.protocol.TransferId
 import org.yapyap.protocol.envelopes.BinaryEnvelope
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FileRelayStatus
-import org.yapyap.routing.store.FileRelayStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.RetryClass
+import org.yapyap.routing.store.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
@@ -34,7 +32,8 @@ internal sealed interface ForwardInput {
 internal class ForwardActor(
     private val ctx: RoutingContext,
     private val relay: FileRelayStore,
-    private val outbox: FileOutbox,
+    private val outbox: OutboxProcessor,
+    private val outboxStore: PacketOutbox,
     private val transferId: TransferId,
     private val onTerminal: suspend (TransferId) -> Unit,
 ) {
@@ -166,7 +165,7 @@ internal class ForwardActor(
             // The marker's row left the outbox without an outcome reaching us (outcomes are not
             // replayed): send it again rather than hold the relay's storage until the TTL.
             val marker = row.markerPacketId
-            if (marker == null || marker !in outbox.packetIdsByTag(tag())) sendMarker()
+            if (marker == null || marker !in outboxStore.packetIdsByTag(tag())) sendMarker()
         } else if (row.status == FileRelayStatus.STREAMING) {
             // Restream rows lost while down: anything stored without a queued outbox row
             // goes again (duplicates merge at the receiver). FORWARDING waits for its
@@ -195,7 +194,7 @@ internal class ForwardActor(
             target = row.targetDevice,
             payload = row.offerPayload,
         )
-        outbox.enqueue(outer, tag(), retryClass = RetryClass.STANDARD)
+        outbox.enqueueAndWake(outer, ctx.clock.now(), tag = tag(), retryClass = RetryClass.STANDARD)
         relay.setMarker(transferId, packetId)
         AppLog.debug(
             component = LogComponent.FILE,
@@ -223,7 +222,7 @@ internal class ForwardActor(
             ended = true
             return
         }
-        val queued = outbox.packetIdsByTag(tag()).toSet()
+        val queued = outboxStore.packetIdsByTag(tag()).toSet()
         // Index-only scan; a blob is loaded only for a chunk that actually goes out.
         for (chunk in relay.chunkRefs(transferId)) {
             if (chunk.packetId != null && chunk.packetId in queued) continue
@@ -239,7 +238,7 @@ internal class ForwardActor(
                 target = row.targetDevice,
                 payload = blob,
             )
-            outbox.enqueue(outer, tag(), retryClass = RetryClass.FLAT)
+            outbox.enqueueAndWake(outer, ctx.clock.now(), tag = tag(), retryClass = RetryClass.FLAT)
             relay.setChunkPacket(transferId, chunk.chunkIndex, packetId)
         }
     }
@@ -251,7 +250,7 @@ internal class ForwardActor(
      */
     private suspend fun drop() {
         relay.delete(transferId)
-        outbox.deleteByTag(tag())
+        outboxStore.deleteByTag(tag())
         ended = true
     }
 }

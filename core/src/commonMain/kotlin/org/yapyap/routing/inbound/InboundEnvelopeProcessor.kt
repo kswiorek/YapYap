@@ -1,13 +1,8 @@
 package org.yapyap.routing.inbound
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -21,32 +16,27 @@ import org.yapyap.protocol.envelopes.SystemEnvelope
 import org.yapyap.protocol.envelopes.SystemPayload
 import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.ping.PingProvider
 import org.yapyap.routing.policy.NackAction
 import org.yapyap.routing.policy.nackActionFor
-import org.yapyap.routing.router.InboundHandleResult
-import org.yapyap.routing.router.InboundSideEffect
-import org.yapyap.routing.router.PeerAvailabilityRegistry
-import org.yapyap.routing.router.RouterTransport
-import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.sync.SyncHandler
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
+import org.yapyap.routing.presence.PingProvider
+import org.yapyap.routing.router.*
+import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.transport.tor.TorIncomingEnvelope
 import org.yapyap.transport.tor.TorLinkId
 import org.yapyap.transport.webrtc.transport.WebRtcIncomingEnvelope
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.uuid.Uuid
 
 internal class InboundEnvelopeProcessor(
     private val ctx: RoutingContext,
     private val systemSender: SystemSender,
+    private val routes: DeviceRouteStore,
+    private val packetDeduplicator: PacketDeduplicator,
     private val handlers: Map<PacketType, InboundEnvelopeHandler>,
     private val outboxProcessor: OutboxProcessor,
-    private val syncHandler: SyncHandler,
     private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
     private val pingProvider: PingProvider,
-    /** A device declined one of our syncs the legacy way (SyncNack instead of a NACK). */
-    private val onSyncDeclined: suspend (syncId: Uuid, deviceId: PeerId) -> Unit,
 ) {
     /**
      * Where ACK/NACK sends run while the router is started; null otherwise (sends then
@@ -148,7 +138,7 @@ internal class InboundEnvelopeProcessor(
             peerAvailabilityRegistry.markReachable(inbound.source, receivedAt)
         }
 
-        if (!ctx.packetDeduplicator.firstSeen(
+        if (!packetDeduplicator.firstSeen(
                 packetId = inbound.packetId,
                 sourceDeviceId = inbound.source,
                 receivedAt = receivedAt,
@@ -170,7 +160,7 @@ internal class InboundEnvelopeProcessor(
                     systemSender.sendDispositionForDuplicate(
                         inbound,
                         transport,
-                        ctx.packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
+                        packetDeduplicator.getNackReason(inbound.packetId, inbound.source),
                         endpointOverride = provenSourceEndpoint,
                         torReplyLink = arrivalLink,
                     )
@@ -250,7 +240,7 @@ internal class InboundEnvelopeProcessor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
+            packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
             AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LogEvent.ENVELOPE_HANDLE_FAILED,
@@ -303,7 +293,7 @@ internal class InboundEnvelopeProcessor(
                         "sourceDeviceId" to inbound.source,
                     ),
                 )
-                ctx.packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
+                packetDeduplicator.clearPacket(inbound.packetId, inbound.source)
             }
 
             is InboundHandleResult.Rejected ->
@@ -394,7 +384,7 @@ internal class InboundEnvelopeProcessor(
      * disposition override for the immediate exchange.
      */
     private suspend fun reconcileSourceEndpoint(source: PeerId, provenEndpoint: TorEndpoint) {
-        val knownEndpoint = ctx.routes.resolveTorEndpointForDevice(source)
+        val knownEndpoint = routes.resolveTorEndpointForDevice(source)
         if (knownEndpoint == null) {
             AppLog.debug(
                 component = LogComponent.ROUTER,
@@ -416,7 +406,7 @@ internal class InboundEnvelopeProcessor(
                     "provenEndpoint" to provenEndpoint,
                 ),
             )
-            ctx.routes.upsertPeerTorEndpoint(
+            routes.upsertPeerTorEndpoint(
                 deviceId = source,
                 torEndpoint = provenEndpoint,
             )
@@ -506,12 +496,6 @@ internal class InboundEnvelopeProcessor(
 
                 is InboundSideEffect.OutboxDisposition ->
                     outboxProcessor.onDisposition(effect.packetId, effect.nackReason)
-
-                is InboundSideEffect.SyncRequested ->
-                    syncHandler.reply(effect.sync, effect.peerId, effect.messages)
-
-                is InboundSideEffect.SyncDeclined ->
-                    onSyncDeclined(effect.syncId, effect.peerId)
 
                 is InboundSideEffect.PeerHeartbeat -> pingProvider.handlePing(effect.peerId, effect.ping)
                 is InboundSideEffect.PeerOffline -> peerAvailabilityRegistry.markOffline(effect.peerId)

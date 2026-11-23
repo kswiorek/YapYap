@@ -3,8 +3,8 @@ package org.yapyap.orchestrator.dag
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomType
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.GlobalEventPayload
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.uuid.Uuid
 
@@ -22,7 +22,7 @@ public enum class VerificationState {
 internal sealed interface MessageDraft {
     data class Text(
         val text: String,
-        val attachments: List<MessagePayload.Attachment> = emptyList(),
+        val attachments: List<DagPayload.Attachment> = emptyList(),
     ) : MessageDraft
     data class GlobalEvent(val event: GlobalEventPayload) : MessageDraft
 
@@ -65,18 +65,18 @@ internal data class VerificationStateChange(
 )
 
 internal sealed interface IngestResult {
-    val payload: MessagePayload
+    val payload: DagPayload
     val closedGapMissingPrevIds: List<Uuid>
     val verificationState: VerificationState
 
     data class Inserted(
-        override val payload: MessagePayload,
+        override val payload: DagPayload,
         override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
         override val verificationState: VerificationState = VerificationState.VERIFIED,
     ) : IngestResult
 
     data class BecameOrphan(
-        override val payload: MessagePayload,
+        override val payload: DagPayload,
         override val closedGapMissingPrevIds: List<Uuid> = emptyList(),
         /** Parent IDs of [payload] that are absent locally (one causal hold each). */
         val missingPrevIds: List<Uuid>,

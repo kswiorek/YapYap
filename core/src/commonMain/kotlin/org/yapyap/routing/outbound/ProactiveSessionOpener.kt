@@ -9,7 +9,7 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protocol.PeerId
-import org.yapyap.routing.router.PeerAvailabilityRegistry
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.transport.session.SessionPhase
 import org.yapyap.transport.session.SessionTransport

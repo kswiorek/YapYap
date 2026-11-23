@@ -1,8 +1,8 @@
 package org.yapyap.wiring
 
 import org.yapyap.crypto.e2ee.session.CryptoLimits
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.MessageEnvelope
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.routing.router.TransportLimits
 
 /**
@@ -37,7 +37,7 @@ internal data class MessageLimits(
             // that prefix can carry: a longer text would pass this check and fail to encode.
             val maxText = minOf(
                 cryptoLimitsFor(transport.maxRoutableBytes).maxInnerPlaintextBytes -
-                        MessagePayload.Text.ENCODED_HEADER_RESERVE_BYTES,
+                        DagPayload.Text.ENCODED_HEADER_RESERVE_BYTES,
                 Short.MAX_VALUE.toInt(),
             )
             return MessageLimits(transport, crypto, maxText)

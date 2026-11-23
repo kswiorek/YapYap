@@ -1,0 +1,18 @@
+package org.yapyap.routing.store
+
+import kotlinx.coroutines.flow.StateFlow
+import org.yapyap.routing.router.RouterConfig
+import kotlin.time.Clock
+
+internal class PacketStoreMaintenance(
+    private val outbox: PacketOutbox,
+    private val dedup: PacketDeduplicator,
+    private val config: StateFlow<RouterConfig>,
+    private val clock: Clock = Clock.System,
+) {
+    suspend fun run() {
+        val now = clock.now()
+        dedup.prune(now - config.value.dedupRetention)
+        outbox.pruneRelayOverCapacity(config.value.messageRelayBudgetBytes)
+    }
+}

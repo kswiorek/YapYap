@@ -16,15 +16,10 @@ import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.routing.file.buildFileControlEnvelope
 import org.yapyap.routing.file.port.FileEvent
 import org.yapyap.routing.file.port.FileFailureReason
+import org.yapyap.routing.outbound.OutboxProcessor
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.FilePush
-import org.yapyap.routing.store.FilePushKind
-import org.yapyap.routing.store.FilePushStatus
-import org.yapyap.routing.store.FilePushStore
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.RelayBackup
-import org.yapyap.routing.store.RetryClass
+import org.yapyap.routing.store.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 
@@ -39,7 +34,8 @@ internal class TransferActor(
     private val ctx: RoutingContext,
     private val protection: FileEnvelopeProtection,
     private val pushes: FilePushStore,
-    private val outbox: FileOutbox,
+    private val outbox: OutboxProcessor,
+    private val outboxStore: PacketOutbox,
     private val events: MutableSharedFlow<FileEvent>,
     row: FilePush,
     private val source: ChunkSource,
@@ -84,7 +80,7 @@ internal class TransferActor(
      * still queued and may be that very ACK), which the target answers idempotently by transferId.
      */
     suspend fun recover() {
-        val stillQueued = outbox.packetIdsByTag(tag()).toSet()
+        val stillQueued = outboxStore.packetIdsByTag(tag()).toSet()
         val marker = current.markerPacketId
         if (current.status == FilePushStatus.CREATED && marker != null && marker !in stillQueued) {
             markerLost = true
@@ -417,7 +413,13 @@ internal class TransferActor(
                 is ChunkResult.Envelope -> {
                     val packetId = result.envelope.packetId
                     // Chunks never back up: only the authoring marker is message-backed.
-                    outbox.enqueue(result.envelope, tag(), RelayBackup.NONE, RetryClass.FLAT)
+                    outbox.enqueueAndWake(
+                        result.envelope,
+                        ctx.clock.now(),
+                        relayBackup = RelayBackup.NONE,
+                        tag = tag(),
+                        retryClass = RetryClass.FLAT,
+                    )
                     pushes.recordChunk(transferId, index, packetId)
                     queued.add(index)
                     nextToQueue += 1
@@ -485,7 +487,13 @@ internal class TransferActor(
             } else {
                 RelayBackup.NONE
             }
-        outbox.enqueue(envelope, tag(), relayBackup, RetryClass.STANDARD)
+        outbox.enqueueAndWake(
+            envelope,
+            ctx.clock.now(),
+            relayBackup = relayBackup,
+            tag = tag(),
+            retryClass = RetryClass.STANDARD,
+        )
         pushes.setMarker(transferId, envelope.packetId)
         markerSent = true
         refresh()
@@ -501,7 +509,7 @@ internal class TransferActor(
             expiresAt = current.expiresAt,
             payload = FilePayload.Cancel(FileCancelReason.ABORT),
         )
-        outbox.enqueueDirect(envelope)
+        outbox.enqueueAndWake(envelope, ctx.clock.now())
     }
 
     private suspend fun persistProgress() {

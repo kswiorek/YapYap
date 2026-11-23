@@ -3,20 +3,13 @@ package org.yapyap.routing.router
 import kotlinx.coroutines.flow.StateFlow
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
+import org.yapyap.protocol.*
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.protocol.envelopes.SystemPayload.SyncRequest
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
 import org.yapyap.routing.link.PeerLinks
 import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.transport.tor.transport.TorTransport
 import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.time.Clock
@@ -111,12 +104,6 @@ internal sealed interface InboundSideEffect {
     /** The target answered our outbox packet: ACK when [nackReason] is null, else a terminal NACK. */
     data class OutboxDisposition(val packetId: Uuid, val nackReason: PacketNackReason? = null) : InboundSideEffect
 
-    /** A sync request we serve: [messages] go back to [peerId] (empty: declined). */
-    data class SyncRequested(val peerId: PeerId, val sync: SyncRequest, val messages: List<MessagePayload>) :
-        InboundSideEffect
-
-    /** [peerId] declined our sync [syncId] the legacy way (SyncNack). */
-    data class SyncDeclined(val peerId: PeerId, val syncId: Uuid) : InboundSideEffect
     data class PeerHeartbeat(val peerId: PeerId, val ping: SystemPayload.Ping) : InboundSideEffect
     data class PeerOffline(val peerId: PeerId) : InboundSideEffect
 }
@@ -186,19 +173,59 @@ internal sealed interface PeerSendOutcome {
     data object PermanentFailure : PeerSendOutcome
 }
 
+/**
+ * What the router may know about accounts and devices: which devices an account has and whether
+ * they are active. Read-only; the identity tables are written by the orchestrator's folds.
+ */
+internal interface DeviceDirectory {
+    /** Owning account of a device, or null when the device is unknown ("unknown device", not an error). */
+    suspend fun getAccountIdForDevice(deviceId: PeerId): AccountId?
+
+    /** The account's non-banned devices. */
+    suspend fun getAllPeerDevicesForAccount(accountId: AccountId): List<PeerId>
+
+    suspend fun getAllPeerDevicesForAccounts(accountIds: Collection<AccountId>): List<PeerId>
+
+    /** Every non-banned device, local included — the candidate list for ping/relay/link fan-out. */
+    suspend fun getAllActiveDeviceIds(): List<PeerId>
+
+    /** Device ban state, or null when the device has no row (absence asserts nothing). */
+    suspend fun getDeviceStatus(deviceId: PeerId): IdentityStatus?
+
+    /** Account status, or null when absent (absence asserts nothing — never read it as "removed"). */
+    suspend fun getAccountStatus(accountId: AccountId): IdentityStatus?
+
+    /** The endpoint the device declared (chain AddDevice or intro), or null when the device is unknown. */
+    suspend fun getDeclaredTorEndpoint(deviceId: PeerId): TorEndpoint?
+}
+
+/** Where devices can be reached: the router's own state about peers (it is the only writer). */
+internal interface DeviceRouteStore {
+    /** The endpoint the router last proved for the device, else the one it declared; null when unknown. */
+    suspend fun resolveTorEndpointForDevice(deviceId: PeerId): TorEndpoint?
+
+    /** Records an endpoint proven by an authenticated inbound stream, or our own after Tor starts. */
+    suspend fun upsertPeerTorEndpoint(deviceId: PeerId, torEndpoint: TorEndpoint)
+}
+
+/**
+ * The ambient world of a routing component: who we are ([localIdentity], [localDeviceId]), the
+ * device world as the orchestrator reports it ([devices]), how we reach peers ([torTransport],
+ * [webRtcTransport] and the open [peerLinks]), how we seal envelopes
+ * ([envelopeProtectionService]), time and rules ([clock], [routerConfig]).
+ *
+ * No stores, engines, or policies: routing-owned state (`routes`, the packet deduplicator, the
+ * outbox) and everything routing builds are explicit constructor dependencies of their owners.
+ */
 internal class RoutingContext(
     val localIdentity: LocalIdentity,
     val localDeviceId: PeerId,
     val devices: DeviceDirectory,
-    val routes: DeviceRouteStore,
-    val packetDeduplicator: PacketDeduplicator,
-    val envelopeProtectionService: EnvelopeProtectionService,
     val torTransport: TorTransport,
     val webRtcTransport: WebRtcTransport,
+    val peerLinks: PeerLinks,
+    val transportLimits: StateFlow<TransportLimits>,
+    val envelopeProtectionService: EnvelopeProtectionService,
     val clock: Clock,
     val routerConfig: StateFlow<RouterConfig>,
-    val transportLimits: StateFlow<TransportLimits>,
-) {
-    /** Live links to peers across both transports; see [PeerLinks]. */
-    val peerLinks: PeerLinks by lazy { PeerLinks(routes, webRtcTransport, torTransport) }
-}
+)

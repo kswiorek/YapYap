@@ -26,6 +26,7 @@ import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
 import org.yapyap.orchestrator.runtime.config.UserSettings
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.RouterConfig
 import org.yapyap.routing.router.TransportLimits
 import org.yapyap.transport.tor.backend.TorBackendConfig
@@ -59,11 +60,9 @@ internal class ConfigStore(
     private val _transportLimits = MutableStateFlow(MessageLimits.from(RuntimeConfig()).transport)
     val transportLimits: StateFlow<TransportLimits> = _transportLimits.asStateFlow()
 
-    private val _fileChunkSizeBytes = MutableStateFlow(FileLimits.from(RuntimeConfig()).chunkSizeBytes)
-    val fileChunkSizeBytes: StateFlow<Int> = _fileChunkSizeBytes.asStateFlow()
-
-    private val _fileFetchFrameBytes = MutableStateFlow(FileLimits.from(RuntimeConfig()).fetchFrameBytes)
-    val fileFetchFrameBytes: StateFlow<Int> = _fileFetchFrameBytes.asStateFlow()
+    /** The router's file-transfer sizes, chained from [transportLimits] (guide §2, size limits). */
+    private val _fileLimits = MutableStateFlow(fileLimitsFor(_transportLimits.value))
+    val fileLimits: StateFlow<FileLimits> = _fileLimits.asStateFlow()
 
     private val _userOverrides = MutableStateFlow<Overrides>(emptyMap())
     private val _networkOverrides = MutableStateFlow<Overrides>(emptyMap())
@@ -148,16 +147,14 @@ internal class ConfigStore(
         _settings.value = buildSettings(_overrides.value)
         _tor.value = effective.tor
         _webRtc.value = effective.webRtc
-        _router.value = effective.router
         _crypto.value = effective.crypto
+        _router.value = effective.router
         _orchestrator.value = effective.orchestrator
         val limits = MessageLimits.from(effective)
         _maxTextMessageBytes.value = limits.maxTextMessageBytes
         _cryptoLimits.value = limits.crypto
         _transportLimits.value = limits.transport
-        val fileLimits = FileLimits.from(effective)
-        _fileChunkSizeBytes.value = fileLimits.chunkSizeBytes
-        _fileFetchFrameBytes.value = fileLimits.fetchFrameBytes
+        _fileLimits.value = fileLimitsFor(limits.transport)
     }
 
     private fun readText(file: Path): String? {

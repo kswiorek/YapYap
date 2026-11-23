@@ -55,7 +55,12 @@ internal class DefaultTorTransport(
 
     @Volatile
     private var started = false
+
+    @Volatile
     private var localEndpoint: TorEndpoint? = null
+
+    override val localTorEndpoint: TorEndpoint?
+        get() = localEndpoint
 
     override val incoming: Flow<TorIncomingEnvelope> = incomingFlow.asSharedFlow()
 
@@ -167,6 +172,7 @@ internal class DefaultTorTransport(
         scope?.cancel()
         runCatching { backend.stop() }
         scope = null
+        localEndpoint = null
         _sessionStates.value = emptyMap()
         AppLog.info(
             component = LogComponent.TOR_TRANSPORT,

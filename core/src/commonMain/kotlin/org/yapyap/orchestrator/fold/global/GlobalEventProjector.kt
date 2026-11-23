@@ -1,14 +1,9 @@
 package org.yapyap.orchestrator.fold.global
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.crypto.identity.LocalIdentity
@@ -27,23 +22,12 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.StoredMessage
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.DeviceType
-import org.yapyap.protocol.IdentityStatus
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomMemberRole
-import org.yapyap.protocol.TorEndpoint
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.GlobalEventPayload
 import org.yapyap.protocol.envelopes.Invite
-import org.yapyap.protocol.envelopes.MessagePayload
 import org.yapyap.protocol.envelopes.RecoveryRequest
-import org.yapyap.protocol.identity.AccountIdentity
-import org.yapyap.protocol.identity.DeviceIdentity
-import org.yapyap.protocol.identity.EncryptionPublicKey
-import org.yapyap.protocol.identity.SignedPreKey
-import org.yapyap.protocol.identity.SignedPreKeyId
-import org.yapyap.protocol.identity.SigningPublicKey
+import org.yapyap.protocol.identity.*
 import org.yapyap.routing.router.MessageCarrier
 import kotlin.uuid.Uuid
 
@@ -385,7 +369,7 @@ internal class DefaultGlobalEventProjector(
         )
     }
 
-    private suspend fun broadcast(nodes: List<MessagePayload>) {
+    private suspend fun broadcast(nodes: List<DagPayload>) {
         val members = roomRepository.membersOfRoom(RoomId.GLOBAL)
         coroutineScope {
             nodes.flatMap { node ->
@@ -463,7 +447,7 @@ internal class DefaultGlobalEventProjector(
     private suspend fun foldNodeOf(row: StoredMessage): FoldNode {
         val payload = row.payload
         val event = runCatching {
-            (payload as? MessagePayload.GlobalEvent)?.decodeEvent()
+            (payload as? DagPayload.GlobalEvent)?.decodeEvent()
         }.getOrNull()
         // Id-derivation assertion (self-certifying ids), precomputed here so the core
         // stays crypto-free apart from the [FoldCrypto] oracles.
@@ -482,7 +466,7 @@ internal class DefaultGlobalEventProjector(
             senderAccountId = payload.senderAccountId,
             prevIds = payload.prevIds,
             authorSignature = payload.authorSignature,
-            signingBytes = (payload as? MessagePayload.GlobalEvent)?.encodeForAuthorSigning()
+            signingBytes = (payload as? DagPayload.GlobalEvent)?.encodeForAuthorSigning()
                 ?: ByteArray(0),
             event = event,
             derivationOk = derivationOk,
@@ -497,7 +481,7 @@ internal class DefaultGlobalEventProjector(
      */
     private fun resolveGenesis(byId: Map<Uuid, StoredMessage>, children: Map<Uuid, List<Uuid>>): GenesisInfo? {
         val candidates = byId.values.mapNotNull { row ->
-            val event = runCatching { (row.payload as? MessagePayload.GlobalEvent)?.decodeEvent() }.getOrNull()
+            val event = runCatching { (row.payload as? DagPayload.GlobalEvent)?.decodeEvent() }.getOrNull()
             if (row.payload.prevIds.isEmpty() && event is GlobalEventPayload.AddAccount) {
                 row.payload.messageId to event.accountId
             } else null
@@ -554,7 +538,7 @@ internal class DefaultGlobalEventProjector(
     ): GenesisKey? {
         if (genesis == null) return null
         for (id in order) {
-            val payload = byId.getValue(id).payload as? MessagePayload.GlobalEvent ?: continue
+            val payload = byId.getValue(id).payload as? DagPayload.GlobalEvent ?: continue
             val event = runCatching { payload.decodeEvent() }.getOrNull() as? GlobalEventPayload.AddDevice
                 ?: continue
             if (payload.authorDeviceId == event.deviceId && event.accountId == genesis.accountId) {

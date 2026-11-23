@@ -157,7 +157,7 @@ internal enum class BootstrapPayloadKind(public val wireValue: Byte) {
 }
 
 /**
- * Bootstrap payload, one subtype per handshake direction (mirrors the [MessagePayload] sealed shape —
+ * Bootstrap payload, one subtype per handshake direction (mirrors the [DagPayload] sealed shape —
  * the concrete type is the kind, so dispatch is type-safe `is` rather than a runtime tag):
  *  - [Intro] (sponsor → newcomer): sponsor's own [account] + DAG head; no secret.
  *  - [Invite] (newcomer → sponsor, out-of-band QR/CLI): a one-time shared secret; [account] may be

@@ -7,7 +7,7 @@ import org.yapyap.persistence.YapYapDatabase
 import org.yapyap.persistence.databaseDispatcher
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.SystemPayload
+import org.yapyap.protocol.envelopes.SyncPayload
 import kotlin.uuid.Uuid
 
 internal data class PendingSync(
@@ -46,7 +46,7 @@ internal interface PendingSyncRepository {
      * every attempt, never stored). Returns null when the row is gone or its target
      * is already present (stale row — the caller should delete it).
      */
-    suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest?
+    suspend fun buildSyncRequest(syncId: Uuid): SyncPayload.Request?
 
     suspend fun candidateAccounts(syncId: Uuid): List<AccountId>
 
@@ -114,7 +114,7 @@ internal class DefaultPendingSyncRepository(
         }
     }
 
-    override suspend fun buildSyncRequest(syncId: Uuid): SystemPayload.SyncRequest? =
+    override suspend fun buildSyncRequest(syncId: Uuid): SyncPayload.Request? =
         withContext(dbDispatcher) {
             val row = queries.selectSyncById(syncId).executeAsOneOrNull() ?: return@withContext null
             if (database.messageQueries.selectMessageById(row.target_message_id).executeAsOneOrNull() != null) {
@@ -122,7 +122,7 @@ internal class DefaultPendingSyncRepository(
             }
             val knownIds = database.messageQueries.selectRoomFrontier(row.room_id)
                 .executeAsList().map { it.message_id }
-            SystemPayload.SyncRequest(
+            SyncPayload.Request(
                 roomId = row.room_id,
                 syncId = row.sync_id,
                 missingIds = listOf(row.target_message_id),

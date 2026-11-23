@@ -1,52 +1,25 @@
 package org.yapyap.orchestrator.runtime.message
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.job
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.dag.DagEngine
-import org.yapyap.orchestrator.dag.DagException
-import org.yapyap.orchestrator.dag.IngestResult
-import org.yapyap.orchestrator.dag.MessageDraft
-import org.yapyap.orchestrator.dag.VerificationState
-import org.yapyap.orchestrator.dag.VerificationStateChange
+import org.yapyap.orchestrator.dag.*
 import org.yapyap.orchestrator.file.FileSendService
 import org.yapyap.orchestrator.file.PrepareResult
 import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
-import org.yapyap.orchestrator.store.CausalHoldRepository
-import org.yapyap.orchestrator.store.MessageCursor
-import org.yapyap.orchestrator.store.MessageDeliveryRepository
-import org.yapyap.orchestrator.store.MessageRepository
-import org.yapyap.orchestrator.store.RoomRepository
+import org.yapyap.orchestrator.store.*
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.RoomId
 import org.yapyap.protocol.RoomMemberStatus
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.router.AccountPushReport
 import org.yapyap.routing.router.MessageCarrier
-import org.yapyap.routing.router.SyncCarrier
 import org.yapyap.routing.router.TypingIndicatorEvent
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration.Companion.seconds
@@ -58,7 +31,6 @@ private val PREPARING_ERROR_SHOWN = 5.seconds
 internal class DefaultMessagingService(
     private val dagEngine: DagEngine,
     private val messageCarrier: MessageCarrier,
-    syncCarrier: SyncCarrier,
     private val pipeline: InboundMessagePipeline,
     private val roomRepository: RoomRepository,
     private val messageRepository: MessageRepository,
@@ -74,7 +46,7 @@ internal class DefaultMessagingService(
     override val incomingMessageEvents = incomingMessageEventFlow.asSharedFlow()
 
     private val deliveryTracker =
-        DeliveryTracker(messageCarrier, syncCarrier, messageRepository, deliveryRepository, localIdentity)
+        DeliveryTracker(messageCarrier, messageRepository, deliveryRepository, localIdentity)
     private var deliveryJobs: List<Job> = emptyList()
     override val deliveryUpdates: Flow<MessageDelivery> = deliveryTracker.updates
 
@@ -326,7 +298,7 @@ internal class DefaultMessagingService(
         }
 
         // Check the attachment count before any import (design §10).
-        if (message.pickedFiles.size > MessagePayload.Attachment.MAX_ATTACHMENTS) {
+        if (message.pickedFiles.size > DagPayload.Attachment.MAX_ATTACHMENTS) {
             return SendMessageResult.Refused(SendRefusal.TooLarge)
         }
 
@@ -432,7 +404,7 @@ internal class DefaultMessagingService(
     private suspend fun sendText(
         roomId: RoomId,
         content: String,
-        wireAttachments: List<MessagePayload.Attachment>,
+        wireAttachments: List<DagPayload.Attachment>,
         localAccountId: AccountId,
     ): SendMessageResult {
         val payload = try {
@@ -544,7 +516,7 @@ internal class DefaultMessagingService(
      * in the ingest collector; only the notification policy applies here: no self-notify.
      * The emitted item is policy-vetted and unformatted.
      */
-    private suspend fun emitIncomingEventIfNeeded(payload: MessagePayload, item: MessageDisplayItem) {
+    private suspend fun emitIncomingEventIfNeeded(payload: DagPayload, item: MessageDisplayItem) {
         val localAccountId = localIdentity.getLocalAccountId()
         if (payload.senderAccountId == localAccountId) return
         incomingMessageEventFlow.emit(
@@ -594,16 +566,16 @@ internal class DefaultMessagingService(
      * (control-plane events). Exhaustive on purpose — a new payload type must
      * be handled here explicitly.
      */
-    private fun MessagePayload.toDisplayItem(): MessageDisplayItem? = when (this) {
-        is MessagePayload.Text -> MessageDisplayItem.Text(
+    private fun DagPayload.toDisplayItem(): MessageDisplayItem? = when (this) {
+        is DagPayload.Text -> MessageDisplayItem.Text(
             messageId = messageId,
             accountId = senderAccountId,
             timestamp = createdAt,
             text = text,
         )
 
-        is MessagePayload.GlobalEvent,
-        is MessagePayload.RoomEvent -> null
+        is DagPayload.GlobalEvent,
+        is DagPayload.RoomEvent -> null
     }
 
     private inner class DefaultRoomMessageWindow(
@@ -757,7 +729,7 @@ internal class DefaultMessagingService(
         }
 
         private fun buildDisplayList(
-            messages: List<MessagePayload>,
+            messages: List<DagPayload>,
             gapsByOrphanId: Map<Uuid, List<Uuid>>,
         ): List<MessageDisplayItem> {
             val items = mutableListOf<MessageDisplayItem>()

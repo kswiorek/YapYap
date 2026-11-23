@@ -1,23 +1,9 @@
 package org.yapyap.routing.outbound
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
@@ -26,17 +12,13 @@ import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
+import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.retry.RetryLoop
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
 import org.yapyap.routing.router.OutboxOutcome
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
-import org.yapyap.routing.store.OutboxEntry
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.RelayBackup
-import org.yapyap.routing.store.RetryClass
+import org.yapyap.routing.store.*
 import org.yapyap.transport.TransportException
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
@@ -50,15 +32,18 @@ internal class OutboxProcessor(
     private val transportPolicy: OutboundPolicy,
     private val packetOutbox: PacketOutbox,
     maxIdlePoll: StateFlow<Duration>,
-    /** Peer-level presence (router availability registry): evidence a "not found" onion is stale. */
-    private val isPeerOnline: (PeerId) -> Boolean = { false },
+    /**
+     * Peer-level presence: evidence a "not found" onion is stale, and the link/online events
+     * that release a peer's waiting entries ([runIn] subscribes to them).
+     */
+    private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
     /**
      * A due entry found no open link to its peer and was parked; whoever keeps links open
      * may want to try that peer now.
      */
-    private val onNoLink: suspend (PeerId) -> Unit = {},
-    /** Makes the relay copies of a direct message (see [backUpToRelays]); returns how many. */
-    private val relayCopies: suspend (BinaryEnvelope) -> Int = { 0 },
+    private val linkKeeper: LinkKeeper,
+    /** Makes the relay copies of a due row (see [backUpToRelays]); keyed by the row's tag kind. */
+    private val relayCopies: (OutboxTag.Kind) -> RelayCopies? = { null },
 ) {
     /**
      * Peers whose last Tor dispatch failed with [TransportException.TorException.OnionNotFound].
@@ -105,14 +90,22 @@ internal class OutboxProcessor(
     )
 
     fun runIn(scope: CoroutineScope): Job {
-        val dispatchJob = SupervisorJob(scope.coroutineContext[Job])
+        // One group job owns the loop and the outbox's own input subscriptions, so stopping
+        // the outbox stops all of them.
+        val group = SupervisorJob(scope.coroutineContext[Job])
+        val groupScope = CoroutineScope(scope.coroutineContext + group)
+        val dispatchJob = SupervisorJob(group)
         dispatchScope = CoroutineScope(scope.coroutineContext + dispatchJob)
-        val loop = retryLoop.runIn(scope)
-        loop.invokeOnCompletion {
+        // The outbox subscribes to its own inputs: a link coming up on either transport, or a
+        // peer proving it is online, releases that peer's waiting entries.
+        groupScope.launch { ctx.peerLinks.linkUps.collect { up -> onPeerOnline(up.peer) } }
+        groupScope.launch { peerAvailabilityRegistry.onlineEvents.collect { onPeerOnline(it) } }
+        retryLoop.runIn(groupScope)
+        group.invokeOnCompletion {
             dispatchJob.cancel()
             dispatchScope = null
         }
-        return loop
+        return group
     }
 
     fun wake() {
@@ -180,10 +173,11 @@ internal class OutboxProcessor(
      * peer, no ACK within `relayBackupAfter` of a send, or a retry (the earlier attempt went
      * unacknowledged). While a link delivers, relays carry nothing.
      */
-    suspend fun backUpToRelays(envelope: BinaryEnvelope, reason: String): Int {
+    suspend fun backUpToRelays(envelope: BinaryEnvelope, tag: OutboxTag, reason: String): Int {
+        val sink = relayCopies(tag.kind) ?: return 0
         if (!packetOutbox.claimRelayBackup(envelope.packetId)) return 0
         val copies = try {
-            relayCopies(envelope)
+            sink.deposit(envelope, tag)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -368,7 +362,7 @@ internal class OutboxProcessor(
         // messages and OFFER markers) make one; the claim gate in backUpToRelays enforces
         // at-most-once.
         if (entry.attempts > 0 && entry.relayBackup == RelayBackup.PENDING) {
-            backUpToRelays(envelope, reason = "retry")
+            entry.tag?.let { backUpToRelays(entry.envelope, it, reason = "retry") }
         }
         // Only chunk rows retry at the flat delay (design §6.2): markers and REQUESTs use the
         // message schedule. The row's own retry_class decides, never the tag kind.
@@ -384,7 +378,7 @@ internal class OutboxProcessor(
     /**
      * Entries whose peer has no open link: pushed back by `noLinkRecheckDelay` without
      * counting an attempt (a missing link says nothing about this packet), released from
-     * the in-flight set, and their peers reported through [onNoLink]. A link coming up
+     * the in-flight set, and their peers reported through [linkKeeper]. A link coming up
      * makes them due at once ([onPeerOnline]); the delay is only a safety net. Delivery
      * meanwhile rides on relay copies (made here if still owed) and the pull path.
      */
@@ -395,7 +389,7 @@ internal class OutboxProcessor(
         // Only rows still owing a backup (PENDING: messages and OFFER markers) make one; the
         // claim gate enforces at-most-once.
         entries.filter { it.relayBackup == RelayBackup.PENDING }
-            .forEach { backUpToRelays(it.envelope, reason = "no link") }
+            .forEach { entry -> entry.tag?.let { backUpToRelays(entry.envelope, it, reason = "no link") } }
         inFlightLock.withLock { entries.forEach { inFlight.remove(it.packetId) } }
         val peers = entries.map { it.envelope.target }.distinct()
         AppLog.debug(
@@ -404,7 +398,7 @@ internal class OutboxProcessor(
             message = "No open link; outbox entries wait for one",
             fields = mapOf("count" to entries.size, "peers" to peers.size, "recheckAt" to until),
         )
-        peers.forEach { peer -> runCatching { onNoLink(peer) } }
+        peers.forEach { peer -> runCatching { linkKeeper.nudge(peer) } }
     }
 
     private suspend fun send(dispatch: ClaimedDispatch) {
@@ -414,7 +408,7 @@ internal class OutboxProcessor(
                 dispatcher.dispatch(envelope, dispatch.transport, dispatch.entry.targetEndpoint)
             }.onSuccess {
                 if (dispatch.transport == RouterTransport.TOR) notFoundPeers.update { it - envelope.target }
-                if (dispatch.entry.relayBackup == RelayBackup.PENDING) awaitAckOrBackUp(envelope)
+                if (dispatch.entry.relayBackup == RelayBackup.PENDING) awaitAckOrBackUp(dispatch.entry)
                 AppLog.debug(
                     component = LogComponent.ROUTER,
                     event = LogEvent.OUTBOX_RETRY_DISPATCHED,
@@ -450,7 +444,7 @@ internal class OutboxProcessor(
                     notFoundPeers.update { it + envelope.target }
                     // Not found, yet the peer is online (it pinged us recently): Tor's miss is
                     // stale. Refresh and retry soon instead of after the normal backoff.
-                    if (isPeerOnline(envelope.target) &&
+                    if (peerAvailabilityRegistry.isOnline(envelope.target) &&
                         refreshStaleLookup(envelope.target, reason = "online peer not found")
                     ) {
                         packetOutbox.setDueForTarget(
@@ -475,11 +469,12 @@ internal class OutboxProcessor(
      * copies are made then. Called only for rows still owing a backup (PENDING), so chunks
      * and system packets start no timer; the claim gate enforces at-most-once.
      */
-    private fun awaitAckOrBackUp(envelope: BinaryEnvelope) {
+    private fun awaitAckOrBackUp(entry: OutboxEntry) {
+        val tag = entry.tag ?: return
         val scope = dispatchScope ?: return
         scope.launch {
             delay(ctx.routerConfig.value.relayBackupAfter)
-            backUpToRelays(envelope, reason = "no ACK in time")
+            backUpToRelays(entry.envelope, tag, reason = "no ACK in time")
         }
     }
 

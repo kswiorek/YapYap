@@ -8,18 +8,10 @@ import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.protection.envelope.FileEnvelopeProtection
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.FileId
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.SMALL_FILE_MAX_BYTES
-import org.yapyap.protocol.TransferId
-import org.yapyap.routing.file.FilePushOps
+import org.yapyap.protocol.*
 import org.yapyap.routing.file.fileChunkCount
-import org.yapyap.routing.file.port.FileEvent
-import org.yapyap.routing.file.port.FileFailureReason
-import org.yapyap.routing.file.port.FilePlaintextSource
-import org.yapyap.routing.file.port.FileSendState
-import org.yapyap.routing.file.port.FileSendStatus
+import org.yapyap.routing.file.port.*
+import org.yapyap.routing.router.FileLimits
 import org.yapyap.routing.router.RoutingContext
 import org.yapyap.routing.store.FilePush
 import org.yapyap.routing.store.FilePushKind
@@ -40,13 +32,13 @@ internal class FileSender(
     private val pushes: FilePushStore,
     private val engine: FilePushEngine,
     private val events: MutableSharedFlow<FileEvent>,
-    private val chunkSizeBytes: StateFlow<Int>,
-) : FilePushOps {
+    private val fileLimits: StateFlow<FileLimits>,
+) {
     /** Serialises check-and-create across concurrent pushes/serves of the same pair. */
     private val sendMutex = Mutex()
 
     /** One live transfer per (`fileId`, target device): a second push is a no-op. */
-    override suspend fun pushFile(fileId: FileId, target: AccountId): Unit = sendMutex.withLock {
+    suspend fun pushFile(fileId: FileId, target: AccountId): Unit = sendMutex.withLock {
         val info = plaintext.describe(fileId) ?: run {
             AppLog.warn(
                 component = LogComponent.FILE,
@@ -81,7 +73,7 @@ internal class FileSender(
         events.emit(FileEvent.OutgoingProgress(fileId, target, 0L, info.totalBytes))
     }
 
-    override suspend fun cancelFile(fileId: FileId, target: AccountId): Unit = sendMutex.withLock {
+    suspend fun cancelFile(fileId: FileId, target: AccountId): Unit = sendMutex.withLock {
         val devices = peerDevices(target)
         for (device in devices) {
             // Each live transfer reports its own CANCELLED end; deposits end silently.
@@ -94,11 +86,11 @@ internal class FileSender(
      * from the floor-aligned [fromOffset]. A live push of the same file to that device is
      * superseded — the old transfer is CANCELled, never left to race the serve.
      */
-    override suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean =
+    suspend fun serveFile(fileId: FileId, device: PeerId, fromOffset: Long): Boolean =
         sendMutex.withLock {
             val info = plaintext.describe(fileId) ?: return@withLock false
             if (info.totalBytes > SMALL_FILE_MAX_BYTES) return@withLock false
-            val chunkSize = chunkSizeBytes.value
+            val chunkSize = fileLimits.value.chunkSizeBytes
             val count = fileChunkCount(info.totalBytes, chunkSize)
             val start = (fromOffset / chunkSize).toInt().coerceIn(0, maxOf(count - 1, 0))
             val now = ctx.clock.now()
@@ -136,7 +128,7 @@ internal class FileSender(
      * Per-account send state (design §12–§13): no new table, computed from `file_pushes`
      * non-DEPOSIT rows with the same aggregation rules as the events.
      */
-    override suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> {
+    suspend fun sendState(fileId: FileId): Map<AccountId, FileSendState> {
         val byAccount = mutableMapOf<AccountId, MutableList<FilePush>>()
         for (row in pushes.allByFile(fileId)) {
             if (row.kind == FilePushKind.DEPOSIT) continue
@@ -186,7 +178,7 @@ internal class FileSender(
             kind = FilePushKind.DIRECT,
             totalBytes = totalBytes,
             key = protection.generateTransferKey(),
-            chunkSizeBytes = chunkSizeBytes.value,
+            chunkSizeBytes = fileLimits.value.chunkSizeBytes,
             startIndex = 0,
             nextChunkIndex = 0,
             contiguousAcked = -1,

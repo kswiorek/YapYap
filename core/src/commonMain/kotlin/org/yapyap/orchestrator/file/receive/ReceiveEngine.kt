@@ -1,56 +1,25 @@
 package org.yapyap.orchestrator.file.receive
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
 import org.yapyap.orchestrator.OrchestratorConfig
-import org.yapyap.orchestrator.file.FileCoverageReader
-import org.yapyap.orchestrator.file.FileDescriptor
-import org.yapyap.orchestrator.file.FileDescriptorReader
-import org.yapyap.orchestrator.file.FileDescriptorStatus
-import org.yapyap.orchestrator.file.FileIds
-import org.yapyap.orchestrator.file.FilePathKind
-import org.yapyap.orchestrator.file.FileReceiveControl
-import org.yapyap.orchestrator.file.FileReceiveEvent
-import org.yapyap.orchestrator.file.FileReceiveRow
-import org.yapyap.orchestrator.file.FileReceiveStatus
-import org.yapyap.orchestrator.file.FileReceiveStore
-import org.yapyap.orchestrator.file.FileStorage
-import org.yapyap.orchestrator.file.FileStore
-import org.yapyap.orchestrator.file.StagedRange
+import org.yapyap.orchestrator.file.*
 import org.yapyap.orchestrator.file.io.FileAccess
 import org.yapyap.protocol.FileId
 import org.yapyap.protocol.blockSizeFor
-import org.yapyap.protocol.envelopes.FileCancelReason
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.FilePayload
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.file.port.FileAppendResult
-import org.yapyap.routing.file.port.FileCoverage
-import org.yapyap.routing.file.port.FileFailureReason
-import org.yapyap.routing.file.port.FileIngestPort
-import org.yapyap.routing.file.port.FileIngestResult
-import org.yapyap.routing.file.port.FileManifest
-import org.yapyap.routing.file.port.FileOfferVerdict
-import org.yapyap.routing.file.port.FileReceiveEnd
-import org.yapyap.routing.file.port.FileReceiveEnds
-import org.yapyap.routing.file.port.FileRefusalReason
+import org.yapyap.routing.file.port.*
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -59,7 +28,6 @@ import kotlin.uuid.Uuid
 /** What a verb decided to announce. Sent after the file lock is released. */
 private class Announcements {
     val events = mutableListOf<FileReceiveEvent>()
-    val ends = mutableListOf<FileReceiveEnd>()
 }
 
 private sealed interface DrainOutcome {
@@ -94,7 +62,7 @@ private val TERMINAL = setOf(
  *   and CANCELs the live transfers.
  *
  * Every verb runs under its file's lock; only the free-space reservation takes a global one.
- * Events and receive ends are sent after the lock is released.
+ * Events are sent after the lock is released.
  */
 internal class ReceiveEngine(
     private val receives: FileReceiveStore,
@@ -105,17 +73,13 @@ internal class ReceiveEngine(
     private val config: StateFlow<OrchestratorConfig>,
     private val fileStore: FileStore,
     private val clock: Clock = Clock.System,
-) : FileIngestPort, FileCoverageReader, FileReceiveEnds, FileReceiveControl {
+) : FileIngestPort, FileCoverageReader, FileReceiveControl {
     private val writer = PartWriter(files, crypto)
 
     private val events = MutableSharedFlow<FileReceiveEvent>(extraBufferCapacity = 64)
 
     /** Progress, readiness and failures of the files this engine receives. */
     val receiveEvents: Flow<FileReceiveEvent> = events.asSharedFlow()
-
-    private val ends = Channel<FileReceiveEnd>(Channel.UNLIMITED)
-
-    override val receiveEnds: Flow<FileReceiveEnd> = ends.receiveAsFlow()
 
     private val locksGuard = Mutex()
     private val locks = mutableMapOf<FileId, FileLock>()
@@ -253,7 +217,7 @@ internal class ReceiveEngine(
         true
     }
 
-    override suspend fun declineUnseen(attachment: MessagePayload.Attachment, originMessageId: Uuid, now: Instant) {
+    override suspend fun declineUnseen(attachment: DagPayload.Attachment, originMessageId: Uuid, now: Instant) {
         withFile(attachment.fileId) { _ ->
             if (receives.find(attachment.fileId) == null) {
                 receives.upsert(declinedRow(attachment, originMessageId, now))
@@ -261,7 +225,7 @@ internal class ReceiveEngine(
         }
     }
 
-    override suspend fun decline(fileId: FileId, attachment: MessagePayload.Attachment?, now: Instant) {
+    override suspend fun decline(fileId: FileId, attachment: DagPayload.Attachment?, now: Instant) {
         withFile(fileId) { out ->
             val row = receives.find(fileId)
             when {
@@ -383,7 +347,6 @@ internal class ReceiveEngine(
                 if (descriptors.findById(listed.fileId) == null && files.exists(paths.final(listed.fileId))) {
                     fileStore.adopt(receivedDescriptor(listed, createdAt = listed.createdAt, now = now))
                 }
-                out.ends += FileReceiveEnd.Ready(listed.fileId)
                 out.events += FileReceiveEvent.Ready(listed.fileId)
             }
         }
@@ -575,7 +538,6 @@ internal class ReceiveEngine(
         receives.deleteStagedByFile(row.fileId)
         files.delete(paths.part(row.fileId))
         if (row.status in ACTIVE) {
-            out.ends += FileReceiveEnd.Cancelled(row.fileId, FileCancelReason.DECLINED)
             out.events += FileReceiveEvent.Failed(row.fileId, FileFailureReason.DECLINED)
         }
     }
@@ -776,7 +738,6 @@ internal class ReceiveEngine(
         val failed = mismatches >= config.value.fileHashRetryLimit
         val status = if (failed) FileReceiveStatus.FAILED else FileReceiveStatus.STALLED
         receives.commitMismatch(row.fileId, blockStart, mismatches, status, now)
-        out.ends += FileReceiveEnd.Cancelled(row.fileId, FileCancelReason.ABORT)
         AppLog.warn(
             component = LogComponent.FILE,
             event = LogEvent.FILE_BLOCK_MISMATCH,
@@ -815,7 +776,6 @@ internal class ReceiveEngine(
         receives.markReady(row.fileId, row.totalBytes, row.hashMismatches, now)
         fileStore.adopt(receivedDescriptor(row, createdAt = now, now = now))
         out.events += FileReceiveEvent.Ready(row.fileId)
-        out.ends += FileReceiveEnd.Ready(row.fileId)
         AppLog.info(
             component = LogComponent.FILE,
             event = LogEvent.FILE_RECEIVE_READY,
@@ -882,7 +842,6 @@ internal class ReceiveEngine(
         } finally {
             withContext(NonCancellable) {
                 releaseLock(fileId, lock)
-                for (end in out.ends) ends.send(end)
                 for (event in out.events) events.emit(event)
             }
         }
@@ -905,7 +864,7 @@ internal class ReceiveEngine(
         updatedAt = now,
     )
 
-    private fun declinedRow(attachment: MessagePayload.Attachment, originMessageId: Uuid?, now: Instant) =
+    private fun declinedRow(attachment: DagPayload.Attachment, originMessageId: Uuid?, now: Instant) =
         FileReceiveRow(
             fileId = attachment.fileId,
             status = FileReceiveStatus.DECLINED,

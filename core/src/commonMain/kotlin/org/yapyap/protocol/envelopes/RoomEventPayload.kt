@@ -4,12 +4,12 @@ import org.yapyap.protocol.*
 import kotlin.uuid.Uuid
 
 /**
- * Typed room-membership event carried inside [MessagePayload.RoomEvent.eventBytes].
+ * Typed room-membership event carried inside [DagPayload.RoomEvent.eventBytes].
  *
- * Two-level dispatch mirrors BinaryEnvelope → MessagePayload → RoomEventPayload:
- * [MessagePayloadType.ROOM_EVENT] selects the DAG node type, [RoomEventKind] selects the event.
+ * Two-level dispatch mirrors BinaryEnvelope → DagPayload → RoomEventPayload:
+ * [DagPayloadType.ROOM_EVENT] selects the DAG node type, [RoomEventKind] selects the event.
  *
- * Authorship is the outer [MessagePayload] layer alone (`authorSignature` over the whole
+ * Authorship is the outer [DagPayload] layer alone (`authorSignature` over the whole
  * node, verified by `classifyMessageAuthorship`): unlike `GlobalEventPayload.AddDevice`
  * there is no inner binding signature here. The codec transports the
  * `MemberRemove.successorAccountId` handover field verbatim — shape validation

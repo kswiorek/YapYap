@@ -28,7 +28,7 @@ internal class PlaintextMessageProtection(
             "Context security scheme must be PLAINTEXT_TEST_ONLY for PlaintextMessageProtection but got ${context.securityScheme}"
         }
         return MessageEnvelope(
-            messageEnvelopeId = input.messageId,
+            messageEnvelopeId = input.contentId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -43,8 +43,8 @@ internal class PlaintextMessageProtection(
         require(envelope.securityScheme == SignalSecurityScheme.PLAINTEXT_TEST_ONLY) {
             "Expected PLAINTEXT_TEST_ONLY security scheme but got ${envelope.securityScheme}"
         }
-        val messagePayload = try {
-            envelope.decodePayload()
+        val content = try {
+            MessagePayload.decode(envelope.payload)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -60,9 +60,9 @@ internal class PlaintextMessageProtection(
             component = LogComponent.CRYPTO,
             event = LogEvent.ENVELOPE_OPENED,
             message = "Opened plaintext message envelope",
-            fields = mapOf("messageId" to envelope.messageEnvelopeId, "payloadType" to messagePayload.payloadType.name),
+            fields = mapOf("messageId" to envelope.messageEnvelopeId, "content" to content.family),
         )
-        return messagePayload
+        return content
     }
 
     override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
@@ -82,7 +82,7 @@ internal class SignedMessageProtection(
             "Context security scheme must be SIGNED for SignedMessageProtection but got ${context.securityScheme}"
         }
         val unsigned = MessageEnvelope(
-            messageEnvelopeId = input.messageId,
+            messageEnvelopeId = input.contentId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -105,8 +105,8 @@ internal class SignedMessageProtection(
             signatureProvider = signatureProvider,
         )
 
-        val messagePayload = try {
-            envelope.decodePayload()
+        val content = try {
+            MessagePayload.decode(envelope.payload)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -126,10 +126,10 @@ internal class SignedMessageProtection(
             fields = mapOf(
                 "messageId" to envelope.messageEnvelopeId,
                 "source" to envelope.source,
-                "payloadType" to messagePayload.payloadType.name
+                "content" to content.family,
             ),
         )
-        return messagePayload
+        return content
     }
 
     override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =
@@ -168,7 +168,7 @@ internal class SignedAndEncryptedMessageProtection(
         }
 
         val unsigned = MessageEnvelope(
-            messageEnvelopeId = input.messageId,
+            messageEnvelopeId = input.contentId,
             source = context.sourceDeviceId,
             target = context.targetDeviceId,
             createdAt = context.createdAt,
@@ -219,7 +219,7 @@ internal class SignedAndEncryptedMessageProtection(
             throw ProtectionException.mapEncryptDecryptFailure(e)
         }
 
-        val messagePayload = try {
+        val content = try {
             MessagePayload.decode(decryptedInput)
         } catch (e: CancellationException) {
             throw e
@@ -227,7 +227,7 @@ internal class SignedAndEncryptedMessageProtection(
             AppLog.error(
                 component = LogComponent.CRYPTO,
                 event = LogEvent.ENVELOPE_DECODE_FAILED,
-                message = "Failed to decode MessagePayload from decrypted message",
+                message = "Failed to decode message content from decrypted message",
                 throwable = e,
             )
             throw ProtectionException.InvalidEnvelope(e)
@@ -240,10 +240,10 @@ internal class SignedAndEncryptedMessageProtection(
             fields = mapOf(
                 "messageId" to envelope.messageEnvelopeId,
                 "source" to envelope.source,
-                "payloadType" to messagePayload.payloadType.name
+                "content" to content.family,
             ),
         )
-        return messagePayload
+        return content
     }
 
     override fun observableHeaderValues(envelope: MessageEnvelope): Map<String, Any?> =

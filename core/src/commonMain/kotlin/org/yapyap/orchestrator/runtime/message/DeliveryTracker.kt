@@ -17,7 +17,6 @@ import org.yapyap.protocol.RoomId
 import org.yapyap.routing.router.MessageAck
 import org.yapyap.routing.router.MessageCarrier
 import org.yapyap.routing.router.PingFrontiers
-import org.yapyap.routing.router.SyncCarrier
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -35,7 +34,6 @@ import kotlin.uuid.Uuid
  */
 internal class DeliveryTracker(
     private val messageCarrier: MessageCarrier,
-    private val syncCarrier: SyncCarrier,
     private val messageRepository: MessageRepository,
     private val deliveryRepository: MessageDeliveryRepository,
     private val localIdentity: LocalIdentity,
@@ -49,7 +47,7 @@ internal class DeliveryTracker(
             messageCarrier.deliveries.collect { delivery -> guarded("push ACK") { onPushAck(delivery) } }
         },
         scope.launch {
-            syncCarrier.pingPayloads.collect { ping -> guarded("ping frontiers") { onFrontiers(ping) } }
+            messageCarrier.frontiers.collect { ping -> guarded("ping frontiers") { onFrontiers(ping) } }
         },
     )
 

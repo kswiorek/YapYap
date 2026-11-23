@@ -70,7 +70,7 @@ lose the boundary that matters most here: who knows about devices and packets, a
 ### Router — "get this payload there"
 
 - Speaks **devices and envelopes**: `PeerId`, `BinaryEnvelope`, packet ids.
-- `Router` is only a lifecycle plus one service per concern: `messages` (`MessageCarrier`), `syncs` (`SyncCarrier`),
+- `Router` is only a lifecycle plus one service per concern: `messages` (`MessageCarrier`, both push and pull),
   `bootstrap` (`BootstrapCarrier`), `presence` (`Presence`) and `files` (`FileCarrier`). An orchestrator component
   takes the services it uses, never the whole router.
 - Fans a payload out to every device of the target account, protects it (via protection), queues it in the
@@ -128,8 +128,8 @@ lose the boundary that matters most here: who knows about devices and packets, a
   config live in the composition root.
 - **Size limits** — each layer states only its own framing overhead (`MessageEnvelope.maxPayloadBytes`,
   `CryptoLimits.forSessionWireFrameBudget`); the composition root chains them from the transport limits
-  (`wiring/MessageLimits`) and hands each consumer its piece: the router `TransportLimits`, crypto
-  `CryptoLimits`, the orchestrator the max text size.
+  (`wiring/MessageLimits`, `wiring/FileLimits`) and hands each consumer its piece: the router
+  `TransportLimits` and `FileLimits`, crypto `CryptoLimits`, the orchestrator the max text size.
 - **logging** — `AppLog`, usable everywhere.
 
 ## 3. Dependency rules
@@ -175,7 +175,7 @@ read-only interfaces that the *reading* layer declares (the router's `DeviceDire
 | `message_deliveries`                                                 | orchestrator   | the delivery tracker                                                                                                                                                                                            |
 | `rooms`, `room_members`                                              | orchestrator   | the room fold; GLOBAL membership: the global fold (the GLOBAL room itself is seeded by the schema)                                                                                                              |
 | `pending_syncs`, `pending_sync_candidate_accounts`                   | orchestrator   | the sync coordinator                                                                                                                                                                                            |
-| `sync_attempts`, `sync_declined_devices`                             | routing        | the sync retry processor                                                                                                                                                                                        |
+| `sync_attempts`, `sync_declined_devices`                             | routing        | the message pull processor                                                                                                                                                                                        |
 | `device_routes`                                                      | routing        | the router: endpoints it proved, reliability, last seen (a proven endpoint overrides the declared one in `devices`)                                                                                             |
 | `outbox`, `dedup`                                                    | routing        | the router                                                                                                                                                                                                      |
 | `file_descriptors`                                                   | orchestrator   | the file store (`FileStore`): imports, finished receives (`adopt`), lost sources, quota                                                                                                                         |
@@ -261,7 +261,7 @@ never a loss.
   accounts may hold it, and what may be served to whom (`pending_syncs`, the serve gate). The router owns **asking**:
   which candidate device, when, and carrying the request and reply. It reads the content through
   `SyncPayloadProvider`, an interface it declares and the orchestrator implements, and the orchestrator hands
-  it each sync with `SyncCarrier.startSync`. Only candidate devices with an open link are asked; with none, their
+  it each sync with `MessageCarrier.startSync`. Only candidate devices with an open link are asked; with none, their
   links are nudged and the sync is asked the moment one comes up. Each attempt is one sync request sent
   through the outbox with a short lifetime (`syncAttemptTimeout`). A `DECLINED` NACK rules that device out for
   the sync; expiry or any other NACK only moves it behind the other candidates, and the next one is asked at

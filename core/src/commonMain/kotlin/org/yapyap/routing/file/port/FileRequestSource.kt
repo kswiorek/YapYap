@@ -5,8 +5,8 @@ import org.yapyap.protocol.FileId
 import org.yapyap.protocol.envelopes.ByteRange
 
 /**
- * What the request loop needs to ask for a file (design §3.2, §9). Declared by routing,
- * implemented by the orchestrator's request coordinator.
+ * What the request loop and the serve path need to know about a file (design §3.2, §9).
+ * Declared by routing, implemented by the orchestrator's request coordinator.
  */
 internal interface FileRequestSource {
     /**
@@ -31,6 +31,12 @@ internal interface FileRequestSource {
      */
     suspend fun requestTotalBytes(fileId: FileId): Long?
 
+    /**
+     * Serve gate (design §9): true when [requester] may see a message referencing [fileId] — the
+     * mirror of [requestCandidates], the same visibility rule sync's serving uses. Without it,
+     * anyone who has or guesses a file's content could pull it from any holder by its hash.
+     */
+    suspend fun canServe(fileId: FileId, requester: AccountId): Boolean
 }
 
 /** Durable held coverage of one file: the contiguous prefix in bytes plus the missing ranges beyond it. */

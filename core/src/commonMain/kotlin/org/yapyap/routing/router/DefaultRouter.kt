@@ -1,247 +1,106 @@
 package org.yapyap.routing.router
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import org.yapyap.crypto.identity.LocalIdentity
 import org.yapyap.logging.AppLog
 import org.yapyap.logging.LogComponent
 import org.yapyap.logging.LogEvent
-import org.yapyap.protection.service.EnvelopeProtectionService
-import org.yapyap.protocol.AccountId
+import org.yapyap.protection.envelope.FileEnvelopeProtection
 import org.yapyap.protocol.PacketType
-import org.yapyap.protocol.PeerId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.TorEndpoint
-import org.yapyap.protocol.envelopes.BootstrapPayload
-import org.yapyap.protocol.envelopes.MessagePayload
-import org.yapyap.routing.directory.DeviceDirectory
-import org.yapyap.routing.directory.DeviceRouteStore
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
-import org.yapyap.routing.file.FileRouting
-import org.yapyap.routing.file.FileRoutingPorts
+import org.yapyap.protocol.TransferId
+import org.yapyap.routing.bootstrap.BootstrapService
+import org.yapyap.routing.file.FileService
 import org.yapyap.routing.file.port.FileCarrier
+import org.yapyap.routing.file.port.FileIngestPort
+import org.yapyap.routing.file.port.FilePlaintextSource
+import org.yapyap.routing.file.port.FileRequestSource
 import org.yapyap.routing.inbound.InboundEnvelopeProcessor
-import org.yapyap.routing.inbound.handlers.BootstrapInboundHandler
-import org.yapyap.routing.inbound.handlers.MessageInboundHandler
-import org.yapyap.routing.inbound.handlers.SignalInboundHandler
-import org.yapyap.routing.inbound.handlers.SystemInboundHandler
+import org.yapyap.routing.inbound.SignalInboundHandler
+import org.yapyap.routing.inbound.SystemInboundHandler
 import org.yapyap.routing.link.LinkKeeper
 import org.yapyap.routing.link.LinkKeeperConfig
-import org.yapyap.routing.outbound.BootstrapSender
-import org.yapyap.routing.outbound.OutboundMessenger
-import org.yapyap.routing.outbound.OutboxProcessor
-import org.yapyap.routing.outbound.ProactiveSessionOpener
-import org.yapyap.routing.outbound.RelayDepositor
-import org.yapyap.routing.outbound.SystemSender
-import org.yapyap.routing.outbound.TypingIndicatorDispatcher
-import org.yapyap.routing.outbound.WebRtcBootstrapSignaler
-import org.yapyap.routing.ping.FrontierSnapshotProvider
-import org.yapyap.routing.ping.PingProvider
+import org.yapyap.routing.message.MessageService
+import org.yapyap.routing.message.port.FrontierSnapshotProvider
+import org.yapyap.routing.message.port.SyncPayloadProvider
+import org.yapyap.routing.outbound.*
 import org.yapyap.routing.policy.DefaultRelaySelectionPolicy
 import org.yapyap.routing.policy.DefaultSyncPeerPolicy
 import org.yapyap.routing.policy.LinkPreferencePolicy
 import org.yapyap.routing.policy.OutboundPolicy
-import org.yapyap.routing.store.OutboxTag
-import org.yapyap.routing.store.PacketDeduplicator
-import org.yapyap.routing.store.PacketOutbox
-import org.yapyap.routing.store.PeerAvailabilityStore
-import org.yapyap.routing.store.SyncAttemptStore
-import org.yapyap.routing.sync.SyncHandler
-import org.yapyap.routing.sync.SyncPayloadProvider
-import org.yapyap.routing.sync.SyncRetryProcessor
+import org.yapyap.routing.presence.PeerAvailabilityRegistry
+import org.yapyap.routing.presence.PingProvider
+import org.yapyap.routing.presence.PresenceService
+import org.yapyap.routing.store.*
 import org.yapyap.transport.tor.TorSessionState
 import org.yapyap.transport.tor.backend.TorHealth
-import org.yapyap.transport.tor.transport.TorTransport
-import org.yapyap.transport.webrtc.transport.WebRtcTransport
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
+/**
+ * The routing layer's composition root and lifecycle. Builds the shared kernel (links, outbox,
+ * inbound pipeline, policies), the four services, and starts/stops them in dependency order.
+ * Everything concern-specific lives in its service; everything here serves at least two.
+ *
+ * Takes the ambient world ([RoutingContext], built by the composition root) plus the stores
+ * routing owns and the ports the orchestrator implements. The assembly stays here, not in
+ * wiring: the kernel and the services depend on each other (the outbox needs the services'
+ * relay copies, the services need the outbox), and a composition root holding both can defer
+ * those references; the wiring knowledge (link reactions, relay routing) is routing's own.
+ */
 internal class DefaultRouter(
-    val torTransport: TorTransport,
-    val webRtcTransport: WebRtcTransport,
-    val localIdentity: LocalIdentity,
-    val localDeviceId: PeerId,
-    val devices: DeviceDirectory,
-    val routes: DeviceRouteStore,
-    val packetDeduplicator: PacketDeduplicator,
-    val packetOutbox: PacketOutbox,
-    val syncAttemptStore: SyncAttemptStore,
-    val envelopeProtectionService: EnvelopeProtectionService,
-    val clock: Clock = Clock.System,
-    val routerConfig: StateFlow<RouterConfig>,
-    val transportLimits: StateFlow<TransportLimits>,
-    val transportPolicy: OutboundPolicy = LinkPreferencePolicy(routerConfig),
-    val syncPayloadProvider: SyncPayloadProvider,
-    val frontierSnapshotProvider: FrontierSnapshotProvider,
-    val peerAvailabilityStore: PeerAvailabilityStore,
-    filePorts: FileRoutingPorts,
+    /** Who we are, the device world, transports and live links, sealing, time and rules. */
+    private val ctx: RoutingContext,
+    val transportPolicy: OutboundPolicy = LinkPreferencePolicy(ctx.routerConfig),
+    // Routing-owned stores crossing in from the DB.
+    private val routes: DeviceRouteStore,
+    private val packetDeduplicator: PacketDeduplicator,
+    private val packetOutbox: PacketOutbox,
+    private val peerAvailabilityStore: PeerAvailabilityStore,
+    private val syncAttemptStore: SyncAttemptStore,
+    // Content the orchestrator supplies to the message pull path and pings.
+    private val syncPayloadProvider: SyncPayloadProvider,
+    private val frontierSnapshotProvider: FrontierSnapshotProvider,
+    // File orchestrator ports (content out, content in, request/serve policy).
+    private val fileProtection: FileEnvelopeProtection,
+    private val fileIngest: FileIngestPort,
+    private val fileRequests: FileRequestSource,
+    private val filePlaintext: FilePlaintextSource,
+    // File stores routing owns, and the file-transfer sizes chained by the composition root.
+    private val fileIncomingStore: FileIncomingTransferStore,
+    private val filePushStore: FilePushStore,
+    private val fileRelayStore: FileRelayStore,
+    private val fileRequestAttemptStore: FileRequestAttemptStore,
+    private val fileLimits: StateFlow<FileLimits>,
 ) : Router {
 
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val lifecycle = RouterLifecycle()
 
-    private val retryLoopMaxIdlePollSeconds: StateFlow<Duration> = routerConfig
+    private val retryLoopMaxIdlePollSeconds: StateFlow<Duration> = ctx.routerConfig
         .map { it.retryLoopMaxIdlePoll }
-        .stateIn(scope, SharingStarted.Eagerly, routerConfig.value.retryLoopMaxIdlePoll)
+        .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.retryLoopMaxIdlePoll)
 
+    // --- kernel -------------------------------------------------------------------------
 
-    private val routingContext = RoutingContext(
-        localIdentity = localIdentity,
-        localDeviceId = localDeviceId,
-        devices = devices,
-        routes = routes,
-        packetDeduplicator = packetDeduplicator,
-        envelopeProtectionService = envelopeProtectionService,
-        torTransport = torTransport,
-        webRtcTransport = webRtcTransport,
-        clock = clock,
-        routerConfig = routerConfig,
-        transportLimits = transportLimits,
-    )
-    private val envelopeDispatcher = EnvelopeDispatcher(routingContext)
-    private val systemSender = SystemSender(
-        routingContext,
-        transportPolicy,
-        envelopeDispatcher
-    )
-    private val incomingMessageFlow = MutableSharedFlow<MessagePayload>(replay = 1, extraBufferCapacity = 64)
-
-    // Fed by SystemInboundHandler when a typing indicator system envelope is received.
-    private val typingIndicatorFlow = MutableSharedFlow<TypingIndicatorEvent>(extraBufferCapacity = 64)
-
-    // Fed by BootstrapInboundHandler when an authenticated bootstrap-family packet is received.
-    private val bootstrapPacketFlow = MutableSharedFlow<BootstrapPacketEvent>(extraBufferCapacity = 64)
-
-    private val pingPayloadFlow =
-        MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 64, replay = 4)
-    private val outboxProcessor: OutboxProcessor = OutboxProcessor(
-        ctx = routingContext,
-        dispatcher = envelopeDispatcher,
-        transportPolicy = transportPolicy,
-        packetOutbox = packetOutbox,
-        maxIdlePoll = retryLoopMaxIdlePollSeconds,
-        isPeerOnline = { peerAvailabilityRegistry.isOnline(it) },
-        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
-        relayCopies = { envelope ->
-            when (envelope.packetType) {
-                PacketType.MESSAGE -> relayDepositor.deposit(envelope)
-                // OFFER markers use the message triggers (§5): the marker's
-                // packet maps back to its authoring transfer for a one-round deposit.
-                // Chunks never reach here (policy) and DEPOSIT markers no-op inside
-                // (never chase a failing relay, §6.4).
-                PacketType.FILE -> fileRouting.depositByMarkerPacket(envelope.packetId)
-                else -> 0
-            }
-        },
-    )
-
-    private val bootstrapSender = BootstrapSender(routingContext, outboxProcessor)
+    private val envelopeDispatcher = EnvelopeDispatcher(ctx, routes)
+    private val systemSender = SystemSender(ctx, transportPolicy, envelopeDispatcher, packetDeduplicator)
 
     private val peerAvailabilityRegistry = PeerAvailabilityRegistry(
-        clock = clock,
-        routerConfig,
+        clock = ctx.clock,
+        routerConfig = ctx.routerConfig,
         store = peerAvailabilityStore,
-    )
-    private val proactiveSessionOpener = ProactiveSessionOpener(
-        ctx = routingContext,
-        peerAvailabilityRegistry = peerAvailabilityRegistry,
-    )
-    private val relaySelectionPolicy = DefaultRelaySelectionPolicy(
-        ctx = routingContext,
-        peerAvailabilityRegistry = peerAvailabilityRegistry,
-        routerConfig = routerConfig,
-    )
-    private val relayDepositor: RelayDepositor = RelayDepositor(
-        ctx = routingContext,
-        relaySelectionPolicy = relaySelectionPolicy,
-        enqueue = { envelope, at -> outboxProcessor.enqueueAndWake(envelope, at) },
-    )
-
-    private val outboundMessenger = OutboundMessenger(
-        ctx = routingContext,
-        outboxProcessor = outboxProcessor,
-        sessionOpener = proactiveSessionOpener,
-    )
-    private val webRtcBootstrapSignaler = WebRtcBootstrapSignaler(
-        ctx = routingContext,
-        dispatcher = envelopeDispatcher,
     )
 
     private val pingProvider = PingProvider(
-        ctx = routingContext,
-        config = routerConfig,
-        pingPayloadFlow = pingPayloadFlow,
+        ctx = ctx,
+        config = ctx.routerConfig,
         frontierSnapshotProvider = frontierSnapshotProvider,
         systemSender = systemSender,
         peerAvailabilityRegistry = peerAvailabilityRegistry,
-    )
-
-    private val syncHandler = SyncHandler(
-        ctx = routingContext,
-        outboundMessenger = outboundMessenger,
-        syncPayloadProvider = syncPayloadProvider,
-        systemSender = systemSender,
-    )
-    private val typingIndicatorDispatcher = TypingIndicatorDispatcher(
-        ctx = routingContext,
-        systemSender = systemSender,
-        sessionOpener = proactiveSessionOpener,
-    )
-    private val messageDeliveryFlow = MutableSharedFlow<MessageAck>(extraBufferCapacity = 64)
-    private val bootstrapDeliveryFlow = MutableSharedFlow<BootstrapAck>(extraBufferCapacity = 64)
-
-    private val peerPolicy = DefaultSyncPeerPolicy(routingContext)
-
-    private val fileRouting = FileRouting(
-        ctx = routingContext,
-        ports = filePorts,
-        outboxProcessor = outboxProcessor,
-        packetOutbox = packetOutbox,
-        relaySelection = relaySelectionPolicy,
-        peerPolicy = peerPolicy,
-        sessionOpener = proactiveSessionOpener,
-        maxIdlePoll = retryLoopMaxIdlePollSeconds,
-        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
-    )
-
-    private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
-        ctx = routingContext,
-        systemSender = systemSender,
-        handlers = mapOf(
-            PacketType.MESSAGE to MessageInboundHandler(routingContext, incomingMessageFlow),
-            PacketType.SIGNAL to SignalInboundHandler(routingContext),
-            PacketType.FILE to fileRouting.inboundHandler,
-            PacketType.SYSTEM to SystemInboundHandler(routingContext, typingIndicatorFlow, syncHandler),
-            PacketType.BOOTSTRAP to BootstrapInboundHandler(
-                routingContext,
-                bootstrapPacketFlow,
-            ),
-        ),
-        outboxProcessor = outboxProcessor,
-        syncHandler = syncHandler,
-        peerAvailabilityRegistry = peerAvailabilityRegistry,
-        pingProvider = pingProvider,
-        onSyncDeclined = { syncId, deviceId -> syncProcessor.onDeclined(syncId, deviceId) },
     )
 
     /**
@@ -250,17 +109,17 @@ internal class DefaultRouter(
      */
     private val torLinkKeeper: LinkKeeper = LinkKeeper(
         name = "Tor",
-        sessions = routingContext.peerLinks.tor,
-        targets = { devices.getAllActiveDeviceIds().filter { it != routingContext.localDeviceId } },
-        ready = torTransport.health.map { it == TorHealth.Ready },
-        config = routerConfig
+        sessions = ctx.peerLinks.tor,
+        targets = { ctx.devices.getAllActiveDeviceIds().filter { it != ctx.localDeviceId } },
+        ready = ctx.torTransport.health.map { it == TorHealth.Ready },
+        config = ctx.routerConfig
             .map { it.torLinkKeeperConfig() }
-            .stateIn(scope, SharingStarted.Eagerly, routerConfig.value.torLinkKeeperConfig()),
-        clock = clock,
+            .stateIn(scope, SharingStarted.Eagerly, ctx.routerConfig.value.torLinkKeeperConfig()),
+        clock = ctx.clock,
         onOpened = { peer ->
             // Their app accepted our stream: they're up. The ping carries our frontiers
             // (sync on connect) and lets them adopt this stream as their link to us.
-            peerAvailabilityRegistry.markReachable(peer, clock.now())
+            peerAvailabilityRegistry.markReachable(peer, ctx.clock.now())
             pingProvider.pingPeer(peer)
         },
         onFailed = { peer, state ->
@@ -269,145 +128,147 @@ internal class DefaultRouter(
             // miss is stale. Drop it (throttled; global) and retry soon instead of backing off.
             val staleMiss = state?.reason == TorSessionState.REASON_ONION_NOT_FOUND &&
                     peerAvailabilityRegistry.isOnline(peer) &&
-                    torTransport.refreshOnionLookups()
-            if (staleMiss) routerConfig.value.onionRefreshRetryDelay else null
+                    ctx.torTransport.refreshOnionLookups()
+            if (staleMiss) ctx.routerConfig.value.onionRefreshRetryDelay else null
         },
     )
 
-    private val syncProcessor = SyncRetryProcessor(
-        ctx = routingContext,
-        attempts = syncAttemptStore,
-        syncs = syncPayloadProvider,
-        systemSender = systemSender,
+    private val proactiveSessionOpener = ProactiveSessionOpener(
+        ctx = ctx,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+    )
+    private val relaySelectionPolicy = DefaultRelaySelectionPolicy(
+        ctx = ctx,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+        routerConfig = ctx.routerConfig,
+    )
+    private val peerPolicy = DefaultSyncPeerPolicy(ctx)
+
+    private val outboxProcessor: OutboxProcessor = OutboxProcessor(
+        ctx = ctx,
+        dispatcher = envelopeDispatcher,
+        transportPolicy = transportPolicy,
+        packetOutbox = packetOutbox,
+        maxIdlePoll = retryLoopMaxIdlePollSeconds,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+        linkKeeper = torLinkKeeper,
+        // Who owes relay copies is the row's tag's business, never its packet type.
+        relayCopies = { kind ->
+            when (kind) {
+                OutboxTag.Kind.MESSAGE -> RelayCopies { envelope, _ -> messageService.depositToRelays(envelope) }
+                OutboxTag.Kind.FILE_PUSH -> RelayCopies { _, tag -> fileService.depositMarker(TransferId(tag.id)) }
+                else -> null
+            }
+        },
+    )
+
+    private val messageService = MessageService(
+        ctx = ctx,
+        lifecycle = lifecycle,
         outboxProcessor = outboxProcessor,
+        systemSender = systemSender,
+        sessionOpener = proactiveSessionOpener,
+        relaySelection = relaySelectionPolicy,
+        syncAttemptStore = syncAttemptStore,
+        syncProvider = syncPayloadProvider,
         peerPolicy = peerPolicy,
         maxIdlePoll = retryLoopMaxIdlePollSeconds,
-        onNoLink = { peer -> torLinkKeeper.nudge(peer, resetBackoff = false) },
+        linkKeeper = torLinkKeeper,
+        frontiers = pingProvider.frontiers,
+    )
+
+    private val bootstrapService = BootstrapService(
+        ctx = ctx,
+        lifecycle = lifecycle,
+        outboxProcessor = outboxProcessor,
+    )
+
+    private val presenceService = PresenceService(
+        ctx = ctx,
+        lifecycle = lifecycle,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+        peerAvailabilityStore = peerAvailabilityStore,
+        linkKeeper = torLinkKeeper,
+        pingProvider = pingProvider,
+        scope = scope,
+    )
+
+    private val fileService = FileService(
+        ctx = ctx,
+        lifecycle = lifecycle,
+        protection = fileProtection,
+        plaintext = filePlaintext,
+        ingest = fileIngest,
+        requests = fileRequests,
+        pushesStore = filePushStore,
+        incomingStore = fileIncomingStore,
+        relayStore = fileRelayStore,
+        requestAttempts = fileRequestAttemptStore,
+        fileLimits = fileLimits,
+        outboxProcessor = outboxProcessor,
+        packetOutbox = packetOutbox,
+        relaySelection = relaySelectionPolicy,
+        peerPolicy = peerPolicy,
+        sessionOpener = proactiveSessionOpener,
+        linkKeeper = torLinkKeeper,
+        maxIdlePoll = retryLoopMaxIdlePollSeconds,
+    )
+
+    private val webRtcSignaler = WebRtcSignaler(ctx, envelopeDispatcher)
+
+    private val inboundEnvelopeProcessor = InboundEnvelopeProcessor(
+        ctx = ctx,
+        systemSender = systemSender,
+        routes = routes,
+        packetDeduplicator = packetDeduplicator,
+        handlers = mapOf(
+            PacketType.MESSAGE to messageService.inboundHandler,
+            PacketType.SIGNAL to SignalInboundHandler(ctx),
+            PacketType.FILE to fileService.inboundHandler,
+            PacketType.SYSTEM to SystemInboundHandler(ctx, messageService),
+            PacketType.BOOTSTRAP to bootstrapService.inboundHandler,
+        ),
+        outboxProcessor = outboxProcessor,
+        peerAvailabilityRegistry = peerAvailabilityRegistry,
+        pingProvider = pingProvider,
     )
 
     private var started = false
-    private var torEndpoint: TorEndpoint? = null
 
     private var torIncomingJob: Job? = null
     private var webRtcIncomingEnvelopeJob: Job? = null
-    private var webRtcOutgoingJob: Job? = null
-    private var onlinePeerJob: Job? = null
-    private var linkUpJob: Job? = null
+    private var webRtcSignalerJob: Job? = null
     private var torLinkKeeperJob: Job? = null
     private var outboxRetryJob: Job? = null
     private var outboxOutcomeJob: Job? = null
-    private var syncRetryJob: Job? = null
-    private var fileJobs: List<Job> = emptyList()
+    private var serviceJobs: List<Job> = emptyList()
 
-    //TODO [File cleanup] consider extracting Carriers to separate class, have them do more instead of simple facades
+    // --- services -----------------------------------------------------------------------
 
-    override val messages: MessageCarrier = object : MessageCarrier {
-        override val incomingMessages: Flow<MessagePayload> = incomingMessageFlow.asSharedFlow()
-        override val deliveries: Flow<MessageAck> = messageDeliveryFlow.asSharedFlow()
-        override val typingIndicators: Flow<TypingIndicatorEvent> = typingIndicatorFlow.asSharedFlow()
+    override val messages: MessageCarrier get() = messageService
+    override val bootstrap: BootstrapCarrier get() = bootstrapService
+    override val presence: Presence get() = presenceService
+    override val files: FileCarrier get() = fileService
 
-        override suspend fun sendMessage(target: AccountId, payload: MessagePayload): AccountPushReport {
-            check(started) { "Router must be started before sending messages" }
-            return outboundMessenger.sendMessage(target, payload)
-        }
-
-        override suspend fun sendTypingIndicator(targets: Collection<AccountId>, roomId: RoomId, interval: Duration) {
-            check(started) { "Router must be started before sending typing indicators" }
-            typingIndicatorDispatcher.dispatch(targets, roomId, interval)
-        }
-    }
-
-    override val syncs: SyncCarrier = object : SyncCarrier {
-        override val pingPayloads: Flow<PingFrontiers> = pingPayloadFlow.asSharedFlow()
-
-        override suspend fun announceOnline() {
-            check(started) { "Router must be started before announcing online" }
-            // Peers without a link get one opened (now, not after their backoff); each successful
-            // open pings that peer.
-            torLinkKeeper.nudgeAll(resetBackoff = true)
-            // Best-effort: a transient send failure to one peer must not propagate out of the announce.
-            runCatching { pingProvider.ping() }
-        }
-
-        override suspend fun startSync(syncId: Uuid, firstAttemptAt: Instant) =
-            syncProcessor.start(syncId, firstAttemptAt)
-
-        override suspend fun reopenSync(syncId: Uuid, account: AccountId) = syncProcessor.reopen(syncId, account)
-    }
-
-    override val bootstrap: BootstrapCarrier = object : BootstrapCarrier {
-        override val bootstrapPackets: Flow<BootstrapPacketEvent> = bootstrapPacketFlow.asSharedFlow()
-        override val deliveries: Flow<BootstrapAck> = bootstrapDeliveryFlow.asSharedFlow()
-
-        override suspend fun sendBootstrap(
-            payload: BootstrapPayload,
-            target: PeerId,
-            targetEndpoint: TorEndpoint?,
-            sharedSecret: ByteArray?,
-        ): Uuid {
-            check(started) { "Router must be started before sending bootstrap intro" }
-            return bootstrapSender.sendBootstrap(payload, target, targetEndpoint, sharedSecret)
-        }
-    }
-
-    override val presence: Presence = object : Presence {
-        // Account-level by design: the resolver maps each online device to its account here, so
-        // device-level presence never leaves the router. Unknown devices (no row yet) are dropped;
-        // absence asserts nothing. Intra-account device flaps re-emit the same set and are deduped.
-        override val onlineAccounts: Flow<Set<AccountId>> =
-            peerAvailabilityRegistry.onlineDevices
-                .map { online -> online.mapNotNull { devices.getAccountIdForDevice(it) }.toSet() }
-                .distinctUntilChanged()
-
-        override val localLinkStatus: StateFlow<LocalLinkStatus> =
-            combine(torTransport.health, torTransport.publishState, torTransport.recovery, ::localLinkStatus)
-                .stateIn(
-                    scope,
-                    SharingStarted.Eagerly,
-                    localLinkStatus(
-                        torTransport.health.value,
-                        torTransport.publishState.value,
-                        torTransport.recovery.value,
-                    ),
-                )
-
-        override suspend fun accountReach(accounts: Collection<AccountId>): Map<AccountId, AccountReach> {
-            val lastSeen = peerAvailabilityStore.availabilityForAll()
-                .filter { it.lastSeen != Instant.DISTANT_PAST }
-                .associate { it.deviceId to it.lastSeen }
-            return accounts.associateWith { account ->
-                AccountReach(
-                    lastSeen = devices.getAllPeerDevicesForAccount(account).mapNotNull { lastSeen[it] }.maxOrNull(),
-                )
-            }
-        }
-
-        override fun localTorEndpoint(): TorEndpoint =
-            checkNotNull(torEndpoint) { "Router not started: local Tor endpoint unknown" }
-    }
-
-    //TODO [File cleanup] file carrier can be accessed before router is started, inconsistent
-    override val files: FileCarrier get() = fileRouting.fileCarrier
+    // --- lifecycle ----------------------------------------------------------------------
 
     override suspend fun start() {
         check(!started) { "Router is already started" }
-        try {
-            torEndpoint = torTransport.start()
-            webRtcTransport.start(localDeviceId)
+        val torEndpoint = try {
+            val endpoint = ctx.torTransport.start()
+            ctx.webRtcTransport.start(ctx.localDeviceId)
+            endpoint
         } catch (e: Exception) {
-            webRtcTransport.stop()
-            torTransport.stop()
+            ctx.webRtcTransport.stop()
+            ctx.torTransport.stop()
             throw e
         }
-        checkNotNull(torEndpoint) { "Tor endpoint must be initialized after starting transport" }
-        routes.upsertPeerTorEndpoint(
-            deviceId = localDeviceId,
-            torEndpoint = torEndpoint!!,
-        )
+        routes.upsertPeerTorEndpoint(deviceId = ctx.localDeviceId, torEndpoint = torEndpoint)
+        lifecycle.markStarted()
 
         inboundEnvelopeProcessor.startDispositions(scope)
         torIncomingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            torTransport.incoming.collect { inbound ->
+            ctx.torTransport.incoming.collect { inbound ->
                 runCatching { inboundEnvelopeProcessor.handleTorInbound(inbound) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
@@ -422,7 +283,7 @@ internal class DefaultRouter(
         }
 
         webRtcIncomingEnvelopeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            webRtcTransport.incomingEnvelopes.collect { inbound ->
+            ctx.webRtcTransport.incomingEnvelopes.collect { inbound ->
                 runCatching { inboundEnvelopeProcessor.handleWebRtcInbound(inbound) }
                     .onFailure { e ->
                         if (e is CancellationException) throw e
@@ -436,34 +297,18 @@ internal class DefaultRouter(
             }
         }
 
-        webRtcOutgoingJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            webRtcTransport.outgoingBootstrapSignals.collect { signal ->
-                runCatching { webRtcBootstrapSignaler.signal(signal) }
-                    .onFailure { e ->
-                        if (e is CancellationException) throw e
-                    }
-            }
-        }
+        webRtcSignalerJob = webRtcSignaler.runIn(scope)
 
-        // Any link coming up (either transport) releases the peer's waiting outbox entries.
-        linkUpJob = scope.launch {
-            routingContext.peerLinks.linkUps.collect { up -> outboxProcessor.onPeerOnline(up.peer) }
-        }
-        onlinePeerJob = scope.launch {
-            peerAvailabilityRegistry.onlineEvents.collect { state ->
-                outboxProcessor.onPeerOnline(state)
-            }
-        }
-
-        // Before the outbox runs: outcomes are not replayed.
+        // Before the outbox runs: outcomes are not replayed. (The outbox subscribes to its own
+        // link/online inputs in its runIn.)
         outboxOutcomeJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             outboxProcessor.outcomes.collect { outcome ->
-                runCatching { onOutboxOutcome(outcome) }.onFailure { e ->
+                runCatching { routeOutcome(outcome) }.onFailure { e ->
                     if (e is CancellationException) throw e
                     AppLog.error(
                         component = LogComponent.ROUTER,
                         event = LogEvent.OUTBOX_PROCESS_FAILED,
-                        message = "Failed to handle outbox outcome",
+                        message = "Failed to route an outbox outcome",
                         fields = mapOf("tag" to outcome.tag, "error" to e.toString()),
                     )
                 }
@@ -471,16 +316,10 @@ internal class DefaultRouter(
         }
         outboxRetryJob = outboxProcessor.runIn(scope)
 
-        syncRetryJob = syncProcessor.runIn(scope)
-
-        // Push reconciliation after a restart, requests, relay forwards, fetch channels and the
-        // receive engine's ended receives; the outbox loop above dispatches what they queue.
-        fileJobs = fileRouting.runIn(scope)
+        serviceJobs = messageService.runIn(scope) + bootstrapService.runIn(scope) + fileService.runIn(scope)
 
         pingProvider.runIn(scope)
-
-        peerAvailabilityRegistry.start(scope, localDeviceId)
-
+        peerAvailabilityRegistry.start(scope, ctx.localDeviceId)
         torLinkKeeperJob = torLinkKeeper.runIn(scope)
 
         AppLog.info(
@@ -494,6 +333,8 @@ internal class DefaultRouter(
 
     override suspend fun stop() {
         if (!started) return
+        val lastEndpoint = ctx.torTransport.localTorEndpoint
+        lifecycle.markStopped()
         inboundEnvelopeProcessor.stopDispositions()
 
         torLinkKeeper.stop()
@@ -510,7 +351,7 @@ internal class DefaultRouter(
         // Best-effort per transport: a failing WebRTC stop must never skip the
         // Tor stop and strand a live daemon (its data-dir lock breaks the next
         // launch). Mirrors the teardown discipline in enterResetRequired.
-        runCatching { webRtcTransport.stop() }.onFailure { error ->
+        runCatching { ctx.webRtcTransport.stop() }.onFailure { error ->
             AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LogEvent.SESSION_FAILED,
@@ -518,7 +359,7 @@ internal class DefaultRouter(
                 throwable = error,
             )
         }
-        runCatching { torTransport.stop() }.onFailure { error ->
+        runCatching { ctx.torTransport.stop() }.onFailure { error ->
             AppLog.error(
                 component = LogComponent.ROUTER,
                 event = LogEvent.SESSION_FAILED,
@@ -530,55 +371,42 @@ internal class DefaultRouter(
         listOfNotNull(
             torIncomingJob,
             webRtcIncomingEnvelopeJob,
-            webRtcOutgoingJob,
-            linkUpJob,
+            webRtcSignalerJob,
             torLinkKeeperJob,
             outboxRetryJob,
             outboxOutcomeJob,
-            syncRetryJob,
-        ).plus(fileJobs).forEach { it.cancelAndJoin() }
+        ).plus(serviceJobs).forEach { it.cancelAndJoin() }
 
         torIncomingJob = null
         webRtcIncomingEnvelopeJob = null
-        webRtcOutgoingJob = null
-        linkUpJob = null
+        webRtcSignalerJob = null
         torLinkKeeperJob = null
         outboxRetryJob = null
         outboxOutcomeJob = null
-        syncRetryJob = null
-        fileJobs = emptyList()
+        serviceJobs = emptyList()
         scope.cancel()
 
         AppLog.info(
             component = LogComponent.ROUTER,
             event = LogEvent.STOPPED,
             message = "Router stopped",
-            fields = mapOf("torEndpoint" to torEndpoint.toString()),
+            fields = mapOf("torEndpoint" to lastEndpoint.toString()),
         )
         started = false
     }
 
-    override fun isRunning(): Boolean = started
+    override fun isRunning(): Boolean = lifecycle.isRunning
 
-    /** Routes each tagged outbox outcome to whoever waits on that tag. */
-    private suspend fun onOutboxOutcome(outcome: OutboxOutcome) {
-        val id = outcome.tag.id
+    /**
+     * Each tagged outcome goes to the service that owns its kind — a mailbox hand-off, never a
+     * blocking switch: the services consume in their own loops.
+     */
+    private fun routeOutcome(outcome: OutboxOutcome) {
         when (outcome.tag.kind) {
-            OutboxTag.Kind.MESSAGE -> if (outcome is OutboxOutcome.Acked) {
-                // A device we can't place in an account can't be shown as anyone's delivery.
-                val account = devices.getAccountIdForDevice(outcome.target) ?: return
-                messageDeliveryFlow.emit(MessageAck(id, account))
-            }
-
-            OutboxTag.Kind.BOOTSTRAP -> if (outcome is OutboxOutcome.Acked) {
-                val account = devices.getAccountIdForDevice(outcome.target)
-                bootstrapDeliveryFlow.emit(BootstrapAck(id, account))
-            }
-
-            OutboxTag.Kind.SYNC -> syncProcessor.onAttemptOutcome(outcome)
-
+            OutboxTag.Kind.MESSAGE, OutboxTag.Kind.SYNC -> messageService.offerOutcome(outcome)
+            OutboxTag.Kind.BOOTSTRAP -> bootstrapService.offerOutcome(outcome)
             OutboxTag.Kind.FILE_PUSH, OutboxTag.Kind.FILE_FORWARD, OutboxTag.Kind.FILE_REQUEST ->
-                fileRouting.onOutboxOutcome(outcome)
+                fileService.offerOutcome(outcome)
         }
     }
 }

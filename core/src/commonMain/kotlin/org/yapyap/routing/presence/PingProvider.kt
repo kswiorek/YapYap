@@ -1,0 +1,134 @@
+package org.yapyap.routing.presence
+
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import org.yapyap.logging.AppLog
+import org.yapyap.logging.LogComponent
+import org.yapyap.logging.LogEvent
+import org.yapyap.protocol.PeerId
+import org.yapyap.protocol.envelopes.SystemPayload.Ping
+import org.yapyap.routing.message.port.FrontierSnapshotProvider
+import org.yapyap.routing.outbound.SystemSender
+import org.yapyap.routing.router.PingFrontiers
+import org.yapyap.routing.router.RouterConfig
+import org.yapyap.routing.router.RoutingContext
+import kotlin.uuid.Uuid
+
+internal class PingProvider(
+    private val ctx: RoutingContext,
+    private val config: StateFlow<RouterConfig>,
+    private val frontierSnapshotProvider: FrontierSnapshotProvider,
+    private val systemSender: SystemSender,
+    private val peerAvailabilityRegistry: PeerAvailabilityRegistry,
+) {
+    private val pingPayloadFlow = MutableSharedFlow<PingFrontiers>(extraBufferCapacity = 64, replay = 4)
+
+    /** Received pings' frontiers; the message pull path consumes them. */
+    val frontiers: SharedFlow<PingFrontiers> = pingPayloadFlow.asSharedFlow()
+
+    private var pingLoopJob: Job? = null
+
+    fun runIn(scope: CoroutineScope) {
+        pingLoopJob = scope.launch {
+            config.map { it.pingInterval }
+                .distinctUntilChanged()
+                .collectLatest { interval ->
+                    while (currentCoroutineContext().isActive) {
+                        delay(interval)
+                        // Best-effort: a transient send failure to one peer must not kill the
+                        // heartbeat loop permanently.
+                        runCatching { ping() }
+                    }
+                }
+        }
+    }
+
+    fun stop() {
+        pingLoopJob?.cancel()
+        pingLoopJob = null
+    }
+
+    /**
+     * Pings every peer with an open link. A peer without one isn't pinged: reaching it is the
+     * link keeper's job (a successful open pings it, a failed one counts as an unanswered
+     * probe), so a ping round never waits on dials to offline peers.
+     */
+    suspend fun ping() = fanOutToLinkedPeers(
+        noPeersEvent = LogEvent.PING_NO_PEERS,
+        noPeersMessage = "No linked peers to ping",
+    ) { sendPing(it) }
+
+    /** Pings one peer now (e.g. right after a link to it opened). */
+    suspend fun pingPeer(peerId: PeerId) = sendPing(peerId)
+
+    /** Tells every linked peer we're going away (unlinked ones will notice us gone anyway). */
+    suspend fun logOff() = fanOutToLinkedPeers(
+        noPeersEvent = LogEvent.PING_NO_PEERS,
+        noPeersMessage = "No linked peers to notify of log-off",
+    ) { sendLogOff(it) }
+
+    /**
+     * Fans a best-effort action out to every known peer with an open link. Failures to individual
+     * peers are caught and swallowed so that one device cannot cancel the sends to the remaining
+     * peers (and cannot, for example, abort the rest of a router shutdown from [logOff]).
+     */
+    private suspend fun fanOutToLinkedPeers(
+        noPeersEvent: LogEvent,
+        noPeersMessage: String,
+        block: suspend (PeerId) -> Unit,
+    ) {
+        val peers = ctx.devices.getAllActiveDeviceIds()
+            .filter { it != ctx.localDeviceId && ctx.peerLinks.linksOf(it).isNotEmpty() }
+        if (peers.isEmpty()) {
+            AppLog.debug(
+                component = LogComponent.ROUTER,
+                event = noPeersEvent,
+                message = noPeersMessage,
+            )
+            return
+        }
+        supervisorScope {
+            peers.map { peer -> async { runCatching { block(peer) } } }.awaitAll()
+        }
+    }
+
+    /**
+     * Handles an inbound ping from [peerId]. Its frontier snapshot is always forwarded (both a probe
+     * and a reply carry the sender's latest frontiers, which is what triggers frontier sync). Only a fresh
+     * probe ([Ping.isReply] == false) is answered — a reply is never re-echoed, so even a delayed or
+     * duplicated ping cannot start an echo loop.
+     *
+     * The peer id never leaves the routing layer: `pingPayloadFlow` carries the
+     * sender's account (null when the device is unknown); what the frontiers mean
+     * (sync, reopening declined syncs, removal re-push) is decided upstream.
+     */
+    suspend fun handlePing(peerId: PeerId, ping: Ping) {
+        val senderAccount = ctx.devices.getAccountIdForDevice(peerId)
+        pingPayloadFlow.emit(PingFrontiers(senderAccount, ping.roomFrontiers))
+        peerAvailabilityRegistry.noteSelfReported(peerId, ping.selfReportedAvailability)
+
+        if (!ping.isReply) {
+            // A new probe from [peerId]: echo it back so they can correlate.
+            sendPing(peerId, ping.pingId)
+        }
+    }
+
+    /** Sends an original probe to [peerId] (or, when [echoPingId] is set, an echo carrying that id). */
+    private suspend fun sendPing(peerId: PeerId, echoPingId: Uuid? = null) {
+        val ping = Ping(
+            pingId = echoPingId ?: Uuid.random(),
+            isReply = echoPingId != null,
+            selfReportedAvailability = peerAvailabilityRegistry.currentSelfScore(),
+            roomFrontiers = ctx.devices.getAccountIdForDevice(peerId)
+                ?.let { frontierSnapshotProvider.latestRoomFrontiers(it) }
+                .orEmpty(),
+        )
+        systemSender.sendPing(peerId, ping)
+        // Only an originating probe (not an echo) is a real liveness attempt we want tracked.
+        if (echoPingId == null) peerAvailabilityRegistry.notePingSent(peerId)
+    }
+
+    private suspend fun sendLogOff(peerId: PeerId) {
+        systemSender.sendLogOff(peerId)
+    }
+}

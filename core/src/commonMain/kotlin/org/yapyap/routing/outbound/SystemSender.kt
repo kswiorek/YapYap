@@ -11,10 +11,10 @@ import org.yapyap.protocol.TorEndpoint
 import org.yapyap.protocol.envelopes.BinaryEnvelope
 import org.yapyap.protocol.envelopes.PacketNackReason
 import org.yapyap.protocol.envelopes.SystemPayload
-import org.yapyap.routing.dispatch.EnvelopeDispatcher
 import org.yapyap.routing.policy.OutboundPolicy
 import org.yapyap.routing.router.RouterTransport
 import org.yapyap.routing.router.RoutingContext
+import org.yapyap.routing.store.PacketDeduplicator
 import org.yapyap.transport.tor.TorLinkId
 import kotlin.time.Duration
 import kotlin.uuid.Uuid
@@ -23,6 +23,7 @@ internal class SystemSender(
     private val ctx: RoutingContext,
     private val transportPolicy: OutboundPolicy,
     private val dispatcher: EnvelopeDispatcher,
+    private val packetDeduplicator: PacketDeduplicator,
 ) {
     suspend fun sendDispositionForDuplicate(
         inbound: BinaryEnvelope,
@@ -98,7 +99,7 @@ internal class SystemSender(
         torReplyLink: TorLinkId? = null,
     ) {
         if (persistReason) {
-            ctx.packetDeduplicator.markNacked(packetId, source, reason)
+            packetDeduplicator.markNacked(packetId, source, reason)
         }
 
         val ackContext = EnvelopeProtectContext(
@@ -126,20 +127,6 @@ internal class SystemSender(
                 "reason" to reason,
             ),
         )
-    }
-
-    /**
-     * Declines a sync request from an older build, which asks without requesting a
-     * disposition and waits for this instead of a NACK. Drop once no such builds remain.
-     */
-    suspend fun sendSyncNack(target: PeerId, payload: SystemPayload.SyncNack) {
-        val context = EnvelopeProtectContext(
-            sourceDeviceId = ctx.localDeviceId,
-            targetDeviceId = target,
-            createdAt = ctx.clock.now(),
-            securityScheme = SignalSecurityScheme.SIGNED,
-        )
-        sendSystemEnvelope(payload, transportFor(target), context)
     }
 
     /**
@@ -209,24 +196,6 @@ internal class SystemSender(
     }
 
     /**
-     * Protects [payload] for [target] into a SYSTEM envelope that requests a disposition, for
-     * the outbox to deliver (and retry) like any other packet: system traffic whose answer
-     * someone waits on, such as a sync request. It expires after [lifetime].
-     */
-    suspend fun buildForOutbox(target: PeerId, payload: SystemPayload, lifetime: Duration): BinaryEnvelope =
-        buildSystemEnvelope(
-            payload,
-            EnvelopeProtectContext(
-                sourceDeviceId = ctx.localDeviceId,
-                targetDeviceId = target,
-                createdAt = ctx.clock.now(),
-                securityScheme = SignalSecurityScheme.SIGNED,
-            ),
-            dispositionRequested = true,
-            lifetime = lifetime,
-        )
-
-    /**
      * The preferred open link to [target]; with none, Tor dials a stream on demand. Fire-and-
      * forget system traffic is never parked waiting for a link.
      */
@@ -247,7 +216,7 @@ internal class SystemSender(
     private suspend fun buildSystemEnvelope(
         payload: SystemPayload,
         context: EnvelopeProtectContext,
-        dispositionRequested: Boolean,
+        dispositionRequested: Boolean = false,
         lifetime: Duration = ctx.routerConfig.value.ackLifetime,
     ): BinaryEnvelope {
         val protected = ctx.envelopeProtectionService.protectSystem(payload, context)

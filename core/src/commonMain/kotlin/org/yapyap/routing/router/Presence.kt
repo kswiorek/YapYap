@@ -35,4 +35,18 @@ internal interface Presence {
      * Throws before [Router.start].
      */
     fun localTorEndpoint(): TorEndpoint
+
+    /**
+     * Announces this device to the network: opens links to every peer now (instead of waiting
+     * for their backoff) and pings them, so they learn we are up and exchange frontiers with us.
+     *
+     * Presence in the other direction: [onlineAccounts] is what others look like to us, this is
+     * us telling them what we look like. Its mechanism is pure liveness — the frontier exchange
+     * is a side effect of the ping; consuming the frontiers is the message pull path's business.
+     *
+     * The orchestrator calls this once, after the subsystems that consume
+     * [MessageCarrier.frontiers] are running. Idempotent and best-effort: failures to individual
+     * peers are swallowed. Returns once the pings are handed to the transport.
+     */
+    suspend fun announceOnline()
 }

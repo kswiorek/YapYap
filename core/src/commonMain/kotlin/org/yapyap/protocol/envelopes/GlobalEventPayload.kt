@@ -3,13 +3,13 @@ package org.yapyap.protocol.envelopes
 import org.yapyap.protocol.*
 
 /**
- * Typed global control event carried inside [MessagePayload.GlobalEvent.eventBytes].
+ * Typed global control event carried inside [DagPayload.GlobalEvent.eventBytes].
  *
  * Two-level dispatch mirrors BinaryEnvelope → BootstrapEnvelope → BootstrapPayload:
- * [MessagePayloadType.GLOBAL_EVENT] selects the DAG node type, [GlobalEventKind] selects the event.
+ * [DagPayloadType.GLOBAL_EVENT] selects the DAG node type, [GlobalEventKind] selects the event.
  *
  * Signature layering (see docs/global events.md §1.5) — three signatures, three jobs:
- *  - node-level [MessagePayload.authorSignature]: INSERTION authorization (the author device must
+ *  - node-level [DagPayload.authorSignature]: INSERTION authorization (the author device must
  *    be known + ACTIVE in fold state at that position);
  *  - [AddDevice.keySignature]: BINDING authorization (the target account consents to the device
  *    keys), produced over [accountSignedDeviceBindingBytes];

@@ -120,8 +120,14 @@ internal class LinkKeeper(
         job = null
     }
 
-    /** Re-evaluates [peer] now; [resetBackoff] when there is fresh evidence it is reachable. */
-    suspend fun nudge(peer: PeerId, resetBackoff: Boolean) {
+    /**
+     * Re-evaluates [peer] now. Any component that needed a link it did not have knocks here —
+     * a due outbox entry, a candidate ask with no candidate connected — and passes the default:
+     * the only evidence is that the link was missing, so their backoff schedule stays.
+     * [resetBackoff] only on fresh evidence the peer is reachable
+     * (see [org.yapyap.routing.presence.PresenceService.announceOnline]).
+     */
+    suspend fun nudge(peer: PeerId, resetBackoff: Boolean = false) {
         if (resetBackoff) lock.withLock { peers[peer]?.clearBackoff() }
         wakeups.trySend(Unit)
     }

@@ -4,7 +4,7 @@ import org.yapyap.crypto.primitives.CryptoProvider
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.MessagePayload.RoomEvent
+import org.yapyap.protocol.envelopes.DagPayload.RoomEvent
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid

@@ -3,7 +3,7 @@ package org.yapyap.orchestrator.dag
 import kotlinx.coroutines.flow.Flow
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 
 /**
  * Sole writer of message rows (docs/room events.md §3: the engine is the sole
@@ -19,7 +19,7 @@ internal interface DagEngine {
      *
      * @throws DagException.FrontierUnavailable when the chainable frontier is empty.
      */
-    suspend fun append(roomId: RoomId, draft: MessageDraft): MessagePayload
+    suspend fun append(roomId: RoomId, draft: MessageDraft): DagPayload
 
     /**
      * Sole genesis append path: mints the message id, derives the self-certifying
@@ -29,8 +29,8 @@ internal interface DagEngine {
      *
      * @throws DagException.RoomAlreadyExists if the derived room already holds messages.
      */
-    suspend fun createRoom(draft: RoomCreatedDraft): MessagePayload.RoomEvent
-    suspend fun ingest(payload: MessagePayload): IngestResult?
+    suspend fun createRoom(draft: RoomCreatedDraft): DagPayload.RoomEvent
+    suspend fun ingest(payload: DagPayload): IngestResult?
 
     /**
      * Hot stream of stored messages whose verification state changed (never a "new message" signal).

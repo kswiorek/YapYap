@@ -5,10 +5,9 @@ import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.sync.RoomVisibility
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.routing.file.port.FileCoverage
 import org.yapyap.routing.file.port.FileRequestSource
-import org.yapyap.routing.file.port.FileServeGate
 
 /**
  * What routing asks the orchestrator about a file it requests or serves (design §9): held
@@ -24,7 +23,7 @@ internal class DefaultFileRequestSource(
     private val descriptors: FileDescriptorReader,
     private val localIdentity: LocalIdentity,
     private val coverage: FileCoverageReader,
-) : FileRequestSource, FileServeGate {
+) : FileRequestSource {
     override suspend fun heldCoverage(fileId: FileId): FileCoverage? = coverage.heldCoverage(fileId)
 
     override suspend fun requestCandidates(fileId: FileId): List<AccountId> {
@@ -32,7 +31,7 @@ internal class DefaultFileRequestSource(
         val senders = LinkedHashSet<AccountId>()
         for (messageId in messageIds) {
             val stored = messages.findById(messageId) ?: continue
-            val text = stored.payload as? MessagePayload.Text ?: continue
+            val text = stored.payload as? DagPayload.Text ?: continue
             senders += text.senderAccountId
         }
         val own = localIdentity.getLocalAccountId()
@@ -59,11 +58,11 @@ internal class DefaultFileRequestSource(
 }
 
 /** First attachment referencing [fileId] across its messages, or null. */
-internal suspend fun MessageRepository.findFileAttachment(fileId: FileId): MessagePayload.Attachment? {
+internal suspend fun MessageRepository.findFileAttachment(fileId: FileId): DagPayload.Attachment? {
     val messageIds = findMessageIdsByFileId(fileId)
     for (messageId in messageIds) {
         val stored = findById(messageId) ?: continue
-        val text = stored.payload as? MessagePayload.Text ?: continue
+        val text = stored.payload as? DagPayload.Text ?: continue
         text.attachments.firstOrNull { it.fileId == fileId }?.let { return it }
     }
     return null

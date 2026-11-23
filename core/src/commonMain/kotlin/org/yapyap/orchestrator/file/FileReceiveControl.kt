@@ -1,7 +1,7 @@
 package org.yapyap.orchestrator.file
 
 import org.yapyap.protocol.FileId
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.envelopes.DagPayload
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -20,14 +20,14 @@ internal interface FileReceiveControl {
     suspend fun markStalled(fileId: FileId, now: Instant): Boolean
 
     /** Above the auto-download limit: [attachment]'s file is DECLINED locally unless a receive already exists. */
-    suspend fun declineUnseen(attachment: MessagePayload.Attachment, originMessageId: Uuid, now: Instant)
+    suspend fun declineUnseen(attachment: DagPayload.Attachment, originMessageId: Uuid, now: Instant)
 
     /**
      * The user declined [fileId]: a receive not yet READY goes DECLINED; with no receive yet, one is
      * recorded DECLINED from [attachment] (when known) so nothing fetches it later.
      * An IN_FLIGHT receive also drops its `.part` and staged rows and sends CANCEL (DECLINED).
      */
-    suspend fun decline(fileId: FileId, attachment: MessagePayload.Attachment?, now: Instant)
+    suspend fun decline(fileId: FileId, attachment: DagPayload.Attachment?, now: Instant)
 
     /**
      * The user accepted [fileId]: a terminal receive (DECLINED, FAILED, CANCELLED, EVICTED) is cleared so the

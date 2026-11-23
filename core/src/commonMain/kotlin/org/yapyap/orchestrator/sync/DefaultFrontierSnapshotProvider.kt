@@ -5,7 +5,7 @@ import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.protocol.AccountId
 import org.yapyap.protocol.PeerId
 import org.yapyap.protocol.RoomId
-import org.yapyap.routing.ping.FrontierSnapshotProvider
+import org.yapyap.routing.message.port.FrontierSnapshotProvider
 import kotlin.uuid.Uuid
 
 internal class DefaultFrontierSnapshotProvider(

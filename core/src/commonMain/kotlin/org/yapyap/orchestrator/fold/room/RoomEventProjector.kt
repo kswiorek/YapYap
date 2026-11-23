@@ -1,15 +1,9 @@
 package org.yapyap.orchestrator.fold.room
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.yapyap.logging.AppLog
@@ -27,12 +21,8 @@ import org.yapyap.orchestrator.pipeline.InboundMessagePipeline
 import org.yapyap.orchestrator.store.MessageRepository
 import org.yapyap.orchestrator.store.RoomRepository
 import org.yapyap.orchestrator.store.StoredMessage
-import org.yapyap.protocol.AccountId
-import org.yapyap.protocol.RoomId
-import org.yapyap.protocol.RoomMemberRole
-import org.yapyap.protocol.RoomMemberStatus
-import org.yapyap.protocol.RoomType
-import org.yapyap.protocol.envelopes.MessagePayload
+import org.yapyap.protocol.*
+import org.yapyap.protocol.envelopes.DagPayload
 import org.yapyap.protocol.envelopes.RoomEventPayload
 import org.yapyap.routing.router.MessageCarrier
 import kotlin.uuid.Uuid
@@ -256,8 +246,8 @@ internal class DefaultRoomEventProjector(
      */
     private suspend fun broadcast(
         roomId: RoomId,
-        nodes: List<MessagePayload>,
-        courtesy: Pair<AccountId, MessagePayload>? = null,
+        nodes: List<DagPayload>,
+        courtesy: Pair<AccountId, DagPayload>? = null,
     ) {
         val members = roomRepository.membersOfRoom(roomId)
         coroutineScope {
@@ -281,11 +271,11 @@ internal class DefaultRoomEventProjector(
     }
 
     /** The stored genesis node, for the MemberAdd courtesy leg (null pre-genesis). */
-    private suspend fun genesisPayloadOf(roomId: RoomId): MessagePayload.RoomEvent? {
+    private suspend fun genesisPayloadOf(roomId: RoomId): DagPayload.RoomEvent? {
         // The self-certifying derivation admits exactly one genesis per room; the
         // engine rejects forged shapes, so this is a lookup, not a competition.
         for (row in messageRepository.findFoldableInRoom(roomId)) {
-            val payload = row.payload as? MessagePayload.RoomEvent ?: continue
+            val payload = row.payload as? DagPayload.RoomEvent ?: continue
             if (payload.prevIds.isNotEmpty()) continue
             val event = runCatching { payload.decodeEvent() }.getOrNull()
             if (event is RoomEventPayload.RoomCreated) return payload
@@ -334,7 +324,7 @@ internal class DefaultRoomEventProjector(
     private fun foldNodeOf(row: StoredMessage): RoomFoldNode {
         val payload = row.payload
         val event = runCatching {
-            (payload as? MessagePayload.RoomEvent)?.decodeEvent()
+            (payload as? DagPayload.RoomEvent)?.decodeEvent()
         }.getOrNull()
         return RoomFoldNode(
             id = payload.messageId,
@@ -354,7 +344,7 @@ internal class DefaultRoomEventProjector(
             val row = byId.getValue(id)
             if (row.payload.prevIds.isNotEmpty()) continue
             val event = runCatching {
-                (row.payload as? MessagePayload.RoomEvent)?.decodeEvent()
+                (row.payload as? DagPayload.RoomEvent)?.decodeEvent()
             }.getOrNull()
             if (event is RoomEventPayload.RoomCreated) {
                 return RoomGenesisInfo(id, row.payload.senderAccountId)
